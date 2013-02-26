@@ -1,0 +1,376 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.456
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.456
+Problem:    ":tab drop file" has several problems, including moving the
+	    current window and opening a new tab for a file that already has a
+	    window.
+Solution:   Refactor ":tab drop" handling. (Hirohito Higashi)
+Files:	    src/buffer.c, src/testdir/test62.in, src/testdir/test62.ok
+
+
+*** ../vim-7.3.455/src/buffer.c	2012-02-22 14:58:24.000000000 +0100
+--- src/buffer.c	2012-02-22 19:08:34.000000000 +0100
+***************
+*** 4405,4411 ****
+  {
+      int		i;
+      win_T	*wp, *wpnext;
+!     char_u	*opened;	/* array of flags for which args are open */
+      int		opened_len;	/* length of opened[] */
+      int		use_firstwin = FALSE;	/* use first window for arglist */
+      int		split_ret = OK;
+--- 4405,4416 ----
+  {
+      int		i;
+      win_T	*wp, *wpnext;
+!     char_u	*opened;	/* Array of weight for which args are open:
+! 				 *  0: not opened
+! 				 *  1: opened in other tab
+! 				 *  2: opened in curtab
+! 				 *  3: opened in curtab and curwin
+! 				 */
+      int		opened_len;	/* length of opened[] */
+      int		use_firstwin = FALSE;	/* use first window for arglist */
+      int		split_ret = OK;
+***************
+*** 4414,4419 ****
+--- 4419,4426 ----
+      buf_T	*buf;
+      tabpage_T	*tpnext;
+      int		had_tab = cmdmod.tab;
++     win_T	*old_curwin, *last_curwin;
++     tabpage_T	*old_curtab, *last_curtab;
+      win_T	*new_curwin = NULL;
+      tabpage_T	*new_curtab = NULL;
+  
+***************
+*** 4430,4435 ****
+--- 4437,4451 ----
+      if (opened == NULL)
+  	return;
+  
++     /* Autocommands may do anything to the argument list.  Make sure it's not
++      * freed while we are working here by "locking" it.  We still have to
++      * watch out for its size to be changed. */
++     alist = curwin->w_alist;
++     ++alist->al_refcount;
++ 
++     old_curwin = curwin;
++     old_curtab = curtab;
++ 
+  #ifdef FEAT_GUI
+      need_mouse_correct = TRUE;
+  #endif
+***************
+*** 4451,4486 ****
+  	    wpnext = wp->w_next;
+  	    buf = wp->w_buffer;
+  	    if (buf->b_ffname == NULL
+! 		    || buf->b_nwindows > 1
+  #ifdef FEAT_VERTSPLIT
+  		    || wp->w_width != Columns
+  #endif
+  		    )
+! 		i = ARGCOUNT;
+  	    else
+  	    {
+  		/* check if the buffer in this window is in the arglist */
+! 		for (i = 0; i < ARGCOUNT; ++i)
+  		{
+! 		    if (ARGLIST[i].ae_fnum == buf->b_fnum
+! 			    || fullpathcmp(alist_name(&ARGLIST[i]),
+! 					      buf->b_ffname, TRUE) & FPC_SAME)
+  		    {
+! 			if (i < opened_len)
+  			{
+! 			    opened[i] = TRUE;
+  			    if (i == 0)
+  			    {
+  				new_curwin = wp;
+  				new_curtab = curtab;
+  			    }
+  			}
+! 			if (wp->w_alist != curwin->w_alist)
+  			{
+  			    /* Use the current argument list for all windows
+  			     * containing a file from it. */
+  			    alist_unlink(wp->w_alist);
+! 			    wp->w_alist = curwin->w_alist;
+  			    ++wp->w_alist->al_refcount;
+  			}
+  			break;
+--- 4467,4517 ----
+  	    wpnext = wp->w_next;
+  	    buf = wp->w_buffer;
+  	    if (buf->b_ffname == NULL
+! 		    || (!keep_tabs && buf->b_nwindows > 1)
+  #ifdef FEAT_VERTSPLIT
+  		    || wp->w_width != Columns
+  #endif
+  		    )
+! 		i = opened_len;
+  	    else
+  	    {
+  		/* check if the buffer in this window is in the arglist */
+! 		for (i = 0; i < opened_len; ++i)
+  		{
+! 		    if (i < alist->al_ga.ga_len
+! 			    && (AARGLIST(alist)[i].ae_fnum == buf->b_fnum
+! 				|| fullpathcmp(alist_name(&AARGLIST(alist)[i]),
+! 					      buf->b_ffname, TRUE) & FPC_SAME))
+  		    {
+! 			int weight = 1;
+! 
+! 			if (old_curtab == curtab)
+! 			{
+! 			    ++weight;
+! 			    if (old_curwin == wp)
+! 				++weight;
+! 			}
+! 
+! 			if (weight > (int)opened[i])
+  			{
+! 			    opened[i] = (char_u)weight;
+  			    if (i == 0)
+  			    {
++ 				if (new_curwin != NULL)
++ 				    new_curwin->w_arg_idx = opened_len;
+  				new_curwin = wp;
+  				new_curtab = curtab;
+  			    }
+  			}
+! 			else if (keep_tabs)
+! 			    i = opened_len;
+! 
+! 			if (wp->w_alist != alist)
+  			{
+  			    /* Use the current argument list for all windows
+  			     * containing a file from it. */
+  			    alist_unlink(wp->w_alist);
+! 			    wp->w_alist = alist;
+  			    ++wp->w_alist->al_refcount;
+  			}
+  			break;
+***************
+*** 4489,4495 ****
+  	    }
+  	    wp->w_arg_idx = i;
+  
+! 	    if (i == ARGCOUNT && !keep_tabs)	/* close this window */
+  	    {
+  		if (P_HID(buf) || forceit || buf->b_nwindows > 1
+  							|| !bufIsChanged(buf))
+--- 4520,4526 ----
+  	    }
+  	    wp->w_arg_idx = i;
+  
+! 	    if (i == opened_len && !keep_tabs)/* close this window */
+  	    {
+  		if (P_HID(buf) || forceit || buf->b_nwindows > 1
+  							|| !bufIsChanged(buf))
+***************
+*** 4511,4517 ****
+  		    }
+  #ifdef FEAT_WINDOWS
+  		    /* don't close last window */
+! 		    if (firstwin == lastwin && first_tabpage->tp_next == NULL)
+  #endif
+  			use_firstwin = TRUE;
+  #ifdef FEAT_WINDOWS
+--- 4542,4549 ----
+  		    }
+  #ifdef FEAT_WINDOWS
+  		    /* don't close last window */
+! 		    if (firstwin == lastwin
+! 			    && (first_tabpage->tp_next == NULL || !had_tab))
+  #endif
+  			use_firstwin = TRUE;
+  #ifdef FEAT_WINDOWS
+***************
+*** 4545,4564 ****
+       * Open a window for files in the argument list that don't have one.
+       * ARGCOUNT may change while doing this, because of autocommands.
+       */
+!     if (count > ARGCOUNT || count <= 0)
+! 	count = ARGCOUNT;
+! 
+!     /* Autocommands may do anything to the argument list.  Make sure it's not
+!      * freed while we are working here by "locking" it.  We still have to
+!      * watch out for its size to be changed. */
+!     alist = curwin->w_alist;
+!     ++alist->al_refcount;
+  
+  #ifdef FEAT_AUTOCMD
+      /* Don't execute Win/Buf Enter/Leave autocommands here. */
+      ++autocmd_no_enter;
+      ++autocmd_no_leave;
+  #endif
+      win_enter(lastwin, FALSE);
+  #ifdef FEAT_WINDOWS
+      /* ":drop all" should re-use an empty window to avoid "--remote-tab"
+--- 4577,4592 ----
+       * Open a window for files in the argument list that don't have one.
+       * ARGCOUNT may change while doing this, because of autocommands.
+       */
+!     if (count > opened_len || count <= 0)
+! 	count = opened_len;
+  
+  #ifdef FEAT_AUTOCMD
+      /* Don't execute Win/Buf Enter/Leave autocommands here. */
+      ++autocmd_no_enter;
+      ++autocmd_no_leave;
+  #endif
++     last_curwin = curwin;
++     last_curtab = curtab;
+      win_enter(lastwin, FALSE);
+  #ifdef FEAT_WINDOWS
+      /* ":drop all" should re-use an empty window to avoid "--remote-tab"
+***************
+*** 4568,4578 ****
+  	use_firstwin = TRUE;
+  #endif
+  
+!     for (i = 0; i < count && i < alist->al_ga.ga_len && !got_int; ++i)
+      {
+  	if (alist == &global_alist && i == global_alist.al_ga.ga_len - 1)
+  	    arg_had_last = TRUE;
+! 	if (i < opened_len && opened[i])
+  	{
+  	    /* Move the already present window to below the current window */
+  	    if (curwin->w_arg_idx != i)
+--- 4596,4606 ----
+  	use_firstwin = TRUE;
+  #endif
+  
+!     for (i = 0; i < count && i < opened_len && !got_int; ++i)
+      {
+  	if (alist == &global_alist && i == global_alist.al_ga.ga_len - 1)
+  	    arg_had_last = TRUE;
+! 	if (opened[i] > 0)
+  	{
+  	    /* Move the already present window to below the current window */
+  	    if (curwin->w_arg_idx != i)
+***************
+*** 4581,4587 ****
+  		{
+  		    if (wpnext->w_arg_idx == i)
+  		    {
+! 			win_move_after(wpnext, curwin);
+  			break;
+  		    }
+  		}
+--- 4609,4621 ----
+  		{
+  		    if (wpnext->w_arg_idx == i)
+  		    {
+! 			if (keep_tabs)
+! 			{
+! 			    new_curwin = wpnext;
+! 			    new_curtab = curtab;
+! 			}
+! 			else
+! 			    win_move_after(wpnext, curwin);
+  			break;
+  		    }
+  		}
+***************
+*** 4636,4641 ****
+--- 4670,4683 ----
+  #ifdef FEAT_AUTOCMD
+      --autocmd_no_enter;
+  #endif
++     /* restore last referenced tabpage's curwin */
++     if (last_curtab != new_curtab)
++     {
++ 	if (valid_tabpage(last_curtab))
++ 	    goto_tabpage_tp(last_curtab);
++ 	if (win_valid(last_curwin))
++ 	    win_enter(last_curwin, FALSE);
++     }
+      /* to window with first arg */
+      if (valid_tabpage(new_curtab))
+  	goto_tabpage_tp(new_curtab);
+*** ../vim-7.3.455/src/testdir/test62.in	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test62.in	2012-02-22 18:45:10.000000000 +0100
+***************
+*** 50,55 ****
+--- 50,92 ----
+  :call append(line('$'), test_status)
+  :"
+  :"
++ :" Test for ":tab drop exist-file" to keep current window.
++ :sp test1
++ :tab drop test1
++ :let test_status = 'tab drop 1: fail'
++ :if tabpagenr('$') == 1 && winnr('$') == 2 && winnr() == 1
++ :    let test_status = 'tab drop 1: pass'
++ :endif
++ :close
++ :call append(line('$'), test_status)
++ :"
++ :"
++ :" Test for ":tab drop new-file" to keep current window of tabpage 1.
++ :split
++ :tab drop newfile
++ :let test_status = 'tab drop 2: fail'
++ :if tabpagenr('$') == 2 && tabpagewinnr(1, '$') == 2 && tabpagewinnr(1) == 1
++ :    let test_status = 'tab drop 2: pass'
++ :endif
++ :tabclose
++ :q
++ :call append(line('$'), test_status)
++ :"
++ :"
++ :" Test for ":tab drop multi-opend-file" to keep current tabpage and window.
++ :new test1
++ :tabnew
++ :new test1
++ :tab drop test1
++ :let test_status = 'tab drop 3: fail'
++ :if tabpagenr() == 2 && tabpagewinnr(2, '$') == 2 && tabpagewinnr(2) == 1
++ :    let test_status = 'tab drop 3: pass'
++ :endif
++ :tabclose
++ :q
++ :call append(line('$'), test_status)
++ :"
++ :"
+  :/^Results/,$w! test.out
+  :qa!
+  ENDTEST
+*** ../vim-7.3.455/src/testdir/test62.ok	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test62.ok	2012-02-22 18:45:10.000000000 +0100
+***************
+*** 5,7 ****
+--- 5,10 ----
+  this is tab page 4
+  gettabvar: pass
+  settabvar: pass
++ tab drop 1: pass
++ tab drop 2: pass
++ tab drop 3: pass
+*** ../vim-7.3.455/src/version.c	2012-02-22 18:29:29.000000000 +0100
+--- src/version.c	2012-02-22 19:11:52.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     456,
+  /**/
+
+-- 
+% cat /usr/include/life.h
+void life(void);
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

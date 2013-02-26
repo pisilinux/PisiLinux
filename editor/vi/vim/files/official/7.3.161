@@ -1,0 +1,1645 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.161
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.161
+Problem:    Items on the stack may be too big.
+Solution:   Make items static or allocate them.
+Files:	    src/eval.c, src/ex_cmds.c, src/ex_cmds2.c, src/ex_docmd.c,
+	    src/fileio.c, src/hardcopy.c, src/quickfix.c, src/main.c,
+	    src/netbeans.c, src/spell.c, src/tag.c, src/vim.h, src/xxd/xxd.c
+
+
+*** ../vim-7.3.160/src/eval.c	2011-04-11 13:46:07.000000000 +0200
+--- src/eval.c	2011-04-11 21:05:50.000000000 +0200
+***************
+*** 11100,11117 ****
+      typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+!     char_u	cwd[MAXPATHL];
+  
+      rettv->v_type = VAR_STRING;
+!     if (mch_dirname(cwd, MAXPATHL) == FAIL)
+! 	rettv->vval.v_string = NULL;
+!     else
+      {
+! 	rettv->vval.v_string = vim_strsave(cwd);
+  #ifdef BACKSLASH_IN_FILENAME
+! 	if (rettv->vval.v_string != NULL)
+! 	    slash_adjust(rettv->vval.v_string);
+  #endif
+      }
+  }
+  
+--- 11100,11121 ----
+      typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+!     char_u	*cwd;
+  
+      rettv->v_type = VAR_STRING;
+!     rettv->vval.v_string = NULL;
+!     cwd = alloc(MAXPATHL);
+!     if (cwd != NULL)
+      {
+! 	if (mch_dirname(cwd, MAXPATHL) != FAIL)
+! 	{
+! 	    rettv->vval.v_string = vim_strsave(cwd);
+  #ifdef BACKSLASH_IN_FILENAME
+! 	    if (rettv->vval.v_string != NULL)
+! 		slash_adjust(rettv->vval.v_string);
+  #endif
++ 	}
++ 	vim_free(cwd);
+      }
+  }
+  
+***************
+*** 14938,14943 ****
+--- 14942,14950 ----
+      typval_T	*rettv;
+  {
+      char_u	*p;
++ #ifdef HAVE_READLINK
++     char_u	*buf = NULL;
++ #endif
+  
+      p = get_tv_string(&argvars[0]);
+  #ifdef FEAT_SHORTCUT
+***************
+*** 14953,14959 ****
+  #else
+  # ifdef HAVE_READLINK
+      {
+- 	char_u	buf[MAXPATHL + 1];
+  	char_u	*cpy;
+  	int	len;
+  	char_u	*remain = NULL;
+--- 14960,14965 ----
+***************
+*** 14981,14986 ****
+--- 14987,14996 ----
+  	    q[-1] = NUL;
+  	}
+  
++ 	buf = alloc(MAXPATHL + 1);
++ 	if (buf == NULL)
++ 	    goto fail;
++ 
+  	for (;;)
+  	{
+  	    for (;;)
+***************
+*** 15124,15129 ****
+--- 15134,15140 ----
+  
+  #ifdef HAVE_READLINK
+  fail:
++     vim_free(buf);
+  #endif
+      rettv->v_type = VAR_STRING;
+  }
+***************
+*** 17604,17621 ****
+      typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+!     char_u	fname[MAXPATHL + 1];
+      tagname_T	tn;
+      int		first;
+  
+      if (rettv_list_alloc(rettv) == FAIL)
+  	return;
+  
+      for (first = TRUE; ; first = FALSE)
+  	if (get_tagfname(&tn, first, fname) == FAIL
+  		|| list_append_string(rettv->vval.v_list, fname, -1) == FAIL)
+  	    break;
+      tagname_free(&tn);
+  }
+  
+  /*
+--- 17615,17636 ----
+      typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+!     char_u	*fname;
+      tagname_T	tn;
+      int		first;
+  
+      if (rettv_list_alloc(rettv) == FAIL)
+  	return;
++     fname = alloc(MAXPATHL);
++     if (fname == NULL)
++ 	return;
+  
+      for (first = TRUE; ; first = FALSE)
+  	if (get_tagfname(&tn, first, fname) == FAIL
+  		|| list_append_string(rettv->vval.v_list, fname, -1) == FAIL)
+  	    break;
+      tagname_free(&tn);
++     vim_free(fname);
+  }
+  
+  /*
+*** ../vim-7.3.160/src/ex_cmds.c	2011-02-01 13:48:47.000000000 +0100
+--- src/ex_cmds.c	2011-04-11 20:51:34.000000000 +0200
+***************
+*** 2777,2783 ****
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+  	    if (p_confirm || cmdmod.confirm)
+  	    {
+! 		char_u	buff[IOSIZE];
+  
+  		dialog_msg(buff, _("Overwrite existing file \"%s\"?"), fname);
+  		if (vim_dialog_yesno(VIM_QUESTION, NULL, buff, 2) != VIM_YES)
+--- 2777,2783 ----
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+  	    if (p_confirm || cmdmod.confirm)
+  	    {
+! 		char_u	buff[DIALOG_MSG_SIZE];
+  
+  		dialog_msg(buff, _("Overwrite existing file \"%s\"?"), fname);
+  		if (vim_dialog_yesno(VIM_QUESTION, NULL, buff, 2) != VIM_YES)
+***************
+*** 2795,2801 ****
+  	/* For ":w! filename" check that no swap file exists for "filename". */
+  	if (other && !emsg_silent)
+  	{
+! 	    char_u	dir[MAXPATHL];
+  	    char_u	*p;
+  	    int		r;
+  	    char_u	*swapname;
+--- 2795,2801 ----
+  	/* For ":w! filename" check that no swap file exists for "filename". */
+  	if (other && !emsg_silent)
+  	{
+! 	    char_u	*dir;
+  	    char_u	*p;
+  	    int		r;
+  	    char_u	*swapname;
+***************
+*** 2806,2825 ****
+  	     * Use 'shortname' of the current buffer, since there is no buffer
+  	     * for the written file. */
+  	    if (*p_dir == NUL)
+  		STRCPY(dir, ".");
+  	    else
+  	    {
+  		p = p_dir;
+  		copy_option_part(&p, dir, MAXPATHL, ",");
+  	    }
+  	    swapname = makeswapname(fname, ffname, curbuf, dir);
+  	    r = vim_fexists(swapname);
+  	    if (r)
+  	    {
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+  		if (p_confirm || cmdmod.confirm)
+  		{
+! 		    char_u	buff[IOSIZE];
+  
+  		    dialog_msg(buff,
+  			    _("Swap file \"%s\" exists, overwrite anyway?"),
+--- 2806,2834 ----
+  	     * Use 'shortname' of the current buffer, since there is no buffer
+  	     * for the written file. */
+  	    if (*p_dir == NUL)
++ 	    {
++ 		dir = alloc(5);
++ 		if (dir == NULL)
++ 		    return FAIL;
+  		STRCPY(dir, ".");
++ 	    }
+  	    else
+  	    {
++ 		dir = alloc(MAXPATHL);
++ 		if (dir == NULL)
++ 		    return FAIL;
+  		p = p_dir;
+  		copy_option_part(&p, dir, MAXPATHL, ",");
+  	    }
+  	    swapname = makeswapname(fname, ffname, curbuf, dir);
++ 	    vim_free(dir);
+  	    r = vim_fexists(swapname);
+  	    if (r)
+  	    {
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+  		if (p_confirm || cmdmod.confirm)
+  		{
+! 		    char_u	buff[DIALOG_MSG_SIZE];
+  
+  		    dialog_msg(buff,
+  			    _("Swap file \"%s\" exists, overwrite anyway?"),
+***************
+*** 2969,2975 ****
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+  	if ((p_confirm || cmdmod.confirm) && buf->b_fname != NULL)
+  	{
+! 	    char_u	buff[IOSIZE];
+  
+  	    if (buf->b_p_ro)
+  		dialog_msg(buff, _("'readonly' option is set for \"%s\".\nDo you wish to write anyway?"),
+--- 2978,2984 ----
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+  	if ((p_confirm || cmdmod.confirm) && buf->b_fname != NULL)
+  	{
+! 	    char_u	buff[DIALOG_MSG_SIZE];
+  
+  	    if (buf->b_p_ro)
+  		dialog_msg(buff, _("'readonly' option is set for \"%s\".\nDo you wish to write anyway?"),
+*** ../vim-7.3.160/src/ex_cmds2.c	2011-02-25 14:46:06.000000000 +0100
+--- src/ex_cmds2.c	2011-04-11 20:51:40.000000000 +0200
+***************
+*** 1492,1498 ****
+      buf_T	*buf;
+      int		checkall;	/* may abandon all changed buffers */
+  {
+!     char_u	buff[IOSIZE];
+      int		ret;
+      buf_T	*buf2;
+  
+--- 1492,1498 ----
+      buf_T	*buf;
+      int		checkall;	/* may abandon all changed buffers */
+  {
+!     char_u	buff[DIALOG_MSG_SIZE];
+      int		ret;
+      buf_T	*buf2;
+  
+*** ../vim-7.3.160/src/ex_docmd.c	2011-04-11 16:56:29.000000000 +0200
+--- src/ex_docmd.c	2011-04-11 21:20:35.000000000 +0200
+***************
+*** 5093,5106 ****
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+  	    if ((p_confirm || cmdmod.confirm) && curbuf->b_fname != NULL)
+  	    {
+! 		char_u	buff[IOSIZE];
+  
+  		if (n == 1)
+  		    vim_strncpy(buff,
+  			    (char_u *)_("1 more file to edit.  Quit anyway?"),
+! 								  IOSIZE - 1);
+  		else
+! 		    vim_snprintf((char *)buff, IOSIZE,
+  			      _("%d more files to edit.  Quit anyway?"), n);
+  		if (vim_dialog_yesno(VIM_QUESTION, NULL, buff, 1) == VIM_YES)
+  		    return OK;
+--- 5093,5106 ----
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+  	    if ((p_confirm || cmdmod.confirm) && curbuf->b_fname != NULL)
+  	    {
+! 		char_u	buff[DIALOG_MSG_SIZE];
+  
+  		if (n == 1)
+  		    vim_strncpy(buff,
+  			    (char_u *)_("1 more file to edit.  Quit anyway?"),
+! 							 DIALOG_MSG_SIZE - 1);
+  		else
+! 		    vim_snprintf((char *)buff, DIALOG_MSG_SIZE,
+  			      _("%d more files to edit.  Quit anyway?"), n);
+  		if (vim_dialog_yesno(VIM_QUESTION, NULL, buff, 1) == VIM_YES)
+  		    return OK;
+***************
+*** 8926,8960 ****
+  		failed = TRUE;
+  	    if (eap->cmdidx == CMD_mksession)
+  	    {
+! 		char_u dirnow[MAXPATHL];	/* current directory */
+  
+! 		/*
+! 		 * Change to session file's dir.
+! 		 */
+! 		if (mch_dirname(dirnow, MAXPATHL) == FAIL
+! 					    || mch_chdir((char *)dirnow) != 0)
+! 		    *dirnow = NUL;
+! 		if (*dirnow != NUL && (ssop_flags & SSOP_SESDIR))
+! 		{
+! 		    if (vim_chdirfile(fname) == OK)
+! 			shorten_fnames(TRUE);
+! 		}
+! 		else if (*dirnow != NUL
+! 			&& (ssop_flags & SSOP_CURDIR) && globaldir != NULL)
+  		{
+! 		    if (mch_chdir((char *)globaldir) == 0)
+! 			shorten_fnames(TRUE);
+! 		}
+  
+! 		failed |= (makeopens(fd, dirnow) == FAIL);
+  
+! 		/* restore original dir */
+! 		if (*dirnow != NUL && ((ssop_flags & SSOP_SESDIR)
+  			|| ((ssop_flags & SSOP_CURDIR) && globaldir != NULL)))
+! 		{
+! 		    if (mch_chdir((char *)dirnow) != 0)
+! 			EMSG(_(e_prev_dir));
+! 		    shorten_fnames(TRUE);
+  		}
+  	    }
+  	    else
+--- 8926,8967 ----
+  		failed = TRUE;
+  	    if (eap->cmdidx == CMD_mksession)
+  	    {
+! 		char_u *dirnow;	 /* current directory */
+  
+! 		dirnow = alloc(MAXPATHL);
+! 		if (dirnow == NULL)
+! 		    failed = TRUE;
+! 		else
+  		{
+! 		    /*
+! 		     * Change to session file's dir.
+! 		     */
+! 		    if (mch_dirname(dirnow, MAXPATHL) == FAIL
+! 					    || mch_chdir((char *)dirnow) != 0)
+! 			*dirnow = NUL;
+! 		    if (*dirnow != NUL && (ssop_flags & SSOP_SESDIR))
+! 		    {
+! 			if (vim_chdirfile(fname) == OK)
+! 			    shorten_fnames(TRUE);
+! 		    }
+! 		    else if (*dirnow != NUL
+! 			   && (ssop_flags & SSOP_CURDIR) && globaldir != NULL)
+! 		    {
+! 			if (mch_chdir((char *)globaldir) == 0)
+! 			    shorten_fnames(TRUE);
+! 		    }
+  
+! 		    failed |= (makeopens(fd, dirnow) == FAIL);
+  
+! 		    /* restore original dir */
+! 		    if (*dirnow != NUL && ((ssop_flags & SSOP_SESDIR)
+  			|| ((ssop_flags & SSOP_CURDIR) && globaldir != NULL)))
+! 		    {
+! 			if (mch_chdir((char *)dirnow) != 0)
+! 			    EMSG(_(e_prev_dir));
+! 			shorten_fnames(TRUE);
+! 		    }
+! 		    vim_free(dirnow);
+  		}
+  	    }
+  	    else
+***************
+*** 8985,8994 ****
+  	else if (eap->cmdidx == CMD_mksession)
+  	{
+  	    /* successful session write - set this_session var */
+! 	    char_u	tbuf[MAXPATHL];
+  
+! 	    if (vim_FullName(fname, tbuf, MAXPATHL, FALSE) == OK)
+! 		set_vim_var_string(VV_THIS_SESSION, tbuf, -1);
+  	}
+  #endif
+  #ifdef MKSESSION_NL
+--- 8992,9006 ----
+  	else if (eap->cmdidx == CMD_mksession)
+  	{
+  	    /* successful session write - set this_session var */
+! 	    char_u	*tbuf;
+  
+! 	    tbuf = alloc(MAXPATHL);
+! 	    if (tbuf != NULL)
+! 	    {
+! 		if (vim_FullName(fname, tbuf, MAXPATHL, FALSE) == OK)
+! 		    set_vim_var_string(VV_THIS_SESSION, tbuf, -1);
+! 		vim_free(tbuf);
+! 	    }
+  	}
+  #endif
+  #ifdef MKSESSION_NL
+***************
+*** 10677,10683 ****
+      unsigned	*flagp;
+  {
+      int		i;
+!     char_u	buf[MAXPATHL];
+      char_u	*s;
+  
+      if (gap->ga_len == 0)
+--- 10689,10695 ----
+      unsigned	*flagp;
+  {
+      int		i;
+!     char_u	*buf = NULL;
+      char_u	*s;
+  
+      if (gap->ga_len == 0)
+***************
+*** 10692,10702 ****
+  	{
+  	    if (fullname)
+  	    {
+! 		(void)vim_FullName(s, buf, MAXPATHL, FALSE);
+! 		s = buf;
+  	    }
+  	    if (fputs(" ", fd) < 0 || ses_put_fname(fd, s, flagp) == FAIL)
+  		return FAIL;
+  	}
+      }
+      return put_eol(fd);
+--- 10704,10722 ----
+  	{
+  	    if (fullname)
+  	    {
+! 		buf = alloc(MAXPATHL);
+! 		if (buf != NULL)
+! 		{
+! 		    (void)vim_FullName(s, buf, MAXPATHL, FALSE);
+! 		    s = buf;
+! 		}
+  	    }
+  	    if (fputs(" ", fd) < 0 || ses_put_fname(fd, s, flagp) == FAIL)
++ 	    {
++ 		vim_free(buf);
+  		return FAIL;
++ 	    }
++ 	    vim_free(buf);
+  	}
+      }
+      return put_eol(fd);
+***************
+*** 10925,10931 ****
+  
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG) || defined(PROTO)
+  /*
+!  * Make a dialog message in "buff[IOSIZE]".
+   * "format" must contain "%s".
+   */
+      void
+--- 10945,10951 ----
+  
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG) || defined(PROTO)
+  /*
+!  * Make a dialog message in "buff[DIALOG_MSG_SIZE]".
+   * "format" must contain "%s".
+   */
+      void
+***************
+*** 10936,10942 ****
+  {
+      if (fname == NULL)
+  	fname = (char_u *)_("Untitled");
+!     vim_snprintf((char *)buff, IOSIZE, format, fname);
+  }
+  #endif
+  
+--- 10956,10962 ----
+  {
+      if (fname == NULL)
+  	fname = (char_u *)_("Untitled");
+!     vim_snprintf((char *)buff, DIALOG_MSG_SIZE, format, fname);
+  }
+  #endif
+  
+*** ../vim-7.3.160/src/fileio.c	2011-02-25 16:52:13.000000000 +0100
+--- src/fileio.c	2011-04-11 18:35:10.000000000 +0200
+***************
+*** 6023,6037 ****
+  shorten_fname1(full_path)
+      char_u	*full_path;
+  {
+!     char_u	dirname[MAXPATHL];
+      char_u	*p = full_path;
+  
+      if (mch_dirname(dirname, MAXPATHL) == OK)
+      {
+  	p = shorten_fname(full_path, dirname);
+  	if (p == NULL || *p == NUL)
+  	    p = full_path;
+      }
+      return p;
+  }
+  #endif
+--- 6023,6041 ----
+  shorten_fname1(full_path)
+      char_u	*full_path;
+  {
+!     char_u	*dirname;
+      char_u	*p = full_path;
+  
++     dirname = alloc(MAXPATHL);
++     if (dirname == NULL)
++ 	return full_path;
+      if (mch_dirname(dirname, MAXPATHL) == OK)
+      {
+  	p = shorten_fname(full_path, dirname);
+  	if (p == NULL || *p == NUL)
+  	    p = full_path;
+      }
++     vim_free(dirname);
+      return p;
+  }
+  #endif
+*** ../vim-7.3.160/src/hardcopy.c	2011-04-11 16:56:29.000000000 +0200
+--- src/hardcopy.c	2011-04-11 18:23:38.000000000 +0200
+***************
+*** 1759,1765 ****
+      char	*name;
+      struct prt_ps_resource_S *resource;
+  {
+!     char_u	buffer[MAXPATHL + 1];
+  
+      vim_strncpy(resource->name, (char_u *)name, 63);
+      /* Look for named resource file in runtimepath */
+--- 1759,1770 ----
+      char	*name;
+      struct prt_ps_resource_S *resource;
+  {
+!     char_u	*buffer;
+!     int		retval;
+! 
+!     buffer = alloc(MAXPATHL + 1);
+!     if (buffer == NULL)
+! 	return FALSE;
+  
+      vim_strncpy(resource->name, (char_u *)name, 63);
+      /* Look for named resource file in runtimepath */
+***************
+*** 1768,1776 ****
+      vim_strcat(buffer, (char_u *)name, MAXPATHL);
+      vim_strcat(buffer, (char_u *)".ps", MAXPATHL);
+      resource->filename[0] = NUL;
+!     return (do_in_runtimepath(buffer, FALSE, prt_resource_name,
+  							   resource->filename)
+  	    && resource->filename[0] != NUL);
+  }
+  
+  /* PS CR and LF characters have platform independent values */
+--- 1773,1783 ----
+      vim_strcat(buffer, (char_u *)name, MAXPATHL);
+      vim_strcat(buffer, (char_u *)".ps", MAXPATHL);
+      resource->filename[0] = NUL;
+!     retval = (do_in_runtimepath(buffer, FALSE, prt_resource_name,
+  							   resource->filename)
+  	    && resource->filename[0] != NUL);
++     vim_free(buffer);
++     return retval;
+  }
+  
+  /* PS CR and LF characters have platform independent values */
+***************
+*** 2848,2862 ****
+      double      right;
+      double      top;
+      double      bottom;
+!     struct prt_ps_resource_S res_prolog;
+!     struct prt_ps_resource_S res_encoding;
+      char	buffer[256];
+      char_u      *p_encoding;
+      char_u	*p;
+  #ifdef FEAT_MBYTE
+!     struct prt_ps_resource_S res_cidfont;
+!     struct prt_ps_resource_S res_cmap;
+  #endif
+  
+      /*
+       * PS DSC Header comments - no PS code!
+--- 2855,2887 ----
+      double      right;
+      double      top;
+      double      bottom;
+!     struct prt_ps_resource_S *res_prolog;
+!     struct prt_ps_resource_S *res_encoding;
+      char	buffer[256];
+      char_u      *p_encoding;
+      char_u	*p;
+  #ifdef FEAT_MBYTE
+!     struct prt_ps_resource_S *res_cidfont;
+!     struct prt_ps_resource_S *res_cmap;
+  #endif
++     int		retval = FALSE;
++ 
++     res_prolog = (struct prt_ps_resource_S *)
++ 				      alloc(sizeof(struct prt_ps_resource_S));
++     res_encoding = (struct prt_ps_resource_S *)
++ 				      alloc(sizeof(struct prt_ps_resource_S));
++ #ifdef FEAT_MBYTE
++     res_cidfont = (struct prt_ps_resource_S *)
++ 				      alloc(sizeof(struct prt_ps_resource_S));
++     res_cmap = (struct prt_ps_resource_S *)
++ 				      alloc(sizeof(struct prt_ps_resource_S));
++ #endif
++     if (res_prolog == NULL || res_encoding == NULL
++ #ifdef FEAT_MBYTE
++ 	    || res_cidfont == NULL || res_cmap == NULL
++ #endif
++        )
++ 	goto theend;
+  
+      /*
+       * PS DSC Header comments - no PS code!
+***************
+*** 2932,2958 ****
+  #endif
+  
+      /* Search for external resources VIM supplies */
+!     if (!prt_find_resource("prolog", &res_prolog))
+      {
+  	EMSG(_("E456: Can't find PostScript resource file \"prolog.ps\""));
+  	return FALSE;
+      }
+!     if (!prt_open_resource(&res_prolog))
+  	return FALSE;
+!     if (!prt_check_resource(&res_prolog, PRT_PROLOG_VERSION))
+  	return FALSE;
+  #ifdef FEAT_MBYTE
+      if (prt_out_mbyte)
+      {
+  	/* Look for required version of multi-byte printing procset */
+! 	if (!prt_find_resource("cidfont", &res_cidfont))
+  	{
+  	    EMSG(_("E456: Can't find PostScript resource file \"cidfont.ps\""));
+  	    return FALSE;
+  	}
+! 	if (!prt_open_resource(&res_cidfont))
+  	    return FALSE;
+! 	if (!prt_check_resource(&res_cidfont, PRT_CID_PROLOG_VERSION))
+  	    return FALSE;
+      }
+  #endif
+--- 2957,2983 ----
+  #endif
+  
+      /* Search for external resources VIM supplies */
+!     if (!prt_find_resource("prolog", res_prolog))
+      {
+  	EMSG(_("E456: Can't find PostScript resource file \"prolog.ps\""));
+  	return FALSE;
+      }
+!     if (!prt_open_resource(res_prolog))
+  	return FALSE;
+!     if (!prt_check_resource(res_prolog, PRT_PROLOG_VERSION))
+  	return FALSE;
+  #ifdef FEAT_MBYTE
+      if (prt_out_mbyte)
+      {
+  	/* Look for required version of multi-byte printing procset */
+! 	if (!prt_find_resource("cidfont", res_cidfont))
+  	{
+  	    EMSG(_("E456: Can't find PostScript resource file \"cidfont.ps\""));
+  	    return FALSE;
+  	}
+! 	if (!prt_open_resource(res_cidfont))
+  	    return FALSE;
+! 	if (!prt_check_resource(res_cidfont, PRT_CID_PROLOG_VERSION))
+  	    return FALSE;
+      }
+  #endif
+***************
+*** 2968,2974 ****
+  #endif
+  	p_encoding = enc_skip(p_penc);
+  	if (*p_encoding == NUL
+! 		|| !prt_find_resource((char *)p_encoding, &res_encoding))
+  	{
+  	    /* 'printencoding' not set or not supported - find alternate */
+  #ifdef FEAT_MBYTE
+--- 2993,2999 ----
+  #endif
+  	p_encoding = enc_skip(p_penc);
+  	if (*p_encoding == NUL
+! 		|| !prt_find_resource((char *)p_encoding, res_encoding))
+  	{
+  	    /* 'printencoding' not set or not supported - find alternate */
+  #ifdef FEAT_MBYTE
+***************
+*** 2977,2989 ****
+  	    p_encoding = enc_skip(p_enc);
+  	    props = enc_canon_props(p_encoding);
+  	    if (!(props & ENC_8BIT)
+! 		    || !prt_find_resource((char *)p_encoding, &res_encoding))
+  		/* 8-bit 'encoding' is not supported */
+  #endif
+  		{
+  		/* Use latin1 as default printing encoding */
+  		p_encoding = (char_u *)"latin1";
+! 		if (!prt_find_resource((char *)p_encoding, &res_encoding))
+  		{
+  		    EMSG2(_("E456: Can't find PostScript resource file \"%s.ps\""),
+  			    p_encoding);
+--- 3002,3014 ----
+  	    p_encoding = enc_skip(p_enc);
+  	    props = enc_canon_props(p_encoding);
+  	    if (!(props & ENC_8BIT)
+! 		    || !prt_find_resource((char *)p_encoding, res_encoding))
+  		/* 8-bit 'encoding' is not supported */
+  #endif
+  		{
+  		/* Use latin1 as default printing encoding */
+  		p_encoding = (char_u *)"latin1";
+! 		if (!prt_find_resource((char *)p_encoding, res_encoding))
+  		{
+  		    EMSG2(_("E456: Can't find PostScript resource file \"%s.ps\""),
+  			    p_encoding);
+***************
+*** 2991,2997 ****
+  		}
+  	    }
+  	}
+! 	if (!prt_open_resource(&res_encoding))
+  	    return FALSE;
+  	/* For the moment there are no checks on encoding resource files to
+  	 * perform */
+--- 3016,3022 ----
+  		}
+  	    }
+  	}
+! 	if (!prt_open_resource(res_encoding))
+  	    return FALSE;
+  	/* For the moment there are no checks on encoding resource files to
+  	 * perform */
+***************
+*** 3005,3017 ****
+  	if (prt_use_courier)
+  	{
+  	    /* Include ASCII range encoding vector */
+! 	    if (!prt_find_resource(prt_ascii_encoding, &res_encoding))
+  	    {
+  		EMSG2(_("E456: Can't find PostScript resource file \"%s.ps\""),
+  							  prt_ascii_encoding);
+  		return FALSE;
+  	    }
+! 	    if (!prt_open_resource(&res_encoding))
+  		return FALSE;
+  	    /* For the moment there are no checks on encoding resource files to
+  	     * perform */
+--- 3030,3042 ----
+  	if (prt_use_courier)
+  	{
+  	    /* Include ASCII range encoding vector */
+! 	    if (!prt_find_resource(prt_ascii_encoding, res_encoding))
+  	    {
+  		EMSG2(_("E456: Can't find PostScript resource file \"%s.ps\""),
+  							  prt_ascii_encoding);
+  		return FALSE;
+  	    }
+! 	    if (!prt_open_resource(res_encoding))
+  		return FALSE;
+  	    /* For the moment there are no checks on encoding resource files to
+  	     * perform */
+***************
+*** 3034,3077 ****
+      if (prt_out_mbyte && prt_custom_cmap)
+      {
+  	/* Find user supplied CMap */
+! 	if (!prt_find_resource(prt_cmap, &res_cmap))
+  	{
+  	    EMSG2(_("E456: Can't find PostScript resource file \"%s.ps\""),
+  								    prt_cmap);
+  	    return FALSE;
+  	}
+! 	if (!prt_open_resource(&res_cmap))
+  	    return FALSE;
+      }
+  #endif
+  
+      /* List resources supplied */
+!     STRCPY(buffer, res_prolog.title);
+      STRCAT(buffer, " ");
+!     STRCAT(buffer, res_prolog.version);
+      prt_dsc_resources("DocumentSuppliedResources", "procset", buffer);
+  #ifdef FEAT_MBYTE
+      if (prt_out_mbyte)
+      {
+! 	STRCPY(buffer, res_cidfont.title);
+  	STRCAT(buffer, " ");
+! 	STRCAT(buffer, res_cidfont.version);
+  	prt_dsc_resources(NULL, "procset", buffer);
+  
+  	if (prt_custom_cmap)
+  	{
+! 	    STRCPY(buffer, res_cmap.title);
+  	    STRCAT(buffer, " ");
+! 	    STRCAT(buffer, res_cmap.version);
+  	    prt_dsc_resources(NULL, "cmap", buffer);
+  	}
+      }
+      if (!prt_out_mbyte || prt_use_courier)
+  #endif
+      {
+! 	STRCPY(buffer, res_encoding.title);
+  	STRCAT(buffer, " ");
+! 	STRCAT(buffer, res_encoding.version);
+  	prt_dsc_resources(NULL, "encoding", buffer);
+      }
+      prt_dsc_requirements(prt_duplex, prt_tumble, prt_collate,
+--- 3059,3102 ----
+      if (prt_out_mbyte && prt_custom_cmap)
+      {
+  	/* Find user supplied CMap */
+! 	if (!prt_find_resource(prt_cmap, res_cmap))
+  	{
+  	    EMSG2(_("E456: Can't find PostScript resource file \"%s.ps\""),
+  								    prt_cmap);
+  	    return FALSE;
+  	}
+! 	if (!prt_open_resource(res_cmap))
+  	    return FALSE;
+      }
+  #endif
+  
+      /* List resources supplied */
+!     STRCPY(buffer, res_prolog->title);
+      STRCAT(buffer, " ");
+!     STRCAT(buffer, res_prolog->version);
+      prt_dsc_resources("DocumentSuppliedResources", "procset", buffer);
+  #ifdef FEAT_MBYTE
+      if (prt_out_mbyte)
+      {
+! 	STRCPY(buffer, res_cidfont->title);
+  	STRCAT(buffer, " ");
+! 	STRCAT(buffer, res_cidfont->version);
+  	prt_dsc_resources(NULL, "procset", buffer);
+  
+  	if (prt_custom_cmap)
+  	{
+! 	    STRCPY(buffer, res_cmap->title);
+  	    STRCAT(buffer, " ");
+! 	    STRCAT(buffer, res_cmap->version);
+  	    prt_dsc_resources(NULL, "cmap", buffer);
+  	}
+      }
+      if (!prt_out_mbyte || prt_use_courier)
+  #endif
+      {
+! 	STRCPY(buffer, res_encoding->title);
+  	STRCAT(buffer, " ");
+! 	STRCAT(buffer, res_encoding->version);
+  	prt_dsc_resources(NULL, "encoding", buffer);
+      }
+      prt_dsc_requirements(prt_duplex, prt_tumble, prt_collate,
+***************
+*** 3114,3128 ****
+      prt_dsc_noarg("BeginProlog");
+  
+      /* Add required procsets - NOTE: order is important! */
+!     if (!prt_add_resource(&res_prolog))
+  	return FALSE;
+  #ifdef FEAT_MBYTE
+      if (prt_out_mbyte)
+      {
+  	/* Add CID font procset, and any user supplied CMap */
+! 	if (!prt_add_resource(&res_cidfont))
+  	    return FALSE;
+! 	if (prt_custom_cmap && !prt_add_resource(&res_cmap))
+  	    return FALSE;
+      }
+  #endif
+--- 3139,3153 ----
+      prt_dsc_noarg("BeginProlog");
+  
+      /* Add required procsets - NOTE: order is important! */
+!     if (!prt_add_resource(res_prolog))
+  	return FALSE;
+  #ifdef FEAT_MBYTE
+      if (prt_out_mbyte)
+      {
+  	/* Add CID font procset, and any user supplied CMap */
+! 	if (!prt_add_resource(res_cidfont))
+  	    return FALSE;
+! 	if (prt_custom_cmap && !prt_add_resource(res_cmap))
+  	    return FALSE;
+      }
+  #endif
+***************
+*** 3132,3138 ****
+  #endif
+  	/* There will be only one Roman font encoding to be included in the PS
+  	 * file. */
+! 	if (!prt_add_resource(&res_encoding))
+  	    return FALSE;
+  
+      prt_dsc_noarg("EndProlog");
+--- 3157,3163 ----
+  #endif
+  	/* There will be only one Roman font encoding to be included in the PS
+  	 * file. */
+! 	if (!prt_add_resource(res_encoding))
+  	    return FALSE;
+  
+      prt_dsc_noarg("EndProlog");
+***************
+*** 3248,3254 ****
+      prt_dsc_noarg("EndSetup");
+  
+      /* Fail if any problems writing out to the PS file */
+!     return !prt_file_error;
+  }
+  
+      void
+--- 3273,3289 ----
+      prt_dsc_noarg("EndSetup");
+  
+      /* Fail if any problems writing out to the PS file */
+!     retval = !prt_file_error;
+! 
+! theend:
+!     vim_free(res_prolog);
+!     vim_free(res_encoding);
+! #ifdef FEAT_MBYTE
+!     vim_free(res_cidfont);
+!     vim_free(res_cmap);
+! #endif
+! 
+!     return retval;
+  }
+  
+      void
+*** ../vim-7.3.160/src/quickfix.c	2010-12-02 15:33:10.000000000 +0100
+--- src/quickfix.c	2011-04-11 17:54:07.000000000 +0200
+***************
+*** 3049,3056 ****
+      int		flags = 0;
+      colnr_T	col;
+      long	tomatch;
+!     char_u	dirname_start[MAXPATHL];
+!     char_u	dirname_now[MAXPATHL];
+      char_u	*target_dir = NULL;
+  #ifdef FEAT_AUTOCMD
+      char_u	*au_name =  NULL;
+--- 3049,3056 ----
+      int		flags = 0;
+      colnr_T	col;
+      long	tomatch;
+!     char_u	*dirname_start = NULL;
+!     char_u	*dirname_now = NULL;
+      char_u	*target_dir = NULL;
+  #ifdef FEAT_AUTOCMD
+      char_u	*au_name =  NULL;
+***************
+*** 3128,3133 ****
+--- 3128,3138 ----
+  	goto theend;
+      }
+  
++     dirname_start = alloc(MAXPATHL);
++     dirname_now = alloc(MAXPATHL);
++     if (dirname_start == NULL || dirname_now == NULL)
++ 	goto theend;
++ 
+      /* Remember the current directory, because a BufRead autocommand that does
+       * ":lcd %:p:h" changes the meaning of short path names. */
+      mch_dirname(dirname_start, MAXPATHL);
+***************
+*** 3364,3369 ****
+--- 3369,3376 ----
+      }
+  
+  theend:
++     vim_free(dirname_now);
++     vim_free(dirname_start);
+      vim_free(target_dir);
+      vim_free(regmatch.regprog);
+  }
+*** ../vim-7.3.160/src/main.c	2011-03-22 18:10:34.000000000 +0100
+--- src/main.c	2011-04-11 18:06:06.000000000 +0200
+***************
+*** 3814,3820 ****
+      int		i;
+      char_u	*inicmd = NULL;
+      char_u	*p;
+!     char_u	cwd[MAXPATHL];
+  
+      if (filec > 0 && filev[0][0] == '+')
+      {
+--- 3814,3820 ----
+      int		i;
+      char_u	*inicmd = NULL;
+      char_u	*p;
+!     char_u	*cwd;
+  
+      if (filec > 0 && filev[0][0] == '+')
+      {
+***************
+*** 3827,3841 ****
+  	mainerr_arg_missing((char_u *)filev[-1]);
+  
+      /* Temporarily cd to the current directory to handle relative file names. */
+      if (mch_dirname(cwd, MAXPATHL) != OK)
+  	return NULL;
+!     if ((p = vim_strsave_escaped_ext(cwd,
+  #ifdef BACKSLASH_IN_FILENAME
+  		    "",  /* rem_backslash() will tell what chars to escape */
+  #else
+  		    PATH_ESC_CHARS,
+  #endif
+! 		    '\\', TRUE)) == NULL)
+  	return NULL;
+      ga_init2(&ga, 1, 100);
+      ga_concat(&ga, (char_u *)"<C-\\><C-N>:cd ");
+--- 3827,3849 ----
+  	mainerr_arg_missing((char_u *)filev[-1]);
+  
+      /* Temporarily cd to the current directory to handle relative file names. */
++     cwd = alloc(MAXPATHL);
++     if (cwd == NULL)
++ 	return NULL;
+      if (mch_dirname(cwd, MAXPATHL) != OK)
++     {
++ 	vim_free(cwd);
+  	return NULL;
+!     }
+!     p = vim_strsave_escaped_ext(cwd,
+  #ifdef BACKSLASH_IN_FILENAME
+  		    "",  /* rem_backslash() will tell what chars to escape */
+  #else
+  		    PATH_ESC_CHARS,
+  #endif
+! 		    '\\', TRUE);
+!     vim_free(cwd);
+!     if (p == NULL)
+  	return NULL;
+      ga_init2(&ga, 1, 100);
+      ga_concat(&ga, (char_u *)"<C-\\><C-N>:cd ");
+*** ../vim-7.3.160/src/netbeans.c	2011-04-11 16:56:29.000000000 +0200
+--- src/netbeans.c	2011-04-11 18:27:08.000000000 +0200
+***************
+*** 2891,2897 ****
+      char_u	*text;
+      linenr_T	lnum;
+      int		col;
+!     char	buf[MAXPATHL * 2 + 25];
+      char_u	*p;
+  
+      /* Don't do anything when 'ballooneval' is off, messages scrolled the
+--- 2891,2897 ----
+      char_u	*text;
+      linenr_T	lnum;
+      int		col;
+!     char	*buf;
+      char_u	*p;
+  
+      /* Don't do anything when 'ballooneval' is off, messages scrolled the
+***************
+*** 2905,2919 ****
+  	 * length. */
+  	if (text != NULL && text[0] != NUL && STRLEN(text) < MAXPATHL)
+  	{
+! 	    p = nb_quote(text);
+! 	    if (p != NULL)
+  	    {
+! 		vim_snprintf(buf, sizeof(buf),
+! 				       "0:balloonText=%d \"%s\"\n", r_cmdno, p);
+! 		vim_free(p);
+  	    }
+- 	    nbdebug(("EVT: %s", buf));
+- 	    nb_send(buf, "netbeans_beval_cb");
+  	}
+  	vim_free(text);
+      }
+--- 2905,2924 ----
+  	 * length. */
+  	if (text != NULL && text[0] != NUL && STRLEN(text) < MAXPATHL)
+  	{
+! 	    buf = (char *)alloc(MAXPATHL * 2 + 25);
+! 	    if (buf != NULL)
+  	    {
+! 		p = nb_quote(text);
+! 		if (p != NULL)
+! 		{
+! 		    vim_snprintf(buf, MAXPATHL * 2 + 25,
+! 				     "0:balloonText=%d \"%s\"\n", r_cmdno, p);
+! 		    vim_free(p);
+! 		}
+! 		nbdebug(("EVT: %s", buf));
+! 		nb_send(buf, "netbeans_beval_cb");
+! 		vim_free(buf);
+  	    }
+  	}
+  	vim_free(text);
+      }
+*** ../vim-7.3.160/src/spell.c	2011-04-11 16:56:29.000000000 +0200
+--- src/spell.c	2011-04-11 18:00:49.000000000 +0200
+***************
+*** 8590,8596 ****
+      spellinfo_T	*spin;
+      char_u	*wfname;
+  {
+!     char_u	fname[MAXPATHL];
+      int		len;
+      slang_T	*slang;
+      int		free_slang = FALSE;
+--- 8590,8596 ----
+      spellinfo_T	*spin;
+      char_u	*wfname;
+  {
+!     char_u	*fname = NULL;
+      int		len;
+      slang_T	*slang;
+      int		free_slang = FALSE;
+***************
+*** 8654,8659 ****
+--- 8654,8662 ----
+       * Write the .sug file.
+       * Make the file name by changing ".spl" to ".sug".
+       */
++     fname = alloc(MAXPATHL);
++     if (fname == NULL)
++ 	goto theend;
+      vim_strncpy(fname, wfname, MAXPATHL - 1);
+      len = (int)STRLEN(fname);
+      fname[len - 2] = 'u';
+***************
+*** 8661,8666 ****
+--- 8664,8670 ----
+      sug_write(spin, fname);
+  
+  theend:
++     vim_free(fname);
+      if (free_slang)
+  	slang_free(slang);
+      free_blocks(spin->si_blocks);
+***************
+*** 9106,9113 ****
+      int		overwrite;	    /* overwrite existing output file */
+      int		added_word;	    /* invoked through "zg" */
+  {
+!     char_u	fname[MAXPATHL];
+!     char_u	wfname[MAXPATHL];
+      char_u	**innames;
+      int		incount;
+      afffile_T	*(afile[8]);
+--- 9110,9117 ----
+      int		overwrite;	    /* overwrite existing output file */
+      int		added_word;	    /* invoked through "zg" */
+  {
+!     char_u	*fname = NULL;
+!     char_u	*wfname;
+      char_u	**innames;
+      int		incount;
+      afffile_T	*(afile[8]);
+***************
+*** 9135,9140 ****
+--- 9139,9148 ----
+      innames = &fnames[1];
+      incount = fcount - 1;
+  
++     wfname = alloc(MAXPATHL);
++     if (wfname == NULL)
++ 	return;
++ 
+      if (fcount >= 1)
+      {
+  	len = (int)STRLEN(fnames[0]);
+***************
+*** 9144,9167 ****
+  	     * "path/en.latin1.add.spl". */
+  	    innames = &fnames[0];
+  	    incount = 1;
+! 	    vim_snprintf((char *)wfname, sizeof(wfname), "%s.spl", fnames[0]);
+  	}
+  	else if (fcount == 1)
+  	{
+  	    /* For ":mkspell path/vim" output file is "path/vim.latin1.spl". */
+  	    innames = &fnames[0];
+  	    incount = 1;
+! 	    vim_snprintf((char *)wfname, sizeof(wfname), SPL_FNAME_TMPL,
+  		  fnames[0], spin.si_ascii ? (char_u *)"ascii" : spell_enc());
+  	}
+  	else if (len > 4 && STRCMP(fnames[0] + len - 4, ".spl") == 0)
+  	{
+  	    /* Name ends in ".spl", use as the file name. */
+! 	    vim_strncpy(wfname, fnames[0], sizeof(wfname) - 1);
+  	}
+  	else
+  	    /* Name should be language, make the file name from it. */
+! 	    vim_snprintf((char *)wfname, sizeof(wfname), SPL_FNAME_TMPL,
+  		  fnames[0], spin.si_ascii ? (char_u *)"ascii" : spell_enc());
+  
+  	/* Check for .ascii.spl. */
+--- 9152,9175 ----
+  	     * "path/en.latin1.add.spl". */
+  	    innames = &fnames[0];
+  	    incount = 1;
+! 	    vim_snprintf((char *)wfname, MAXPATHL, "%s.spl", fnames[0]);
+  	}
+  	else if (fcount == 1)
+  	{
+  	    /* For ":mkspell path/vim" output file is "path/vim.latin1.spl". */
+  	    innames = &fnames[0];
+  	    incount = 1;
+! 	    vim_snprintf((char *)wfname, MAXPATHL, SPL_FNAME_TMPL,
+  		  fnames[0], spin.si_ascii ? (char_u *)"ascii" : spell_enc());
+  	}
+  	else if (len > 4 && STRCMP(fnames[0] + len - 4, ".spl") == 0)
+  	{
+  	    /* Name ends in ".spl", use as the file name. */
+! 	    vim_strncpy(wfname, fnames[0], MAXPATHL - 1);
+  	}
+  	else
+  	    /* Name should be language, make the file name from it. */
+! 	    vim_snprintf((char *)wfname, MAXPATHL, SPL_FNAME_TMPL,
+  		  fnames[0], spin.si_ascii ? (char_u *)"ascii" : spell_enc());
+  
+  	/* Check for .ascii.spl. */
+***************
+*** 9186,9199 ****
+  	if (!overwrite && mch_stat((char *)wfname, &st) >= 0)
+  	{
+  	    EMSG(_(e_exists));
+! 	    return;
+  	}
+  	if (mch_isdir(wfname))
+  	{
+  	    EMSG2(_(e_isadir2), wfname);
+! 	    return;
+  	}
+  
+  	/*
+  	 * Init the aff and dic pointers.
+  	 * Get the region names if there are more than 2 arguments.
+--- 9194,9211 ----
+  	if (!overwrite && mch_stat((char *)wfname, &st) >= 0)
+  	{
+  	    EMSG(_(e_exists));
+! 	    goto theend;
+  	}
+  	if (mch_isdir(wfname))
+  	{
+  	    EMSG2(_(e_isadir2), wfname);
+! 	    goto theend;
+  	}
+  
++ 	fname = alloc(MAXPATHL);
++ 	if (fname == NULL)
++ 	    goto theend;
++ 
+  	/*
+  	 * Init the aff and dic pointers.
+  	 * Get the region names if there are more than 2 arguments.
+***************
+*** 9209,9215 ****
+  						|| innames[i][len - 3] != '_')
+  		{
+  		    EMSG2(_("E755: Invalid region in %s"), innames[i]);
+! 		    return;
+  		}
+  		spin.si_region_name[i * 2] = TOLOWER_ASC(innames[i][len - 2]);
+  		spin.si_region_name[i * 2 + 1] =
+--- 9221,9227 ----
+  						|| innames[i][len - 3] != '_')
+  		{
+  		    EMSG2(_("E755: Invalid region in %s"), innames[i]);
+! 		    goto theend;
+  		}
+  		spin.si_region_name[i * 2] = TOLOWER_ASC(innames[i][len - 2]);
+  		spin.si_region_name[i * 2 + 1] =
+***************
+*** 9226,9232 ****
+  		|| spin.si_prefroot == NULL)
+  	{
+  	    free_blocks(spin.si_blocks);
+! 	    return;
+  	}
+  
+  	/* When not producing a .add.spl file clear the character table when
+--- 9238,9244 ----
+  		|| spin.si_prefroot == NULL)
+  	{
+  	    free_blocks(spin.si_blocks);
+! 	    goto theend;
+  	}
+  
+  	/* When not producing a .add.spl file clear the character table when
+***************
+*** 9247,9253 ****
+  	    spin.si_conv.vc_type = CONV_NONE;
+  	    spin.si_region = 1 << i;
+  
+! 	    vim_snprintf((char *)fname, sizeof(fname), "%s.aff", innames[i]);
+  	    if (mch_stat((char *)fname, &st) >= 0)
+  	    {
+  		/* Read the .aff file.  Will init "spin->si_conv" based on the
+--- 9259,9265 ----
+  	    spin.si_conv.vc_type = CONV_NONE;
+  	    spin.si_region = 1 << i;
+  
+! 	    vim_snprintf((char *)fname, MAXPATHL, "%s.aff", innames[i]);
+  	    if (mch_stat((char *)fname, &st) >= 0)
+  	    {
+  		/* Read the .aff file.  Will init "spin->si_conv" based on the
+***************
+*** 9258,9264 ****
+  		else
+  		{
+  		    /* Read the .dic file and store the words in the trees. */
+! 		    vim_snprintf((char *)fname, sizeof(fname), "%s.dic",
+  								  innames[i]);
+  		    if (spell_read_dic(&spin, fname, afile[i]) == FAIL)
+  			error = TRUE;
+--- 9270,9276 ----
+  		else
+  		{
+  		    /* Read the .dic file and store the words in the trees. */
+! 		    vim_snprintf((char *)fname, MAXPATHL, "%s.dic",
+  								  innames[i]);
+  		    if (spell_read_dic(&spin, fname, afile[i]) == FAIL)
+  			error = TRUE;
+***************
+*** 9340,9345 ****
+--- 9352,9361 ----
+  	    spell_make_sugfile(&spin, wfname);
+  
+      }
++ 
++ theend:
++     vim_free(fname);
++     vim_free(wfname);
+  }
+  
+  /*
+***************
+*** 9392,9398 ****
+      buf_T	*buf = NULL;
+      int		new_spf = FALSE;
+      char_u	*fname;
+!     char_u	fnamebuf[MAXPATHL];
+      char_u	line[MAXWLEN * 2];
+      long	fpos, fpos_next = 0;
+      int		i;
+--- 9408,9414 ----
+      buf_T	*buf = NULL;
+      int		new_spf = FALSE;
+      char_u	*fname;
+!     char_u	*fnamebuf = NULL;
+      char_u	line[MAXWLEN * 2];
+      long	fpos, fpos_next = 0;
+      int		i;
+***************
+*** 9422,9427 ****
+--- 9438,9446 ----
+  	    EMSG2(_(e_notset), "spellfile");
+  	    return;
+  	}
++ 	fnamebuf = alloc(MAXPATHL);
++ 	if (fnamebuf == NULL)
++ 	    return;
+  
+  	for (spf = curwin->w_s->b_p_spf, i = 1; *spf != NUL; ++i)
+  	{
+***************
+*** 9431,9436 ****
+--- 9450,9456 ----
+  	    if (*spf == NUL)
+  	    {
+  		EMSGN(_("E765: 'spellfile' does not have %ld entries"), idx);
++ 		vim_free(fnamebuf);
+  		return;
+  	    }
+  	}
+***************
+*** 9442,9447 ****
+--- 9462,9468 ----
+  	if (buf != NULL && bufIsChanged(buf))
+  	{
+  	    EMSG(_(e_bufloaded));
++ 	    vim_free(fnamebuf);
+  	    return;
+  	}
+  
+***************
+*** 9536,9541 ****
+--- 9557,9563 ----
+  
+  	redraw_all_later(SOME_VALID);
+      }
++     vim_free(fnamebuf);
+  }
+  
+  /*
+***************
+*** 9544,9550 ****
+      static void
+  init_spellfile()
+  {
+!     char_u	buf[MAXPATHL];
+      int		l;
+      char_u	*fname;
+      char_u	*rtp;
+--- 9566,9572 ----
+      static void
+  init_spellfile()
+  {
+!     char_u	*buf;
+      int		l;
+      char_u	*fname;
+      char_u	*rtp;
+***************
+*** 9554,9559 ****
+--- 9576,9585 ----
+  
+      if (*curwin->w_s->b_p_spl != NUL && curwin->w_s->b_langp.ga_len > 0)
+      {
++ 	buf = alloc(MAXPATHL);
++ 	if (buf == NULL)
++ 	    return;
++ 
+  	/* Find the end of the language name.  Exclude the region.  If there
+  	 * is a path separator remember the start of the tail. */
+  	for (lend = curwin->w_s->b_p_spl; *lend != NUL
+***************
+*** 9597,9603 ****
+  				 "/%.*s", (int)(lend - lstart), lstart);
+  		}
+  		l = (int)STRLEN(buf);
+! 		fname = LANGP_ENTRY(curwin->w_s->b_langp, 0)->lp_slang->sl_fname;
+  		vim_snprintf((char *)buf + l, MAXPATHL - l, ".%s.add",
+  			fname != NULL
+  			  && strstr((char *)gettail(fname), ".ascii.") != NULL
+--- 9623,9630 ----
+  				 "/%.*s", (int)(lend - lstart), lstart);
+  		}
+  		l = (int)STRLEN(buf);
+! 		fname = LANGP_ENTRY(curwin->w_s->b_langp, 0)
+! 							 ->lp_slang->sl_fname;
+  		vim_snprintf((char *)buf + l, MAXPATHL - l, ".%s.add",
+  			fname != NULL
+  			  && strstr((char *)gettail(fname), ".ascii.") != NULL
+***************
+*** 9607,9612 ****
+--- 9634,9641 ----
+  	    }
+  	    aspath = FALSE;
+  	}
++ 
++ 	vim_free(buf);
+      }
+  }
+  
+*** ../vim-7.3.160/src/tag.c	2011-04-11 16:56:29.000000000 +0200
+--- src/tag.c	2011-04-11 20:54:36.000000000 +0200
+***************
+*** 775,791 ****
+  	    {
+  		list_T	*list;
+  		char_u	tag_name[128 + 1];
+! 		char_u	fname[MAXPATHL + 1];
+! 		char_u	cmd[CMDBUFFSIZE + 1];
+  
+  		/*
+  		 * Add the matching tags to the location list for the current
+  		 * window.
+  		 */
+  
+  		list = list_alloc();
+! 		if (list == NULL)
+  		    goto end_do_tag;
+  
+  		for (i = 0; i < num_matches; ++i)
+  		{
+--- 775,799 ----
+  	    {
+  		list_T	*list;
+  		char_u	tag_name[128 + 1];
+! 		char_u	*fname;
+! 		char_u	*cmd;
+  
+  		/*
+  		 * Add the matching tags to the location list for the current
+  		 * window.
+  		 */
+  
++ 		fname = alloc(MAXPATHL + 1);
++ 		cmd = alloc(CMDBUFFSIZE + 1);
+  		list = list_alloc();
+! 		if (list == NULL || fname == NULL || cmd == NULL)
+! 		{
+! 		    vim_free(cmd);
+! 		    vim_free(fname);
+! 		    if (list != NULL)
+! 			list_free(list, TRUE);
+  		    goto end_do_tag;
++ 		}
+  
+  		for (i = 0; i < num_matches; ++i)
+  		{
+***************
+*** 911,916 ****
+--- 919,926 ----
+  		set_errorlist(curwin, list, ' ', IObuff);
+  
+  		list_free(list, TRUE);
++ 		vim_free(fname);
++ 		vim_free(cmd);
+  
+  		cur_match = 0;		/* Jump to the first tag */
+  	    }
+***************
+*** 3777,3784 ****
+      char_u  *start;		/* start of the value */
+      char_u  *end;		/* after the value; can be NULL */
+  {
+!     char_u	buf[MAXPATHL];
+      int		len = 0;
+  
+      /* check that the field name doesn't exist yet */
+      if (dict_find(dict, (char_u *)field_name, -1) != NULL)
+--- 3787,3795 ----
+      char_u  *start;		/* start of the value */
+      char_u  *end;		/* after the value; can be NULL */
+  {
+!     char_u	*buf;
+      int		len = 0;
++     int		retval;
+  
+      /* check that the field name doesn't exist yet */
+      if (dict_find(dict, (char_u *)field_name, -1) != NULL)
+***************
+*** 3791,3796 ****
+--- 3802,3810 ----
+  	}
+  	return FAIL;
+      }
++     buf = alloc(MAXPATHL);
++     if (buf == NULL)
++ 	return FAIL;
+      if (start != NULL)
+      {
+  	if (end == NULL)
+***************
+*** 3800,3811 ****
+  		--end;
+  	}
+  	len = (int)(end - start);
+! 	if (len > (int)sizeof(buf) - 1)
+! 	    len = sizeof(buf) - 1;
+  	vim_strncpy(buf, start, len);
+      }
+      buf[len] = NUL;
+!     return dict_add_nr_str(dict, field_name, 0L, buf);
+  }
+  
+  /*
+--- 3814,3827 ----
+  		--end;
+  	}
+  	len = (int)(end - start);
+! 	if (len > MAXPATHL - 1)
+! 	    len = MAXPATHL - 1;
+  	vim_strncpy(buf, start, len);
+      }
+      buf[len] = NUL;
+!     retval = dict_add_nr_str(dict, field_name, 0L, buf);
+!     vim_free(buf);
+!     return retval;
+  }
+  
+  /*
+*** ../vim-7.3.160/src/vim.h	2010-12-30 12:30:26.000000000 +0100
+--- src/vim.h	2011-04-11 20:50:54.000000000 +0200
+***************
+*** 1435,1440 ****
+--- 1435,1442 ----
+  
+  #define IOSIZE	   (1024+1)	/* file i/o and sprintf buffer size */
+  
++ #define DIALOG_MSG_SIZE 1000	/* buffer size for dialog_msg() */
++ 
+  #ifdef FEAT_MBYTE
+  # define MSG_BUF_LEN 480	/* length of buffer for small messages */
+  # define MSG_BUF_CLEN  (MSG_BUF_LEN / 6)    /* cell length (worst case: utf-8
+*** ../vim-7.3.160/src/xxd/xxd.c	2011-04-02 14:44:50.000000000 +0200
+--- src/xxd/xxd.c	2011-04-11 16:40:48.000000000 +0200
+***************
+*** 476,482 ****
+    int octspergrp = -1;	/* number of octets grouped in output */
+    int grplen;		/* total chars per octet group */
+    long length = -1, n = 0, seekoff = 0;
+!   char l[LLEN+1];
+    char *pp;
+  
+  #ifdef AMIGA
+--- 476,482 ----
+    int octspergrp = -1;	/* number of octets grouped in output */
+    int grplen;		/* total chars per octet group */
+    long length = -1, n = 0, seekoff = 0;
+!   static char l[LLEN+1];  /* static because it may be too big for stack */
+    char *pp;
+  
+  #ifdef AMIGA
+*** ../vim-7.3.160/src/version.c	2011-04-11 16:56:29.000000000 +0200
+--- src/version.c	2011-04-11 21:15:33.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     161,
+  /**/
+
+-- 
+The process for understanding customers primarily involves sitting around with
+other marketing people and talking about what you would to if you were dumb
+enough to be a customer.
+				(Scott Adams - The Dilbert principle)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

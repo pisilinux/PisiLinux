@@ -1,0 +1,109 @@
+Index: netcat-openbsd-1.89/netcat.c
+===================================================================
+--- netcat-openbsd-1.89.orig/netcat.c	2008-06-19 16:49:57.000000000 -0400
++++ netcat-openbsd-1.89/netcat.c	2008-06-19 17:04:22.000000000 -0400
+@@ -73,6 +73,7 @@
+ #define UDP_SCAN_TIMEOUT 3			/* Seconds */
+ 
+ /* Command Line Options */
++int	Cflag = 0;				/* CRLF line-ending */
+ int	dflag;					/* detached, no stdin */
+ int	iflag;					/* Interval Flag */
+ int	jflag;					/* use jumbo frames if we can */
+@@ -136,7 +137,7 @@
+ 	sv = NULL;
+ 
+ 	while ((ch = getopt(argc, argv,
+-	    "46Ddhi:jklnP:p:rSs:tT:Uuvw:X:x:z")) != -1) {
++	    "46Ddhi:jklnP:p:rSs:tT:Uuvw:X:x:zC")) != -1) {
+ 		switch (ch) {
+ 		case '4':
+ 			family = AF_INET;
+@@ -226,6 +227,9 @@
+ 		case 'T':
+ 			Tflag = parse_iptos(optarg);
+ 			break;
++		case 'C':
++			Cflag = 1;
++			break;
+ 		default:
+ 			usage(1);
+ 		}
+@@ -738,8 +742,16 @@
+ 			else if (n == 0) {
+ 				goto shutdown_wr;
+ 			} else {
+-				if (atomicio(vwrite, nfd, buf, n) != n)
+-					return;
++				if ((Cflag) && (buf[n-1]=='\n')) {
++					if (atomicio(vwrite, nfd, buf, n-1) != (n-1))
++						return;
++					if (atomicio(vwrite, nfd, "\r\n", 2) != 2)
++						return;
++				}
++				else {
++					if (atomicio(vwrite, nfd, buf, n) != n)
++						return;
++				}
+ 			}
+ 		    }
+ 		    else if (pfd[1].revents & POLLHUP) {
+@@ -944,6 +956,7 @@
+ #endif
+ "	\t-s addr\t	Local source address\n\
+ 	\t-T ToS\t	Set IP Type of Service\n\
++	\t-C		Send CRLF as line-ending\n\
+ 	\t-t		Answer TELNET negotiation\n\
+ 	\t-U		Use UNIX domain socket\n\
+ 	\t-u		UDP mode\n\
+@@ -959,7 +972,7 @@
+ void
+ usage(int ret)
+ {
+-	fprintf(stderr, "usage: nc [-46DdhklnrStUuvz] [-i interval] [-P proxy_username] [-p source_port]\n");
++	fprintf(stderr, "usage: nc [-46DdhklnrStUuvzC] [-i interval] [-P proxy_username] [-p source_port]\n");
+ 	fprintf(stderr, "\t  [-s source_ip_address] [-T ToS] [-w timeout] [-X proxy_protocol]\n");
+ 	fprintf(stderr, "\t  [-x proxy_address[:port]] [hostname] [port[s]]\n");
+ 	if (ret)
+Index: netcat-openbsd-1.89/nc.1
+===================================================================
+--- netcat-openbsd-1.89.orig/nc.1	2008-06-19 16:49:39.000000000 -0400
++++ netcat-openbsd-1.89/nc.1	2008-06-19 16:54:36.000000000 -0400
+@@ -34,7 +34,7 @@
+ .Sh SYNOPSIS
+ .Nm nc
+ .Bk -words
+-.Op Fl 46DdhklnrStUuvz
++.Op Fl 46DdhklnrStUuvzC
+ .Op Fl i Ar interval
+ .Op Fl P Ar proxy_username
+ .Op Fl p Ar source_port
+@@ -140,6 +140,10 @@
+ It is an error to use this option in conjunction with the
+ .Fl l
+ option.
++.It Fl q
++after EOF on stdin, wait the specified number of seconds and then quit. If
++.Ar seconds
++is negative, wait forever.
+ .It Fl r
+ Specifies that source and/or destination ports should be chosen randomly
+ instead of sequentially within a range or in the order that the system
+@@ -159,6 +163,8 @@
+ .Dq reliability ,
+ or an 8-bit hexadecimal value preceded by
+ .Dq 0x .
++.It Fl C 
++Send CRLF as line-ending
+ .It Fl t
+ Causes
+ .Nm
+@@ -317,7 +323,7 @@
+ of requests required by the server.
+ As another example, an email may be submitted to an SMTP server using:
+ .Bd -literal -offset indent
+-$ nc localhost 25 \*(Lt\*(Lt EOF
++$ nc [-C] localhost 25 \*(Lt\*(Lt EOF
+ HELO host.example.com
+ MAIL FROM:\*(Ltuser@host.example.com\*(Gt
+ RCPT TO:\*(Ltuser2@host.example.com\*(Gt

@@ -1,0 +1,270 @@
+diff -up bind-9.7.0b1/bin/dig/dighost.c.libidn bind-9.7.0b1/bin/dig/dighost.c
+--- bind-9.7.0b1/bin/dig/dighost.c.libidn	2009-09-16 01:48:09.000000000 +0200
++++ bind-9.7.0b1/bin/dig/dighost.c	2009-10-20 10:49:26.719056220 +0200
+@@ -44,6 +44,11 @@
+ #include <idn/api.h>
+ #endif
+ 
++#ifdef WITH_LIBIDN
++#include <stringprep.h>
++#include <idna.h>
++#endif
++
+ #include <dns/byaddr.h>
+ #ifdef DIG_SIGCHASE
+ #include <dns/dnssec.h>
+@@ -153,6 +158,14 @@ static void		idn_check_result(idn_result
+ int  idnoptions	= 0;
+ #endif
+ 
++#ifdef WITH_LIBIDN
++static isc_result_t	libidn_locale_to_utf8 (const char* from, char **to);
++static isc_result_t	libidn_utf8_to_ascii (const char* from, char *to);
++static isc_result_t	output_filter (isc_buffer_t *buffer,
++				       unsigned int used_org,
++				       isc_boolean_t absolute);
++#endif
++
+ /*%
+  * Exit Codes:
+  *
+@@ -1184,6 +1197,9 @@ setup_system(void) {
+ 	dig_searchlist_t *domain = NULL;
+ 	lwres_result_t lwresult;
+ 	unsigned int lwresflags;
++#ifdef WITH_LIBIDN
++	isc_result_t result;
++#endif
+ 
+ 	debug("setup_system()");
+ 
+@@ -1242,8 +1258,15 @@ setup_system(void) {
+ 
+ #ifdef WITH_IDN
+ 	initialize_idn();
++	
++#endif
++#ifdef WITH_LIBIDN
++	result = dns_name_settotextfilter(output_filter);
++	check_result(result, "dns_name_settotextfilter");
++#ifdef HAVE_SETLOCALE
++	setlocale (LC_ALL, "");
++#endif
+ #endif
+-
+ 	if (keyfile[0] != 0)
+ 		setup_file_key();
+ 	else if (keysecret[0] != 0)
+@@ -1957,12 +1980,18 @@ setup_lookup(dig_lookup_t *lookup) {
+ 	idn_result_t mr;
+ 	char utf8_textname[MXNAME], utf8_origin[MXNAME], idn_textname[MXNAME];
+ #endif
++#ifdef WITH_LIBIDN
++	char *utf8_str = NULL, utf8_name[MXNAME], ascii_name[MXNAME];
++#endif
+ 
+ #ifdef WITH_IDN
+ 	result = dns_name_settotextfilter(output_filter);
+ 	check_result(result, "dns_name_settotextfilter");
+ #endif
+-
++#ifdef WITH_LIBIDN
++	result = dns_name_settotextfilter (output_filter);
++	check_result(result, "dns_name_settotextfilter");
++#endif
+ 	REQUIRE(lookup != NULL);
+ 	INSIST(!free_now);
+ 
+@@ -1999,6 +2028,16 @@ setup_lookup(dig_lookup_t *lookup) {
+ 	mr = idn_encodename(IDN_LOCALCONV | IDN_DELIMMAP, lookup->textname,
+ 			    utf8_textname, sizeof(utf8_textname));
+ 	idn_check_result(mr, "convert textname to UTF-8");
++#elif defined (WITH_LIBIDN)
++	result = libidn_locale_to_utf8 (lookup->textname, &utf8_str);
++	check_result (result, "converting textname to UTF-8");
++	len = strlen (utf8_str);
++	if (len < MXNAME) {
++		(void) strcpy (utf8_name, utf8_str);
++	} else {
++		fatal ("Too long name");
++	}
++	isc_mem_free (mctx, utf8_str);
+ #endif
+ 
+ 	/*
+@@ -2018,6 +2057,15 @@ setup_lookup(dig_lookup_t *lookup) {
+ 			lookup->origin = ISC_LIST_HEAD(search_list);
+ 			lookup->need_search = ISC_FALSE;
+ 		}
++#elif defined (WITH_LIBIDN)
++		if ((count_dots(utf8_name) >= ndots) || !usesearch) {
++			lookup->origin = NULL; /* Force abs lookup */
++			lookup->done_as_is = ISC_TRUE;
++			lookup->need_search = usesearch;
++		} else if (lookup->origin == NULL && usesearch) {
++			lookup->origin = ISC_LIST_HEAD(search_list);
++			lookup->need_search = ISC_FALSE;
++		}
+ #else
+ 		if ((count_dots(lookup->textname) >= ndots) || !usesearch) {
+ 			lookup->origin = NULL; /* Force abs lookup */
+@@ -2044,6 +2092,20 @@ setup_lookup(dig_lookup_t *lookup) {
+ 			    IDN_IDNCONV | IDN_LENCHECK, utf8_textname,
+ 			    idn_textname, sizeof(idn_textname));
+ 	idn_check_result(mr, "convert UTF-8 textname to IDN encoding");
++#elif defined (WITH_LIBIDN)
++	if (lookup->origin != NULL) {
++		result = libidn_locale_to_utf8 (lookup->origin->origin, &utf8_str);
++		check_result (result, "convert origin to UTF-8");
++		if (len + strlen (utf8_str) + 1 < MXNAME) {
++			utf8_name[len++] = '.';
++			(void) strcpy (utf8_name + len, utf8_str);
++		} else {
++			fatal ("Too long name + origin");
++		}
++		isc_mem_free (mctx, utf8_str);
++	}
++
++	result = libidn_utf8_to_ascii (utf8_name, ascii_name);
+ #else
+ 	if (lookup->origin != NULL) {
+ 		debug("trying origin %s", lookup->origin->origin);
+@@ -2099,6 +2161,13 @@ setup_lookup(dig_lookup_t *lookup) {
+ 			result = dns_name_fromtext(lookup->name, &b,
+ 						   dns_rootname, 0,
+ 						   &lookup->namebuf);
++#elif defined (WITH_LIBIDN)
++			len = strlen (ascii_name);
++			isc_buffer_init(&b, ascii_name, len);
++			isc_buffer_add(&b, len);
++			result = dns_name_fromtext(lookup->name, &b,
++						   dns_rootname, 0,
++						   &lookup->namebuf);
+ #else
+ 			len = strlen(lookup->textname);
+ 			isc_buffer_init(&b, lookup->textname, len);
+@@ -3617,7 +3686,7 @@ destroy_libs(void) {
+ 	void * ptr;
+ 	dig_message_t *chase_msg;
+ #endif
+-#ifdef WITH_IDN
++#if defined (WITH_IDN) || defined (WITH_LIBIDN)
+ 	isc_result_t result;
+ #endif
+ 
+@@ -3656,6 +3725,10 @@ destroy_libs(void) {
+ 	result = dns_name_settotextfilter(NULL);
+ 	check_result(result, "dns_name_settotextfilter");
+ #endif
++#ifdef WITH_LIBIDN
++	result = dns_name_settotextfilter (NULL);
++	check_result(result, "clearing dns_name_settotextfilter");
++#endif
+ 	dns_name_destroy();
+ 
+ 	if (commctx != NULL) {
+@@ -3834,6 +3907,79 @@ idn_check_result(idn_result_t r, const c
+ 	}
+ }
+ #endif /* WITH_IDN */
++#ifdef WITH_LIBIDN
++/* If stringprep_locale_to_utf8 fails simple copy string */
++static isc_result_t
++libidn_locale_to_utf8 (const char *from, char **to) {
++	char *utf8_str;
++
++	utf8_str = stringprep_locale_to_utf8 (from);
++	if (utf8_str == NULL) {
++		*to = isc_mem_allocate (mctx, strlen (from) + 1);
++		if (*to == NULL)
++			return (ISC_R_NOMEMORY);
++		(void) strcpy (*to, from);
++	} else {
++		*to = isc_mem_allocate (mctx, strlen (utf8_str) + 1);
++		if (*to == NULL)
++			return (ISC_R_NOMEMORY);
++		(void) strcpy (*to, utf8_str);
++		free (utf8_str);
++	}
++	return (ISC_R_SUCCESS);
++}
++static isc_result_t
++libidn_utf8_to_ascii (const char *from, char *to) {
++	char *ascii;
++
++	if (idna_to_ascii_8z (from, &ascii, 0) != IDNA_SUCCESS)
++		return (ISC_R_FAILURE);
++
++	(void) strcpy (to, ascii);
++	free (ascii);
++	return (ISC_R_SUCCESS);
++}
++/* based on idnkit's code*/
++static isc_result_t
++output_filter (isc_buffer_t *buffer, unsigned int used_org,
++	       isc_boolean_t absolute) {
++	char tmp1[MXNAME], *tmp2;
++        size_t fromlen, tolen;
++        isc_boolean_t end_with_dot;
++
++        fromlen = isc_buffer_usedlength(buffer) - used_org;
++	if (fromlen >= MXNAME)
++		return (ISC_R_SUCCESS);
++        memcpy(tmp1, (char *)isc_buffer_base(buffer) + used_org, fromlen);
++        end_with_dot = (tmp1[fromlen - 1] == '.') ? ISC_TRUE : ISC_FALSE;
++        if (absolute && !end_with_dot) {
++                fromlen++;
++		if (fromlen >= MXNAME)
++			return (ISC_R_SUCCESS);
++                tmp1[fromlen - 1] = '.';
++        }
++        tmp1[fromlen] = '\0';
++
++	if (idna_to_unicode_lzlz (tmp1, &tmp2, 0) != IDNA_SUCCESS)
++		return (ISC_R_SUCCESS);
++
++	(void) strcpy (tmp1, tmp2);
++	free (tmp2);
++
++        tolen = strlen(tmp1);
++        if (absolute && !end_with_dot && tmp1[tolen - 1] == '.')
++                tolen--;
++
++        if (isc_buffer_length(buffer) < used_org + tolen)
++                return (ISC_R_NOSPACE);
++
++        isc_buffer_subtract(buffer, isc_buffer_usedlength(buffer) - used_org);
++        memcpy(isc_buffer_used(buffer), tmp1, tolen);
++        isc_buffer_add(buffer, tolen);
++
++        return (ISC_R_SUCCESS);
++}
++#endif /* WITH_LIBIDN*/
+ 
+ #ifdef DIG_SIGCHASE
+ void
+diff -up bind-9.7.0b1/bin/dig/Makefile.in.libidn bind-9.7.0b1/bin/dig/Makefile.in
+--- bind-9.7.0b1/bin/dig/Makefile.in.libidn	2009-09-22 10:47:55.000000000 +0200
++++ bind-9.7.0b1/bin/dig/Makefile.in	2009-10-20 10:50:06.201543709 +0200
+@@ -46,10 +46,10 @@ DEPLIBS =	${DNSDEPLIBS} ${BIND9DEPLIBS} 
+ 		${LWRESDEPLIBS}
+ 
+ LIBS =		${LWRESLIBS} ${DNSLIBS} ${BIND9LIBS} ${ISCCFGLIBS} \
+-		${ISCLIBS} @IDNLIBS@ @LIBS@
++		${ISCLIBS} @IDNLIBS@ @LIBS@ -lidn
+ 
+ NOSYMLIBS =	${LWRESLIBS} ${DNSLIBS} ${BIND9LIBS} ${ISCCFGLIBS} \
+-		${ISCNOSYMLIBS} @IDNLIBS@ @LIBS@
++		${ISCNOSYMLIBS} @IDNLIBS@ @LIBS@ -lidn
+ 
+ SUBDIRS =
+ 
+@@ -67,6 +67,8 @@ HTMLPAGES =	dig.html host.html nslookup.
+ 
+ MANOBJS =	${MANPAGES} ${HTMLPAGES}
+ 
++EXT_CFLAGS = -DWITH_LIBIDN
++
+ @BIND9_MAKE_RULES@
+ 
+ dig@EXEEXT@: dig.@O@ dighost.@O@ ${UOBJS} ${DEPLIBS}

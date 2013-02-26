@@ -1,0 +1,582 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.552
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.552
+Problem:    Formatting inside comments does not use the "2" flag in
+	    'formatoptions'.
+Solution:   Support the "2" flag.  (Tor Perkins)
+Files:	    src/vim.h, src/ops.c, src/edit.c, src/misc1.c,
+	    src/testdir/test68.in, src/testdir/test68.ok
+
+
+*** ../vim-7.3.551/src/vim.h	2012-06-06 18:03:01.000000000 +0200
+--- src/vim.h	2012-06-13 16:07:27.000000000 +0200
+***************
+*** 1072,1083 ****
+--- 1072,1085 ----
+  #define INSCHAR_DO_COM	2	/* format comments */
+  #define INSCHAR_CTRLV	4	/* char typed just after CTRL-V */
+  #define INSCHAR_NO_FEX	8	/* don't use 'formatexpr' */
++ #define INSCHAR_COM_LIST 16	/* format comments with list/2nd line indent */
+  
+  /* flags for open_line() */
+  #define OPENLINE_DELSPACES  1	/* delete spaces after cursor */
+  #define OPENLINE_DO_COM	    2	/* format comments */
+  #define OPENLINE_KEEPTRAIL  4	/* keep trailing spaces */
+  #define OPENLINE_MARKFIX    8	/* fix mark positions */
++ #define OPENLINE_COM_LIST  16	/* format comments with list/2nd line indent */
+  
+  /*
+   * There are four history tables:
+*** ../vim-7.3.551/src/ops.c	2012-06-13 14:01:36.000000000 +0200
+--- src/ops.c	2012-06-13 16:53:44.000000000 +0200
+***************
+*** 1727,1734 ****
+  	 * and the delete is within one line. */
+  	if ((
+  #ifdef FEAT_CLIPBOARD
+!             ((clip_unnamed & CLIP_UNNAMED) && oap->regname == '*') ||
+!             ((clip_unnamed & CLIP_UNNAMED_PLUS) && oap->regname == '+') ||
+  #endif
+  	    oap->regname == 0) && oap->motion_type != MLINE
+  						      && oap->line_count == 1)
+--- 1727,1734 ----
+  	 * and the delete is within one line. */
+  	if ((
+  #ifdef FEAT_CLIPBOARD
+! 	    ((clip_unnamed & CLIP_UNNAMED) && oap->regname == '*') ||
+! 	    ((clip_unnamed & CLIP_UNNAMED_PLUS) && oap->regname == '+') ||
+  #endif
+  	    oap->regname == 0) && oap->motion_type != MLINE
+  						      && oap->line_count == 1)
+***************
+*** 4208,4217 ****
+   * "is_comment".
+   * line - line to be processed,
+   * process - if FALSE, will only check whether the line ends with an unclosed
+!  *           comment,
+   * include_space - whether to also skip space following the comment leader,
+   * is_comment - will indicate whether the current line ends with an unclosed
+!  *              comment.
+   */
+      static char_u *
+  skip_comment(line, process, include_space, is_comment)
+--- 4208,4217 ----
+   * "is_comment".
+   * line - line to be processed,
+   * process - if FALSE, will only check whether the line ends with an unclosed
+!  *	     comment,
+   * include_space - whether to also skip space following the comment leader,
+   * is_comment - will indicate whether the current line ends with an unclosed
+!  *		comment.
+   */
+      static char_u *
+  skip_comment(line, process, include_space, is_comment)
+***************
+*** 4723,4731 ****
+      char_u	*leader_flags = NULL;	/* flags for leader of current line */
+      char_u	*next_leader_flags;	/* flags for leader of next line */
+      int		do_comments;		/* format comments */
+  #endif
+      int		advance = TRUE;
+!     int		second_indent = -1;
+      int		do_second_indent;
+      int		do_number_indent;
+      int		do_trail_white;
+--- 4723,4733 ----
+      char_u	*leader_flags = NULL;	/* flags for leader of current line */
+      char_u	*next_leader_flags;	/* flags for leader of next line */
+      int		do_comments;		/* format comments */
++     int		do_comments_list = 0;	/* format comments with 'n' or '2' */
+  #endif
+      int		advance = TRUE;
+!     int		second_indent = -1;	/* indent for second line (comment
+! 					 * aware) */
+      int		do_second_indent;
+      int		do_number_indent;
+      int		do_trail_white;
+***************
+*** 4828,4845 ****
+  	    if (first_par_line
+  		    && (do_second_indent || do_number_indent)
+  		    && prev_is_end_par
+! 		    && curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count
+  #ifdef FEAT_COMMENTS
+! 		    && leader_len == 0
+! 		    && next_leader_len == 0
+  #endif
+! 		    )
+! 	    {
+! 		if (do_second_indent
+! 			&& !lineempty(curwin->w_cursor.lnum + 1))
+! 		    second_indent = get_indent_lnum(curwin->w_cursor.lnum + 1);
+  		else if (do_number_indent)
+! 		    second_indent = get_number_indent(curwin->w_cursor.lnum);
+  	    }
+  
+  	    /*
+--- 4830,4875 ----
+  	    if (first_par_line
+  		    && (do_second_indent || do_number_indent)
+  		    && prev_is_end_par
+! 		    && curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count)
+! 	    {
+! 		if (do_second_indent && !lineempty(curwin->w_cursor.lnum + 1))
+! 		{
+  #ifdef FEAT_COMMENTS
+! 		    if (leader_len == 0 && next_leader_len == 0)
+! 		    {
+! 			/* no comment found */
+  #endif
+! 			second_indent =
+! 				   get_indent_lnum(curwin->w_cursor.lnum + 1);
+! #ifdef FEAT_COMMENTS
+! 		    }
+! 		    else
+! 		    {
+! 			second_indent = next_leader_len;
+! 			do_comments_list = 1;
+! 		    }
+! #endif
+! 		}
+  		else if (do_number_indent)
+! 		{
+! #ifdef FEAT_COMMENTS
+! 		    if (leader_len == 0 && next_leader_len == 0)
+! 		    {
+! 			/* no comment found */
+! #endif
+! 			second_indent =
+! 				     get_number_indent(curwin->w_cursor.lnum);
+! #ifdef FEAT_COMMENTS
+! 		    }
+! 		    else
+! 		    {
+! 			/* get_number_indent() is now "comment aware"... */
+! 			second_indent =
+! 				     get_number_indent(curwin->w_cursor.lnum);
+! 			do_comments_list = 1;
+! 		    }
+! #endif
+! 		}
+  	    }
+  
+  	    /*
+***************
+*** 4878,4883 ****
+--- 4908,4915 ----
+  		insertchar(NUL, INSCHAR_FORMAT
+  #ifdef FEAT_COMMENTS
+  			+ (do_comments ? INSCHAR_DO_COM : 0)
++ 			+ (do_comments && do_comments_list
++ 						       ? INSCHAR_COM_LIST : 0)
+  #endif
+  			+ (avoid_fex ? INSCHAR_NO_FEX : 0), second_indent);
+  		State = old_State;
+*** ../vim-7.3.551/src/edit.c	2012-06-06 16:12:54.000000000 +0200
+--- src/edit.c	2012-06-13 16:54:10.000000000 +0200
+***************
+*** 1463,1469 ****
+  			 * what check_abbr() expects. */
+  			(has_mbyte && c >= 0x100) ? (c + ABBR_OFF) :
+  #endif
+!                        c) && c != Ctrl_RSB))
+  	    {
+  		insert_special(c, FALSE, FALSE);
+  #ifdef FEAT_RIGHTLEFT
+--- 1463,1469 ----
+  			 * what check_abbr() expects. */
+  			(has_mbyte && c >= 0x100) ? (c + ABBR_OFF) :
+  #endif
+! 		       c) && c != Ctrl_RSB))
+  	    {
+  		insert_special(c, FALSE, FALSE);
+  #ifdef FEAT_RIGHTLEFT
+***************
+*** 5769,5774 ****
+--- 5769,5784 ----
+  # define WHITECHAR(cc) vim_iswhite(cc)
+  #endif
+  
++ /*
++  * "flags": INSCHAR_FORMAT - force formatting
++  *	    INSCHAR_CTRLV  - char typed just after CTRL-V
++  *	    INSCHAR_NO_FEX - don't use 'formatexpr'
++  *
++  *   NOTE: passes the flags value straight through to internal_format() which,
++  *	   beside INSCHAR_FORMAT (above), is also looking for these:
++  *	    INSCHAR_DO_COM   - format comments
++  *	    INSCHAR_COM_LIST - format comments with num list or 2nd line indent
++  */
+      void
+  insertchar(c, flags, second_indent)
+      int		c;			/* character to insert or NUL */
+***************
+*** 6011,6016 ****
+--- 6021,6029 ----
+  
+  /*
+   * Format text at the current insert position.
++  *
++  * If the INSCHAR_COM_LIST flag is present, then the value of second_indent
++  * will be the comment leader length sent to open_line().
+   */
+      static void
+  internal_format(textwidth, second_indent, flags, format_only, c)
+***************
+*** 6289,6311 ****
+  		+ (fo_white_par ? OPENLINE_KEEPTRAIL : 0)
+  #ifdef FEAT_COMMENTS
+  		+ (do_comments ? OPENLINE_DO_COM : 0)
+  #endif
+! 		, old_indent);
+! 	old_indent = 0;
+  
+  	replace_offset = 0;
+  	if (first_line)
+  	{
+! 	    if (second_indent < 0 && has_format_option(FO_Q_NUMBER))
+! 		second_indent = get_number_indent(curwin->w_cursor.lnum -1);
+! 	    if (second_indent >= 0)
+  	    {
+  #ifdef FEAT_VREPLACE
+! 		if (State & VREPLACE_FLAG)
+! 		    change_indent(INDENT_SET, second_indent, FALSE, NUL, TRUE);
+! 		else
+  #endif
+! 		    (void)set_indent(second_indent, SIN_CHANGED);
+  	    }
+  	    first_line = FALSE;
+  	}
+--- 6302,6337 ----
+  		+ (fo_white_par ? OPENLINE_KEEPTRAIL : 0)
+  #ifdef FEAT_COMMENTS
+  		+ (do_comments ? OPENLINE_DO_COM : 0)
++ 		+ ((flags & INSCHAR_COM_LIST) ? OPENLINE_COM_LIST : 0)
+  #endif
+! 		, ((flags & INSCHAR_COM_LIST) ? second_indent : old_indent));
+! 	if (!(flags & INSCHAR_COM_LIST))
+! 	    old_indent = 0;
+  
+  	replace_offset = 0;
+  	if (first_line)
+  	{
+! 	    if (!(flags & INSCHAR_COM_LIST))
+  	    {
++ 		/*
++ 		 * This section is for numeric lists w/o comments.  If comment
++ 		 * indents are needed with numeric lists (formatoptions=nq),
++ 		 * then the INSCHAR_COM_LIST flag will cause the corresponding
++ 		 * OPENLINE_COM_LIST flag to be passed through to open_line()
++ 		 * (as seen above)...
++ 		 */
++ 		if (second_indent < 0 && has_format_option(FO_Q_NUMBER))
++ 		    second_indent = get_number_indent(curwin->w_cursor.lnum -1);
++ 		if (second_indent >= 0)
++ 		{
+  #ifdef FEAT_VREPLACE
+! 		    if (State & VREPLACE_FLAG)
+! 			change_indent(INDENT_SET, second_indent,
+! 							    FALSE, NUL, TRUE);
+! 		    else
+  #endif
+! 			(void)set_indent(second_indent, SIN_CHANGED);
+! 		}
+  	    }
+  	    first_line = FALSE;
+  	}
+*** ../vim-7.3.551/src/misc1.c	2012-06-13 13:40:45.000000000 +0200
+--- src/misc1.c	2012-06-13 16:54:59.000000000 +0200
+***************
+*** 423,449 ****
+  {
+      colnr_T	col;
+      pos_T	pos;
+-     regmmatch_T	regmatch;
+  
+      if (lnum > curbuf->b_ml.ml_line_count)
+  	return -1;
+      pos.lnum = 0;
+!     regmatch.regprog = vim_regcomp(curbuf->b_p_flp, RE_MAGIC);
+!     if (regmatch.regprog != NULL)
+      {
+! 	regmatch.rmm_ic = FALSE;
+! 	regmatch.rmm_maxcol = 0;
+! 	if (vim_regexec_multi(&regmatch, curwin, curbuf, lnum,
+! 							    (colnr_T)0, NULL))
+  	{
+! 	    pos.lnum = regmatch.endpos[0].lnum + lnum;
+! 	    pos.col = regmatch.endpos[0].col;
+  #ifdef FEAT_VIRTUALEDIT
+! 	    pos.coladd = 0;
+  #endif
+  	}
+  	vim_free(regmatch.regprog);
+      }
+  
+      if (pos.lnum == 0 || *ml_get_pos(&pos) == NUL)
+  	return -1;
+--- 423,492 ----
+  {
+      colnr_T	col;
+      pos_T	pos;
+  
+      if (lnum > curbuf->b_ml.ml_line_count)
+  	return -1;
+      pos.lnum = 0;
+! 
+! #ifdef FEAT_COMMENTS
+!     if (has_format_option(FO_Q_COMS) && has_format_option(FO_Q_NUMBER))
+      {
+! 	regmatch_T  regmatch;
+! 	int	    lead_len;	      /* length of comment leader */
+! 
+! 	lead_len = get_leader_len(ml_get(lnum), NULL, FALSE, TRUE);
+! 	regmatch.regprog = vim_regcomp(curbuf->b_p_flp, RE_MAGIC);
+! 	if (regmatch.regprog != NULL)
+  	{
+! 	    regmatch.rm_ic = FALSE;
+! 
+! 	    /* vim_regexec() expects a pointer to a line.  This lets us
+! 	     * start matching for the flp beyond any comment leader...  */
+! 	    if (vim_regexec(&regmatch, ml_get(lnum) + lead_len, (colnr_T)0))
+! 	    {
+! 		pos.lnum = lnum;
+! 		pos.col  = *regmatch.endp - (ml_get(lnum) + lead_len);
+! 		pos.col += lead_len;
+  #ifdef FEAT_VIRTUALEDIT
+! 		pos.coladd = 0;
+  #endif
++ 	    }
+  	}
+  	vim_free(regmatch.regprog);
+      }
++     else
++     {
++ 	/*
++ 	 * What follows is the orig code that is not "comment aware"...
++ 	 *
++ 	 * I'm not sure if regmmatch_T (multi-match) is needed in this case.
++ 	 * It may be true that this section would work properly using the
++ 	 * regmatch_T code above, in which case, these two seperate sections
++ 	 * should be consolidated w/ FEAT_COMMENTS making lead_len > 0...
++ 	 */
++ #endif
++ 	regmmatch_T  regmatch;
++ 
++ 	regmatch.regprog = vim_regcomp(curbuf->b_p_flp, RE_MAGIC);
++ 
++ 	if (regmatch.regprog != NULL)
++ 	{
++ 	    regmatch.rmm_ic = FALSE;
++ 	    regmatch.rmm_maxcol = 0;
++ 	    if (vim_regexec_multi(&regmatch, curwin, curbuf,
++ 						      lnum, (colnr_T)0, NULL))
++ 	    {
++ 		pos.lnum = regmatch.endpos[0].lnum + lnum;
++ 		pos.col = regmatch.endpos[0].col;
++ #ifdef FEAT_VIRTUALEDIT
++ 		pos.coladd = 0;
++ #endif
++ 	    }
++ 	    vim_free(regmatch.regprog);
++ 	}
++ #ifdef FEAT_COMMENTS
++     }
++ #endif
+  
+      if (pos.lnum == 0 || *ml_get_pos(&pos) == NUL)
+  	return -1;
+***************
+*** 502,515 ****
+   *	    OPENLINE_DO_COM	format comments
+   *	    OPENLINE_KEEPTRAIL	keep trailing spaces
+   *	    OPENLINE_MARKFIX	adjust mark positions after the line break
+   *
+   * Return TRUE for success, FALSE for failure
+   */
+      int
+! open_line(dir, flags, old_indent)
+      int		dir;		/* FORWARD or BACKWARD */
+      int		flags;
+!     int		old_indent;	/* indent for after ^^D in Insert mode */
+  {
+      char_u	*saved_line;		/* copy of the original line */
+      char_u	*next_line = NULL;	/* copy of the next line */
+--- 545,562 ----
+   *	    OPENLINE_DO_COM	format comments
+   *	    OPENLINE_KEEPTRAIL	keep trailing spaces
+   *	    OPENLINE_MARKFIX	adjust mark positions after the line break
++  *	    OPENLINE_COM_LIST	format comments with list or 2nd line indent
++  *
++  * "second_line_indent": indent for after ^^D in Insert mode or if flag
++  *			  OPENLINE_COM_LIST
+   *
+   * Return TRUE for success, FALSE for failure
+   */
+      int
+! open_line(dir, flags, second_line_indent)
+      int		dir;		/* FORWARD or BACKWARD */
+      int		flags;
+!     int		second_line_indent;
+  {
+      char_u	*saved_line;		/* copy of the original line */
+      char_u	*next_line = NULL;	/* copy of the next line */
+***************
+*** 650,657 ****
+  	 * count white space on current line
+  	 */
+  	newindent = get_indent_str(saved_line, (int)curbuf->b_p_ts);
+! 	if (newindent == 0)
+! 	    newindent = old_indent;	/* for ^^D command in insert mode */
+  
+  #ifdef FEAT_SMARTINDENT
+  	/*
+--- 697,704 ----
+  	 * count white space on current line
+  	 */
+  	newindent = get_indent_str(saved_line, (int)curbuf->b_p_ts);
+! 	if (newindent == 0 && !(flags & OPENLINE_COM_LIST))
+! 	    newindent = second_line_indent; /* for ^^D command in insert mode */
+  
+  #ifdef FEAT_SMARTINDENT
+  	/*
+***************
+*** 1008,1015 ****
+  	if (lead_len)
+  	{
+  	    /* allocate buffer (may concatenate p_exta later) */
+! 	    leader = alloc(lead_len + lead_repl_len + extra_space +
+! 							      extra_len + 1);
+  	    allocated = leader;		    /* remember to free it later */
+  
+  	    if (leader == NULL)
+--- 1055,1062 ----
+  	if (lead_len)
+  	{
+  	    /* allocate buffer (may concatenate p_exta later) */
+! 	    leader = alloc(lead_len + lead_repl_len + extra_space + extra_len
+! 			 + (second_line_indent > 0 ? second_line_indent : 0));
+  	    allocated = leader;		    /* remember to free it later */
+  
+  	    if (leader == NULL)
+***************
+*** 1304,1309 ****
+--- 1351,1370 ----
+      /* concatenate leader and p_extra, if there is a leader */
+      if (lead_len)
+      {
++ 	if (flags & OPENLINE_COM_LIST && second_line_indent > 0)
++ 	{
++ 	    int i;
++ 	    int padding = second_line_indent - (newindent + STRLEN(leader));
++ 
++ 	    /* Here whitespace is inserted after the comment char.
++ 	     * Below, set_indent(newindent, SIN_INSERT) will insert the
++ 	     * whitespace needed before the comment char. */
++ 	    for (i = 0; i < padding; i++)
++ 	    {
++ 		STRCAT(leader, " ");
++ 		newcol++;
++ 	    }
++ 	}
+  	STRCAT(leader, p_extra);
+  	p_extra = leader;
+  	did_ai = TRUE;	    /* So truncating blanks works with comments */
+***************
+*** 4966,4973 ****
+      char_u  *
+  FullName_save(fname, force)
+      char_u	*fname;
+!     int		force;	    /* force expansion, even when it already looks
+! 			       like a full path name */
+  {
+      char_u	*buf;
+      char_u	*new_fname = NULL;
+--- 5027,5034 ----
+      char_u  *
+  FullName_save(fname, force)
+      char_u	*fname;
+!     int		force;		/* force expansion, even when it already looks
+! 				 * like a full path name */
+  {
+      char_u	*buf;
+      char_u	*new_fname = NULL;
+*** ../vim-7.3.551/src/testdir/test68.in	2010-10-09 17:21:42.000000000 +0200
+--- src/testdir/test68.in	2012-06-13 15:49:38.000000000 +0200
+***************
+*** 51,56 ****
+--- 51,77 ----
+  }
+  
+  STARTTEST
++ /^{/+1
++ :set tw=5 fo=qn comments=:#
++ gwap
++ ENDTEST
++ 
++ {
++ # 1 a b
++ }
++ 
++ STARTTEST
++ /^{/+1
++ :set tw=5 fo=q2 comments=:#
++ gwap
++ ENDTEST
++ 
++ {
++ # x
++ #   a b
++ }
++ 
++ STARTTEST
+  /^{/+2
+  :set tw& fo=a
+  I^^
+*** ../vim-7.3.551/src/testdir/test68.ok	2010-10-09 17:21:42.000000000 +0200
+--- src/testdir/test68.ok	2012-06-13 15:49:38.000000000 +0200
+***************
+*** 34,38 ****
+--- 34,50 ----
+  }
+  
+  
++ {
++ # 1 a
++ #   b
++ }
++ 
++ 
++ {
++ # x a
++ #   b
++ }
++ 
++ 
+  { 1aa ^^2bb }
+  
+*** ../vim-7.3.551/src/version.c	2012-06-13 14:28:16.000000000 +0200
+--- src/version.c	2012-06-13 16:36:14.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     552,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+31. You code your homework in HTML and give your instructor the URL.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

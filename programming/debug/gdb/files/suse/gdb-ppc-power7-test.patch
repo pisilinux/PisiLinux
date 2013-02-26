@@ -1,0 +1,295 @@
+--- /dev/null
++++ b/gdb/testsuite/gdb.arch/powerpc-power7.exp
+@@ -0,0 +1,182 @@
++# Copyright 2009 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# Test PowerPC Power7 instructions disassembly.
++
++if {![istarget "powerpc*-*-*"]} then {
++    verbose "Skipping PowerPC Power7 instructions disassembly."
++    return
++}
++
++set testfile "powerpc-power7"
++set srcfile ${testfile}.s
++set objfile ${objdir}/${subdir}/${testfile}.o
++
++if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${objfile}" object {debug}] != "" } {
++    untested "PowerPC Power7 instructions disassembly"
++    return -1
++}
++
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${objfile}
++ 
++
++# Disassemble the function.
++
++set test "disass func"
++gdb_test_multiple $test $test {
++    -re "\r\nDump of assembler code for function func:(\r\n.*\r\n)End of assembler dump.\r\n$gdb_prompt $" {
++	set func $expect_out(1,string)
++	pass $test
++    }
++}
++
++proc instr_to_patt {offset instr} {
++    # 0x0000000000000018 <func+24>:	stxvd2x vs43,r4,r5
++    return ".*\r\n\[ \t\]*[string map {0x 0x0*} $offset] <(func)?\\+?\[0-9\]*>:\[ \t\]*[string map [list { } "\[ \t\]+" . {\.}] $instr]\[ \t\]*\r\n.*"
++}
++
++# KFAIL strings would not exist if -Many would print the same as -Mpower7.
++# That means the power7 form should be the preferred one.
++# http://sourceware.org/ml/gdb-patches/2009-03/threads.html#00020
++
++proc func_check {offset instr {kfail ""}} {
++    global func
++
++    set test "Found $offset: $instr"
++    if [regexp -nocase -line [instr_to_patt $offset $instr] $func] {
++	pass $test
++    } elseif {$kfail != "" && [regexp -nocase -line [instr_to_patt $offset $kfail] $func]} {
++	kfail gdb/NNNN $test
++    } else {
++	fail $test
++    }
++}
++
++func_check   0x0 "lxvd2x  vs3,r4,r5"
++# [PATCH] Remove support for POWER7 VSX load/store with update instructions
++# http://sourceware.org/ml/binutils/2009-09/msg00680.html
++# http://sourceware.org/ml/binutils-cvs/2009-09/msg00331.html
++# lxvd2ux vs3,r4,r5
++func_check   0x4 ".long 0x7c642ed8"
++func_check   0x8 "lxvd2x  vs43,r4,r5"
++# lxvd2ux vs43,r4,r5
++func_check   0xc ".long 0x7d642ed9"
++func_check  0x10 "stxvd2x vs3,r4,r5"
++# stxvd2ux vs3,r4,r5
++func_check  0x14 ".long 0x7c642fd8"
++func_check  0x18 "stxvd2x vs43,r4,r5"
++# stxvd2ux vs43,r4,r5
++func_check  0x1c ".long 0x7d642fd9"
++func_check  0x20 "xxmrghd vs3,vs4,vs5"
++func_check  0x24 "xxmrghd vs43,vs44,vs45"
++func_check  0x28 "xxmrgld vs3,vs4,vs5"
++func_check  0x2c "xxmrgld vs43,vs44,vs45"
++func_check  0x30 "xxmrghd vs3,vs4,vs5"
++func_check  0x34 "xxmrghd vs43,vs44,vs45"
++func_check  0x38 "xxmrgld vs3,vs4,vs5"
++func_check  0x3c "xxmrgld vs43,vs44,vs45"
++func_check  0x40 "xxpermdi vs3,vs4,vs5,1"
++func_check  0x44 "xxpermdi vs43,vs44,vs45,1"
++func_check  0x48 "xxpermdi vs3,vs4,vs5,2"
++func_check  0x4c "xxpermdi vs43,vs44,vs45,2"
++func_check  0x50 "xvmovdp vs3,vs4"
++func_check  0x54 "xvmovdp vs43,vs44"
++func_check  0x58 "xvmovdp vs3,vs4"
++func_check  0x5c "xvmovdp vs43,vs44"
++func_check  0x60 "xvcpsgndp vs3,vs4,vs5"
++func_check  0x64 "xvcpsgndp vs43,vs44,vs45"
++func_check  0x68 "wait"
++func_check  0x6c "wait"
++func_check  0x70 "waitrsv"
++func_check  0x74 "waitrsv"
++func_check  0x78 "waitimpl"
++func_check  0x7c "waitimpl"
++func_check  0x80 "doze"
++func_check  0x84 "nap"
++func_check  0x88 "sleep"
++func_check  0x8c "rvwinkle"
++func_check  0x90 "prtyw   r3,r4"
++func_check  0x94 "prtyd   r13,r14"
++func_check  0x98 "mfcfar  r10"           "mfspr   r10,28"
++func_check  0x9c "mtcfar  r11"           "mtspr   28,r11"
++func_check  0xa0 "cmpb    r3,r4,r5"
++func_check  0xa4 "lwzcix  r10,r11,r12"
++func_check  0xa8 "dadd    f16,f17,f18"
++func_check  0xac "daddq   f20,f22,f24"
++func_check  0xb0 "dss     3"
++func_check  0xb4 "dssall"
++func_check  0xb8 "dst     r5,r4,1"
++func_check  0xbc "dstt    r8,r7,0"
++func_check  0xc0 "dstst   r5,r6,3"
++func_check  0xc4 "dststt  r4,r5,2"
++func_check  0xc8 "divwe   r10,r11,r12"
++func_check  0xcc "divwe.  r11,r12,r13"
++func_check  0xd0 "divweo  r12,r13,r14"
++func_check  0xd4 "divweo. r13,r14,r15"
++func_check  0xd8 "divweu  r10,r11,r12"
++func_check  0xdc "divweu. r11,r12,r13"
++func_check  0xe0 "divweuo r12,r13,r14"
++func_check  0xe4 "divweuo. r13,r14,r15"
++func_check  0xe8 "bpermd  r7,r17,r27"
++func_check  0xec "popcntw r10,r20"
++func_check  0xf0 "popcntd r10,r20"
++func_check  0xf4 "ldbrx   r20,r21,r22"
++func_check  0xf8 "stdbrx  r20,r21,r22"
++func_check  0xfc "lfiwzx  f10,0,r10"
++func_check 0x100 "lfiwzx  f10,r9,r10"
++func_check 0x104 "fcfids  f4,f5"
++func_check 0x108 "fcfids. f4,f5"
++func_check 0x10c "fcfidus f4,f5"
++func_check 0x110 "fcfidus. f4,f5"
++func_check 0x114 "fctiwu  f4,f5"
++func_check 0x118 "fctiwu. f4,f5"
++func_check 0x11c "fctiwuz f4,f5"
++func_check 0x120 "fctiwuz. f4,f5"
++func_check 0x124 "fctidu  f4,f5"
++func_check 0x128 "fctidu. f4,f5"
++func_check 0x12c "fctiduz f4,f5"
++func_check 0x130 "fctiduz. f4,f5"
++func_check 0x134 "fcfidu  f4,f5"
++func_check 0x138 "fcfidu. f4,f5"
++func_check 0x13c "ftdiv   cr0,f10,f11"
++func_check 0x140 "ftdiv   cr7,f10,f11"
++func_check 0x144 "ftsqrt  cr0,f10"
++func_check 0x148 "ftsqrt  cr7,f10"
++func_check 0x14c "dcbtt   r8,r9"         "dcbt    16,r8,r9"
++func_check 0x150 "dcbtstt r8,r9"         "dcbtst  16,r8,r9"
++func_check 0x154 "dcffix  f10,f12"
++func_check 0x158 "dcffix. f20,f22"
++func_check 0x15c "lbarx   r10,r11,r12"
++func_check 0x160 "lbarx   r10,r11,r12"
++func_check 0x164 "lbarx   r10,r11,r12,1"
++func_check 0x168 "lharx   r20,r21,r22"
++func_check 0x16c "lharx   r20,r21,r22"
++func_check 0x170 "lharx   r20,r21,r22,1"
++func_check 0x174 "stbcx.  r10,r11,r12"
++func_check 0x178 "sthcx.  r10,r11,r12"
++func_check 0x17c "fre     f14,f15"
++func_check 0x180 "fre.    f14,f15"
++func_check 0x184 "fres    f14,f15"
++func_check 0x188 "fres.   f14,f15"
++func_check 0x18c "frsqrte f14,f15"
++func_check 0x190 "frsqrte. f14,f15"
++func_check 0x194 "frsqrtes f14,f15"
++func_check 0x198 "frsqrtes. f14,f15"
++func_check 0x19c "isel    r2,r3,r4,28"
+--- /dev/null
++++ b/gdb/testsuite/gdb.arch/powerpc-power7.s
+@@ -0,0 +1,107 @@
++	.text
++	.globl	func
++func:
++	.long	0x7c642e98	/*   0: lxvd2x  vs3,r4,r5         */
++	.long	0x7c642ed8	/*   4: lxvd2ux vs3,r4,r5         */
++	.long	0x7d642e99	/*   8: lxvd2x  vs43,r4,r5        */
++	.long	0x7d642ed9	/*   c: lxvd2ux vs43,r4,r5        */
++	.long	0x7c642f98	/*  10: stxvd2x vs3,r4,r5         */
++	.long	0x7c642fd8	/*  14: stxvd2ux vs3,r4,r5        */
++	.long	0x7d642f99	/*  18: stxvd2x vs43,r4,r5        */
++	.long	0x7d642fd9	/*  1c: stxvd2ux vs43,r4,r5       */
++	.long	0xf0642850	/*  20: xxmrghd vs3,vs4,vs5       */
++	.long	0xf16c6857	/*  24: xxmrghd vs43,vs44,vs45    */
++	.long	0xf0642b50	/*  28: xxmrgld vs3,vs4,vs5       */
++	.long	0xf16c6b57	/*  2c: xxmrgld vs43,vs44,vs45    */
++	.long	0xf0642850	/*  30: xxmrghd vs3,vs4,vs5       */
++	.long	0xf16c6857	/*  34: xxmrghd vs43,vs44,vs45    */
++	.long	0xf0642b50	/*  38: xxmrgld vs3,vs4,vs5       */
++	.long	0xf16c6b57	/*  3c: xxmrgld vs43,vs44,vs45    */
++	.long	0xf0642950	/*  40: xxpermdi vs3,vs4,vs5,1    */
++	.long	0xf16c6957	/*  44: xxpermdi vs43,vs44,vs45,1 */
++	.long	0xf0642a50	/*  48: xxpermdi vs3,vs4,vs5,2    */
++	.long	0xf16c6a57	/*  4c: xxpermdi vs43,vs44,vs45,2 */
++	.long	0xf0642780	/*  50: xvmovdp vs3,vs4           */
++	.long	0xf16c6787	/*  54: xvmovdp vs43,vs44         */
++	.long	0xf0642780	/*  58: xvmovdp vs3,vs4           */
++	.long	0xf16c6787	/*  5c: xvmovdp vs43,vs44         */
++	.long	0xf0642f80	/*  60: xvcpsgndp vs3,vs4,vs5     */
++	.long	0xf16c6f87	/*  64: xvcpsgndp vs43,vs44,vs45  */
++	.long	0x7c00007c	/*  68: wait                      */
++	.long	0x7c00007c	/*  6c: wait                      */
++	.long	0x7c20007c	/*  70: waitrsv                   */
++	.long	0x7c20007c	/*  74: waitrsv                   */
++	.long	0x7c40007c	/*  78: waitimpl                  */
++	.long	0x7c40007c	/*  7c: waitimpl                  */
++	.long	0x4c000324	/*  80: doze                      */
++	.long	0x4c000364	/*  84: nap                       */
++	.long	0x4c0003a4	/*  88: sleep                     */
++	.long	0x4c0003e4	/*  8c: rvwinkle                  */
++	.long	0x7c830134	/*  90: prtyw   r3,r4             */
++	.long	0x7dcd0174	/*  94: prtyd   r13,r14           */
++	.long	0x7d5c02a6	/*  98: mfcfar  r10               */
++	.long	0x7d7c03a6	/*  9c: mtcfar  r11               */
++	.long	0x7c832bf8	/*  a0: cmpb    r3,r4,r5          */
++	.long	0x7d4b662a	/*  a4: lwzcix  r10,r11,r12       */
++	.long	0xee119004	/*  a8: dadd    f16,f17,f18       */
++	.long	0xfe96c004	/*  ac: daddq   f20,f22,f24       */
++	.long	0x7c60066c	/*  b0: dss     3                 */
++	.long	0x7e00066c	/*  b4: dssall                    */
++	.long	0x7c2522ac	/*  b8: dst     r5,r4,1           */
++	.long	0x7e083aac	/*  bc: dstt    r8,r7,0           */
++	.long	0x7c6532ec	/*  c0: dstst   r5,r6,3           */
++	.long	0x7e442aec	/*  c4: dststt  r4,r5,2           */
++	.long	0x7d4b6356	/*  c8: divwe   r10,r11,r12       */
++	.long	0x7d6c6b57	/*  cc: divwe.  r11,r12,r13       */
++	.long	0x7d8d7756	/*  d0: divweo  r12,r13,r14       */
++	.long	0x7dae7f57	/*  d4: divweo. r13,r14,r15       */
++	.long	0x7d4b6316	/*  d8: divweu  r10,r11,r12       */
++	.long	0x7d6c6b17	/*  dc: divweu. r11,r12,r13       */
++	.long	0x7d8d7716	/*  e0: divweuo r12,r13,r14       */
++	.long	0x7dae7f17	/*  e4: divweuo. r13,r14,r15      */
++	.long	0x7e27d9f8	/*  e8: bpermd  r7,r17,r27        */
++	.long	0x7e8a02f4	/*  ec: popcntw r10,r20           */
++	.long	0x7e8a03f4	/*  f0: popcntd r10,r20           */
++	.long	0x7e95b428	/*  f4: ldbrx   r20,r21,r22       */
++	.long	0x7e95b528	/*  f8: stdbrx  r20,r21,r22       */
++	.long	0x7d4056ee	/*  fc: lfiwzx  f10,0,r10         */
++	.long	0x7d4956ee	/* 100: lfiwzx  f10,r9,r10        */
++	.long	0xec802e9c	/* 104: fcfids  f4,f5             */
++	.long	0xec802e9d	/* 108: fcfids. f4,f5             */
++	.long	0xec802f9c	/* 10c: fcfidus f4,f5             */
++	.long	0xec802f9d	/* 110: fcfidus. f4,f5            */
++	.long	0xfc80291c	/* 114: fctiwu  f4,f5             */
++	.long	0xfc80291d	/* 118: fctiwu. f4,f5             */
++	.long	0xfc80291e	/* 11c: fctiwuz f4,f5             */
++	.long	0xfc80291f	/* 120: fctiwuz. f4,f5            */
++	.long	0xfc802f5c	/* 124: fctidu  f4,f5             */
++	.long	0xfc802f5d	/* 128: fctidu. f4,f5             */
++	.long	0xfc802f5e	/* 12c: fctiduz f4,f5             */
++	.long	0xfc802f5f	/* 130: fctiduz. f4,f5            */
++	.long	0xfc802f9c	/* 134: fcfidu  f4,f5             */
++	.long	0xfc802f9d	/* 138: fcfidu. f4,f5             */
++	.long	0xfc0a5900	/* 13c: ftdiv   cr0,f10,f11       */
++	.long	0xff8a5900	/* 140: ftdiv   cr7,f10,f11       */
++	.long	0xfc005140	/* 144: ftsqrt  cr0,f10           */
++	.long	0xff805140	/* 148: ftsqrt  cr7,f10           */
++	.long	0x7e084a2c	/* 14c: dcbtt   r8,r9             */
++	.long	0x7e0849ec	/* 150: dcbtstt r8,r9             */
++	.long	0xed406644	/* 154: dcffix  f10,f12           */
++	.long	0xee80b645	/* 158: dcffix. f20,f22           */
++	.long	0x7d4b6068	/* 15c: lbarx   r10,r11,r12       */
++	.long	0x7d4b6068	/* 160: lbarx   r10,r11,r12       */
++	.long	0x7d4b6069	/* 164: lbarx   r10,r11,r12,1     */
++	.long	0x7e95b0e8	/* 168: lharx   r20,r21,r22       */
++	.long	0x7e95b0e8	/* 16c: lharx   r20,r21,r22       */
++	.long	0x7e95b0e9	/* 170: lharx   r20,r21,r22,1     */
++	.long	0x7d4b656d	/* 174: stbcx.  r10,r11,r12       */
++	.long	0x7d4b65ad	/* 178: sthcx.  r10,r11,r12       */
++	.long	0xfdc07830	/* 17c: fre     f14,f15           */
++	.long	0xfdc07831	/* 180: fre.    f14,f15           */
++	.long	0xedc07830	/* 184: fres    f14,f15           */
++	.long	0xedc07831	/* 188: fres.   f14,f15           */
++	.long	0xfdc07834	/* 18c: frsqrte f14,f15           */
++	.long	0xfdc07835	/* 190: frsqrte. f14,f15          */
++	.long	0xedc07834	/* 194: frsqrtes f14,f15          */
++	.long	0xedc07835	/* 198: frsqrtes. f14,f15         */
++	.long	0x7c43271e	/* 19c: isel    r2,r3,r4,28       */

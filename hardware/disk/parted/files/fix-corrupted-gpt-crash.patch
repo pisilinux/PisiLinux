@@ -1,0 +1,27 @@
+# fixes (bnc#439910)
+# parted used to crash on corrupted gpt label - now warning is printed instead
+diff --git a/libparted/labels/gpt.c b/libparted/labels/gpt.c
+index 13d2e88..c20d729 100644
+--- a/libparted/labels/gpt.c
++++ b/libparted/labels/gpt.c
+@@ -824,8 +824,18 @@ gpt_read (PedDisk * disk)
+ 		goto error;
+ 
+ 	if (_read_header (disk->dev, &gpt, 1)) {
+-		PED_ASSERT ((PedSector) PED_LE64_TO_CPU (gpt->AlternateLBA)
+-				<= disk->dev->length - 1, goto error_free_gpt);
++		if ((PedSector) PED_LE64_TO_CPU (gpt->AlternateLBA)
++				> disk->dev->length - 1) {
++			if (ped_exception_throw (
++				PED_EXCEPTION_WARNING,
++				PED_EXCEPTION_IGNORE_CANCEL,
++		_("The primary GPT table states that the backup GPT table is "
++		  "located at the position that is beyond the end of the disk. "
++		  "This means that the GPT structure is corrupted."))
++				    == PED_EXCEPTION_CANCEL)
++				goto error_free_gpt;
++		}
++
+ 		if ((PedSector) PED_LE64_TO_CPU (gpt->AlternateLBA)
+ 				< disk->dev->length - 1) {
+ 			char* zeros = ped_malloc (pth_get_size (disk->dev));

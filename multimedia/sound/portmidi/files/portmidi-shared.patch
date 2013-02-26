@@ -1,0 +1,111 @@
+diff -rupN portmidi.old/pm_common/portmidi.c portmidi/pm_common/portmidi.c
+--- portmidi.old/pm_common/portmidi.c	2009-01-02 18:06:13.000000000 -0500
++++ portmidi/pm_common/portmidi.c	2009-01-11 01:20:21.000000000 -0500
+@@ -56,7 +56,7 @@ static void prompt_and_exit(void)
+     printf("type ENTER...");
+     fgets(line, STRING_MAX, stdin);
+     /* this will clean up open ports: */
+-    exit(-1);
++    // DO NOT EXIT SINCE THIS IS BEING COMPILED AS A SHARED LIBRARY // exit(-1);
+ }
+ 
+ 
+diff -rupN portmidi.old/pm_linux/Makefile portmidi/pm_linux/Makefile
+--- portmidi.old/pm_linux/Makefile	2008-06-13 20:23:43.000000000 -0400
++++ portmidi/pm_linux/Makefile	2009-01-11 01:24:28.000000000 -0500
+@@ -30,11 +30,13 @@ VFLAGS = -DPMALSA
+ # ALSALIB = 
+ # VFLAGS = -DPMNULL
+ 
+-pmlib = pm_linux/libportmidi.a
++pmlib = pm_linux/libportmidi.so.0$(VERSION)
+ 
+-ptlib = porttime/libporttime.a
++ptlib = porttime/libporttime.so.0$(VERSION)
+ 
+-CC = gcc $(VFLAGS) $(PMFLAGS) -g -Ipm_common -Iporttime
++CC = gcc $(CFLAGS) $(VFLAGS) $(PMFLAGS) -g -Ipm_common -Iporttime
++
++INSTALL = install
+ 
+ pmobjects = pm_common/pmutil.o $(versions) pm_linux/pmlinux.o  \
+ 	pm_common/portmidi.o
+@@ -43,14 +45,18 @@ ptobjects = porttime/porttime.o porttime
+ 
+ current: all
+ 
+-all: $(pmlib) $(ptlib) pm_test/test pm_test/sysex pm_test/midithread \
++all: $(ptlib) $(pmlib) pm_test/test pm_test/sysex pm_test/midithread \
+ 	pm_test/latency pm_test/midithru pm_test/qtest pm_test/mm
+ 
+ $(pmlib): pm_linux/Makefile $(pmobjects)
+-	ar -cr $(pmlib) $(pmobjects)
++	$(CC) -shared $(ALSALIB) $(pmobjects) -Wl,-soname -Wl,libportmidi.so.0 -Lporttime -lporttime -o $(pmlib)
++	ln -sf libportmidi.so.0$(VERSION) pm_linux/libportmidi.so
++	ln -sf libportmidi.so.0$(VERSION) pm_linux/libportmidi.so.0
+ 
+ $(ptlib): pm_linux/Makefile $(ptobjects)
+-	ar -cr $(ptlib) $(ptobjects)
++	$(CC) -shared $(ptobjects) -Wl,-soname -Wl,libporttime.so.0 -Wl,-l,pthread -o $(ptlib)
++	ln -sf libporttime.so.0$(VERSION) porttime/libporttime.so
++	ln -sf libporttime.so.0$(VERSION) porttime/libporttime.so.0
+ 
+ pm_linux/pmlinuxalsa.o: pm_linux/Makefile pm_linux/pmlinuxalsa.c pm_linux/pmlinuxalsa.h
+ 	$(CC) -c pm_linux/pmlinuxalsa.c -o pm_linux/pmlinuxalsa.o
+@@ -96,3 +102,15 @@ cleanest: cleaner
+ 
+ backup: cleanest
+ 	cd ..; zip -r portmidi.zip portmidi
++
++install:
++	$(INSTALL) -d $(DESTDIR)/$(INCLUDEDIR)/
++	$(INSTALL) -m 644 pm_common/portmidi.h $(DESTDIR)/$(INCLUDEDIR)/
++	$(INSTALL) -m 644 porttime/porttime.h $(DESTDIR)/$(INCLUDEDIR)/
++	$(INSTALL) -d $(DESTDIR)/$(LIBDIR)/
++	$(INSTALL) pm_linux/libportmidi.so.0.* $(DESTDIR)/$(LIBDIR)/
++	$(INSTALL) porttime/libporttime.so.0.* $(DESTDIR)/$(LIBDIR)/
++	cp -a porttime/libporttime.so $(DESTDIR)/$(LIBDIR)/
++	cp -a porttime/libporttime.so.0 $(DESTDIR)/$(LIBDIR)/
++	cp -a pm_linux/libportmidi.so $(DESTDIR)/$(LIBDIR)/
++	cp -a pm_linux/libportmidi.so.0 $(DESTDIR)/$(LIBDIR)/
+diff -rupN portmidi.old/pm_linux/pmlinuxalsa.c portmidi/pm_linux/pmlinuxalsa.c
+--- portmidi.old/pm_linux/pmlinuxalsa.c	2008-06-13 20:23:43.000000000 -0400
++++ portmidi/pm_linux/pmlinuxalsa.c	2009-01-11 01:26:06.000000000 -0500
+@@ -243,8 +243,8 @@ static PmError alsa_out_close(PmInternal
+     alsa_descriptor_type desc = (alsa_descriptor_type) midi->descriptor;
+     if (!desc) return pmBadPtr;
+ 
+-    if (pm_hosterror = snd_seq_disconnect_to(seq, desc->this_port, 
+-                                             desc->client, desc->port)) {
++    if ((pm_hosterror = snd_seq_disconnect_to(seq, desc->this_port, 
++					      desc->client, desc->port))) {
+         // if there's an error, try to delete the port anyway, but don't
+         // change the pm_hosterror value so we retain the first error
+         snd_seq_delete_port(seq, desc->this_port);
+@@ -333,8 +333,8 @@ static PmError alsa_in_close(PmInternal 
+ {
+     alsa_descriptor_type desc = (alsa_descriptor_type) midi->descriptor;
+     if (!desc) return pmBadPtr;
+-    if (pm_hosterror = snd_seq_disconnect_from(seq, desc->this_port, 
+-                                               desc->client, desc->port)) {
++    if ((pm_hosterror = snd_seq_disconnect_from(seq, desc->this_port, 
++						desc->client, desc->port))) {
+         snd_seq_delete_port(seq, desc->this_port); /* try to close port */
+     } else {
+         pm_hosterror = snd_seq_delete_port(seq, desc->this_port);
+diff -rupN portmidi.old/pm_linux/pmlinux.c portmidi/pm_linux/pmlinux.c
+--- portmidi.old/pm_linux/pmlinux.c	2006-11-29 18:37:09.000000000 -0500
++++ portmidi/pm_linux/pmlinux.c	2009-01-11 01:26:48.000000000 -0500
+@@ -28,10 +28,10 @@ PmError pm_init()
+      * devices.
+      */
+     #ifdef PMALSA
+-	pm_linuxalsa_init();
++	return pm_linuxalsa_init();
+     #endif
+     #ifdef PMNULL
+-        pm_linuxnull_init();
++        return pm_linuxnull_init();
+     #endif
+     return pmNoError;
+ }

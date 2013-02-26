@@ -1,0 +1,229 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.124
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.124
+Problem:    When writing a file in binary mode it may be missing the final EOL
+	    if a file previously read was missing the EOL. (Kevin Goodsell)
+Solution:   Move the write_no_eol_lnum into the buffer struct.
+Files:	    src/structs.h, src/fileio.c, src/globals.h, src/os_unix.c
+
+
+*** ../vim-7.3.123/src/structs.h	2010-10-20 21:22:17.000000000 +0200
+--- src/structs.h	2011-02-15 17:06:34.000000000 +0100
+***************
+*** 1564,1569 ****
+--- 1564,1572 ----
+  
+      /* end of buffer options */
+  
++     linenr_T	b_no_eol_lnum;	/* non-zero lnum when last line of next binary
++ 				 * write should not have an end-of-line */
++ 
+      int		b_start_eol;	/* last line had eol when it was read */
+      int		b_start_ffc;	/* first char of 'ff' when edit started */
+  #ifdef FEAT_MBYTE
+*** ../vim-7.3.123/src/fileio.c	2011-02-09 16:44:45.000000000 +0100
+--- src/fileio.c	2011-02-15 17:30:54.000000000 +0100
+***************
+*** 317,323 ****
+      int		using_b_fname;
+  #endif
+  
+!     write_no_eol_lnum = 0;	/* in case it was set by the previous read */
+  
+      /*
+       * If there is no file name yet, use the one for the read file.
+--- 317,323 ----
+      int		using_b_fname;
+  #endif
+  
+!     curbuf->b_no_eol_lnum = 0;	/* in case it was set by the previous read */
+  
+      /*
+       * If there is no file name yet, use the one for the read file.
+***************
+*** 2599,2608 ****
+  
+      /*
+       * Trick: We remember if the last line of the read didn't have
+!      * an eol for when writing it again.  This is required for
+       * ":autocmd FileReadPost *.gz set bin|'[,']!gunzip" to work.
+       */
+!     write_no_eol_lnum = read_no_eol_lnum;
+  
+      /* When reloading a buffer put the cursor at the first line that is
+       * different. */
+--- 2599,2609 ----
+  
+      /*
+       * Trick: We remember if the last line of the read didn't have
+!      * an eol even when 'binary' is off, for when writing it again with
+!      * 'binary' on.  This is required for
+       * ":autocmd FileReadPost *.gz set bin|'[,']!gunzip" to work.
+       */
+!     curbuf->b_no_eol_lnum = read_no_eol_lnum;
+  
+      /* When reloading a buffer put the cursor at the first line that is
+       * different. */
+***************
+*** 2650,2662 ****
+  							    FALSE, NULL, eap);
+  	if (msg_scrolled == n)
+  	    msg_scroll = m;
+! #ifdef FEAT_EVAL
+  	if (aborting())	    /* autocmds may abort script processing */
+  	    return FAIL;
+! #endif
+      }
+  #endif
+  
+      if (recoverymode && error)
+  	return FAIL;
+      return OK;
+--- 2651,2667 ----
+  							    FALSE, NULL, eap);
+  	if (msg_scrolled == n)
+  	    msg_scroll = m;
+! # ifdef FEAT_EVAL
+  	if (aborting())	    /* autocmds may abort script processing */
+  	    return FAIL;
+! # endif
+      }
+  #endif
+  
++     /* Reset now, following writes should not omit the EOL.  Also, the line
++      * number will become invalid because of edits. */
++     curbuf->b_no_eol_lnum = 0;
++ 
+      if (recoverymode && error)
+  	return FAIL;
+      return OK;
+***************
+*** 4560,4566 ****
+  	if (end == 0
+  		|| (lnum == end
+  		    && write_bin
+! 		    && (lnum == write_no_eol_lnum
+  			|| (lnum == buf->b_ml.ml_line_count && !buf->b_p_eol))))
+  	{
+  	    ++lnum;			/* written the line, count it */
+--- 4565,4571 ----
+  	if (end == 0
+  		|| (lnum == end
+  		    && write_bin
+! 		    && (lnum == buf->b_no_eol_lnum
+  			|| (lnum == buf->b_ml.ml_line_count && !buf->b_p_eol))))
+  	{
+  	    ++lnum;			/* written the line, count it */
+***************
+*** 5086,5093 ****
+      {
+  	aco_save_T	aco;
+  
+- 	write_no_eol_lnum = 0;	/* in case it was set by the previous read */
+- 
+  	/*
+  	 * Apply POST autocommands.
+  	 * Careful: The autocommands may call buf_write() recursively!
+--- 5091,5096 ----
+***************
+*** 7256,7263 ****
+  write_lnum_adjust(offset)
+      linenr_T	offset;
+  {
+!     if (write_no_eol_lnum != 0)		/* only if there is a missing eol */
+! 	write_no_eol_lnum += offset;
+  }
+  
+  #if defined(TEMPDIRNAMES) || defined(PROTO)
+--- 7259,7266 ----
+  write_lnum_adjust(offset)
+      linenr_T	offset;
+  {
+!     if (curbuf->b_no_eol_lnum != 0)	/* only if there is a missing eol */
+! 	curbuf->b_no_eol_lnum += offset;
+  }
+  
+  #if defined(TEMPDIRNAMES) || defined(PROTO)
+*** ../vim-7.3.123/src/globals.h	2010-12-02 21:43:10.000000000 +0100
+--- src/globals.h	2011-02-15 17:06:06.000000000 +0100
+***************
+*** 1057,1066 ****
+  			;
+  #endif
+  
+- EXTERN linenr_T	write_no_eol_lnum INIT(= 0); /* non-zero lnum when last line
+- 						of next binary write should
+- 						not have an end-of-line */
+- 
+  #ifdef FEAT_WINDOWS
+  EXTERN int	postponed_split INIT(= 0);  /* for CTRL-W CTRL-] command */
+  EXTERN int	postponed_split_flags INIT(= 0);  /* args for win_split() */
+--- 1057,1062 ----
+*** ../vim-7.3.123/src/os_unix.c	2011-02-09 18:47:36.000000000 +0100
+--- src/os_unix.c	2011-02-15 17:07:22.000000000 +0100
+***************
+*** 4245,4251 ****
+  				 * should not have one. */
+  				if (lnum != curbuf->b_op_end.lnum
+  					|| !curbuf->b_p_bin
+! 					|| (lnum != write_no_eol_lnum
+  					    && (lnum !=
+  						    curbuf->b_ml.ml_line_count
+  						    || curbuf->b_p_eol)))
+--- 4245,4251 ----
+  				 * should not have one. */
+  				if (lnum != curbuf->b_op_end.lnum
+  					|| !curbuf->b_p_bin
+! 					|| (lnum != curbuf->b_no_eol_lnum
+  					    && (lnum !=
+  						    curbuf->b_ml.ml_line_count
+  						    || curbuf->b_p_eol)))
+***************
+*** 4588,4597 ****
+  		    {
+  			append_ga_line(&ga);
+  			/* remember that the NL was missing */
+! 			write_no_eol_lnum = curwin->w_cursor.lnum;
+  		    }
+  		    else
+! 			write_no_eol_lnum = 0;
+  		    ga_clear(&ga);
+  		}
+  
+--- 4588,4597 ----
+  		    {
+  			append_ga_line(&ga);
+  			/* remember that the NL was missing */
+! 			curbuf->b_no_eol_lnum = curwin->w_cursor.lnum;
+  		    }
+  		    else
+! 			curbuf->b_no_eol_lnum = 0;
+  		    ga_clear(&ga);
+  		}
+  
+*** ../vim-7.3.123/src/version.c	2011-02-15 16:29:54.000000000 +0100
+--- src/version.c	2011-02-15 17:37:38.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     124,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+270. You are subscribed to a mailing list for every piece of software
+     you use.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

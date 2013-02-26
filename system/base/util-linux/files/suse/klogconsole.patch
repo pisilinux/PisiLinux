@@ -1,0 +1,197 @@
+diff -Nuar util-linux-2.21.2.orig/po/POTFILES.in util-linux-2.21.2/po/POTFILES.in
+--- util-linux-2.21.2.orig/po/POTFILES.in	2012-05-25 13:31:10.977749619 +0300
++++ util-linux-2.21.2/po/POTFILES.in	2012-06-05 14:10:09.000000000 +0300
+@@ -220,6 +220,7 @@
+ sys-utils/ipcmk.c
+ sys-utils/ipcrm.c
+ sys-utils/ipcs.c
++sys-utils/klogconsole.c
+ sys-utils/ldattach.c
+ sys-utils/losetup.c
+ sys-utils/lscpu.c
+diff -Nuar util-linux-2.21.2.orig/sys-utils/klogconsole.c util-linux-2.21.2/sys-utils/klogconsole.c
+--- util-linux-2.21.2.orig/sys-utils/klogconsole.c	1970-01-01 02:00:00.000000000 +0200
++++ util-linux-2.21.2/sys-utils/klogconsole.c	2002-07-17 00:58:21.000000000 +0300
+@@ -0,0 +1,106 @@
++/* (C) 1996 under GPL, Hans Lermen <lermen@elserv.ffm.fgan.de>,
++ * parts of switch_printk_console() stolen from Kevin Buhr <buhr@stat.wisc.edu>
++ */
++
++
++/* klogconsole -l 1 -r MAX_CONSOLE */
++/* Tells the kernel to what terminal and starting from what level
++ * it should copy printk() messages */
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <getopt.h>
++#include <unistd.h>
++#include <termios.h>
++#if !(defined __GLIBC__ && __GLIBC__ >= 2)
++# include <linux/unistd.h>
++# include <linux/termios.h>
++#endif
++#include <fcntl.h>
++#include <sys/ioctl.h>
++#include <errno.h>
++
++#if !(defined __GLIBC__ && __GLIBC__ >= 2)
++static _syscall3(int, syslog, int, type, char *, bufp, int, len);
++#else
++# include <sys/klog.h>
++#endif
++
++#ifndef  MAX_CONSOLE
++# define MAX_CONSOLE 24
++#endif
++
++void usage(void) __attribute__((noreturn));
++
++static void console_level(int level)
++{
++#if !(defined __GLIBC__ && __GLIBC__ >= 2)
++  syslog(8,0,level);
++#else
++  klogctl(8, 0, level);
++#endif
++}
++
++static void switch_printk_console(int new_console)
++{
++  char newvt[2];
++  int vt;
++
++  if ((new_console < 1) || (new_console > MAX_CONSOLE)) {
++    fprintf(stderr,"wrong console number\n");
++    exit(1);
++  }
++
++  newvt[0] = 11;
++  newvt[1] = new_console;
++  vt = open( "/dev/tty1", O_RDONLY );
++  if( vt == -1 ) {
++    perror("open(/dev/tty1)");
++    exit(1);
++  }
++  if( ioctl( vt, TIOCLINUX, &newvt ) ) {
++    perror("ioctl(TIOCLINUX)");
++    exit(1);
++  }
++  close(vt);
++}
++
++void usage(void)
++{
++  printf(
++    "USAGE:\n"
++    "  klogconsole [-l console_loglevel ] [ -r console ]\n\n"
++    "  console_loglevel  0..7 (kernel may dissallow values <5)\n"
++    "  console           0..%i console to which printk() dups messages\n"
++    "                     (0 = current console)\n", MAX_CONSOLE
++  );
++  exit(1);
++}
++
++int
++main (int argc, char** argv)
++{
++  int op,i;
++  
++  if (argc <= 1) usage();
++  opterr = 0;
++  while ((op = getopt(argc, argv, "l:r:")) != EOF) {
++    switch (op) {
++      case 'l': {
++        i=atoi(optarg);
++        console_level(i);
++        break;
++      }
++      case 'r': {
++        i=atoi(optarg);
++        switch_printk_console(i);
++        break;
++      }
++      default: {
++        usage();
++        /* doesn't return */
++      }
++    }
++  }
++  return 0;
++}
+diff -Nuar util-linux-2.21.2.orig/sys-utils/klogconsole.man util-linux-2.21.2/sys-utils/klogconsole.man
+--- util-linux-2.21.2.orig/sys-utils/klogconsole.man	1970-01-01 02:00:00.000000000 +0200
++++ util-linux-2.21.2/sys-utils/klogconsole.man	2002-07-17 00:58:21.000000000 +0300
+@@ -0,0 +1,57 @@
++.\"
++.\" man page klogconsole for SuSE Linux
++.\"
++.\" Author: Werner Fink <werner@suse.de>
++.\"
++.TH Bla 8 "August 20, 2001" "1996/07/20" "Kernel tools"
++.\"
++.UC 8
++.SH NAME
++.\"
++klogconsole \- Tells the kernel to what terminal it should copy messages
++.SH SYNOPSIS
++.\"
++.B klogconsole
++.RB [ \-l
++.IR <console_loglevel> ]
++.RB [ \-r
++.IR <virtual_console> ]
++.\"
++.SH DESCRIPTION
++The program
++.I klogconsole
++tells the kernel to what terminal and starting from what level
++it should copy
++.B printk(9)
++messages.
++.PP
++.\"
++.SS General Options
++.TP
++.BI \-l\  <console_loglevel>
++This option sets the console log level.
++.TP
++.BI \-r\  <virtual_console>
++This option sets the virtual console which
++is used by the kernel for its messages,
++.IP
++.\"
++.SH EXAMPLE
++.PP
++klogconsole -r10
++.\"
++.SH FILES
++.TP
++.I /proc/kmsg
++.TP
++.I /proc/sys/kernel/printk
++.\"
++.SH SEE ALSO
++.BR printk (9),
++.BR klogd (8).
++.\"
++.SH AUTHOR
++.B klogconsole
++was written by Hans Lermen <lermen@elserv.ffm.fgan.de> in 1996 and
++published under GPL.  Parts of the routine switch_printk_console()
++was taken from Kevin Buhr <buhr@stat.wisc.edu>.
+diff -Nuar util-linux-2.21.2.orig/sys-utils/Makefile.am util-linux-2.21.2/sys-utils/Makefile.am
+--- util-linux-2.21.2.orig/sys-utils/Makefile.am	2012-05-25 12:44:59.040195651 +0300
++++ util-linux-2.21.2/sys-utils/Makefile.am	2012-06-05 14:11:51.000000000 +0300
+@@ -16,10 +16,10 @@
+ bin_PROGRAMS += dmesg
+ sbin_PROGRAMS += ctrlaltdel fsfreeze fstrim
+ usrbin_exec_PROGRAMS += cytune setarch
+-usrsbin_exec_PROGRAMS += ldattach tunelp rtcwake
++usrsbin_exec_PROGRAMS += ldattach tunelp rtcwake klogconsole
+ 
+ dist_man_MANS += dmesg.1 ctrlaltdel.8 cytune.8 setarch.8 \
+		ldattach.8 tunelp.8 rtcwake.8 fsfreeze.8 fstrim.8
+ endif # LINUX
+ 
+ 

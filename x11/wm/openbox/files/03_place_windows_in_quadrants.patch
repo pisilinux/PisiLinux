@@ -1,0 +1,111 @@
+patch by Marc Brockschmidt to allow placing windows in certain screen
+quadrants using key bindings - #544538
+Index: openbox-3.4.11.1/data/rc.xsd
+===================================================================
+--- openbox-3.4.11.1.orig/data/rc.xsd	2010-04-23 16:49:08.000000000 +0200
++++ openbox-3.4.11.1/data/rc.xsd	2010-04-23 16:49:56.000000000 +0200
+@@ -171,8 +171,8 @@
+         <xsd:element minOccurs="0" name="manageDesktops" type="ob:bool"/>
+     </xsd:complexType>
+     <xsd:complexType name="window_position">
+-        <xsd:element name="x" type="ob:center_or_int"/>
+-        <xsd:element name="y" type="ob:center_or_int"/>
++        <xsd:element name="x" type="ob:horizontal_center_or_int"/>
++        <xsd:element name="y" type="ob:vertical_center_or_int"/>
+ 	<xsd:element name="monitor" type="ob:mouse_or_int"/>	
+         <xsd:element minOccurs="0" name="head" type="xsd:string"/>
+         <xsd:attribute name="force" type="ob:bool"/>
+@@ -365,6 +365,20 @@
+             <xsd:pattern value="center|0|[1-9][0-9]*"/>
+         </xsd:restriction>
+     </xsd:simpleType>
++    <xsd:simpleType name="horizontal_center_or_int">
++        <xsd:restriction base="xsd:string">
++            <!-- ob: atoi($_) unless $_ eq 'center'; -->
++            <!-- I think the regexp DTRT WRT atoi. -->
++            <xsd:pattern value="(Below|Above)?center|0|[1-9][0-9]*"/>
++        </xsd:restriction>
++    </xsd:simpleType>
++    <xsd:simpleType name="vertical_center_or_int">
++        <xsd:restriction base="xsd:string">
++            <!-- ob: atoi($_) unless $_ eq 'center'; -->
++            <!-- I think the regexp DTRT WRT atoi. -->
++            <xsd:pattern value="(LeftOf|RightOf)?center|0|[1-9][0-9]*"/>
++        </xsd:restriction>
++    </xsd:simpleType>
+     <xsd:simpleType name="mouse_or_int">
+         <xsd:restriction base="xsd:string">
+             <!-- ob: atoi($_) unless $_ eq 'center'; -->
+Index: openbox-3.4.11.1/openbox/actions/moveresizeto.c
+===================================================================
+--- openbox-3.4.11.1.orig/openbox/actions/moveresizeto.c	2010-04-23 16:49:24.000000000 +0200
++++ openbox-3.4.11.1/openbox/actions/moveresizeto.c	2010-04-23 16:49:56.000000000 +0200
+@@ -14,6 +14,10 @@
+ typedef struct {
+     gboolean xcenter;
+     gboolean ycenter;
++    gboolean rightofcenter;
++    gboolean leftofcenter;
++    gboolean abovecenter;
++    gboolean belowcenter;
+     gboolean xopposite;
+     gboolean yopposite;
+     gint x;
+@@ -44,12 +48,22 @@
+ }
+ 
+ static void parse_coord(xmlDocPtr doc, xmlNodePtr n, gint *pos,
+-                        gboolean *opposite, gboolean *center)
++                        gboolean *opposite, gboolean *rightofcenter,
++                        gboolean *leftofcenter, gboolean *abovecenter,
++                        gboolean *belowcenter, gboolean *center)
+ {
+     gchar *s = parse_string(doc, n);
+     if (g_ascii_strcasecmp(s, "current") != 0) {
+         if (!g_ascii_strcasecmp(s, "center"))
+             *center = TRUE;
++        else if (!g_ascii_strcasecmp(s, "rightofcenter"))
++            *rightofcenter = TRUE;
++        else if (!g_ascii_strcasecmp(s, "leftofcenter"))
++            *leftofcenter = TRUE;
++        else if (!g_ascii_strcasecmp(s, "belowcenter"))
++            *belowcenter = TRUE;
++        else if (!g_ascii_strcasecmp(s, "abovecenter"))
++            *abovecenter = TRUE;
+         else {
+             if (s[0] == '-')
+                 *opposite = TRUE;
+@@ -75,10 +89,14 @@
+     o->monitor = CURRENT_MONITOR;
+ 
+     if ((n = parse_find_node("x", node)))
+-        parse_coord(doc, n, &o->x, &o->xopposite, &o->xcenter);
++        parse_coord(doc, n, &o->x, &o->xopposite, 
++                    &o->rightofcenter, &o->leftofcenter,
++                    &o->abovecenter, &o->belowcenter, &o->xcenter);
+ 
+     if ((n = parse_find_node("y", node)))
+-        parse_coord(doc, n, &o->y, &o->yopposite, &o->ycenter);
++        parse_coord(doc, n, &o->y, &o->yopposite,
++                    &o->rightofcenter, &o->leftofcenter,
++                    &o->abovecenter, &o->belowcenter, &o->ycenter); 
+ 
+     if ((n = parse_find_node("width", node))) {
+         gchar *s = parse_string(doc, n);
+@@ -182,12 +200,16 @@
+ 
+         x = o->x;
+         if (o->xcenter) x = (area->width - w) / 2;
++        else if (o->leftofcenter) x = (area->width / 2) - w;
++        else if (o->rightofcenter) x = area->width / 2;
+         else if (x == G_MININT) x = c->frame->area.x - carea->x;
+         else if (o->xopposite) x = area->width - w - x;
+         x += area->x;
+ 
+         y = o->y;
+         if (o->ycenter) y = (area->height - h) / 2;
++        else if (o->abovecenter) y = (area->height / 2) - h;
++        else if (o->belowcenter) y = area->height / 2;
+         else if (y == G_MININT) y = c->frame->area.y - carea->y;
+         else if (o->yopposite) y = area->height - h - y;
+         y += area->y;

@@ -1,0 +1,157 @@
+--- apr-1.2.2/include/arch/unix/apr_arch_file_io.h.readdir64
++++ apr-1.2.2/include/arch/unix/apr_arch_file_io.h
+@@ -121,11 +124,21 @@
+ typedef struct stat struct_stat;
+ #endif
+ 
++/* readdir64_r is only used in specific cases: */
++#if APR_HAS_THREADS && defined(_POSIX_THREAD_SAFE_FUNCTIONS) \
++    && !defined(READDIR_IS_THREAD_SAFE) && defined(HAVE_READDIR64_R)
++#define APR_USE_READDIR64_R
++#endif
++
+ struct apr_dir_t {
+     apr_pool_t *pool;
+     char *dirname;
+     DIR *dirstruct;
++#ifdef APR_USE_READDIR64_R
++    struct dirent64 *entry;
++#else
+     struct dirent *entry;
++#endif
+ };
+ 
+ apr_status_t apr_unix_file_cleanup(void *);
+--- apr-1.2.2/file_io/unix/dir.c.readdir64
++++ apr-1.2.2/file_io/unix/dir.c
+@@ -77,8 +77,8 @@
+      * one-byte array.  Note: gcc evaluates this at compile time.
+      */
+     apr_size_t dirent_size = 
+-        (sizeof((*new)->entry->d_name) > 1 ? 
+-         sizeof(struct dirent) : sizeof (struct dirent) + 255);
++        sizeof(*(*new)->entry) +
++        (sizeof((*new)->entry->d_name) > 1 ? 0 : 255);
+     DIR *dir = opendir(dirname);
+ 
+     if (!dir) {
+@@ -139,15 +139,34 @@
+ #endif
+ #if APR_HAS_THREADS && defined(_POSIX_THREAD_SAFE_FUNCTIONS) \
+                     && !defined(READDIR_IS_THREAD_SAFE)
++#ifdef APR_USE_READDIR64_R
++    struct dirent64 *retent;
++
++    /* If LFS is enabled and readdir64_r is available, readdir64_r is
++     * used in preference to readdir_r.  This allows directories to be
++     * read which contain a (64-bit) inode number which doesn't fit
++     * into the 32-bit apr_ino_t, iff the caller doesn't actually care
++     * about the inode number (i.e. wanted & APR_FINFO_INODE == 0).
++     * (such inodes may be seen in some wonky NFS environments)
++     *
++     * Similarly, if the d_off field cannot be reprented in a 32-bit
++     * offset, the libc readdir_r() would barf; using readdir64_r
++     * bypasses that case entirely since APR does not care about
++     * d_off. */
++
++    ret = readdir64_r(thedir->dirstruct, thedir->entry, &retent);
++#else
++
+     struct dirent *retent;
+ 
+     ret = readdir_r(thedir->dirstruct, thedir->entry, &retent);
++#endif
+ 
+-    /* Avoid the Linux problem where at end-of-directory thedir->entry
+-     * is set to NULL, but ret = APR_SUCCESS.
+-     */
+-    if(!ret && thedir->entry != retent)
++    /* POSIX treats "end of directory" as a non-error case, so ret
++     * will be zero and retent will be set to NULL in that case. */
++    if (!ret && retent == NULL) {
+         ret = APR_ENOENT;
++    }
+ 
+     /* Solaris is a bit strange, if there are no more entries in the
+      * directory, it returns EINVAL.  Since this is against POSIX, we
+@@ -191,21 +210,38 @@
+ #endif
+ #ifdef DIRENT_INODE
+     if (thedir->entry->DIRENT_INODE && thedir->entry->DIRENT_INODE != -1) {
++#ifdef APR_USE_READDIR64_R
++        /* If readdir64_r is used, check for the overflow case of trying
++         * to fit a 64-bit integer into a 32-bit integer. */
++        if (sizeof(apr_ino_t) >= sizeof(retent->DIRENT_INODE)
++            || (apr_ino_t)retent->DIRENT_INODE == retent->DIRENT_INODE) {
++            wanted &= ~APR_FINFO_INODE;
++        } else {
++            /* Prevent the fallback code below from filling in the
++             * inode if the stat call fails. */
++            retent->DIRENT_INODE = 0;
++        }
++#else
+         wanted &= ~APR_FINFO_INODE;
++#endif /* APR_USE_READDIR64_R */
+     }
+-#endif
++#endif /* DIRENT_INODE */
+ 
+     wanted &= ~APR_FINFO_NAME;
+ 
+     if (wanted)
+     {
+         char fspec[APR_PATH_MAX];
+-        int off;
+-        apr_cpystrn(fspec, thedir->dirname, sizeof(fspec));
+-        off = strlen(fspec);
+-        if ((fspec[off - 1] != '/') && (off + 1 < sizeof(fspec)))
+-            fspec[off++] = '/';
+-        apr_cpystrn(fspec + off, thedir->entry->d_name, sizeof(fspec) - off);
++        char *end;
++
++        end = apr_cpystrn(fspec, thedir->dirname, sizeof fspec);
++
++        if (end > fspec && end[-1] != '/' && (end < fspec + APR_PATH_MAX))
++            *end++ = '/';
++
++        apr_cpystrn(end, thedir->entry->d_name, 
++                    sizeof fspec - (end - fspec));
++
+         ret = apr_stat(finfo, fspec, APR_FINFO_LINK | wanted, thedir->pool);
+         /* We passed a stack name that will disappear */
+         finfo->fname = NULL;
+--- apr-1.2.2/file_io/unix/filestat.c.readdir64
++++ apr-1.2.2/file_io/unix/filestat.c
+@@ -77,9 +77,18 @@
+     finfo->user = info->st_uid;
+     finfo->group = info->st_gid;
+     finfo->size = info->st_size;
+-    finfo->inode = info->st_ino;
+     finfo->device = info->st_dev;
+     finfo->nlink = info->st_nlink;
++
++    /* Check for overflow if storing a 64-bit st_ino in a 32-bit
++     * apr_ino_t for LFS builds: */
++    if (sizeof(apr_ino_t) >= sizeof(info->st_ino)
++        || (apr_ino_t)info->st_ino == info->st_ino) {
++        finfo->inode = info->st_ino;
++    } else {
++        finfo->valid &= ~APR_FINFO_INODE;
++    }
++
+     apr_time_ansi_put(&finfo->atime, info->st_atime);
+     apr_time_ansi_put(&finfo->mtime, info->st_mtime);
+     apr_time_ansi_put(&finfo->ctime, info->st_ctime);
+--- apr-1.2.2/configure.in.readdir64
++++ apr-1.2.2/configure.in
+@@ -1382,6 +1382,10 @@
+ AC_CHECK_FUNCS(memchr, have_memchr="1", have_memchr="0")
+ AC_CHECK_FUNC($int64_strfn, have_int64_strfn="1", have_int64_strfn="0")
+ 
++if test "$ac_cv_sizeof_long" = "4"; then
++   AC_CHECK_FUNCS([readdir64_r])
++fi
++
+ dnl ----------------------------- We have a fallback position
+ if test "$have_int64_strfn" = "0" && test "$int64_strfn" = "strtoll"; then
+     int64_strfn="strtoq"

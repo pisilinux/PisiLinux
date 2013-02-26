@@ -1,0 +1,720 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.597
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.597
+Problem:    'clipboard' "autoselect" only applies to the * register. (Sergey
+	    Vakulenko)
+Solution:   Make 'autoselect' work for the + register. (Christian Brabant)
+	    Add the "autoselectplus" option in 'clipboard' and the "P" flag in
+	    'guioptions'.
+Files:	    runtime/doc/options.txt, src/normal.c, src/ops.c, src/screen.c,
+	    src/ui.c, src/globals.h, src/proto/ui.pro, src/option.h, src/gui.c
+
+
+*** ../vim-7.3.596/runtime/doc/options.txt	2012-02-20 22:18:23.000000000 +0100
+--- runtime/doc/options.txt	2012-07-10 15:40:35.000000000 +0200
+***************
+*** 1437,1442 ****
+--- 1452,1458 ----
+  	This option is a list of comma separated names.
+  	These names are recognized:
+  
++ 						*clipboard-unnamed*
+  	unnamed		When included, Vim will use the clipboard register '*'
+  			for all yank, delete, change and put operations which
+  			would normally go to the unnamed register.  When a
+***************
+*** 1446,1460 ****
+  			explicitly accessed using the "* notation.  Also see
+  			|gui-clipboard|.
+  
+  	unnamedplus	A variant of "unnamed" flag which uses the clipboard
+  			register '+' (|quoteplus|) instead of register '*' for
+  			all operations except yank.  Yank shall copy the text
+  			into register '+' and also into '*' when "unnamed" is
+  			included.
+! 			Only available with the |+x11| feature.
+  			Availability can be checked with: >
+  				if has('unnamedplus')
+  <
+  	autoselect	Works like the 'a' flag in 'guioptions': If present,
+  			then whenever Visual mode is started, or the Visual
+  			area extended, Vim tries to become the owner of the
+--- 1462,1478 ----
+  			explicitly accessed using the "* notation.  Also see
+  			|gui-clipboard|.
+  
++ 						*clipboard-unnamedplus*
+  	unnamedplus	A variant of "unnamed" flag which uses the clipboard
+  			register '+' (|quoteplus|) instead of register '*' for
+  			all operations except yank.  Yank shall copy the text
+  			into register '+' and also into '*' when "unnamed" is
+  			included.
+! 			Only available with the |+X11| feature.
+  			Availability can be checked with: >
+  				if has('unnamedplus')
+  <
++ 						*clipboard-autoselect*
+  	autoselect	Works like the 'a' flag in 'guioptions': If present,
+  			then whenever Visual mode is started, or the Visual
+  			area extended, Vim tries to become the owner of the
+***************
+*** 1466,1474 ****
+--- 1484,1499 ----
+  			"autoselect" flag is used.
+  			Also applies to the modeless selection.
+  
++ 						*clipboard-autoselectplus*
++ 	autoselectplus  Like "autoselect" but using the + register instead of
++ 			the * register.  Compare to the 'P' flag in
++ 			'guioptions'.
++ 
++ 						*clipboard-autoselectml*
+  	autoselectml	Like "autoselect", but for the modeless selection
+  			only.  Compare to the 'A' flag in 'guioptions'.
+  
++ 						*clipboard-html*
+  	html		When the clipboard contains HTML, use this when
+  			pasting.  When putting text on the clipboard, mark it
+  			as HTML.  This works to copy rendered HTML from
+***************
+*** 1479,1484 ****
+--- 1504,1510 ----
+  			Only supported for GTK version 2 and later.
+  			Only available with the |+multi_byte| feature.
+  
++ 						*clipboard-exclude*
+  	exclude:{pattern}
+  			Defines a pattern that is matched against the name of
+  			the terminal 'term'.  If there is a match, no
+***************
+*** 3547,3552 ****
+--- 3600,3608 ----
+  		windowing system's global selection unless explicitly told to
+  		by a yank or delete operation for the "* register.
+  		The same applies to the modeless selection.
++ 								*'go-P'*
++ 	  'P'	Like autoselect but using the "+ register instead of the "*
++ 	  	register.
+  								*'go-A'*
+  	  'A'	Autoselect for the modeless selection.  Like 'a', but only
+  		applies to the modeless selection.
+*** ../vim-7.3.596/src/normal.c	2012-06-29 13:56:01.000000000 +0200
+--- src/normal.c	2012-07-10 15:44:24.000000000 +0200
+***************
+*** 1451,1457 ****
+       * This could call do_pending_operator() recursively, but that's OK
+       * because gui_yank will be TRUE for the nested call.
+       */
+!     if (clip_star.available
+  	    && oap->op_type != OP_NOP
+  	    && !gui_yank
+  # ifdef FEAT_VISUAL
+--- 1451,1457 ----
+       * This could call do_pending_operator() recursively, but that's OK
+       * because gui_yank will be TRUE for the nested call.
+       */
+!     if ((clip_star.available || clip_plus.available)
+  	    && oap->op_type != OP_NOP
+  	    && !gui_yank
+  # ifdef FEAT_VISUAL
+*** ../vim-7.3.596/src/ops.c	2012-06-29 13:34:15.000000000 +0200
+--- src/ops.c	2012-07-10 16:20:29.000000000 +0200
+***************
+*** 962,969 ****
+       * selection too. */
+      if (name == '*' && clip_star.available)
+      {
+! 	if (clip_isautosel())
+! 	    clip_update_selection();
+  	may_get_selection(name);
+      }
+  #endif
+--- 962,975 ----
+       * selection too. */
+      if (name == '*' && clip_star.available)
+      {
+! 	if (clip_isautosel_star())
+! 	    clip_update_selection(&clip_star);
+! 	may_get_selection(name);
+!     }
+!     if (name == '+' && clip_plus.available)
+!     {
+! 	if (clip_isautosel_plus())
+! 	    clip_update_selection(&clip_plus);
+  	may_get_selection(name);
+      }
+  #endif
+***************
+*** 3190,3196 ****
+  
+  	clip_own_selection(&clip_plus);
+  	clip_gen_set_selection(&clip_plus);
+! 	if (!clip_isautosel() && !did_star && curr == &(y_regs[PLUS_REGISTER]))
+  	{
+  	    copy_yank_reg(&(y_regs[STAR_REGISTER]));
+  	    clip_own_selection(&clip_star);
+--- 3196,3203 ----
+  
+  	clip_own_selection(&clip_plus);
+  	clip_gen_set_selection(&clip_plus);
+! 	if (!clip_isautosel_star() && !did_star
+! 					  && curr == &(y_regs[PLUS_REGISTER]))
+  	{
+  	    copy_yank_reg(&(y_regs[STAR_REGISTER]));
+  	    clip_own_selection(&clip_star);
+*** ../vim-7.3.596/src/screen.c	2012-06-13 18:06:32.000000000 +0200
+--- src/screen.c	2012-07-10 16:39:01.000000000 +0200
+***************
+*** 519,526 ****
+  # endif
+  # ifdef FEAT_CLIPBOARD
+  		/* When Visual area changed, may have to update selection. */
+! 		if (clip_star.available && clip_isautosel())
+! 		    clip_update_selection();
+  # endif
+  #ifdef FEAT_GUI
+  		/* Remove the cursor before starting to do anything, because
+--- 519,528 ----
+  # endif
+  # ifdef FEAT_CLIPBOARD
+  		/* When Visual area changed, may have to update selection. */
+! 		if (clip_star.available && clip_isautosel_star())
+! 		    clip_update_selection(&clip_star);
+! 		if (clip_plus.available && clip_isautosel_plus())
+! 		    clip_update_selection(&clip_plus);
+  # endif
+  #ifdef FEAT_GUI
+  		/* Remove the cursor before starting to do anything, because
+***************
+*** 814,821 ****
+  
+  #ifdef FEAT_CLIPBOARD
+      /* When Visual area changed, may have to update selection. */
+!     if (clip_star.available && clip_isautosel())
+! 	clip_update_selection();
+  #endif
+  
+      win_update(wp);
+--- 816,825 ----
+  
+  #ifdef FEAT_CLIPBOARD
+      /* When Visual area changed, may have to update selection. */
+!     if (clip_star.available && clip_isautosel_star())
+! 	clip_update_selection(&clip_star);
+!     if (clip_plus.available && clip_isautosel_plus())
+! 	clip_update_selection(&clip_plus);
+  #endif
+  
+      win_update(wp);
+***************
+*** 3000,3006 ****
+  	    area_highlighting = TRUE;
+  	    attr = hl_attr(HLF_V);
+  #if defined(FEAT_CLIPBOARD) && defined(FEAT_X11)
+! 	    if (clip_star.available && !clip_star.owned && clip_isautosel())
+  		attr = hl_attr(HLF_VNC);
+  #endif
+  	}
+--- 3004,3013 ----
+  	    area_highlighting = TRUE;
+  	    attr = hl_attr(HLF_V);
+  #if defined(FEAT_CLIPBOARD) && defined(FEAT_X11)
+! 	    if ((clip_star.available && !clip_star.owned
+! 						     && clip_isautosel_star())
+! 		    || (clip_plus.available && !clip_plus.owned
+! 						    && clip_isautosel_plus()))
+  		attr = hl_attr(HLF_VNC);
+  #endif
+  	}
+***************
+*** 9060,9066 ****
+  	    || (wp != NULL && wp->w_width != Columns)
+  # endif
+         )
+! 	clip_clear_selection();
+      else
+  	clip_scroll_selection(-line_count);
+  #endif
+--- 9067,9073 ----
+  	    || (wp != NULL && wp->w_width != Columns)
+  # endif
+         )
+! 	clip_clear_selection(&clip_star);
+      else
+  	clip_scroll_selection(-line_count);
+  #endif
+***************
+*** 9281,9287 ****
+  	    || (wp != NULL && wp->w_width != Columns)
+  # endif
+         )
+! 	clip_clear_selection();
+      else
+  	clip_scroll_selection(line_count);
+  #endif
+--- 9288,9294 ----
+  	    || (wp != NULL && wp->w_width != Columns)
+  # endif
+         )
+! 	clip_clear_selection(&clip_star);
+      else
+  	clip_scroll_selection(line_count);
+  #endif
+*** ../vim-7.3.596/src/ui.c	2012-02-12 01:35:06.000000000 +0100
+--- src/ui.c	2012-07-10 16:43:17.000000000 +0200
+***************
+*** 381,386 ****
+--- 381,388 ----
+  
+  #if defined(FEAT_CLIPBOARD) || defined(PROTO)
+  
++ static void clip_copy_selection __ARGS((VimClipboard *clip));
++ 
+  /*
+   * Selection stuff using Visual mode, for cutting and pasting text to other
+   * windows.
+***************
+*** 423,431 ****
+   * this is called whenever VIsual mode is ended.
+   */
+      void
+! clip_update_selection()
+  {
+!     pos_T    start, end;
+  
+      /* If visual mode is only due to a redo command ("."), then ignore it */
+      if (!redo_VIsual_busy && VIsual_active && (State & NORMAL))
+--- 425,434 ----
+   * this is called whenever VIsual mode is ended.
+   */
+      void
+! clip_update_selection(clip)
+!     VimClipboard    *clip;
+  {
+!     pos_T	    start, end;
+  
+      /* If visual mode is only due to a redo command ("."), then ignore it */
+      if (!redo_VIsual_busy && VIsual_active && (State & NORMAL))
+***************
+*** 444,460 ****
+  	    start = curwin->w_cursor;
+  	    end = VIsual;
+  	}
+! 	if (!equalpos(clip_star.start, start)
+! 		|| !equalpos(clip_star.end, end)
+! 		|| clip_star.vmode != VIsual_mode)
+  	{
+! 	    clip_clear_selection();
+! 	    clip_star.start = start;
+! 	    clip_star.end = end;
+! 	    clip_star.vmode = VIsual_mode;
+! 	    clip_free_selection(&clip_star);
+! 	    clip_own_selection(&clip_star);
+! 	    clip_gen_set_selection(&clip_star);
+  	}
+      }
+  }
+--- 447,463 ----
+  	    start = curwin->w_cursor;
+  	    end = VIsual;
+  	}
+! 	if (!equalpos(clip->start, start)
+! 		|| !equalpos(clip->end, end)
+! 		|| clip->vmode != VIsual_mode)
+  	{
+! 	    clip_clear_selection(clip);
+! 	    clip->start = start;
+! 	    clip->end = end;
+! 	    clip->vmode = VIsual_mode;
+! 	    clip_free_selection(clip);
+! 	    clip_own_selection(clip);
+! 	    clip_gen_set_selection(clip);
+  	}
+      }
+  }
+***************
+*** 475,481 ****
+  	int was_owned = cbd->owned;
+  
+  	cbd->owned = (clip_gen_own_selection(cbd) == OK);
+! 	if (!was_owned && cbd == &clip_star)
+  	{
+  	    /* May have to show a different kind of highlighting for the
+  	     * selected area.  There is no specific redraw command for this,
+--- 478,484 ----
+  	int was_owned = cbd->owned;
+  
+  	cbd->owned = (clip_gen_own_selection(cbd) == OK);
+! 	if (!was_owned && (cbd == &clip_star || cbd == &clip_plus))
+  	{
+  	    /* May have to show a different kind of highlighting for the
+  	     * selected area.  There is no specific redraw command for this,
+***************
+*** 483,489 ****
+  	    if (cbd->owned
+  		    && (get_real_state() == VISUAL
+  					    || get_real_state() == SELECTMODE)
+! 		    && clip_isautosel()
+  		    && hl_attr(HLF_V) != hl_attr(HLF_VNC))
+  		redraw_curbuf_later(INVERTED_ALL);
+  	}
+--- 486,493 ----
+  	    if (cbd->owned
+  		    && (get_real_state() == VISUAL
+  					    || get_real_state() == SELECTMODE)
+! 		    && (cbd == &clip_star ? clip_isautosel_star()
+! 						      : clip_isautosel_plus())
+  		    && hl_attr(HLF_V) != hl_attr(HLF_VNC))
+  		redraw_curbuf_later(INVERTED_ALL);
+  	}
+***************
+*** 502,513 ****
+  #ifdef FEAT_X11
+      int	    was_owned = cbd->owned;
+  #endif
+!     int     visual_selection = (cbd == &clip_star);
+  
+      clip_free_selection(cbd);
+      cbd->owned = FALSE;
+      if (visual_selection)
+! 	clip_clear_selection();
+      clip_gen_lose_selection(cbd);
+  #ifdef FEAT_X11
+      if (visual_selection)
+--- 506,520 ----
+  #ifdef FEAT_X11
+      int	    was_owned = cbd->owned;
+  #endif
+!     int     visual_selection = FALSE;
+! 
+!     if (cbd == &clip_star || cbd == &clip_plus)
+! 	visual_selection = TRUE;
+  
+      clip_free_selection(cbd);
+      cbd->owned = FALSE;
+      if (visual_selection)
+! 	clip_clear_selection(cbd);
+      clip_gen_lose_selection(cbd);
+  #ifdef FEAT_X11
+      if (visual_selection)
+***************
+*** 518,524 ****
+  	if (was_owned
+  		&& (get_real_state() == VISUAL
+  					    || get_real_state() == SELECTMODE)
+! 		&& clip_isautosel()
+  		&& hl_attr(HLF_V) != hl_attr(HLF_VNC))
+  	{
+  	    update_curbuf(INVERTED_ALL);
+--- 525,532 ----
+  	if (was_owned
+  		&& (get_real_state() == VISUAL
+  					    || get_real_state() == SELECTMODE)
+! 		&& (cbd == &clip_star ?
+! 				clip_isautosel_star() : clip_isautosel_plus())
+  		&& hl_attr(HLF_V) != hl_attr(HLF_VNC))
+  	{
+  	    update_curbuf(INVERTED_ALL);
+***************
+*** 534,551 ****
+  #endif
+  }
+  
+!     void
+! clip_copy_selection()
+! {
+!     if (VIsual_active && (State & NORMAL) && clip_star.available)
+!     {
+! 	if (clip_isautosel())
+! 	    clip_update_selection();
+! 	clip_free_selection(&clip_star);
+! 	clip_own_selection(&clip_star);
+! 	if (clip_star.owned)
+! 	    clip_get_selection(&clip_star);
+! 	clip_gen_set_selection(&clip_star);
+      }
+  }
+  
+--- 542,559 ----
+  #endif
+  }
+  
+!     static void
+! clip_copy_selection(clip)
+!     VimClipboard	*clip;
+! {
+!     if (VIsual_active && (State & NORMAL) && clip->available)
+!     {
+! 	clip_update_selection(clip);
+! 	clip_free_selection(clip);
+! 	clip_own_selection(clip);
+! 	if (clip->owned)
+! 	    clip_get_selection(clip);
+! 	clip_gen_set_selection(clip);
+      }
+  }
+  
+***************
+*** 555,575 ****
+      void
+  clip_auto_select()
+  {
+!     if (clip_isautosel())
+! 	clip_copy_selection();
+  }
+  
+  /*
+!  * Return TRUE if automatic selection of Visual area is desired.
+   */
+      int
+! clip_isautosel()
+  {
+      return (
+  #ifdef FEAT_GUI
+  	    gui.in_use ? (vim_strchr(p_go, GO_ASEL) != NULL) :
+  #endif
+! 	    clip_autoselect);
+  }
+  
+  
+--- 563,600 ----
+      void
+  clip_auto_select()
+  {
+!     if (clip_isautosel_star())
+! 	clip_copy_selection(&clip_star);
+!     if (clip_isautosel_plus())
+! 	clip_copy_selection(&clip_plus);
+  }
+  
+  /*
+!  * Return TRUE if automatic selection of Visual area is desired for the *
+!  * register.
+   */
+      int
+! clip_isautosel_star()
+  {
+      return (
+  #ifdef FEAT_GUI
+  	    gui.in_use ? (vim_strchr(p_go, GO_ASEL) != NULL) :
+  #endif
+! 	    clip_autoselect_star);
+! }
+! 
+! /*
+!  * Return TRUE if automatic selection of Visual area is desired for the +
+!  * register.
+!  */
+!     int
+! clip_isautosel_plus()
+! {
+!     return (
+! #ifdef FEAT_GUI
+! 	    gui.in_use ? (vim_strchr(p_go, GO_ASELPLUS) != NULL) :
+! #endif
+! 	    clip_autoselect_plus);
+  }
+  
+  
+***************
+*** 657,663 ****
+      VimClipboard	*cb = &clip_star;
+  
+      if (cb->state == SELECT_DONE)
+! 	clip_clear_selection();
+  
+      row = check_row(row);
+      col = check_col(col);
+--- 682,688 ----
+      VimClipboard	*cb = &clip_star;
+  
+      if (cb->state == SELECT_DONE)
+! 	clip_clear_selection(cb);
+  
+      row = check_row(row);
+      col = check_col(col);
+***************
+*** 749,755 ****
+  	printf("Selection ended: (%u,%u) to (%u,%u)\n", cb->start.lnum,
+  		cb->start.col, cb->end.lnum, cb->end.col);
+  #endif
+! 	if (clip_isautosel()
+  		|| (
+  #ifdef FEAT_GUI
+  		    gui.in_use ? (vim_strchr(p_go, GO_ASELML) != NULL) :
+--- 774,780 ----
+  	printf("Selection ended: (%u,%u) to (%u,%u)\n", cb->start.lnum,
+  		cb->start.col, cb->end.lnum, cb->end.col);
+  #endif
+! 	if (clip_isautosel_star()
+  		|| (
+  #ifdef FEAT_GUI
+  		    gui.in_use ? (vim_strchr(p_go, GO_ASELML) != NULL) :
+***************
+*** 932,947 ****
+   * Called from outside to clear selected region from the display
+   */
+      void
+! clip_clear_selection()
+  {
+-     VimClipboard    *cb = &clip_star;
+  
+!     if (cb->state == SELECT_CLEARED)
+  	return;
+  
+!     clip_invert_area((int)cb->start.lnum, cb->start.col, (int)cb->end.lnum,
+! 						     cb->end.col, CLIP_CLEAR);
+!     cb->state = SELECT_CLEARED;
+  }
+  
+  /*
+--- 957,972 ----
+   * Called from outside to clear selected region from the display
+   */
+      void
+! clip_clear_selection(cbd)
+!     VimClipboard    *cbd;
+  {
+  
+!     if (cbd->state == SELECT_CLEARED)
+  	return;
+  
+!     clip_invert_area((int)cbd->start.lnum, cbd->start.col, (int)cbd->end.lnum,
+! 						     cbd->end.col, CLIP_CLEAR);
+!     cbd->state = SELECT_CLEARED;
+  }
+  
+  /*
+***************
+*** 954,960 ****
+      if (clip_star.state == SELECT_DONE
+  	    && row2 >= clip_star.start.lnum
+  	    && row1 <= clip_star.end.lnum)
+! 	clip_clear_selection();
+  }
+  
+  /*
+--- 979,985 ----
+      if (clip_star.state == SELECT_DONE
+  	    && row2 >= clip_star.start.lnum
+  	    && row1 <= clip_star.end.lnum)
+! 	clip_clear_selection(&clip_star);
+  }
+  
+  /*
+*** ../vim-7.3.596/src/globals.h	2012-06-29 12:35:40.000000000 +0200
+--- src/globals.h	2012-07-10 16:35:13.000000000 +0200
+***************
+*** 517,523 ****
+  # define CLIP_UNNAMED_PLUS 2
+  EXTERN int	clip_unnamed INIT(= 0); /* above two values or'ed */
+  
+! EXTERN int	clip_autoselect INIT(= FALSE);
+  EXTERN int	clip_autoselectml INIT(= FALSE);
+  EXTERN int	clip_html INIT(= FALSE);
+  EXTERN regprog_T *clip_exclude_prog INIT(= NULL);
+--- 517,524 ----
+  # define CLIP_UNNAMED_PLUS 2
+  EXTERN int	clip_unnamed INIT(= 0); /* above two values or'ed */
+  
+! EXTERN int	clip_autoselect_star INIT(= FALSE);
+! EXTERN int	clip_autoselect_plus INIT(= FALSE);
+  EXTERN int	clip_autoselectml INIT(= FALSE);
+  EXTERN int	clip_html INIT(= FALSE);
+  EXTERN regprog_T *clip_exclude_prog INIT(= NULL);
+*** ../vim-7.3.596/src/proto/ui.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/ui.pro	2012-07-10 16:37:35.000000000 +0200
+***************
+*** 11,27 ****
+  void ui_new_shellsize __ARGS((void));
+  void ui_breakcheck __ARGS((void));
+  void clip_init __ARGS((int can_use));
+! void clip_update_selection __ARGS((void));
+  void clip_own_selection __ARGS((VimClipboard *cbd));
+  void clip_lose_selection __ARGS((VimClipboard *cbd));
+- void clip_copy_selection __ARGS((void));
+  void clip_auto_select __ARGS((void));
+! int clip_isautosel __ARGS((void));
+  void clip_modeless __ARGS((int button, int is_click, int is_drag));
+  void clip_start_selection __ARGS((int col, int row, int repeated_click));
+  void clip_process_selection __ARGS((int button, int col, int row, int_u repeated_click));
+  void clip_may_redraw_selection __ARGS((int row, int col, int len));
+! void clip_clear_selection __ARGS((void));
+  void clip_may_clear_selection __ARGS((int row1, int row2));
+  void clip_scroll_selection __ARGS((int rows));
+  void clip_copy_modeless_selection __ARGS((int both));
+--- 11,27 ----
+  void ui_new_shellsize __ARGS((void));
+  void ui_breakcheck __ARGS((void));
+  void clip_init __ARGS((int can_use));
+! void clip_update_selection __ARGS((VimClipboard *clip));
+  void clip_own_selection __ARGS((VimClipboard *cbd));
+  void clip_lose_selection __ARGS((VimClipboard *cbd));
+  void clip_auto_select __ARGS((void));
+! int clip_isautosel_star __ARGS((void));
+! int clip_isautosel_plus __ARGS((void));
+  void clip_modeless __ARGS((int button, int is_click, int is_drag));
+  void clip_start_selection __ARGS((int col, int row, int repeated_click));
+  void clip_process_selection __ARGS((int button, int col, int row, int_u repeated_click));
+  void clip_may_redraw_selection __ARGS((int row, int col, int len));
+! void clip_clear_selection __ARGS((VimClipboard *cbd));
+  void clip_may_clear_selection __ARGS((int row1, int row2));
+  void clip_scroll_selection __ARGS((int rows));
+  void clip_copy_modeless_selection __ARGS((int both));
+*** ../vim-7.3.596/src/option.h	2012-06-06 16:12:54.000000000 +0200
+--- src/option.h	2012-07-10 15:54:32.000000000 +0200
+***************
+*** 229,234 ****
+--- 229,235 ----
+  #define GO_MENUS	'm'		/* use menu bar */
+  #define GO_NOSYSMENU	'M'		/* don't source system menu */
+  #define GO_POINTER	'p'		/* pointer enter/leave callbacks */
++ #define GO_ASELPLUS	'P'		/* autoselectPlus */
+  #define GO_RIGHT	'r'		/* use right scrollbar */
+  #define GO_VRIGHT	'R'		/* right scrollbar with vert split */
+  #define GO_TEAROFF	't'		/* add tear-off menu items */
+*** ../vim-7.3.596/src/gui.c	2012-05-27 00:37:45.000000000 +0200
+--- src/gui.c	2012-07-10 16:43:34.000000000 +0200
+***************
+*** 3154,3160 ****
+      }
+  
+      if (clip_star.state != SELECT_CLEARED && !did_clip)
+! 	clip_clear_selection();
+  #endif
+  
+      /* Don't put events in the input queue now. */
+--- 3154,3160 ----
+      }
+  
+      if (clip_star.state != SELECT_CLEARED && !did_clip)
+! 	clip_clear_selection(&clip_star);
+  #endif
+  
+      /* Don't put events in the input queue now. */
+*** ../vim-7.3.596/src/version.c	2012-07-10 15:18:18.000000000 +0200
+--- src/version.c	2012-07-10 16:32:16.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     597,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+106. When told to "go to your room" you inform your parents that you
+     can't...because you were kicked out and banned.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

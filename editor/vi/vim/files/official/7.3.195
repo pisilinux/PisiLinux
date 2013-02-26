@@ -1,0 +1,199 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.195
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.195
+Problem:    "} else" causes following lines to be indented too much. (Rouben
+	    Rostamian)
+Solution:   Better detection for the "else". (Lech Lorens)
+Files:	    src/misc1.c, src/testdir/test3.in, src/testdir/test3.ok
+
+
+*** ../vim-7.3.194/src/misc1.c	2011-05-10 16:41:13.000000000 +0200
+--- src/misc1.c	2011-05-19 16:30:28.000000000 +0200
+***************
+*** 5482,5489 ****
+   * Recognize a line that starts with '{' or '}', or ends with ';', ',', '{' or
+   * '}'.
+   * Don't consider "} else" a terminated line.
+!  * Don't consider a line where there are unmatched opening braces before '}',
+!  * ';' or ',' a terminated line.
+   * Return the character terminating the line (ending char's have precedence if
+   * both apply in order to determine initializations).
+   */
+--- 5482,5489 ----
+   * Recognize a line that starts with '{' or '}', or ends with ';', ',', '{' or
+   * '}'.
+   * Don't consider "} else" a terminated line.
+!  * If a line begins with an "else", only consider it terminated if no unmatched
+!  * opening braces follow (handle "else { foo();" correctly).
+   * Return the character terminating the line (ending char's have precedence if
+   * both apply in order to determine initializations).
+   */
+***************
+*** 5493,5513 ****
+      int		incl_open;	/* include '{' at the end as terminator */
+      int		incl_comma;	/* recognize a trailing comma */
+  {
+!     char_u found_start = 0;
+!     unsigned n_open = 0;
+  
+      s = cin_skipcomment(s);
+  
+      if (*s == '{' || (*s == '}' && !cin_iselse(s)))
+  	found_start = *s;
+  
+      while (*s)
+      {
+  	/* skip over comments, "" strings and 'c'haracters */
+  	s = skip_string(cin_skipcomment(s));
+  	if (*s == '}' && n_open > 0)
+  	    --n_open;
+! 	if (n_open == 0
+  		&& (*s == ';' || *s == '}' || (incl_comma && *s == ','))
+  		&& cin_nocode(s + 1))
+  	    return *s;
+--- 5493,5517 ----
+      int		incl_open;	/* include '{' at the end as terminator */
+      int		incl_comma;	/* recognize a trailing comma */
+  {
+!     char_u	found_start = 0;
+!     unsigned	n_open = 0;
+!     int		is_else = FALSE;
+  
+      s = cin_skipcomment(s);
+  
+      if (*s == '{' || (*s == '}' && !cin_iselse(s)))
+  	found_start = *s;
+  
++     if (!found_start)
++ 	is_else = cin_iselse(s);
++ 
+      while (*s)
+      {
+  	/* skip over comments, "" strings and 'c'haracters */
+  	s = skip_string(cin_skipcomment(s));
+  	if (*s == '}' && n_open > 0)
+  	    --n_open;
+! 	if ((!is_else || n_open == 0)
+  		&& (*s == ';' || *s == '}' || (incl_comma && *s == ','))
+  		&& cin_nocode(s + 1))
+  	    return *s;
+*** ../vim-7.3.194/src/testdir/test3.in	2011-05-10 13:38:23.000000000 +0200
+--- src/testdir/test3.in	2011-05-19 16:29:01.000000000 +0200
+***************
+*** 1345,1351 ****
+  
+  STARTTEST
+  :set cino&
+! 2kdd=][
+  ENDTEST
+  
+  void func(void)
+--- 1345,1351 ----
+  
+  STARTTEST
+  :set cino&
+! 2kdd=4][
+  ENDTEST
+  
+  void func(void)
+***************
+*** 1359,1364 ****
+--- 1359,1392 ----
+  	printf("Foo!\n");
+  }
+  
++ void func1(void)
++ {
++ 	char* tab[] = {"foo", "bar",
++ 		"baz", "quux",
++ 			"this line used", "to be indented incorrectly"};
++ 	foo();
++ }
++ 
++ void func2(void)
++ {
++ 	int tab[] =
++ 	{1, 2,
++ 		3, 4,
++ 		5, 6};
++ 
++ 		printf("This line used to be indented incorrectly.\n");
++ }
++ 
++ void func3(void)
++ {
++ 	int tab[] = {
++ 	1, 2,
++ 	3, 4,
++ 	5, 6};
++ 
++ printf("Don't you dare indent this line incorrectly!\n);
++ }
++ 
+  STARTTEST
+  :set cino&
+  2kdd=][
+*** ../vim-7.3.194/src/testdir/test3.ok	2011-05-10 13:38:23.000000000 +0200
+--- src/testdir/test3.ok	2011-05-19 16:29:01.000000000 +0200
+***************
+*** 1216,1221 ****
+--- 1216,1249 ----
+  	printf("Foo!\n");
+  }
+  
++ void func1(void)
++ {
++ 	char* tab[] = {"foo", "bar",
++ 		"baz", "quux",
++ 		"this line used", "to be indented incorrectly"};
++ 	foo();
++ }
++ 
++ void func2(void)
++ {
++ 	int tab[] =
++ 	{1, 2,
++ 		3, 4,
++ 		5, 6};
++ 
++ 	printf("This line used to be indented incorrectly.\n");
++ }
++ 
++ void func3(void)
++ {
++ 	int tab[] = {
++ 		1, 2,
++ 		3, 4,
++ 		5, 6};
++ 
++ 	printf("Don't you dare indent this line incorrectly!\n);
++ }
++ 
+  
+  void func(void)
+  {
+*** ../vim-7.3.194/src/version.c	2011-05-19 14:59:07.000000000 +0200
+--- src/version.c	2011-05-19 16:34:16.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     195,
+  /**/
+
+-- 
+I AM THANKFUL...
+...for the taxes that I pay because it means that I am employed.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

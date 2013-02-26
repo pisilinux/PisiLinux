@@ -1,0 +1,229 @@
+diff -up bind-9.9.2/bin/Makefile.in.sdb bind-9.9.2/bin/Makefile.in
+--- bind-9.9.2/bin/Makefile.in.sdb	2012-09-27 02:35:19.000000000 +0200
++++ bind-9.9.2/bin/Makefile.in	2012-10-11 13:23:43.933988077 +0200
+@@ -19,8 +19,8 @@ srcdir =	@srcdir@
+ VPATH =		@srcdir@
+ top_srcdir =	@top_srcdir@
+ 
+-SUBDIRS =	named rndc dig dnssec tests tools nsupdate \
+-		check confgen @PYTHON_TOOLS@ @PKCS11_TOOLS@
++SUBDIRS =	named named-sdb rndc dig dnssec tests tools nsupdate \
++		check confgen @PYTHON_TOOLS@ @PKCS11_TOOLS@ sdb_tools
+ TARGETS =
+ 
+ @BIND9_MAKE_RULES@
+diff -up bind-9.9.2/bin/named/Makefile.in.sdb bind-9.9.2/bin/named/Makefile.in
+--- bind-9.9.2/bin/named/Makefile.in.sdb	2012-10-11 13:21:35.877105690 +0200
++++ bind-9.9.2/bin/named/Makefile.in	2012-10-11 13:21:36.099105521 +0200
+@@ -45,7 +45,7 @@ CINCLUDES =	-I${srcdir}/include -I${srcd
+ 		${ISCCFG_INCLUDES} ${ISCCC_INCLUDES} ${ISC_INCLUDES} \
+ 		${DLZDRIVER_INCLUDES} ${DBDRIVER_INCLUDES} @DST_OPENSSL_INC@
+ 
+-CDEFINES =      @CONTRIB_DLZ@ @USE_PKCS11@ @USE_OPENSSL@
++CDEFINES =      @USE_PKCS11@ @USE_OPENSSL@
+ 
+ CWARNINGS =
+ 
+@@ -69,11 +69,11 @@ DEPLIBS =	${LWRESDEPLIBS} ${DNSDEPLIBS}
+ 
+ LIBS =		${LWRESLIBS} ${DNSLIBS} ${BIND9LIBS} \
+ 		${ISCCFGLIBS} ${ISCCCLIBS} ${ISCLIBS} \
+-		${DLZDRIVER_LIBS} ${DBDRIVER_LIBS} @LIBS@
++		@LIBS@
+ 
+ NOSYMLIBS =	${LWRESLIBS} ${DNSLIBS} ${BIND9LIBS} \
+ 		${ISCCFGLIBS} ${ISCCCLIBS} ${ISCNOSYMLIBS} \
+-		${DLZDRIVER_LIBS} ${DBDRIVER_LIBS} @LIBS@
++		@LIBS@
+ 
+ SUBDIRS =	unix
+ 
+@@ -86,8 +86,7 @@ OBJS =		builtin.@O@ client.@O@ config.@O
+ 		tkeyconf.@O@ tsigconf.@O@ update.@O@ xfrout.@O@ \
+ 		zoneconf.@O@ \
+ 		lwaddr.@O@ lwresd.@O@ lwdclient.@O@ lwderror.@O@ lwdgabn.@O@ \
+-		lwdgnba.@O@ lwdgrbn.@O@ lwdnoop.@O@ lwsearch.@O@ \
+-		${DLZDRIVER_OBJS} ${DBDRIVER_OBJS}
++		lwdgnba.@O@ lwdgrbn.@O@ lwdnoop.@O@ lwsearch.@O@
+ 
+ UOBJS =		unix/os.@O@ unix/dlz_dlopen_driver.@O@
+ 
+@@ -100,8 +99,7 @@ SRCS =		builtin.c client.c config.c cont
+ 		tkeyconf.c tsigconf.c update.c xfrout.c \
+ 		zoneconf.c \
+ 		lwaddr.c lwresd.c lwdclient.c lwderror.c lwdgabn.c \
+-		lwdgnba.c lwdgrbn.c lwdnoop.c lwsearch.c \
+-		${DLZDRIVER_SRCS} ${DBDRIVER_SRCS}
++		lwdgnba.c lwdgrbn.c lwdnoop.c lwsearch.c
+ 
+ MANPAGES =	named.8 lwresd.8 named.conf.5
+ 
+@@ -169,5 +167,3 @@ install:: named@EXEEXT@ lwresd@EXEEXT@ i
+ 	${INSTALL_DATA} ${srcdir}/named.8 ${DESTDIR}${mandir}/man8
+ 	${INSTALL_DATA} ${srcdir}/lwresd.8 ${DESTDIR}${mandir}/man8
+ 	${INSTALL_DATA} ${srcdir}/named.conf.5 ${DESTDIR}${mandir}/man5
+-
+-@DLZ_DRIVER_RULES@
+diff -up bind-9.9.2/bin/named-sdb/main.c.sdb bind-9.9.2/bin/named-sdb/main.c
+--- bind-9.9.2/bin/named-sdb/main.c.sdb	2012-10-11 13:21:36.052105556 +0200
++++ bind-9.9.2/bin/named-sdb/main.c	2012-10-11 13:21:36.099105521 +0200
+@@ -83,6 +83,9 @@
+  * Include header files for database drivers here.
+  */
+ /* #include "xxdb.h" */
++#include "ldapdb.h"
++#include "pgsqldb.h"
++#include "dirdb.h"
+ 
+ #ifdef CONTRIB_DLZ
+ /*
+@@ -802,6 +805,10 @@ setup(void) {
+ 		ns_main_earlyfatal("isc_app_start() failed: %s",
+ 				   isc_result_totext(result));
+ 
++	ldapdb_clear();
++	pgsqldb_clear();
++	dirdb_clear();
++
+ 	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
+ 		      ISC_LOG_NOTICE, "starting BIND %s%s", ns_g_version,
+ 		      saved_command_line);
+@@ -914,6 +921,57 @@ setup(void) {
+ 				   isc_result_totext(result));
+ #endif
+ 
++        result = ldapdb_init();
++        if (result != ISC_R_SUCCESS)
++        {
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_ERROR, 
++                          "SDB ldap module initialisation failed: %s.",
++                          isc_result_totext(result)
++                );
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_ERROR, 
++                          "SDB ldap zone database will be unavailable."
++                );
++        }else
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_NOTICE, "SDB ldap zone database module loaded."
++                         );
++
++        result = pgsqldb_init();
++        if (result != ISC_R_SUCCESS)
++        {
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_ERROR, 
++                          "SDB pgsql module initialisation failed: %s.",
++                          isc_result_totext(result)
++                );
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_ERROR, 
++                          "SDB pgsql zone database will be unavailable."
++                );
++        }else
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_NOTICE, "SDB postgreSQL DB zone database module loaded."
++                         );
++
++        result = dirdb_init();
++        if (result != ISC_R_SUCCESS)
++        {
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_ERROR, 
++                          "SDB directory DB module initialisation failed: %s.",
++                          isc_result_totext(result)
++                );
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_ERROR, 
++                          "SDB directory DB zone database will be unavailable."
++                );
++        }else
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_NOTICE, "SDB directory DB zone database module loaded."
++                         );
++
+ 	ns_server_create(ns_g_mctx, &ns_g_server);
+ }
+ 
+@@ -945,6 +1003,10 @@ cleanup(void) {
+ 
+ 	dns_name_destroy();
+ 
++        ldapdb_clear();
++        pgsqldb_clear();
++        dirdb_clear();
++
+ 	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
+ 		      ISC_LOG_NOTICE, "exiting");
+ 	ns_log_shutdown();
+diff -up bind-9.9.2/bin/named-sdb/Makefile.in.sdb bind-9.9.2/bin/named-sdb/Makefile.in
+--- bind-9.9.2/bin/named-sdb/Makefile.in.sdb	2012-10-11 13:21:36.045105563 +0200
++++ bind-9.9.2/bin/named-sdb/Makefile.in	2012-10-11 13:21:36.100105520 +0200
+@@ -28,10 +28,10 @@ top_srcdir =	@top_srcdir@
+ #
+ # Add database drivers here.
+ #
+-DBDRIVER_OBJS =
+-DBDRIVER_SRCS =
++DBDRIVER_OBJS =	ldapdb.@O@ pgsqldb.@O@ dirdb.@O@
++DBDRIVER_SRCS =	ldapdb.c pgsqldb.c dirdb.c
+ DBDRIVER_INCLUDES =
+-DBDRIVER_LIBS =
++DBDRIVER_LIBS =	-lldap -llber -lpq
+ 
+ DLZ_DRIVER_DIR =	${top_srcdir}/contrib/dlz/drivers
+ 
+@@ -77,7 +77,7 @@ NOSYMLIBS =	${LWRESLIBS} ${DNSLIBS} ${BI
+ 
+ SUBDIRS =	unix
+ 
+-TARGETS =	named@EXEEXT@ lwresd@EXEEXT@
++TARGETS =	named-sdb@EXEEXT@
+ 
+ OBJS =		builtin.@O@ client.@O@ config.@O@ control.@O@ \
+ 		controlconf.@O@ interfacemgr.@O@ \
+@@ -132,7 +132,7 @@ config.@O@: config.c bind.keys.h
+ 		-DNS_SYSCONFDIR=\"${sysconfdir}\" \
+ 		-c ${srcdir}/config.c
+ 
+-named@EXEEXT@: ${OBJS} ${UOBJS} ${DEPLIBS}
++named-sdb@EXEEXT@: ${OBJS} ${UOBJS} ${DEPLIBS}
+ 	export MAKE_SYMTABLE="yes"; \
+ 	export BASEOBJS="${OBJS} ${UOBJS}"; \
+ 	${FINALBUILDCMD}
+@@ -160,14 +160,8 @@ statschannel.@O@: bind9.xsl.h
+ 
+ installdirs:
+ 	$(SHELL) ${top_srcdir}/mkinstalldirs ${DESTDIR}${sbindir}
+-	$(SHELL) ${top_srcdir}/mkinstalldirs ${DESTDIR}${mandir}/man5
+-	$(SHELL) ${top_srcdir}/mkinstalldirs ${DESTDIR}${mandir}/man8
+ 
+-install:: named@EXEEXT@ lwresd@EXEEXT@ installdirs
+-	${LIBTOOL_MODE_INSTALL} ${INSTALL_PROGRAM} named@EXEEXT@ ${DESTDIR}${sbindir}
+-	(cd ${DESTDIR}${sbindir}; rm -f lwresd@EXEEXT@; @LN@ named@EXEEXT@ lwresd@EXEEXT@)
+-	${INSTALL_DATA} ${srcdir}/named.8 ${DESTDIR}${mandir}/man8
+-	${INSTALL_DATA} ${srcdir}/lwresd.8 ${DESTDIR}${mandir}/man8
+-	${INSTALL_DATA} ${srcdir}/named.conf.5 ${DESTDIR}${mandir}/man5
++install:: named-sdb@EXEEXT@ installdirs
++	${LIBTOOL_MODE_INSTALL} ${INSTALL_PROGRAM} named-sdb@EXEEXT@ ${DESTDIR}${sbindir}
+ 
+ @DLZ_DRIVER_RULES@
+diff -up bind-9.9.2/configure.in.sdb bind-9.9.2/configure.in
+--- bind-9.9.2/configure.in.sdb	2012-10-11 13:21:36.000000000 +0200
++++ bind-9.9.2/configure.in	2012-10-11 13:24:35.710940464 +0200
+@@ -3571,11 +3571,14 @@ AC_CONFIG_FILES([
+ 	bin/dnssec/Makefile
+ 	bin/named/Makefile
+ 	bin/named/unix/Makefile
++	bin/named-sdb/Makefile
++	bin/named-sdb/unix/Makefile
+ 	bin/nsupdate/Makefile
+ 	bin/pkcs11/Makefile
+ 	bin/python/Makefile
+ 	bin/python/dnssec-checkds.py
+ 	bin/rndc/Makefile
++	bin/sdb_tools/Makefile
+ 	bin/tests/Makefile
+ 	bin/tests/atomic/Makefile
+ 	bin/tests/db/Makefile

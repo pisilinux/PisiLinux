@@ -1,0 +1,172 @@
+From 52cd59939e925e5936cab0fe6fd1a0e1b37c5906 Mon Sep 17 00:00:00 2001
+From: Michael Meeks <michael.meeks@novell.com>
+Date: Tue, 2 Nov 2010 21:05:50 +0000
+Subject: [PATCH 11/34] Render kernel boot chart without header graphs etc.
+
+---
+ pybootchartgui/draw.py |   58 +++++++++++++++++++++++++++++-------------------
+ pybootchartgui/gui.py  |   22 +++++++++++++-----
+ 2 files changed, 51 insertions(+), 29 deletions(-)
+
+diff --git a/pybootchartgui/draw.py b/pybootchartgui/draw.py
+index c72b2d9..0f52d13 100644
+--- a/pybootchartgui/draw.py
++++ b/pybootchartgui/draw.py
+@@ -24,6 +24,7 @@ class RenderOptions:
+ 	def __init__(self, app_options):
+ 		# should we render a cumulative CPU time chart
+ 		self.cumulative = True
++		self.charts = True
+ 		self.kernel_only = False
+ 		self.app_options = app_options
+ 
+@@ -263,7 +264,9 @@ OPTIONS = None
+ 
+ def extents(options, xscale, trace):
+ 	w = int (trace.proc_tree.duration * sec_w_base * xscale / 100) + 2*off_x
+-	h = proc_h * trace.proc_tree.num_proc + header_h + 2 * off_y
++	h = proc_h * trace.proc_tree.num_proc + 2 * off_y
++	if options.charts:
++		h += header_h
+ 	if trace.proc_tree.taskstats and options.cumulative:
+ 		h += CUML_HEIGHT + 4 * off_y
+ 	return (w, h)
+@@ -275,31 +278,10 @@ def clip_visible(clip, rect):
+ 	ymin = min (clip[1] + clip[3], rect[1] + rect[3])
+ 	return (xmin > xmax and ymin > ymax)
+ 
+-#
+-# Render the chart.
+-#
+-def render(ctx, options, xscale, trace):
+-	(w, h) = extents (options, xscale, trace)
+-	global OPTIONS
+-	OPTIONS = options.app_options
++def render_charts(ctx, clip, trace, curr_y, w, h, sec_w):
+ 
+ 	proc_tree = trace.proc_tree
+ 
+-	# x, y, w, h
+-	clip = ctx.clip_extents()
+-
+-	sec_w = int (xscale * sec_w_base)
+-	ctx.set_line_width(1.0)
+-	ctx.select_font_face(FONT_NAME)
+-	draw_fill_rect(ctx, WHITE, (0, 0, max(w, MIN_IMG_W), h))
+-	w -= 2*off_x
+-	# draw the title and headers
+-	if proc_tree.idle:
+-	    duration = proc_tree.idle
+-	else:
+-	    duration = proc_tree.duration
+-	curr_y = draw_header (ctx, trace.headers, duration)
+-
+ 	# render bar legend
+ 	ctx.set_font_size(LEGEND_FONT_SIZE)
+ 
+@@ -379,6 +361,36 @@ def render(ctx, options, xscale, trace):
+ 
+ 		curr_y = curr_y + meminfo_bar_h
+ 
++	return curr_y
++
++#
++# Render the chart.
++#
++def render(ctx, options, xscale, trace):
++	(w, h) = extents (options, xscale, trace)
++	global OPTIONS
++	OPTIONS = options.app_options
++
++	proc_tree = trace.proc_tree
++
++	# x, y, w, h
++	clip = ctx.clip_extents()
++
++	sec_w = int (xscale * sec_w_base)
++	ctx.set_line_width(1.0)
++	ctx.select_font_face(FONT_NAME)
++	draw_fill_rect(ctx, WHITE, (0, 0, max(w, MIN_IMG_W), h))
++	w -= 2*off_x
++	# draw the title and headers
++	if proc_tree.idle:
++	    duration = proc_tree.idle
++	else:
++	    duration = proc_tree.duration
++	curr_y = draw_header (ctx, trace.headers, duration)
++
++	if options.charts:
++		curr_y = render_charts (ctx, clip, trace, curr_y, w, h, sec_w)
++
+ 	# draw process boxes
+ 	proc_height = h
+ 	if proc_tree.taskstats and options.cumulative:
+diff --git a/pybootchartgui/gui.py b/pybootchartgui/gui.py
+index 47bd30c..e94a837 100644
+--- a/pybootchartgui/gui.py
++++ b/pybootchartgui/gui.py
+@@ -28,11 +28,11 @@ class PyBootchartWidget(gtk.DrawingArea):
+ 		'set-scroll-adjustments' : (gobject.SIGNAL_RUN_LAST, gobject.TYPE_NONE, (gtk.Adjustment, gtk.Adjustment))
+ 	}
+ 
+-	def __init__(self, trace, app_options):
++	def __init__(self, trace, options):
+ 		gtk.DrawingArea.__init__(self)
+ 
+ 		self.trace = trace
+-		self.options = RenderOptions (app_options)
++		self.options = options
+ 
+ 		self.set_flags(gtk.CAN_FOCUS)
+ 
+@@ -255,10 +255,10 @@ class PyBootchartShell(gtk.VBox):
+ 		</toolbar>
+ 	</ui>
+ 	'''
+-	def __init__(self, window, trace, app_options):
++	def __init__(self, window, trace, options):
+ 		gtk.VBox.__init__(self)
+ 
+-		self.widget = PyBootchartWidget(trace, app_options)
++		self.widget = PyBootchartWidget(trace, options)
+ 
+ 		# Create a UIManager instance
+ 		uimanager = self.uimanager = gtk.UIManager()
+@@ -310,8 +310,8 @@ class PyBootchartShell(gtk.VBox):
+ 	def grab_focus(self, window):
+ 		window.set_focus(self.widget)
+ 
+-class PyBootchartWindow(gtk.Window):
+ 
++class PyBootchartWindow(gtk.Window):
+ 
+ 	def __init__(self, trace, app_options):
+ 		gtk.Window.__init__(self)
+@@ -323,13 +323,23 @@ class PyBootchartWindow(gtk.Window):
+ 		tab_page = gtk.Notebook()
+ 		window.add(tab_page)
+ 
+-		full_tree = PyBootchartShell(window, trace, app_options)
++		full_opts = RenderOptions(app_options)
++		full_tree = PyBootchartShell(window, trace, full_opts)
+ 		tab_page.append_page (full_tree, gtk.Label("Full tree"))
+ 		tab_page.show_all()
+ 
++		kernel_opts = RenderOptions(app_options)
++		kernel_opts.cumulative = False
++		kernel_opts.charts = False
++		kernel_opts.kernel_only = False
++		kernel_tree = PyBootchartShell(window, trace, kernel_opts)
++		tab_page.append_page (kernel_tree, gtk.Label("Kernel boot"))
++		tab_page.show_all()
++
+ 		full_tree.grab_focus(self)
+ 		self.show()
+ 
++
+ def show(trace, options):
+ 	win = PyBootchartWindow(trace, options)
+ 	win.connect('destroy', gtk.main_quit)
+-- 
+1.7.3.1
+

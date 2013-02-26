@@ -1,0 +1,168 @@
+--- btrfs-progs-0.19/disk-io.c.orig	2012-04-11 10:42:36.213042556 -0400
++++ btrfs-progs-0.19/disk-io.c	2012-04-11 10:42:58.790867701 -0400
+@@ -458,8 +458,10 @@ static int find_and_setup_log_root(struc
+ 	u64 blocknr = btrfs_super_log_root(disk_super);
+ 	struct btrfs_root *log_root = malloc(sizeof(struct btrfs_root));
+ 
+-	if (blocknr == 0)
++	if (blocknr == 0) {
++		free(log_root);
+ 		return 0;
++	}
+ 
+ 	blocksize = btrfs_level_size(tree_root,
+ 			     btrfs_super_log_root_level(disk_super));
+@@ -622,7 +624,7 @@ static struct btrfs_fs_info *__open_ctre
+ 	struct btrfs_root *chunk_root = malloc(sizeof(struct btrfs_root));
+ 	struct btrfs_root *dev_root = malloc(sizeof(struct btrfs_root));
+ 	struct btrfs_root *csum_root = malloc(sizeof(struct btrfs_root));
+-	struct btrfs_fs_info *fs_info = malloc(sizeof(*fs_info));
++	struct btrfs_fs_info *fs_info = malloc(sizeof(struct btrfs_fs_info));
+ 	int ret;
+ 	struct btrfs_super_block *disk_super;
+ 	struct btrfs_fs_devices *fs_devices = NULL;
+@@ -646,7 +648,7 @@ static struct btrfs_fs_info *__open_ctre
+ 			goto out;
+ 	}
+ 
+-	memset(fs_info, 0, sizeof(*fs_info));
++	memset(fs_info, 0, sizeof(struct btrfs_fs_info));
+ 	fs_info->tree_root = tree_root;
+ 	fs_info->extent_root = extent_root;
+ 	fs_info->chunk_root = chunk_root;
+@@ -1063,15 +1065,19 @@ static int close_all_devices(struct btrf
+ {
+ 	struct list_head *list;
+ 	struct list_head *next;
++	struct list_head *tmp;
+ 	struct btrfs_device *device;
+ 
+-	return 0;
+-
+ 	list = &fs_info->fs_devices->devices;
+-	list_for_each(next, list) {
++	list_for_each_safe(next, tmp, list) {
+ 		device = list_entry(next, struct btrfs_device, dev_list);
+ 		close(device->fd);
++		list_del(&device->dev_list);
++		free(device->name);
++		free(device->label);
++		free(device);
+ 	}
++	free(fs_info->fs_devices);
+ 	return 0;
+ }
+ 
+@@ -1121,12 +1127,14 @@ int close_ctree(struct btrfs_root *root)
+ 	extent_io_tree_cleanup(&fs_info->pinned_extents);
+ 	extent_io_tree_cleanup(&fs_info->pending_del);
+ 	extent_io_tree_cleanup(&fs_info->extent_ins);
++	btrfs_mapping_tree_free(&fs_info->mapping_tree);
+ 
+ 	free(fs_info->tree_root);
+ 	free(fs_info->extent_root);
+ 	free(fs_info->chunk_root);
+ 	free(fs_info->dev_root);
+ 	free(fs_info->csum_root);
++	free(fs_info->log_root_tree);
+ 	free(fs_info);
+ 
+ 	return 0;
+diff -up btrfs-progs-0.19/extent-cache.c.orig btrfs-progs-0.19/extent-cache.c
+--- btrfs-progs-0.19/extent-cache.c.orig	2012-04-11 10:42:36.214042548 -0400
++++ btrfs-progs-0.19/extent-cache.c	2012-04-11 10:42:58.833867368 -0400
+@@ -168,3 +168,14 @@ void remove_cache_extent(struct cache_tr
+ 	rb_erase(&pe->rb_node, &tree->root);
+ }
+ 
++void free_cache_tree(struct cache_tree *tree)
++{
++	struct rb_node *node;
++	struct cache_extent *cache;
++
++	while ((node = rb_last(&tree->root)) != NULL) {
++		cache = rb_entry(node, struct cache_extent, rb_node);
++		remove_cache_extent(tree, cache);
++		free(cache);
++	}
++}
+diff -up btrfs-progs-0.19/extent-cache.h.orig btrfs-progs-0.19/extent-cache.h
+--- btrfs-progs-0.19/extent-cache.h.orig	2009-06-11 12:56:15.000000000 -0400
++++ btrfs-progs-0.19/extent-cache.h	2012-04-11 10:42:58.850867237 -0400
+@@ -43,6 +43,7 @@ struct cache_extent *find_cache_extent(s
+ int insert_cache_extent(struct cache_tree *tree, u64 start, u64 size);
+ int insert_existing_cache_extent(struct cache_tree *tree,
+ 				 struct cache_extent *pe);
++void free_cache_tree(struct cache_tree *tree);
+ 
+ static inline int cache_tree_empty(struct cache_tree *tree)
+ {
+diff -up btrfs-progs-0.19/extent-tree.c.orig btrfs-progs-0.19/extent-tree.c
+--- btrfs-progs-0.19/extent-tree.c.orig	2012-04-11 10:42:36.216042532 -0400
++++ btrfs-progs-0.19/extent-tree.c	2012-04-11 10:42:58.851867229 -0400
+@@ -2999,6 +2999,7 @@ out:
+ 
+ int btrfs_free_block_groups(struct btrfs_fs_info *info)
+ {
++	struct btrfs_space_info *space_info;
+ 	u64 start;
+ 	u64 end;
+ 	u64 ptr;
+@@ -3022,6 +3023,15 @@ int btrfs_free_block_groups(struct btrfs
+ 		clear_extent_dirty(&info->free_space_cache, start,
+ 				   end, GFP_NOFS);
+ 	}
++
++	while (!list_empty(&info->space_info)) {
++		space_info = list_entry(info->space_info.next,
++					struct btrfs_space_info,
++					list);
++		list_del(&space_info->list);
++		kfree(space_info);
++	}
++
+ 	return 0;
+ }
+ 
+diff -up btrfs-progs-0.19/volumes.c.orig btrfs-progs-0.19/volumes.c
+--- btrfs-progs-0.19/volumes.c.orig	2012-04-11 10:42:36.228042439 -0400
++++ btrfs-progs-0.19/volumes.c	2012-04-11 10:43:03.313832673 -0400
+@@ -957,6 +957,20 @@ void btrfs_mapping_init(struct btrfs_map
+ 	cache_tree_init(&tree->cache_tree);
+ }
+ 
++void btrfs_mapping_tree_free(struct btrfs_mapping_tree *tree)
++{
++	struct cache_extent *cache;
++	struct rb_node *node;
++	struct map_lookup *map;
++
++	while ((node = rb_last(&tree->cache_tree.root)) != NULL) {
++		cache = rb_entry(node, struct cache_extent, rb_node);
++		map = container_of(cache, struct map_lookup, ce);
++		remove_cache_extent(&tree->cache_tree, cache);
++		free(map);
++	}
++}
++
+ int btrfs_num_copies(struct btrfs_mapping_tree *map_tree, u64 logical, u64 len)
+ {
+ 	struct cache_extent *ce;
+@@ -1484,7 +1498,7 @@ int btrfs_read_sys_array(struct btrfs_ro
+ 	if (!sb)
+ 		return -ENOMEM;
+ 	btrfs_set_buffer_uptodate(sb);
+-	write_extent_buffer(sb, super_copy, 0, BTRFS_SUPER_INFO_SIZE);
++	write_extent_buffer(sb, super_copy, 0, sizeof(*super_copy));
+ 	array_size = btrfs_super_sys_array_size(super_copy);
+ 
+ 	/*
+diff -up btrfs-progs-0.19/volumes.h.orig btrfs-progs-0.19/volumes.h
+--- btrfs-progs-0.19/volumes.h.orig	2012-04-11 10:42:36.228042439 -0400
++++ btrfs-progs-0.19/volumes.h	2012-04-11 10:43:03.314832666 -0400
+@@ -182,4 +182,5 @@ int btrfs_add_system_chunk(struct btrfs_
+ 			   struct btrfs_root *root, struct btrfs_key *key,
+ 			   struct btrfs_chunk *chunk, int item_size);
+ int btrfs_chunk_readonly(struct btrfs_root *root, u64 chunk_offset);
++void btrfs_mapping_tree_free(struct btrfs_mapping_tree *tree);
+ #endif

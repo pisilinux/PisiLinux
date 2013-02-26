@@ -1,0 +1,92 @@
+#!/bin/bash
+#
+# Create a Mandriva kernel quilt tree, based on my own script
+# kmdv-quilt-create.
+#
+# Luiz Fernando N. Capitulino
+# <lcapitulino@mandriva.com.br>
+
+KTARBALL=""
+DELETE=0
+KDIR=""
+PROG_NAME=$(basename $0)
+
+usage()
+{
+	echo "Usage: $PROG_NAME [ options ] < -f kernel-tarball >"
+	echo
+	echo "   -h    this text"
+	echo "   -d    delete existing tree"
+	echo "   -f    tarball file"
+}
+
+unpack()
+{
+	tar jxf $KTARBALL || exit 1
+	cd $KDIR || exit 1
+	ln -s ../../PATCHES/patches/ || exit 1
+}
+
+apply_patch()
+{
+	file=$(ls ../$1 2> /dev/null)
+
+	if [ -n "$file" ]; then
+		bzcat $file | patch -s -p1
+	fi
+}
+
+apply_additional_patches()
+{
+	apply_patch "patch-2.6.*rc*-git*.bz2" # -git
+	apply_patch "patch-2.6.*rc*.bz2" # -rc
+	apply_patch "patch-2.6.*.bz2" # -stable
+}
+
+while getopts ":dhf:" options; do
+	case $options in
+		d) DELETE=1;;
+		h) usage; exit 0;;
+		f) KTARBALL=$OPTARG;;
+		*) usage; exit 1;;
+	esac
+done
+
+if [ -z "$KTARBALL" ]; then
+	usage
+	exit 1
+fi
+
+if [ ! -f "$KTARBALL" ]; then
+	echo "$KTARBALL is not a file"
+	exit 1
+fi
+
+KDIR=$(echo $KTARBALL | sed -e s/\.tar\.bz2//)
+if [ -d $KDIR ]; then
+	if [ $DELETE -eq 1 ]; then
+		tmp=$(mktemp -d kernel.XXXXXXXXXX || exit 1)
+		mv $KDIR $tmp || exit 1
+		rm -rf $tmp &
+	else
+		echo "ERROR: $KDIR exists"
+		exit 1
+	fi
+fi
+
+unpack
+
+if [ ! patches/series ]; then
+	echo "ERROR: no series file buddy?"
+	exit 1
+fi
+
+apply_additional_patches
+
+for file in $(ls ../../PATCHES/patches/*.tar); do
+	tar xf $file -C .
+done
+
+# XXX: Make this thing less verbose
+quilt push -qa || exit 1
+exit 0

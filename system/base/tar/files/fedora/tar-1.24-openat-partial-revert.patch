@@ -1,0 +1,111 @@
+From fd137d96707d776fb2541e3d362825bb650dc786 Mon Sep 17 00:00:00 2001
+From: Kamil Dudka <kdudka@redhat.com>
+Date: Mon, 26 Sep 2011 15:36:13 +0200
+Subject: [PATCH 2/2] misc: partially revert upstream commit 4bde4f3
+
+---
+ src/misc.c |   51 ++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 files changed, 50 insertions(+), 1 deletions(-)
+
+diff --git a/src/misc.c b/src/misc.c
+index b75f2ab..a6e5294 100644
+--- a/src/misc.c
++++ b/src/misc.c
+@@ -21,6 +21,7 @@
+ #include <rmt.h>
+ #include "common.h"
+ #include <quotearg.h>
++#include <save-cwd.h>
+ #include <xgetcwd.h>
+ #include <unlinkdir.h>
+ #include <utimens.h>
+@@ -633,6 +634,14 @@ struct wd
+   /* The directory's name.  */
+   char const *name;
+ 
++  /* A negative value if no attempt has been made to save the
++     directory, 0 if it was saved successfully, and a positive errno
++     value if it was not saved successfully.  */
++  int err;
++
++  /* The saved version of the directory, if ERR == 0.  */
++  struct saved_cwd saved_cwd;
++
+   /* If nonzero, the file descriptor of the directory, or AT_FDCWD if
+      the working directory.  If zero, the directory needs to be opened
+      to be used.  */
+@@ -687,6 +696,7 @@ chdir_arg (char const *dir)
+       if (! wd_count)
+ 	{
+ 	  wd[wd_count].name = ".";
++	  wd[wd_count].err = -1;
+ 	  wd[wd_count].fd = AT_FDCWD;
+ 	  wd_count++;
+ 	}
+@@ -704,6 +714,7 @@ chdir_arg (char const *dir)
+     }
+ 
+   wd[wd_count].name = dir;
++  wd[wd_count].err = -1;
+   wd[wd_count].fd = 0;
+   return wd_count++;
+ }
+@@ -728,9 +739,44 @@ chdir_do (int i)
+   if (chdir_current != i)
+     {
+       struct wd *curr = &wd[i];
++      struct wd *prev = &wd[chdir_current];
+       int fd = curr->fd;
+ 
+-      if (! fd)
++      if (prev->err < 0)
++	{
++	  prev->err = 0;
++	  if (save_cwd (&prev->saved_cwd) != 0)
++	    prev->err = errno;
++	  else if (0 <= prev->saved_cwd.desc)
++	    {
++	      /* Make sure we still have at least one descriptor available.  */
++	      int fd1 = prev->saved_cwd.desc;
++	      int fd2 = dup (fd1);
++	      if (0 <= fd2)
++		close (fd2);
++	      else if (errno == EMFILE)
++		{
++		  /* Force restore_cwd to use chdir_long.  */
++		  close (fd1);
++		  prev->saved_cwd.desc = -1;
++		  prev->saved_cwd.name = xgetcwd ();
++		  if (! prev->saved_cwd.name)
++		    prev->err = errno;
++		}
++	      else
++		prev->err = errno;
++	    }
++	}
++
++      if (0 <= curr->err)
++	{
++	  int err = curr->err;
++	  if (err == 0 && restore_cwd (&curr->saved_cwd) != 0)
++	    err = errno;
++	  if (err)
++	    FATAL_ERROR ((0, err, _("Cannot restore working directory")));
++	}
++      else if (! fd)
+ 	{
+ 	  if (! IS_ABSOLUTE_FILE_NAME (curr->name))
+ 	    chdir_do (i - 1);
+@@ -741,6 +787,9 @@ chdir_do (int i)
+ 
+ 	  curr->fd = fd;
+ 
++	  if (chdir (curr->name) != 0)
++	    chdir_fatal (curr->name);
++
+ 	  /* Add I to the cache, tossing out the lowest-ranking entry if the
+ 	     cache is full.  */
+ 	  if (wdcache_count < CHDIR_CACHE_SIZE)
+-- 
+1.7.4.4
+

@@ -1,0 +1,207 @@
+2007-06-25  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* inferior.h (enum resume_step): New definition.
+	(resume): Change STEP parameter type to ENUM RESUME_STEP.
+	* infrun.c (resume): Likewise.  Extend debug printing of the STEP
+	parameter.  Lock the scheduler only for intentional stepping.
+	(proceed): Replace the variable ONESTEP with tristate RESUME_STEP.
+	Set the third RESUME_STEP state according to BPSTAT_SHOULD_STEP.
+	(currently_stepping): Change the return type to ENUM RESUME_STEP.
+	Return RESUME_STEP_NEEDED if it is just due to BPSTAT_SHOULD_STEP.
+	* linux-nat.c (select_singlestep_lwp_callback): Do not focus on
+	the software watchpoint events.
+	* linux-nat.h (struct lwp_info): Redeclare STEP as ENUM RESUME_STEP.
+
+2007-10-19  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* infrun.c (proceed): RESUME_STEP initialized for non-stepping.
+	RESUME_STEP set according to STEP only at the end of the function.
+
+2008-02-24  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Port to GDB-6.8pre.
+
+Index: gdb-7.0.50.20100115/gdb/inferior.h
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/inferior.h	2010-01-15 03:16:43.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/inferior.h	2010-01-15 03:17:07.000000000 +0100
+@@ -188,7 +188,15 @@ extern void reopen_exec_file (void);
+ /* The `resume' routine should only be called in special circumstances.
+    Normally, use `proceed', which handles a lot of bookkeeping.  */
+ 
+-extern void resume (int, enum target_signal);
++enum resume_step
++  {
++    /* currently_stepping () should return non-zero for non-continue.  */
++    RESUME_STEP_CONTINUE = 0,
++    RESUME_STEP_USER,		/* Stepping is intentional by the user.  */
++    RESUME_STEP_NEEDED		/* Stepping only for software watchpoints.  */
++  };
++
++extern void resume (enum resume_step, enum target_signal);
+ 
+ /* From misc files */
+ 
+Index: gdb-7.0.50.20100115/gdb/infrun.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/infrun.c	2010-01-15 03:16:43.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/infrun.c	2010-01-15 03:17:32.000000000 +0100
+@@ -77,7 +77,7 @@ static int follow_fork (void);
+ static void set_schedlock_func (char *args, int from_tty,
+ 				struct cmd_list_element *c);
+ 
+-static int currently_stepping (struct thread_info *tp);
++static enum resume_step currently_stepping (struct thread_info *tp);
+ 
+ static int currently_stepping_or_nexting_callback (struct thread_info *tp,
+ 						   void *data);
+@@ -1363,7 +1363,7 @@ maybe_software_singlestep (struct gdbarc
+    STEP nonzero if we should step (zero to continue instead).
+    SIG is the signal to give the inferior (zero for none).  */
+ void
+-resume (int step, enum target_signal sig)
++resume (enum resume_step step, enum target_signal sig)
+ {
+   int should_resume = 1;
+   struct cleanup *old_cleanups = make_cleanup (resume_cleanups, 0);
+@@ -1376,10 +1376,12 @@ resume (int step, enum target_signal sig
+   QUIT;
+ 
+   if (debug_infrun)
+-    fprintf_unfiltered (gdb_stdlog,
+-                        "infrun: resume (step=%d, signal=%d), "
+-			"trap_expected=%d\n",
+- 			step, sig, tp->trap_expected);
++    fprintf_unfiltered (gdb_stdlog, "infrun: resume (step=%s, signal=%d), "
++				    "trap_expected=%d\n",
++			(step == RESUME_STEP_CONTINUE ? "RESUME_STEP_CONTINUE"
++			: (step == RESUME_STEP_USER ? "RESUME_STEP_USER"
++			                            : "RESUME_STEP_NEEDED")),
++			sig, tp->trap_expected);
+ 
+   /* Some targets (e.g. Solaris x86) have a kernel bug when stepping
+      over an instruction that causes a page fault without triggering
+@@ -1501,9 +1503,10 @@ a command like `return' or `jump' to con
+ 	     individually.  */
+ 	  resume_ptid = inferior_ptid;
+ 	}
+-      else if ((scheduler_mode == schedlock_on)
++      else if (scheduler_mode == schedlock_on
+ 	       || (scheduler_mode == schedlock_step
+-		   && (step || singlestep_breakpoints_inserted_p)))
++		   && (step == RESUME_STEP_USER
++		       || singlestep_breakpoints_inserted_p)))
+ 	{
+ 	  /* User-settable 'scheduler' mode requires solo thread resume. */
+ 	  resume_ptid = inferior_ptid;
+@@ -1709,7 +1712,7 @@ proceed (CORE_ADDR addr, enum target_sig
+   struct thread_info *tp;
+   CORE_ADDR pc;
+   struct address_space *aspace;
+-  int oneproc = 0;
++  enum resume_step resume_step = RESUME_STEP_CONTINUE;
+ 
+   /* If we're stopped at a fork/vfork, follow the branch set by the
+      "set follow-fork-mode" command; otherwise, we'll just proceed
+@@ -1744,13 +1747,13 @@ proceed (CORE_ADDR addr, enum target_sig
+ 	   actually be executing the breakpoint insn anyway.
+ 	   We'll be (un-)executing the previous instruction.  */
+ 
+-	oneproc = 1;
++	resume_step = RESUME_STEP_USER;
+       else if (gdbarch_single_step_through_delay_p (gdbarch)
+ 	       && gdbarch_single_step_through_delay (gdbarch,
+ 						     get_current_frame ()))
+ 	/* We stepped onto an instruction that needs to be stepped
+ 	   again before re-inserting the breakpoint, do so.  */
+-	oneproc = 1;
++	resume_step = RESUME_STEP_USER;
+     }
+   else
+     {
+@@ -1781,13 +1784,13 @@ proceed (CORE_ADDR addr, enum target_sig
+ 	 is required it returns TRUE and sets the current thread to
+ 	 the old thread. */
+       if (prepare_to_proceed (step))
+-	oneproc = 1;
++	resume_step = RESUME_STEP_USER;
+     }
+ 
+   /* prepare_to_proceed may change the current thread.  */
+   tp = inferior_thread ();
+ 
+-  if (oneproc)
++  if (resume_step == RESUME_STEP_USER)
+     {
+       tp->trap_expected = 1;
+       /* If displaced stepping is enabled, we can step over the
+@@ -1873,8 +1876,13 @@ proceed (CORE_ADDR addr, enum target_sig
+   /* Reset to normal state.  */
+   init_infwait_state ();
+ 
++  if (step)
++    resume_step = RESUME_STEP_USER;
++  if (resume_step == RESUME_STEP_CONTINUE && bpstat_should_step ())
++    resume_step = RESUME_STEP_NEEDED;
++
+   /* Resume inferior.  */
+-  resume (oneproc || step || bpstat_should_step (), tp->stop_signal);
++  resume (resume_step, tp->stop_signal);
+ 
+   /* Wait for it to stop (if not standalone)
+      and in any case decode why it stopped, and act accordingly.  */
+@@ -4655,13 +4663,18 @@ infrun: not switching back to stepped th
+ 
+ /* Is thread TP in the middle of single-stepping?  */
+ 
+-static int
++static enum resume_step
+ currently_stepping (struct thread_info *tp)
+ {
+-  return ((tp->step_range_end && tp->step_resume_breakpoint == NULL)
+- 	  || tp->trap_expected
+- 	  || tp->stepping_through_solib_after_catch
+- 	  || bpstat_should_step ());
++  if ((tp->step_range_end && tp->step_resume_breakpoint == NULL)
++      || tp->trap_expected
++      || tp->stepping_through_solib_after_catch)
++    return RESUME_STEP_USER;
++
++  if (bpstat_should_step ())
++    return RESUME_STEP_NEEDED;
++
++  return RESUME_STEP_CONTINUE;
+ }
+ 
+ /* Returns true if any thread *but* the one passed in "data" is in the
+Index: gdb-7.0.50.20100115/gdb/linux-nat.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/linux-nat.c	2010-01-15 03:16:43.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/linux-nat.c	2010-01-15 03:17:07.000000000 +0100
+@@ -2883,7 +2883,10 @@ count_events_callback (struct lwp_info *
+ static int
+ select_singlestep_lwp_callback (struct lwp_info *lp, void *data)
+ {
+-  if (lp->step && lp->status != 0)
++  /* We do not focus on software watchpoints as we would not catch
++     STEPPING_PAST_SINGLESTEP_BREAKPOINT breakpoints in some other thread
++     as they would remain pending due to `Push back breakpoint for %s'.  */
++  if (lp->step == RESUME_STEP_USER && lp->status != 0)
+     return 1;
+   else
+     return 0;
+Index: gdb-7.0.50.20100115/gdb/linux-nat.h
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/linux-nat.h	2010-01-12 22:40:24.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/linux-nat.h	2010-01-15 03:17:07.000000000 +0100
+@@ -55,8 +55,8 @@ struct lwp_info
+   /* If non-zero, a pending wait status.  */
+   int status;
+ 
+-  /* Non-zero if we were stepping this LWP.  */
+-  int step;
++  /* The kind of stepping of this LWP.  */
++  enum resume_step step;
+ 
+   /* Non-zero si_signo if this LWP stopped with a trap.  si_addr may
+      be the address of a hardware watchpoint.  */

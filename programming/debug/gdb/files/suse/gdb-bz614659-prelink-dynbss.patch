@@ -1,0 +1,204 @@
+http://sourceware.org/ml/gdb-patches/2010-07/msg00237.html
+Subject: [patch] Fix regression on prelinked executables
+
+Hi,
+
+there is a regression since gdb-7.0 for a combination of:
+ * prelinked
+ * main executable
+ * using separate debug info
+ * using copy relocations
+
+It is since a patch for both PIE and (AFAIK) OSX support:
+	[commit] syms_from_objfile: Relativize also MAINLINE
+	http://sourceware.org/ml/gdb-patches/2010-01/msg00080.html
+
+which started to use problematic addr_info_make_relative even for main
+executables.  prelink<->gdb discussion at:
+	https://bugzilla.redhat.com/show_bug.cgi?id=614659
+
+Currently in the unfortunately executables GDB has invalid displcement for
+symbols in .bss:
+	int bssvar, *bssvarp = &bssvar;
+	(gdb) p &bssvar
+	$1 = (int *) 0x600b54
+	(gdb) p bssvarp
+	$2 = (int *) 0x600b50
+
+<abstract-higher-point-of-view>
+addr_info_make_relative could just simply subtract entry point address and
+provide single CORE_ADDR objfile->offset (instead of the current
+section_offsets array with offsets specific for each section).  Linux systems
+use always single offset for the whole objfile.  AFAIK these per-section
+offsets are there for some embedded targets.  Curiously GDB already uses at
+many places
+	baseaddr = ANOFFSET (objfile->section_offsets, SECT_OFF_TEXT (objfile));
+instead of using offset for the appropriate section at that place and nobody
+complains.
+</abstract-higher-point-of-view>
+
+No regressions on {x86_64,x86_64-m32,i686}-fedora13-linux-gnu.
+
+Proposing for the gdb-7.2 branch.  I had problems fixing up my crashing X.
+
+
+Thanks,
+Jan
+
+
+gdb/
+2010-07-15  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* symfile.c (addr_section_name): New function.
+	(addrs_section_compar): Use it.
+	(addr_info_make_relative): Use it.  Move variable sect_name into a more
+	inner block.  Make ".dynbss" and ".sdynbss" checks more strict.
+
+gdb/testsuite/
+2010-07-15  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/prelink-lib.c (copyreloc): New initialized variable.
+	* gdb.base/prelink.c (copyreloc, bssvar, bssvarp): New variables.
+	(main): Use copyreloc.
+	* gdb.base/prelink.exp (split debug of executable)
+	(.dynbss vs. .bss address shift): New tests.
+
+Index: gdb-7.1/gdb/symfile.c
+===================================================================
+--- gdb-7.1.orig/gdb/symfile.c	2010-07-19 23:11:10.000000000 +0200
++++ gdb-7.1/gdb/symfile.c	2010-07-20 18:34:50.000000000 +0200
+@@ -557,6 +557,23 @@ relative_addr_info_to_section_offsets (s
+     }
+ }
+ 
++/* Transform section name S for a name comparison.  prelink can split section
++   `.bss' into two sections `.dynbss' and `.bss' (in this order).  Similarly
++   prelink can split `.sbss' into `.sdynbss' and `.sbss'.  Use virtual address
++   of the new `.dynbss' (`.sdynbss') section as the adjacent new `.bss'
++   (`.sbss') section has invalid (increased) virtual address.  */
++
++static const char *
++addr_section_name (const char *s)
++{
++  if (strcmp (s, ".dynbss") == 0)
++    return ".bss";
++  if (strcmp (s, ".sdynbss") == 0)
++    return ".sbss";
++
++  return s;
++}
++
+ /* Relativize absolute addresses in ADDRS into offsets based on ABFD.  Fill-in
+    also SECTINDEXes specific to ABFD there.  This function can be used to
+    rebase ADDRS to start referencing different BFD than before.  */
+@@ -607,8 +624,17 @@ addr_info_make_relative (struct section_
+       if (sect && strcmp (sect_name, bfd_get_section_name (abfd, sect)) != 0)
+ 	sect = NULL;
+ 
+-      if (sect == NULL)
+-	sect = bfd_get_section_by_name (abfd, sect_name);
++      /* Prevent the search by name if `.bss' has the address already set from
++	 `.dynbss'.  */
++      if (sect == NULL
++          && !(0
++	       || (strcmp (sect_name, ".bss") == 0
++		   && i > 0
++		   && strcmp (addrs->other[i - 1].name, ".dynbss") == 0)
++	       || (strcmp (sect_name, ".sbss") == 0
++		   && i > 0
++		   && strcmp (addrs->other[i - 1].name, ".sdynbss") == 0)))
++	sect = bfd_get_section_by_name (abfd, addr_section_name (sect_name));
+       if (sect)
+ 	{
+ 	  /* This is the index used by BFD. */
+@@ -634,12 +660,18 @@ addr_info_make_relative (struct section_
+ 	     a warning.  Shared libraries contain just the section
+ 	     ".gnu.liblist" but it is not marked as loadable there.  There is
+ 	     no other way to identify them than by their name as the sections
+-	     created by prelink have no special flags.  */
++	     created by prelink have no special flags.
++
++	     For the sections `.bss' and `.sbss' see addr_section_name.  */
+ 
+ 	  if (!(strcmp (sect_name, ".gnu.liblist") == 0
+ 		|| strcmp (sect_name, ".gnu.conflict") == 0
+-		|| strcmp (sect_name, ".dynbss") == 0
+-		|| strcmp (sect_name, ".sdynbss") == 0))
++		|| (strcmp (sect_name, ".bss") == 0
++		    && i > 0
++		    && strcmp (addrs->other[i - 1].name, ".dynbss") == 0)
++		|| (strcmp (sect_name, ".sbss") == 0
++		    && i > 0
++		    && strcmp (addrs->other[i - 1].name, ".sdynbss") == 0)))
+ 	    warning (_("section %s not found in %s"), sect_name,
+ 		     bfd_get_filename (abfd));
+ 
+Index: gdb-7.1/gdb/testsuite/gdb.base/prelink-lib.c
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.base/prelink-lib.c	2010-01-01 08:32:01.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.base/prelink-lib.c	2010-07-19 23:11:56.000000000 +0200
+@@ -16,6 +16,8 @@
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
++int copyreloc = 1;
++
+ int
+ g (void (*p)(void))
+ {
+Index: gdb-7.1/gdb/testsuite/gdb.base/prelink.c
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.base/prelink.c	2010-01-01 08:32:01.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.base/prelink.c	2010-07-19 23:11:56.000000000 +0200
+@@ -18,6 +18,11 @@
+ 
+ #include <stdio.h>
+ 
++extern int copyreloc;
++
++/* Test GDB itself finds `&bssvar' right.   */
++static int bssvar, *bssvarp = &bssvar;
++
+ extern void (*h (void)) (void (*)(void));
+ 
+ int
+@@ -25,5 +30,6 @@ main (void)
+ {
+   void (*f) (void (*)(void)) = h ();
+   printf ("%p\n", f);
++  printf ("%d\n", copyreloc);
+   f (0);
+ }
+Index: gdb-7.1/gdb/testsuite/gdb.base/prelink.exp
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.base/prelink.exp	2010-07-19 23:11:12.000000000 +0200
++++ gdb-7.1/gdb/testsuite/gdb.base/prelink.exp	2010-07-20 00:06:18.000000000 +0200
+@@ -84,6 +84,13 @@ if { [gdb_compile "${srcdir}/${subdir}/$
+     return -1;
+ }
+ 
++set test "split debug of executable"
++if [gdb_gnu_strip_debug $binfile] {
++    fail $test
++} else {
++    pass $test
++}
++
+ set found 0
+ set coredir "${objdir}/${subdir}/coredir.[getpid]"
+ file mkdir $coredir
+@@ -118,7 +125,7 @@ if {[catch "system \"/usr/sbin/prelink -
+     untested "${testfile}.so was not prelinked, maybe system libraries are not prelinked?"
+     return 0
+ }
+-catch "system \"/usr/sbin/prelink -qNR --no-exec-shield ${libfile}\""
++catch "system \"/usr/sbin/prelink -qNR --no-exec-shield ${libfile} ${binfile}\""
+ 
+ # Start with a fresh gdb
+ 
+@@ -131,3 +138,5 @@ gdb_load ${binfile}
+ gdb_test "set verbose on"
+ 
+ gdb_test "core-file $objdir/$subdir/prelink.core" {Using PIC \(Position Independent Code\) prelink displacement.*} "prelink"
++
++gdb_test "p &bssvar == bssvarp" " = 1" ".dynbss vs. .bss address shift"

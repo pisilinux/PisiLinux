@@ -1,0 +1,107 @@
+From be692806851f4883b87fc814adc80ab1bb46455e Mon Sep 17 00:00:00 2001
+From: zherczeg <zherczeg@2f5784b3-3f2a-0410-8824-cb99058d5e15>
+Date: Sat, 26 Jan 2013 17:51:43 +0000
+Subject: [PATCH] Fix two buffer over read issues in 16 and 32 bit modes.
+ Affects JIT only.
+
+git-svn-id: svn://vcs.exim.org/pcre/code/trunk@1242 2f5784b3-3f2a-0410-8824-cb99058d5e15
+
+Petr Pisar: Ported to 8.32.
+
+diff --git a/pcre_jit_compile.c b/pcre_jit_compile.c
+index 3b83340..7dfe558 100644
+--- a/pcre_jit_compile.c
++++ b/pcre_jit_compile.c
+@@ -2696,10 +2696,10 @@ if (firstline)
+   {
+   SLJIT_ASSERT(common->first_line_end != 0);
+   OP1(SLJIT_MOV, TMP3, 0, STR_END, 0);
+-  OP2(SLJIT_SUB, STR_END, 0, SLJIT_MEM1(SLJIT_LOCALS_REG), common->first_line_end, SLJIT_IMM, (location >> 1) - 1);
++  OP2(SLJIT_SUB, STR_END, 0, SLJIT_MEM1(SLJIT_LOCALS_REG), common->first_line_end, SLJIT_IMM, IN_UCHARS((location >> 1) - 1));
+   }
+ else
+-  OP2(SLJIT_SUB, STR_END, 0, STR_END, 0, SLJIT_IMM, (location >> 1) - 1);
++  OP2(SLJIT_SUB, STR_END, 0, STR_END, 0, SLJIT_IMM, IN_UCHARS((location >> 1) - 1));
+ 
+ start = LABEL();
+ quit = CMP(SLJIT_C_GREATER_EQUAL, STR_PTR, 0, STR_END, 0);
+@@ -2728,7 +2728,7 @@ JUMPHERE(quit);
+ if (firstline)
+   OP1(SLJIT_MOV, STR_END, 0, TMP3, 0);
+ else
+-  OP2(SLJIT_ADD, STR_END, 0, STR_END, 0, SLJIT_IMM, (location >> 1) - 1);
++  OP2(SLJIT_ADD, STR_END, 0, STR_END, 0, SLJIT_IMM, IN_UCHARS((location >> 1) - 1));
+ return TRUE;
+ }
+ 
+@@ -3577,7 +3577,7 @@ do
+ #endif
+ 
+   context->length -= IN_UCHARS(1);
+-#if defined SLJIT_UNALIGNED && SLJIT_UNALIGNED
++#if (defined SLJIT_UNALIGNED && SLJIT_UNALIGNED) && (defined COMPILE_PCRE8 || defined COMPILE_PCRE16)
+ 
+   /* Unaligned read is supported. */
+   if (othercasebit != 0 && othercasechar == cc)
+@@ -3594,27 +3594,18 @@ do
+ 
+ #if defined COMPILE_PCRE8
+   if (context->ucharptr >= 4 || context->length == 0 || (context->ucharptr == 2 && context->length == 1))
+-#elif defined COMPILE_PCRE16
++#else
+   if (context->ucharptr >= 2 || context->length == 0)
+-#elif defined COMPILE_PCRE32
+-  if (1 /* context->ucharptr >= 1 || context->length == 0 */)
+ #endif
+     {
+-#if defined COMPILE_PCRE8 || defined COMPILE_PCRE16
+     if (context->length >= 4)
+       OP1(SLJIT_MOV_SI, context->sourcereg, 0, SLJIT_MEM1(STR_PTR), -context->length);
+-#if defined COMPILE_PCRE8
+     else if (context->length >= 2)
+       OP1(SLJIT_MOV_UH, context->sourcereg, 0, SLJIT_MEM1(STR_PTR), -context->length);
++#if defined COMPILE_PCRE8
+     else if (context->length >= 1)
+       OP1(SLJIT_MOV_UB, context->sourcereg, 0, SLJIT_MEM1(STR_PTR), -context->length);
+-#elif defined COMPILE_PCRE16
+-    else if (context->length >= 2)
+-      OP1(SLJIT_MOV_UH, context->sourcereg, 0, SLJIT_MEM1(STR_PTR), -context->length);
+-#endif /* COMPILE_PCRE[8|16] */
+-#elif defined COMPILE_PCRE32
+-    OP1(MOV_UCHAR, context->sourcereg, 0, SLJIT_MEM1(STR_PTR), -context->length);
+-#endif /* COMPILE_PCRE[8|16|32] */
++#endif /* COMPILE_PCRE8 */
+     context->sourcereg = context->sourcereg == TMP1 ? TMP2 : TMP1;
+ 
+     switch(context->ucharptr)
+@@ -3625,7 +3616,6 @@ do
+       add_jump(compiler, backtracks, CMP(SLJIT_C_NOT_EQUAL, context->sourcereg, 0, SLJIT_IMM, context->c.asint | context->oc.asint));
+       break;
+ 
+-#if defined COMPILE_PCRE8 || defined COMPILE_PCRE16
+       case 2 / sizeof(pcre_uchar):
+       if (context->oc.asushort != 0)
+         OP2(SLJIT_OR, context->sourcereg, 0, context->sourcereg, 0, SLJIT_IMM, context->oc.asushort);
+@@ -3640,8 +3630,6 @@ do
+       break;
+ #endif
+ 
+-#endif /* COMPILE_PCRE[8|16] */
+-
+       default:
+       SLJIT_ASSERT_STOP();
+       break;
+@@ -3651,8 +3639,8 @@ do
+ 
+ #else
+ 
+-  /* Unaligned read is unsupported. */
+-  if (context->length > 0)
++  /* Unaligned read is unsupported or in 32 bit mode. */
++  if (context->length >= 1)
+     OP1(MOV_UCHAR, context->sourcereg, 0, SLJIT_MEM1(STR_PTR), -context->length);
+ 
+   context->sourcereg = context->sourcereg == TMP1 ? TMP2 : TMP1;
+-- 
+1.8.1
+

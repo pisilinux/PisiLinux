@@ -1,0 +1,81 @@
+From e4697be50e97a013805138d84192e6bdd6d1f6c2 Mon Sep 17 00:00:00 2001
+From: Michael Meeks <michael.meeks@novell.com>
+Date: Tue, 2 Nov 2010 20:30:07 +0000
+Subject: [PATCH 08/34] store a full kernel trace as well with no pruning at all
+
+---
+ pybootchartgui/parsing.py      |    8 +++++++-
+ pybootchartgui/process_tree.py |   14 ++++++++------
+ 2 files changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/pybootchartgui/parsing.py b/pybootchartgui/parsing.py
+index fdfdd7e..c22f455 100644
+--- a/pybootchartgui/parsing.py
++++ b/pybootchartgui/parsing.py
+@@ -37,6 +37,7 @@ class Trace:
+ 	self.cpu_stats = None
+ 	self.cmdline = None
+ 	self.kernel = None
++	self.kernel_tree = None
+ 	self.filename = None
+ 	self.parent_map = None
+ 	self.mem_stats = None
+@@ -69,10 +70,15 @@ class Trace:
+                         times.append(None)
+ 
+         self.proc_tree = ProcessTree(writer, self.kernel, self.ps_stats,
++				     self.ps_stats.sample_period,
+ 				     self.headers.get("profile.process"),
+ 				     options.prune, idle, self.taskstats,
+ 				     self.parent_map is not None)
+-#       return (state.headers, state.cpu_stats, state.disk_stats, state.mem_stats, proc_tree, times, state.filename)
++
++	if self.kernel is not None:
++		self.kernel_tree = ProcessTree(writer, self.kernel, None, 0,
++					       self.headers.get("profile.process"),
++					       False, None, None, True)
+ 
+     def valid(self):
+         return self.headers != None and self.disk_stats != None and \
+diff --git a/pybootchartgui/process_tree.py b/pybootchartgui/process_tree.py
+index af5cd57..6d75680 100644
+--- a/pybootchartgui/process_tree.py
++++ b/pybootchartgui/process_tree.py
+@@ -37,18 +37,20 @@ class ProcessTree:
+     LOGGER_PROC = 'bootchart-colle'
+     EXPLODER_PROCESSES = set(['hwup'])
+ 
+-    def __init__(self, writer, kernel, psstats, monitoredApp, prune,
+-                 idle, taskstats, accurate_parentage,
+-                 for_testing = False):
++    def __init__(self, writer, kernel, psstats, sample_period,
++                 monitoredApp, prune, idle, taskstats,
++                 accurate_parentage, for_testing = False):
+         self.writer = writer
+         self.process_tree = []
+         self.taskstats = taskstats
+-        if kernel is None:
++        if psstats is None:
++            process_list = kernel
++        elif kernel is None:
+             process_list = psstats.process_map.values()
+         else:
+             process_list = kernel + psstats.process_map.values()
+ 	self.process_list = sorted(process_list, key = lambda p: p.pid)
+-	self.sample_period = psstats.sample_period
++	self.sample_period = sample_period
+ 
+ 	self.build()
+         if not accurate_parentage:
+@@ -240,7 +242,7 @@ class ProcessTree:
+     def merge_siblings(self, process_subtree):
+         """Merges thread processes.  Sibling processes with the same command
+ 	   line are merged together.
+-	   
++
+         """
+         num_removed = 0
+         idx = 0
+-- 
+1.7.3.1
+

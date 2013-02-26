@@ -1,0 +1,295 @@
+commit 59deccb01396b9c4092c7df495462d03efdc0337
+Author: Gwenole Beauchesne <gbeauchesne@splitted-desktop.com>
+Date:   Wed Apr 28 18:43:04 2010 +0200
+
+    [G45] Fix build without proper libdrm updates.
+
+diff --git a/configure.ac b/configure.ac
+index ae37fe0..ef813be 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -104,9 +104,9 @@ PKG_CHECK_MODULES([DRM], [libdrm])
+ PKG_CHECK_MODULES(GEN4ASM, [intel-gen4asm >= 1.1], [gen4asm=yes], [gen4asm=no])
+ AM_CONDITIONAL(HAVE_GEN4ASM, test x$gen4asm = xyes)
+ 
+-# Check for libdrm >= 2.4.23 (needed for i965_drv_video.so)
+-if test x$enable_i965_driver = xyes && ! $PKG_CONFIG --atleast-version=2.4.23 libdrm; then
+-    AC_MSG_WARN([libdrm < 2.4.23 found, disabling build of i965 video driver])
++# Check for libdrm >= 2.4 (needed for i965_drv_video.so)
++if test x$enable_i965_driver = xyes && ! $PKG_CONFIG --atleast-version=2.4 libdrm; then
++    AC_MSG_WARN([libdrm < 2.4 found, disabling build of i965 video driver])
+     enable_i965_driver=no
+ fi
+ AM_CONDITIONAL(BUILD_I965_DRIVER, test x$enable_i965_driver = xyes)
+diff --git a/i965_drv_video/Makefile.am b/i965_drv_video/Makefile.am
+index 8dd13bd..975b7b2 100644
+--- a/i965_drv_video/Makefile.am
++++ b/i965_drv_video/Makefile.am
+@@ -27,12 +27,13 @@ AM_CFLAGS = -Wall -I$(top_srcdir) -I$(top_srcdir)/va -I$(top_srcdir)/va/x11 @DRM
+ i965_drv_video_la_LTLIBRARIES = i965_drv_video.la
+ i965_drv_video_ladir = @LIBVA_DRIVERS_PATH@
+ i965_drv_video_la_LDFLAGS = -module -avoid-version -no-undefined -Wl,--no-undefined @DRM_LIBS@ -ldrm_intel
+-i965_drv_video_la_LIBADD = ../va/libva-x11.la -lpthread
++i965_drv_video_la_LIBADD = ../va/libva-x11.la -lpthread -ldl
+ 
+ i965_drv_video_la_SOURCES =	\
+ 	object_heap.c		\
+ 	intel_batchbuffer.c	\
+ 	intel_batchbuffer_dump.c\
++	intel_compat.c		\
+ 	intel_memman.c		\
+ 	intel_driver.c		\
+ 	i965_media.c		\
+@@ -50,6 +51,7 @@ noinst_HEADERS =                \
+ 	object_heap.h           \
+ 	intel_batchbuffer.h     \
+ 	intel_batchbuffer_dump.h\
++	intel_compat.h		\
+ 	intel_memman.h          \
+ 	intel_driver.h          \
+ 	i965_media.h            \
+diff --git a/i965_drv_video/gen6_mfd.c b/i965_drv_video/gen6_mfd.c
+index cb2162f..f37d0cc 100644
+--- a/i965_drv_video/gen6_mfd.c
++++ b/i965_drv_video/gen6_mfd.c
+@@ -35,6 +35,7 @@
+ 
+ #include "intel_batchbuffer.h"
+ #include "intel_driver.h"
++#include "intel_compat.h"
+ 
+ #include "i965_defines.h"
+ #include "i965_drv_video.h"
+@@ -124,7 +125,7 @@ gen6_mfd_avc_frame_store_index(VADriverContextP ctx, VAPictureParameterBufferH26
+                 uint32_t tiling_mode = I915_TILING_Y;
+                 unsigned long pitch;
+         
+-                obj_surface->bo = drm_intel_bo_alloc_tiled(i965->intel.bufmgr, 
++                obj_surface->bo = drm_compat_intel_bo_alloc_tiled(i965->intel.bufmgr, 
+                                                            "vaapi surface",
+                                                            obj_surface->width, 
+                                                            obj_surface->height + obj_surface->height / 2,
+@@ -1044,7 +1045,7 @@ gen6_mfd_avc_decode_init(VADriverContextP ctx, struct decode_state *decode_state
+         uint32_t tiling_mode = I915_TILING_Y;
+         unsigned long pitch;
+         
+-        obj_surface->bo = drm_intel_bo_alloc_tiled(i965->intel.bufmgr, 
++        obj_surface->bo = drm_compat_intel_bo_alloc_tiled(i965->intel.bufmgr, 
+                                                    "vaapi surface",
+                                                    obj_surface->width, 
+                                                    obj_surface->height + obj_surface->height / 2,
+@@ -1217,7 +1218,7 @@ gen6_mfd_mpeg2_decode_init(VADriverContextP ctx, struct decode_state *decode_sta
+         uint32_t tiling_mode = I915_TILING_Y;
+         unsigned long pitch;
+ 
+-        obj_surface->bo = drm_intel_bo_alloc_tiled(i965->intel.bufmgr, 
++        obj_surface->bo = drm_compat_intel_bo_alloc_tiled(i965->intel.bufmgr, 
+                                                    "vaapi surface",
+                                                    obj_surface->width, 
+                                                    obj_surface->height + obj_surface->height / 2,
+@@ -1544,7 +1545,7 @@ gen6_mfd_vc1_decode_init(VADriverContextP ctx, struct decode_state *decode_state
+         uint32_t tiling_mode = I915_TILING_Y;
+         unsigned long pitch;
+ 
+-        obj_surface->bo = drm_intel_bo_alloc_tiled(i965->intel.bufmgr, 
++        obj_surface->bo = drm_compat_intel_bo_alloc_tiled(i965->intel.bufmgr, 
+                                                    "vaapi surface",
+                                                    obj_surface->width, 
+                                                    obj_surface->height + obj_surface->height / 2,
+diff --git a/i965_drv_video/intel_batchbuffer.c b/i965_drv_video/intel_batchbuffer.c
+index 9d623f1..d488c9f 100644
+--- a/i965_drv_video/intel_batchbuffer.c
++++ b/i965_drv_video/intel_batchbuffer.c
+@@ -32,6 +32,7 @@
+ #include <va/va_backend.h>
+ 
+ #include "intel_batchbuffer.h"
++#include "intel_compat.h"
+ 
+ static void 
+ intel_batchbuffer_reset(struct intel_batchbuffer *batch)
+@@ -64,7 +65,7 @@ intel_batchbuffer_init(struct intel_driver_data *intel)
+     assert(intel->batch);
+     intel->batch->intel = intel;
+     intel->batch->flag = I915_EXEC_RENDER;
+-    intel->batch->run = drm_intel_bo_mrb_exec;
++    intel->batch->run = drm_compat_intel_bo_mrb_exec;
+     intel_batchbuffer_reset(intel->batch);
+ 
+     if (intel->has_bsd) {
+@@ -72,7 +73,7 @@ intel_batchbuffer_init(struct intel_driver_data *intel)
+         assert(intel->batch_bcs);
+         intel->batch_bcs->intel = intel;
+         intel->batch_bcs->flag = I915_EXEC_BSD;
+-        intel->batch_bcs->run = drm_intel_bo_mrb_exec;
++        intel->batch_bcs->run = drm_compat_intel_bo_mrb_exec;
+         intel_batchbuffer_reset(intel->batch_bcs);
+     }
+ 
+diff --git a/i965_drv_video/intel_compat.c b/i965_drv_video/intel_compat.c
+new file mode 100644
+index 0000000..eca843e
+--- /dev/null
++++ b/i965_drv_video/intel_compat.c
+@@ -0,0 +1,86 @@
++/*
++ * Copyright (C) 2011 Splitted-Desktop Systems. All Rights Reserved.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the
++ * "Software"), to deal in the Software without restriction, including
++ * without limitation the rights to use, copy, modify, merge, publish,
++ * distribute, sub license, and/or sell copies of the Software, and to
++ * permit persons to whom the Software is furnished to do so, subject to
++ * the following conditions:
++ * 
++ * The above copyright notice and this permission notice (including the
++ * next paragraph) shall be included in all copies or substantial portions
++ * of the Software.
++ * 
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
++ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
++ * IN NO EVENT SHALL PRECISION INSIGHT AND/OR ITS SUPPLIERS BE LIABLE FOR
++ * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
++ * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
++ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
++ */
++
++#define _GNU_SOURCE 1 /* RTLD_DEFAULT */
++#include "config.h"
++#include <dlfcn.h>
++#include <assert.h>
++#include "intel_driver.h"
++#include "intel_compat.h"
++
++typedef int (*drm_intel_bo_mrb_exec_func_t)(
++    drm_intel_bo *bo, int used,
++    drm_clip_rect_t *cliprects, int num_cliprects,
++    int DR4, int ring_flag);
++
++typedef drm_intel_bo *(*drm_intel_bo_alloc_tiled_func_t)(
++    drm_intel_bufmgr *bufmgr, const char *name,
++    int x, int y, int cpp, uint32_t *tiling_mode,
++    unsigned long *pitch, unsigned long flags);
++
++static int
++drm_default_intel_bo_mrb_exec(drm_intel_bo *bo, int used,
++                              drm_clip_rect_t * cliprects, int num_cliprects,
++                              int DR4, int ring_flag)
++{
++    return drm_intel_bo_exec(bo, used, cliprects, num_cliprects, DR4);
++}
++
++int
++drm_compat_intel_bo_mrb_exec(drm_intel_bo *bo, int used,
++                             drm_clip_rect_t *cliprects, int num_cliprects,
++                             int DR4, int ring_flag)
++{
++    static drm_intel_bo_mrb_exec_func_t func;
++    if (!func) {
++        func = (drm_intel_bo_mrb_exec_func_t)
++            dlsym(RTLD_DEFAULT, "drm_intel_bo_mrb_exec");
++        if (!func)
++            func = drm_default_intel_bo_mrb_exec;
++    }
++    return func(bo, used, cliprects, num_cliprects, DR4, ring_flag);
++}
++
++static drm_intel_bo *
++drm_default_intel_bo_alloc_tiled(drm_intel_bufmgr *bufmgr, const char *name,
++                                 int x, int y, int cpp, uint32_t *tiling_mode,
++                                 unsigned long *pitch, unsigned long flags)
++{
++    return NULL;
++}
++
++drm_intel_bo *
++drm_compat_intel_bo_alloc_tiled(drm_intel_bufmgr *bufmgr, const char *name,
++                                int x, int y, int cpp, uint32_t *tiling_mode,
++                                unsigned long *pitch, unsigned long flags)
++{
++    static drm_intel_bo_alloc_tiled_func_t func;
++    if (!func) {
++        func = (drm_intel_bo_alloc_tiled_func_t)
++            dlsym(RTLD_DEFAULT, "drm_intel_bo_alloc_tiled");
++        if (!func)
++            func = drm_default_intel_bo_alloc_tiled;
++    }
++    return func(bufmgr, name, x, y, cpp, tiling_mode, pitch, flags);
++}
+diff --git a/i965_drv_video/intel_compat.h b/i965_drv_video/intel_compat.h
+new file mode 100644
+index 0000000..713526f
+--- /dev/null
++++ b/i965_drv_video/intel_compat.h
+@@ -0,0 +1,38 @@
++/*
++ * Copyright (C) 2011 Splitted-Desktop Systems. All Rights Reserved.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the
++ * "Software"), to deal in the Software without restriction, including
++ * without limitation the rights to use, copy, modify, merge, publish,
++ * distribute, sub license, and/or sell copies of the Software, and to
++ * permit persons to whom the Software is furnished to do so, subject to
++ * the following conditions:
++ * 
++ * The above copyright notice and this permission notice (including the
++ * next paragraph) shall be included in all copies or substantial portions
++ * of the Software.
++ * 
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
++ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
++ * IN NO EVENT SHALL PRECISION INSIGHT AND/OR ITS SUPPLIERS BE LIABLE FOR
++ * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
++ * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
++ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
++ */
++
++#ifndef INTEL_COMPAT_H
++#define INTEL_COMPAT_H
++
++int
++drm_compat_intel_bo_mrb_exec(drm_intel_bo *bo, int used,
++                             drm_clip_rect_t *cliprects, int num_cliprects,
++                             int DR4, int ring_flag);
++
++drm_intel_bo *
++drm_compat_intel_bo_alloc_tiled(drm_intel_bufmgr *bufmgr, const char *name,
++                                int x, int y, int cpp, uint32_t *tiling_mode,
++                                unsigned long *pitch, unsigned long flags);
++
++#endif /* INTEL_COMPAT_H */
+diff --git a/i965_drv_video/intel_driver.h b/i965_drv_video/intel_driver.h
+index b3f7460..6dbb79e 100644
+--- a/i965_drv_video/intel_driver.h
++++ b/i965_drv_video/intel_driver.h
+@@ -17,6 +17,26 @@
+ #define INLINE
+ #endif
+ 
++/* Defines from libdrm >= 2.4.21 */
++#ifndef I915_EXEC_RENDER
++#define I915_EXEC_RENDER  (1 << 0)
++#endif
++#ifndef I915_EXEC_BSD
++#define I915_EXEC_BSD     (2 << 0)
++#endif
++#ifndef I915_EXEC_BLT
++#define I915_EXEC_BLT     (3 << 0)
++#endif
++#ifndef I915_PARAM_HAS_EXECBUF2
++#define I915_PARAM_HAS_EXECBUF2 9
++#endif
++#ifndef I915_PARAM_HAS_BSD
++#define I915_PARAM_HAS_BSD 10
++#endif
++#ifndef I915_PARAM_HAS_BLT
++#define I915_PARAM_HAS_BLT 11
++#endif
++
+ #define BATCH_SIZE      0x80000
+ #define BATCH_RESERVED  0x10
+ 

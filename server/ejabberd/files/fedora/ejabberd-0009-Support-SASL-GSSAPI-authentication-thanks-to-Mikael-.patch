@@ -1,0 +1,480 @@
+From 6b258db9aba30218c2d651c2c656bdfce39c48a9 Mon Sep 17 00:00:00 2001
+From: Badlop <badlop@process-one.net>
+Date: Thu, 15 Apr 2010 17:20:16 +0200
+Subject: [PATCH 09/10] Support SASL GSSAPI authentication (thanks to Mikael Magnusson)(EJAB-831)
+
+---
+ src/cyrsasl.erl           |   76 +++++++++++++++++----
+ src/cyrsasl.hrl           |   15 ++++
+ src/cyrsasl_anonymous.erl |    6 +-
+ src/cyrsasl_digest.erl    |    6 +-
+ src/cyrsasl_gssapi.erl    |  166 +++++++++++++++++++++++++++++++++++++++++++++
+ src/cyrsasl_plain.erl     |    6 +-
+ src/ejabberd_c2s.erl      |   12 +++-
+ src/ejabberd_socket.erl   |   19 +++++
+ 8 files changed, 283 insertions(+), 23 deletions(-)
+ create mode 100644 src/cyrsasl.hrl
+ create mode 100644 src/cyrsasl_gssapi.erl
+
+diff --git a/src/cyrsasl.erl b/src/cyrsasl.erl
+index 121ef6d..ea358f0 100644
+--- a/src/cyrsasl.erl
++++ b/src/cyrsasl.erl
+@@ -30,19 +30,39 @@
+ -export([start/0,
+ 	 register_mechanism/3,
+ 	 listmech/1,
+-	 server_new/7,
++	 server_new/8,
+ 	 server_start/3,
+ 	 server_step/2]).
+ 
++-include("cyrsasl.hrl").
++-include("ejabberd.hrl").
++
++%% @type saslmechanism() = {sasl_mechanism, Mechanism, Module, Require_Plain}
++%%     Mechanism = string()
++%%     Module = atom()
++%%     Require_Plain = bool().
++%% Registry entry of a supported SASL mechanism.
++
+ -record(sasl_mechanism, {mechanism, module, require_plain_password}).
+--record(sasl_state, {service, myname, realm,
+-		     get_password, check_password, check_password_digest,
+-		     mech_mod, mech_state}).
++
++%% @type saslstate() = {sasl_state, Service, Myname, Realm, GetPassword, CheckPassword, CheckPasswordDigest, Mech_Mod, Mech_State}
++%%     Service = string()
++%%     Myname = string()
++%%     Realm = string()
++%%     GetPassword = function()
++%%     CheckPassword = function()
++%%     CheckPasswordDigest = any()
++%%     Mech_Mod = atom()
++%%     Mech_State = term().
++%% State of this process.
++
++-record(sasl_state, {service, myname,
++		     mech_mod, mech_state, params}).
+ 
+ -export([behaviour_info/1]).
+ 
+ behaviour_info(callbacks) ->
+-    [{mech_new, 4}, {mech_step, 2}];
++    [{mech_new, 1}, {mech_step, 2}];
+ behaviour_info(_Other) ->
+     undefined.
+ 
+@@ -53,8 +73,30 @@ start() ->
+     cyrsasl_plain:start([]),
+     cyrsasl_digest:start([]),
+     cyrsasl_anonymous:start([]),
++    maybe_try_start_gssapi(),
+     ok.
+ 
++maybe_try_start_gssapi() ->
++    case os:getenv("KRB5_KTNAME") of
++        false ->
++	    ok;
++        _String ->
++	    try_start_gssapi()
++    end.
++
++try_start_gssapi() ->
++    case code:load_file(esasl) of
++	{module, _Module} ->
++	    cyrsasl_gssapi:start([]);
++	{error, What} ->
++	    ?ERROR_MSG("Support for GSSAPI not started because esasl.beam was not found: ~p", [What])
++    end.
++
++%% @spec (Mechanism, Module, Require_Plain) -> true
++%%     Mechanism = string()
++%%     Module = atom()
++%%     Require_Plain = bool()
++
+ register_mechanism(Mechanism, Module, RequirePlainPassword) ->
+     ets:insert(sasl_mechanism,
+ 	       #sasl_mechanism{mechanism = Mechanism,
+@@ -113,24 +155,28 @@ listmech(Host) ->
+     filter_anonymous(Host, Mechs).
+ 
+ server_new(Service, ServerFQDN, UserRealm, _SecFlags,
+-	   GetPassword, CheckPassword, CheckPasswordDigest) ->
++	   GetPassword, CheckPassword, CheckPasswordDigest, Socket) ->
++    Params = #sasl_params{
++      host = ServerFQDN,
++      realm = UserRealm,
++      get_password = GetPassword,
++      check_password = CheckPassword,
++      check_password_digest= CheckPasswordDigest,
++      socket = Socket
++     },
++
+     #sasl_state{service = Service,
+ 		myname = ServerFQDN,
+-		realm = UserRealm,
+-		get_password = GetPassword,
+-		check_password = CheckPassword,
+-		check_password_digest= CheckPasswordDigest}.
++		params = Params}.
++
+ 
+ server_start(State, Mech, ClientIn) ->
+     case lists:member(Mech, listmech(State#sasl_state.myname)) of
+ 	true ->
+ 	    case ets:lookup(sasl_mechanism, Mech) of
+ 		[#sasl_mechanism{module = Module}] ->
+-		    {ok, MechState} = Module:mech_new(
+-					State#sasl_state.myname,
+-					State#sasl_state.get_password,
+-					State#sasl_state.check_password,
+-					State#sasl_state.check_password_digest),
++		    {ok, MechState} =
++			Module:mech_new(State#sasl_state.params),
+ 		    server_step(State#sasl_state{mech_mod = Module,
+ 						 mech_state = MechState},
+ 				ClientIn);
+diff --git a/src/cyrsasl.hrl b/src/cyrsasl.hrl
+new file mode 100644
+index 0000000..b4cc3e3
+--- /dev/null
++++ b/src/cyrsasl.hrl
+@@ -0,0 +1,15 @@
++%% @type saslparams() = {sasl_params, Host, Realm, GetPassword, CheckPassword, CheckPasswordDigest}
++%%     Host = string()
++%%     Realm = string()
++%%     GetPassword = function()
++%%     CheckPassword = function()
++%%     CheckPasswordDigest = any().
++%% Parameters for SASL.
++
++-record(sasl_params, {
++	  host,
++	  realm,
++	  get_password,
++	  check_password,
++	  check_password_digest,
++	  socket}).
+diff --git a/src/cyrsasl_anonymous.erl b/src/cyrsasl_anonymous.erl
+index 2b3ba36..2647d28 100644
+--- a/src/cyrsasl_anonymous.erl
++++ b/src/cyrsasl_anonymous.erl
+@@ -27,7 +27,9 @@
+ 
+ -module(cyrsasl_anonymous).
+ 
+--export([start/1, stop/0, mech_new/4, mech_step/2]).
++-export([start/1, stop/0, mech_new/1, mech_step/2]).
++
++-include("cyrsasl.hrl").
+ 
+ -behaviour(cyrsasl).
+ 
+@@ -40,7 +42,7 @@ start(_Opts) ->
+ stop() ->
+     ok.
+ 
+-mech_new(Host, _GetPassword, _CheckPassword, _CheckPasswordDigest) ->
++mech_new(#sasl_params{host=Host}) ->
+     {ok, #state{server = Host}}.
+ 
+ mech_step(State, _ClientIn) ->
+diff --git a/src/cyrsasl_digest.erl b/src/cyrsasl_digest.erl
+index 2a7ce2a..9628137 100644
+--- a/src/cyrsasl_digest.erl
++++ b/src/cyrsasl_digest.erl
+@@ -29,10 +29,11 @@
+ 
+ -export([start/1,
+ 	 stop/0,
+-	 mech_new/4,
++	 mech_new/1,
+ 	 mech_step/2]).
+ 
+ -include("ejabberd.hrl").
++-include("cyrsasl.hrl").
+ 
+ -behaviour(cyrsasl).
+ 
+@@ -45,7 +46,8 @@ start(_Opts) ->
+ stop() ->
+     ok.
+ 
+-mech_new(Host, GetPassword, _CheckPassword, CheckPasswordDigest) ->
++mech_new(#sasl_params{host=Host, get_password=GetPassword,
++		      check_password_digest=CheckPasswordDigest}) ->
+     {ok, #state{step = 1,
+ 		nonce = randoms:get_string(),
+ 		host = Host,
+diff --git a/src/cyrsasl_gssapi.erl b/src/cyrsasl_gssapi.erl
+new file mode 100644
+index 0000000..11d9955
+--- /dev/null
++++ b/src/cyrsasl_gssapi.erl
+@@ -0,0 +1,166 @@
++%%%----------------------------------------------------------------------
++%%% File    : cyrsasl_gssapi.erl
++%%% Author  : Mikael Magnusson <mikma@users.sourceforge.net>
++%%% Purpose : GSSAPI SASL mechanism
++%%% Created : 1 June 2007 by Mikael Magnusson <mikma@users.sourceforge.net>
++%%% Id      : $Id: $
++%%%----------------------------------------------------------------------
++%%%
++%%% Copyright (C) 2007-2009  Mikael Magnusson <mikma@users.sourceforge.net>
++%%%
++%%% Permission is hereby granted, free of charge, to any person
++%%% obtaining a copy of this software and associated documentation
++%%% files (the "Software"), to deal in the Software without
++%%% restriction, including without limitation the rights to use, copy,
++%%% modify, merge, publish, distribute, sublicense, and/or sell copies
++%%% of the Software, and to permit persons to whom the Software is
++%%% furnished to do so, subject to the following conditions:
++%%%
++%%% The above copyright notice and this permission notice shall be
++%%% included in all copies or substantial portions of the Software.
++%%%
++%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++%%% EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++%%% MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++%%% NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
++%%% BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
++%%% ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
++%%% CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++%%% SOFTWARE.
++%%%
++
++%%%
++%%% configuration options:
++%%% {sasl_realm, "<Kerberos realm>"}.
++%%%
++%%% environment variables:
++%%% KRB5_KTNAME
++%%%
++
++-module(cyrsasl_gssapi).
++-author('mikma@users.sourceforge.net').
++-vsn('$Revision: $ ').
++
++-export([start/1,
++	 stop/0,
++	 mech_new/1,
++	 mech_step/2]).
++
++-include("ejabberd.hrl").
++-include("cyrsasl.hrl").
++
++-behaviour(cyrsasl).
++
++-define(SERVER, ?MODULE).
++-define(SERVICE, "xmpp").
++
++-record(state, {sasl,
++		needsmore=true,
++		step=0,
++		host,
++		realm,
++		authid,
++		authzid,
++		authrealm,
++		error}).
++
++start(_Opts) ->
++    ChildSpec =
++	{?SERVER,
++	 {esasl, start_link, [{local, ?SERVER}]},
++	 transient,
++	 1000,
++	 worker,
++	 [esasl]},
++
++    case supervisor:start_child(ejabberd_sup, ChildSpec) of
++	{ok, _Pid} ->
++	    cyrsasl:register_mechanism("GSSAPI", ?MODULE, false);
++	{error, Error} = E ->
++	    ?ERROR_MSG("esasl failed: ~p", [Error]),
++	    E
++    end.
++
++
++stop() ->
++    catch esasl:stop(?SERVER),
++    supervisor:terminate_child(ejabberd_sup, ?SERVER),
++    supervisor:delete_child(ejabberd_sup, ?SERVER).
++
++mech_new(#sasl_params{host=Host, realm=Realm, socket=Socket}) ->
++    case ejabberd_socket:gethostname(Socket) of
++	{ok, FQDN} ->
++	    ?DEBUG("mech_new ~p ~p ~p~n", [Host, Realm, FQDN]),
++	    case esasl:server_start(?SERVER, "GSSAPI", ?SERVICE, FQDN) of
++		{ok, Sasl} ->
++		    {ok, #state{sasl=Sasl,host=Host,realm=Realm}};
++		{error, {gsasl_error, Error}} ->
++		    {ok, Str} = esasl:str_error(?SERVER, Error),
++		    ?DEBUG("esasl error: ~p", [Str]),
++		    {ok, #state{needsmore=error,error="internal-server-error"}};
++		{error, Error} ->
++		    ?DEBUG("esasl error: ~p", [Error]),
++		    {ok, #state{needsmore=error,error="internal-server-error"}}
++	    end;
++	{error, Error} ->
++	    ?DEBUG("gethostname error: ~p", [Error]),
++	    {ok, #state{needsmore=error,error="internal-server-error"}}
++    end.
++
++mech_step(State, ClientIn) when is_list(ClientIn) ->
++    catch do_step(State, ClientIn).
++
++do_step(#state{needsmore=error,error=Error}=_State, _) ->
++    {error, Error};
++do_step(#state{needsmore=false}=State, _) ->
++    check_user(State);
++do_step(#state{needsmore=true,sasl=Sasl,step=Step}=State, ClientIn) ->
++    ?DEBUG("mech_step~n", []),
++    case esasl:step(Sasl, list_to_binary(ClientIn)) of
++	{ok, RspAuth} ->
++	    ?DEBUG("ok~n", []),
++	    {ok, Display_name} = esasl:property_get(Sasl, gssapi_display_name),
++	    {ok, Authzid} = esasl:property_get(Sasl, authzid),
++	    {Authid, [$@ | Auth_realm]} =
++		lists:splitwith(fun(E)->E =/= $@ end, Display_name),
++	    State1 = State#state{authid=Authid,
++				 authzid=Authzid,
++				 authrealm=Auth_realm},
++	    handle_step_ok(State1, binary_to_list(RspAuth));
++	{needsmore, RspAuth} ->
++	    ?DEBUG("needsmore~n", []),
++	    if (Step > 0) and (ClientIn =:= []) and (RspAuth =:= <<>>) ->
++		    {error, "not-authorized"};
++		true ->
++		    {continue, binary_to_list(RspAuth),
++		     State#state{step=Step+1}}
++	    end;
++	{error, _} ->
++	    {error, "not-authorized"}
++    end.
++
++handle_step_ok(State, []) ->
++    check_user(State);
++handle_step_ok(#state{step=Step}=State, RspAuth) ->
++    ?DEBUG("continue~n", []),
++    {continue, RspAuth, State#state{needsmore=false,step=Step+1}}.
++
++check_user(#state{authid=Authid,authzid=Authzid,
++		  authrealm=Auth_realm,host=Host,realm=Realm}) ->
++    if Realm =/= Auth_realm ->
++	    ?DEBUG("bad realm ~p (expected ~p)~n",[Auth_realm, Realm]),
++	    throw({error, "not-authorized"});
++       true ->
++	    ok
++    end,
++
++    case ejabberd_auth:is_user_exists(Authid, Host) of
++	false ->
++	    ?DEBUG("bad user ~p~n",[Authid]),
++	    throw({error, "not-authorized"});
++	true ->
++	    ok
++    end,
++
++    ?DEBUG("GSSAPI authenticated ~p ~p~n", [Authid, Authzid]),
++    {ok, [{username, Authid}, {authzid, Authzid}]}.
+diff --git a/src/cyrsasl_plain.erl b/src/cyrsasl_plain.erl
+index 129fb8b..4799a41 100644
+--- a/src/cyrsasl_plain.erl
++++ b/src/cyrsasl_plain.erl
+@@ -27,7 +27,9 @@
+ -module(cyrsasl_plain).
+ -author('alexey@process-one.net').
+ 
+--export([start/1, stop/0, mech_new/4, mech_step/2, parse/1]).
++-export([start/1, stop/0, mech_new/1, mech_step/2, parse/1]).
++
++-include("cyrsasl.hrl").
+ 
+ -behaviour(cyrsasl).
+ 
+@@ -40,7 +42,7 @@ start(_Opts) ->
+ stop() ->
+     ok.
+ 
+-mech_new(_Host, _GetPassword, CheckPassword, _CheckPasswordDigest) ->
++mech_new(#sasl_params{check_password = CheckPassword}) ->
+     {ok, #state{check_password = CheckPassword}}.
+ 
+ mech_step(State, ClientIn) ->
+diff --git a/src/ejabberd_c2s.erl b/src/ejabberd_c2s.erl
+index d4b6809..3e0a49c 100644
+--- a/src/ejabberd_c2s.erl
++++ b/src/ejabberd_c2s.erl
+@@ -254,9 +254,16 @@ wait_for_stream({xmlstreamstart, _Name, Attrs}, StateData) ->
+ 			    send_header(StateData, Server, "1.0", DefaultLang),
+ 			    case StateData#state.authenticated of
+ 				false ->
++				    Realm =
++					case ejabberd_config:get_local_option({sasl_realm, Server}) of
++					    undefined ->
++						"";
++					    Realm0 ->
++						Realm0
++					end,
+ 				    SASLState =
+ 					cyrsasl:server_new(
+-					  "jabber", Server, "", [],
++					  "jabber", Server, Realm, [],
+ 					  fun(U) ->
+ 						  ejabberd_auth:get_password_with_authmodule(
+ 						    U, Server)
+@@ -268,7 +275,8 @@ wait_for_stream({xmlstreamstart, _Name, Attrs}, StateData) ->
+ 					  fun(U, P, D, DG) ->
+ 						  ejabberd_auth:check_password_with_authmodule(
+ 						    U, Server, P, D, DG)
+-					  end),
++					  end,
++					  StateData#state.socket),
+ 				    Mechs = lists:map(
+ 					      fun(S) ->
+ 						      {xmlelement, "mechanism", [],
+diff --git a/src/ejabberd_socket.erl b/src/ejabberd_socket.erl
+index 25ff64c..e8c5fca 100644
+--- a/src/ejabberd_socket.erl
++++ b/src/ejabberd_socket.erl
+@@ -44,9 +44,11 @@
+ 	 get_peer_certificate/1,
+ 	 get_verify_result/1,
+ 	 close/1,
++	 gethostname/1,
+ 	 sockname/1, peername/1]).
+ 
+ -include("ejabberd.hrl").
++-include_lib("kernel/include/inet.hrl").
+ 
+ -record(socket_state, {sockmod, socket, receiver}).
+ 
+@@ -222,6 +224,23 @@ peername(#socket_state{sockmod = SockMod, socket = Socket}) ->
+ 	    SockMod:peername(Socket)
+     end.
+ 
++gethostname(#socket_state{socket = Socket} = State) ->
++    ?DEBUG("gethostname ~p~n", [Socket]),
++
++    case sockname(State) of
++	{ok, {Addr, _Port}} ->
++	    case inet:gethostbyaddr(Addr) of
++		{ok, HostEnt} when is_record(HostEnt, hostent) ->
++		    ?DEBUG("gethostname result ~p~n",
++			   [HostEnt#hostent.h_name]),
++		    {ok, HostEnt#hostent.h_name};
++		{error, _Reason} = E ->
++		    E
++	    end;
++	{error, _Reason} = E ->
++	    E
++    end.
++
+ %%====================================================================
+ %% Internal functions
+ %%====================================================================
+-- 
+1.7.2.1
+

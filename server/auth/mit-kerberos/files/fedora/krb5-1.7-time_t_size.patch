@@ -1,0 +1,66 @@
+Handle ut_tv not always being a struct timeval.  RT#6520
+
+Index: krb5/src/appl/libpty/update_utmp.c
+===================================================================
+--- krb5/src/appl/libpty/update_utmp.c	(revision 22423)
++++ krb5/src/appl/libpty/update_utmp.c	(working copy)
+@@ -291,6 +291,12 @@
+  * The ut_exit field seems to exist in utmp, but not utmpx. The files
+  * utmp and wtmp seem to exist, but not utmpx, or wtmpx.
+  *
++ * glibc:
++ *
++ * The ut_tv field of struct utmp/utmpx may be an anonymous structure
++ * containing 32-bit values on systems where time_t is 64 bits.  Its
++ * fields have the same names, though.
++ *
+  * libpty Implementation Decisions:
+  * --------------------------------
+  *
+@@ -505,6 +511,8 @@
+ 		    const char *line, const char *host, int flags)
+ {
+     PTY_STRUCT_UTMPX utx, *utxtmp, utx2;
++    struct timeval ut_tv;
++    time_t login_time;
+     const char *cp;
+     size_t len;
+     char utmp_id[5];
+@@ -577,10 +585,13 @@
+ 	utxtmp = best_utxent(&utx);
+ 
+ #ifdef HAVE_SETUTXENT
+-    if (gettimeofday(&utx.ut_tv, NULL))
++    if (gettimeofday(&ut_tv, NULL))
+ 	return errno;
++    utx.ut_tv.tv_sec = ut_tv.tv_sec;
++    utx.ut_tv.tv_usec = ut_tv.tv_usec;
+ #else
+-    (void)time(&utx.ut_time);
++    (void)time(&login_time);
++    utx.ut_time = login_time;
+ #endif
+     /*
+      * On what system is there not ut_host?  Unix98 doesn't mandate
+Index: krb5/src/appl/bsd/login.c
+===================================================================
+--- krb5/src/appl/bsd/login.c	(revision 22423)
++++ krb5/src/appl/bsd/login.c	(working copy)
+@@ -719,7 +719,6 @@
+     char *domain, **envinit, *ttyn, *tty;
+     char tbuf[MAXPATHLEN + 2];
+     char *ttyname(), *crypt(), *getpass();
+-    time_t login_time;
+     int retval;
+     int rewrite_ccache = 1; /*try to write out ccache*/
+ #ifdef KRB5_GET_TICKETS
+@@ -1071,9 +1070,6 @@
+ 
+     /* nothing else left to fail -- really log in */
+     {
+-	struct utmp utmp;
+-
+-	login_time = time(&utmp.ut_time);
+ 	if ((retval = pty_update_utmp(PTY_USER_PROCESS, getpid(), username,
+ 				      ttyn, hostname,
+ 				      PTY_TTYSLOT_USABLE)) < 0)

@@ -1,0 +1,680 @@
+diff -uNr old-lxdm-0.4.0//data/lxdm.conf.in lxdm-0.4.0/data/lxdm.conf.in
+--- old-lxdm-0.4.0//data/lxdm.conf.in	2011-07-28 00:01:57.537862491 +0200
++++ lxdm-0.4.0/data/lxdm.conf.in	2011-07-28 00:02:14.276862487 +0200
+@@ -1,14 +1,8 @@
+ [base]
+-## uncomment and set autologin username to enable autologin
+-# autologin=dgod
+-
+ ## uncomment and set timeout to enable timeout autologin,
+ ## the value should >=5
+ # timeout=10
+ 
+-## default session or desktop used when no systemwide config
+-# session=/usr/bin/startlxde
+-
+ ## uncomment and set to set numlock on your keyboard
+ # numlock=0
+ 
+diff -uNr old-lxdm-0.4.0//src/config.c lxdm-0.4.0/src/config.c
+--- old-lxdm-0.4.0//src/config.c	2011-07-28 00:01:57.536862491 +0200
++++ lxdm-0.4.0/src/config.c	2011-07-29 00:33:16.802620577 +0200
+@@ -30,6 +30,8 @@
+ #include <pwd.h>
+ #include <unistd.h>
+ 
++#include "suse-sysconfig.h"
++
+ #define CONFIG_UI_FILE		LXDM_DATA_DIR"/config.ui"
+ //#define CONFIG_UI_FILE		"../data/config.ui"
+ #define FACES_DIR			"/usr/share/pixmaps/faces"
+@@ -372,13 +374,18 @@
+ 	gtk_label_set_text(GTK_LABEL(w),user_name);
+ }
+ 
+-void on_user_autologin_toggled(GtkToggleButton *togglebutton,gpointer user_data)
++int on_user_autologin_toggled(GtkToggleButton *togglebutton,gpointer user_data)
+ {
++	int result;
+ 	if(gtk_toggle_button_get_active(togglebutton))
+-		g_key_file_set_string(config,"base","autologin",user_name);
++		result = gdm_sysconfig_save_value(SYSCONFIG_AUTOLOGIN_FILE, SYSCONFIG_AUTOLOGIN_KEY, user_name);
+ 	else
+-		g_key_file_remove_key(config,"base","autologin",NULL);
++/* I don't have a gdm_sysconfig_remove_value(), so just replace with a "save" with empty string
++ *		g_key_file_remove_key(config,"base","autologin",NULL);
++ */
++		 result = gdm_sysconfig_save_value(SYSCONFIG_AUTOLOGIN_FILE, SYSCONFIG_AUTOLOGIN_KEY, "");
+ 	dirty++;
++	return result;
+ }
+ 
+ void prepare_user_autologin(GtkBuilder *builder)
+@@ -388,7 +395,7 @@
+ 	w=(GtkWidget*)gtk_builder_get_object(builder,"user-autologin");
+ 	if(!root) gtk_widget_set_sensitive(w,FALSE);
+ 	g_signal_connect(w,"toggled",G_CALLBACK(on_user_autologin_toggled),NULL);
+-	name=g_key_file_get_string(config,"base","autologin",NULL);
++	name=gdm_sysconfig_load_value(SYSCONFIG_AUTOLOGIN_FILE, SYSCONFIG_AUTOLOGIN_KEY);
+ 	if(!name) return;
+ 	if(!strcmp(name,user_name))
+ 	{
+diff -uNr old-lxdm-0.4.0//src/gdm/gdm-sysconfig.c lxdm-0.4.0/src/gdm/gdm-sysconfig.c
+--- old-lxdm-0.4.0//src/gdm/gdm-sysconfig.c	1970-01-01 01:00:00.000000000 +0100
++++ lxdm-0.4.0/src/gdm/gdm-sysconfig.c	2011-07-29 00:09:51.029620578 +0200
+@@ -0,0 +1,484 @@
++/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 8 -*-
++ *
++ * Copyright (C) 2008 Hans Petter Jansson <hpj@novell.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ *
++ */
++
++/* Parser for shell-script-like key-value files. Far from complete, but
++ * deals with a couple of common shell oddities. For instance, the following
++ * are parsed correctly:
++ *
++ * KEY=value\0
++ * KEY = value#comment\0
++ * KEY = " value with spaces"  \0
++ * KEY = ' it\'s a value with "embedded" quotes'\0
++ * KEY = "if quotes aren't closed, we assume the string ends at EOL\0
++ *
++ * It should be good enough for the config files in /etc/sysconfig/.
++ */
++
++#include "config.h"
++
++#include <unistd.h>
++#include <string.h>
++
++#include <glib.h>
++#include <glib/gi18n.h>
++#include <glib/gstdio.h>
++
++#include "gdm-sysconfig.h"
++
++#define SPACE_CHARS     " \t"
++#define KEY_ALLOW_CHARS "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
++
++static gchar **
++load_settings_file (const gchar *file_name)
++{
++        GIOChannel *channel;
++        GPtrArray  *lines;
++        gchar      *str;
++
++        g_debug ("Loading settings from %s", file_name);
++
++        channel = g_io_channel_new_file (file_name, "r", NULL);
++        if (!channel) {
++                g_debug ("Failed to open %s", file_name);
++                return NULL;
++        }
++
++        lines = g_ptr_array_new ();
++
++        while (g_io_channel_read_line (channel, &str, NULL, NULL, NULL) != G_IO_STATUS_EOF) {
++                if (str) {
++                        gchar *p0;
++
++                        /* Remove line separators */
++
++                        for (p0 = str + strlen (str) - 1; p0 >= str && strchr ("\r\n", *p0); p0--)
++                                *p0 = '\0';
++
++                        g_ptr_array_add (lines, str);
++                        g_debug ("%s", str);
++                } else {
++                        g_ptr_array_add (lines, g_strdup (""));
++                        g_debug ("%s", "");
++                }
++        }
++
++        g_io_channel_shutdown (channel, FALSE, NULL);
++        g_io_channel_unref (channel);
++
++        g_ptr_array_add (lines, NULL);
++
++        return (gchar **) g_ptr_array_free (lines, FALSE);
++}
++
++static gboolean
++save_settings_file (const gchar *file_name, gchar **lines)
++{
++        GIOStatus   last_status = G_IO_STATUS_ERROR;
++        GIOChannel *channel     = NULL;
++        gchar      *temp_file_name;
++        gint        i;
++
++        temp_file_name = g_strdup_printf ("%s.new.%u", file_name, g_random_int ());
++
++        channel = g_io_channel_new_file (temp_file_name, "w", NULL);
++        if (!channel)
++                goto out;
++
++        if (!lines)
++                goto out;
++
++        for (i = 0; lines [i]; i++) {
++                gsize bytes_written;
++
++                if (lines [i] [0] != '\0')
++                        last_status = g_io_channel_write_chars (channel,
++                                                                lines [i], strlen (lines [i]),
++                                                                &bytes_written,
++                                                                NULL);
++
++                if (last_status != G_IO_STATUS_NORMAL)
++                        break;
++
++                last_status = g_io_channel_write_unichar (channel, '\n', NULL);
++
++                if (last_status != G_IO_STATUS_NORMAL)
++                        break;
++        }
++
++out:
++        if (channel) {
++                g_io_channel_shutdown (channel, FALSE, NULL);
++                g_io_channel_unref (channel);
++        }
++
++        if (last_status == G_IO_STATUS_NORMAL && g_rename (temp_file_name, file_name) != 0)
++                last_status = G_IO_STATUS_ERROR;
++
++        g_free (temp_file_name);
++        return last_status == G_IO_STATUS_NORMAL ? TRUE : FALSE;
++}
++
++static const gchar *
++skip_from_start_to_key (const gchar *line)
++{
++        const gchar *p0;
++
++        /* Skip initial space */
++
++        p0 = line + strspn (line, SPACE_CHARS);
++
++        /* Ignore comments and other junk */
++
++        if (*p0 && strchr (KEY_ALLOW_CHARS, *p0))
++                return p0;
++
++        return NULL;
++}
++
++static const gchar *
++skip_from_start_to_value_of_key (const gchar *line, const gchar *key_normal, gint key_len)
++{
++        const gchar *p0, *p1;
++        gchar       *potential_key_normal;
++        gboolean     result;
++
++        p0 = skip_from_start_to_key (line);
++        if (!p0)
++                return NULL;
++
++        /* There's at least one key-like character, figure out how many */
++
++        p1 = p0 + strspn (p0, KEY_ALLOW_CHARS);
++
++        /* Is this the key we're looking for? */
++
++        if (p1 - p0 != key_len)
++                return NULL;
++
++        potential_key_normal = g_ascii_strdown (p0, p1 - p0);
++        result = strcmp (key_normal, potential_key_normal) == 0 ? TRUE : FALSE;
++        g_free (potential_key_normal);
++
++        if (!result)
++                return NULL;
++
++        /* It's the right key; skip over key-value separator */
++
++        p0 = p1 + strspn (p1, SPACE_CHARS);
++        if (*p0 != '=')
++                return NULL;
++
++        p0++;
++        p0 += strspn (p0, SPACE_CHARS);
++
++        return p0;
++}
++
++static const gchar *
++skip_over_value (const gchar *value_start, gchar *quotes_out)
++{
++        const gchar *p0 = value_start;
++        const gchar *p1;
++        gchar        quotes;
++
++        /* Is the value quoted? */
++
++        quotes = *p0;
++        if (quotes == '\'' || quotes == '"') {
++                /* Quoted sequence opened; find closing quote, but skip over escaped ones. If
++                 * there's no closing quote on this line, assume the EOL closes it. */
++
++                *quotes_out = quotes;
++
++                p1 = p0;
++                do {
++                        p1++;
++                        p1 = strchr (p1, quotes);
++                        if (!p1) {
++                                /* Hit EOL */
++
++                                p1 = p0 + strlen (p0) - 1;
++                                break;
++                        }
++                } while (*(p1 - 1) == '\\');
++        } else {
++                /* No quotes; look for comment or EOL */
++
++                *quotes_out = 0;
++
++                p1 = strchr (p0, '#');
++                if (!p1)
++                        p1 = p0 + strlen (p0);
++
++                for (p1--; p1 >= p0; p1--)
++                        if (!strchr (SPACE_CHARS, *p1))
++                                break;
++        }
++
++        return p1 + 1;
++}
++
++static gchar *
++get_value_of_key (const gchar *line, const gchar *key_normal, gint key_len)
++{
++        const gchar *p0, *p1;
++        gchar        quotes;
++        gchar       *value;
++        gchar       *temp;
++
++        p0 = skip_from_start_to_value_of_key (line, key_normal, key_len);
++        if (!p0)
++                return NULL;
++
++        p1 = skip_over_value (p0, &quotes);
++
++        if (quotes != 0) {
++                if (p1 - p0 > 2) {
++                        temp = g_strndup (p0 + 1, p1 - p0 - 2);
++                        value = g_strcompress (temp);
++                        g_free (temp);
++                } else {
++                        value = g_strdup ("");
++                }
++        } else {
++                temp = g_strndup (p0, p1 - p0);
++                value = g_strcompress (temp);
++                g_free (temp);
++                g_strchomp (value);
++        }
++
++        return value;
++}
++
++static gchar *
++get_value (const gchar **lines, const gchar *key)
++{
++        gchar *value = NULL;
++        gchar *key_normal;
++        gint   key_len;
++        gint   i;
++
++        g_debug ("Getting value of %s", key);
++
++        if (!lines) {
++                g_debug ("Missing configuration data");
++                return NULL;
++        }
++
++        key_normal = g_ascii_strdown (key, -1);
++        key_len    = strlen (key_normal);
++
++        for (i = 0; lines [i]; i++) {
++                value = get_value_of_key (lines [i], key_normal, key_len);
++                if (value)
++                        break;
++        }
++
++        g_free (key_normal);
++
++        g_debug ("Got value of %s: %s", key, value);
++
++        return value;
++}
++
++static gchar *
++set_value_of_key (const gchar *line, const gchar *key_normal, gint key_len, const gchar *key, const gchar *value)
++{
++        const gchar *p0, *p1, *p2;
++        gchar        quotes;
++        gchar       *escaped_value;
++        gchar       *quoted_escaped_value;
++        gint         quoted_escaped_value_len;
++        gchar       *new_line;
++        gint         len;
++
++        p0 = skip_from_start_to_value_of_key (line, key_normal, key_len);
++        if (!p0)
++                return NULL;
++
++        escaped_value = g_strescape (value, "");
++        quoted_escaped_value = g_strdup_printf ("\"%s\"", escaped_value);
++        g_free (escaped_value);
++        quoted_escaped_value_len = strlen (quoted_escaped_value);
++
++        p1 = skip_over_value (p0, &quotes);
++        p2 = p1 + strlen (p1);
++        len = (p0 - line) + quoted_escaped_value_len + (p2 - p1);
++
++        new_line = g_malloc (len + 1);
++        memcpy (new_line,                                          line,                 p0 - line);
++        memcpy (new_line + (p0 - line),                            quoted_escaped_value, quoted_escaped_value_len);
++        memcpy (new_line + (p0 - line) + quoted_escaped_value_len, p1,                   p2 - p1);
++
++        *(new_line + len) = '\0';
++
++        g_free (quoted_escaped_value);
++
++        return new_line;
++}
++
++static gboolean
++set_value (gchar **lines, const gchar *key, const gchar *value)
++{
++        gboolean  result = FALSE;
++        gchar    *key_normal;
++        gint      key_len;
++        gint      i;
++
++        if (!lines)
++                return FALSE;
++
++        key_normal = g_ascii_strdown (key, -1);
++        key_len    = strlen (key_normal);
++
++        for (i = 0; lines [i]; i++) {
++                gchar *new_line;
++
++                new_line = set_value_of_key (lines [i], key_normal, key_len, key, value);
++                if (new_line) {
++                        g_free (lines [i]);
++                        lines [i] = new_line;
++                        result = TRUE;
++                        break;
++                }
++        }
++
++        g_free (key_normal);
++
++        return result;
++}
++
++gchar **
++gdm_sysconfig_load_file (const gchar *file_name)
++{
++        g_return_val_if_fail (file_name != NULL, NULL);
++
++        return load_settings_file (file_name);
++}
++
++gboolean
++gdm_sysconfig_save_file (const gchar *file_name, const gchar **sysconfig)
++{
++        g_return_val_if_fail (file_name != NULL, FALSE);
++        g_return_val_if_fail (sysconfig != NULL, FALSE);
++
++        return save_settings_file (file_name, sysconfig);
++}
++
++gchar *
++gdm_sysconfig_get_value (const gchar **sysconfig, const gchar *key)
++{
++        g_return_val_if_fail (sysconfig != NULL, NULL);
++        g_return_val_if_fail (key != NULL, NULL);
++
++        return get_value (sysconfig, key);
++}
++
++gboolean
++gdm_sysconfig_set_value (gchar **sysconfig, const gchar *key, const gchar *value)
++{
++        g_return_val_if_fail (sysconfig != NULL, FALSE);
++        g_return_val_if_fail (key != NULL, FALSE);
++        g_return_val_if_fail (value != NULL, FALSE);
++
++        return set_value (sysconfig, key, value);
++}
++
++gboolean
++gdm_sysconfig_get_value_boolean (const gchar **sysconfig, const gchar *key, gboolean *value)
++{
++	char     *val;
++	gboolean  val_bool;
++
++        g_return_val_if_fail (sysconfig != NULL, FALSE);
++        g_return_val_if_fail (key != NULL, FALSE);
++
++        val = get_value (sysconfig, key);
++	if (val == NULL) {
++		return FALSE;
++	}
++
++        if (!strcasecmp (val, "yes")) {
++		val_bool = TRUE;
++	} else if (!strcasecmp (val, "no")) {
++		val_bool = FALSE;
++	} else {
++		g_free (val);
++		return FALSE;
++	}
++
++	g_free (val);
++
++	if (value != NULL) {
++		*value = val_bool;
++	}
++
++	return TRUE;
++}
++
++gboolean
++gdm_sysconfig_set_value_boolean (gchar **sysconfig, const gchar *key, gboolean value)
++{
++        g_return_val_if_fail (sysconfig != NULL, FALSE);
++        g_return_val_if_fail (key != NULL, FALSE);
++
++        return set_value (sysconfig, key, value ? "yes" : "no");
++}
++
++gchar *
++gdm_sysconfig_load_value (const gchar *file_name, const gchar *key)
++{
++        gchar **lines;
++        gchar  *value;
++
++        g_return_val_if_fail (file_name != NULL, NULL);
++        g_return_val_if_fail (key != NULL, NULL);
++
++        lines = load_settings_file (file_name);
++        if (!lines)
++                return NULL;
++
++        value = get_value (lines, key);
++
++        g_strfreev (lines);
++        return value;
++}
++
++gboolean
++gdm_sysconfig_save_value (const gchar *file_name, const gchar *key, const gchar *value)
++{
++        gchar    **lines;
++        gboolean   result;
++
++        g_return_val_if_fail (file_name != NULL, FALSE);
++        g_return_val_if_fail (key != NULL, FALSE);
++        g_return_val_if_fail (value != NULL, FALSE);
++
++        lines = load_settings_file (file_name);
++        if (!lines)
++                return FALSE;
++
++        result = set_value (lines, key, value);
++        if (result)
++                result = save_settings_file (file_name, lines);
++
++        g_strfreev (lines);
++        return result;
++}
+diff -uNr old-lxdm-0.4.0//src/gdm/gdm-sysconfig.h lxdm-0.4.0/src/gdm/gdm-sysconfig.h
+--- old-lxdm-0.4.0//src/gdm/gdm-sysconfig.h	1970-01-01 01:00:00.000000000 +0100
++++ lxdm-0.4.0/src/gdm/gdm-sysconfig.h	2011-07-29 00:09:51.029620578 +0200
+@@ -0,0 +1,43 @@
++/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 8 -*-
++ *
++ * Copyright (C) 2008 Hans Petter Jansson <hpj@novell.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ *
++ */
++
++
++#ifndef __GDM_SYSCONFIG_H
++#define __GDM_SYSCONFIG_H
++
++#include <glib-object.h>
++
++G_BEGIN_DECLS
++
++gchar    **gdm_sysconfig_load_file (const gchar *file_name);
++gboolean   gdm_sysconfig_save_file (const gchar *file_name, const gchar **sysconfig);
++
++gchar     *gdm_sysconfig_get_value (const gchar **sysconfig, const gchar *key);
++gboolean   gdm_sysconfig_set_value (gchar **sysconfig, const gchar *key, const gchar *value);
++
++gboolean   gdm_sysconfig_get_value_boolean (const gchar **sysconfig, const gchar *key, gboolean *value);
++gboolean   gdm_sysconfig_set_value_boolean (gchar **sysconfig, const gchar *key, gboolean value);
++
++gchar     *gdm_sysconfig_load_value (const gchar *file_name, const gchar *key);
++gboolean   gdm_sysconfig_save_value (const gchar *file_name, const gchar *key, const gchar *value);
++
++G_END_DECLS
++
++#endif /* __GDM_SYSCONFIG_H */
+diff -uNr old-lxdm-0.4.0//src/lxdm.c lxdm-0.4.0/src/lxdm.c
+--- old-lxdm-0.4.0//src/lxdm.c	2011-07-28 00:01:57.536862491 +0200
++++ lxdm-0.4.0/src/lxdm.c	2011-07-28 00:05:33.632862492 +0200
+@@ -72,6 +72,8 @@
+ 
+ #define LOGFILE "/var/log/lxdm.log"
+ 
++#include "suse-sysconfig.h"
++
+ typedef struct{
+ 	gboolean idle;
+ 	gboolean greeter;
+@@ -1209,7 +1211,7 @@
+ 	char *name=NULL,*exec=NULL;
+ 	if(!session || !session[0])
+ 	{
+-		name=g_key_file_get_string(config, "base", "session", 0);
++		name=gdm_sysconfig_load_value(SYSCONFIG_SESSION_FILE, SYSCONFIG_SESSION_KEY);
+ 		if(!name && getenv("PREFERRED"))
+ 			name = g_strdup(getenv("PREFERRED"));
+ 		if(!session && getenv("DESKTOP"))
+@@ -1538,7 +1540,7 @@
+ 	int i,count,ret;
+ 	int success=0;
+ 
+-	p = g_key_file_get_string(config, "base", "autologin", 0);
++	p = gdm_sysconfig_load_value(SYSCONFIG_AUTOLOGIN_FILE, SYSCONFIG_AUTOLOGIN_KEY);
+ 	if(!p) return 0;
+ 	users=g_strsplit(p," ",8);
+ 	g_free(p);
+diff -uNr old-lxdm-0.4.0//src/Makefile.am lxdm-0.4.0/src/Makefile.am
+--- old-lxdm-0.4.0//src/Makefile.am	2011-07-28 00:01:57.536862491 +0200
++++ lxdm-0.4.0/src/Makefile.am	2011-07-28 00:16:01.647862492 +0200
+@@ -21,6 +21,7 @@
+ 
+ lxdm_binary_SOURCES = \
+ 	lxdm.c lxdm.h ui.c lxcom.c lxcom.h xconn.c xconn.h \
++	gdm/gdm-sysconfig.c gdm/gdm-sysconfig.h suse-sysconfig.h\
+ 	$(NULL)
+ 
+ libexec_PROGRAMS = lxdm-greeter-gdk lxdm-numlock lxdm-greeter-gtk
+@@ -98,5 +99,6 @@
+ 
+ lxdm_config_SOURCES = \
+ 	config.c \
++	gdm/gdm-sysconfig.c gdm/gdm-sysconfig.h suse-sysconfig.h\
+ 	$(NULL)
+ 
+diff -uNr old-lxdm-0.4.0//src/suse-sysconfig.h lxdm-0.4.0/src/suse-sysconfig.h
+--- old-lxdm-0.4.0//src/suse-sysconfig.h	1970-01-01 01:00:00.000000000 +0100
++++ lxdm-0.4.0/src/suse-sysconfig.h	2011-07-28 00:24:29.437862492 +0200
+@@ -0,0 +1,32 @@
++/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 8 -*-
++ *
++ * Copyright (C) 2011 Andrea Florio <andrea@opensuse.org>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ *
++ */
++
++#ifndef __SUSE_SYSCONFIG_H
++#define __SUSE_SYSCONFIG_H
++
++#include "gdm/gdm-sysconfig.h"
++
++#define SYSCONFIG_AUTOLOGIN_KEY "DISPLAYMANAGER_AUTOLOGIN"
++#define SYSCONFIG_AUTOLOGIN_FILE "/etc/sysconfig/displaymanager"
++
++#define SYSCONFIG_SESSION_KEY "DEFAULT_WM"
++#define SYSCONFIG_SESSION_FILE "/etc/sysconfig/windowmanager"
++
++#endif /* end of suse_sysconfig */

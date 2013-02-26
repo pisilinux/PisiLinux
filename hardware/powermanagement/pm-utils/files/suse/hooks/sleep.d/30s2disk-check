@@ -1,0 +1,162 @@
+#!/bin/bash
+#
+# Stefan Seyfried, SUSE Linux Products GmbH, 2006
+# mostly taken from the powersave project
+
+. "${PM_FUNCTIONS}"
+
+# sanity check the environment if resume will be possible after hibernate
+checkhibernate()
+{
+    echo "INFO: checking for suspend-to-disk prerequisites..."
+    if [ -z "$IMAGE_SIZE" ]; then
+        IMAGE_SIZE="`awk '/^MemTotal:/ { print int($2*1024*.45) }' /proc/meminfo`"
+    fi
+    # Default to partition style hibernation
+    SWAP_TYPE=partition
+
+    read CMDLINE < /proc/cmdline
+    for CMD in $CMDLINE; do
+        case $CMD in
+            resume=*)
+                RESUME=${CMD#*=}
+                ;;
+            resume_offset=*)
+                # Swap type is file as resume_offset is given
+                SWAP_TYPE=file
+                ;;
+        esac
+    done
+
+    if [ -z "$RESUME" ]; then
+        # No resume= given in /proc/cmdline, failing.
+        echo "ERROR: no resume parameter on kernel commandline, can not suspend"
+        echo "no resume parameter on kernel commandline" >> $INHIBIT
+        return 1
+    fi
+    if [ "$SWAP_TYPE" = file ] && [ "$SLEEP_MODULE" = "uswsusp" ]; then
+        # File-style hibernating is not supported by uswsusp
+        echo "ERROR: You must use the kernel hibernate method or tuxonice when suspending to swapfile, not uswsusp"
+        echo "suspend to swapfile with uswsusp method not kernel" >> $INHIBIT
+        return 1
+    fi
+
+    # the resume device can be a symlink, e.g. with LVM/EVMS or with
+    # /dev/disk/by-id/foo
+    RESUME=$(readlink -f $RESUME)
+
+    OK=
+    while read DEV TYPE SIZE USED PRI; do
+        if [ "$TYPE" = "file" ] && [ "$SWAP_TYPE" = "file" ] && [ "$RESUME" = "$(df "$DEV" | tail -n +2 | cut -d ' ' -f 1)" ]; then
+            OK=1
+            break
+        fi
+        [ "$TYPE" != "partition" ] && continue
+        [ "$DEV" != "$RESUME" ] && continue
+        FREE=$[($SIZE-$USED)*1024]  # get free space on DEV
+        if [ $FREE -lt $IMAGE_SIZE ]; then
+            IMAGE_SIZE=$[$FREE-10*1024*1024]
+        fi
+        OK=1
+        break   # we found the partition, no need to look further
+    done < /proc/swaps
+
+    if [ -z "$OK" ]; then
+        if [ "$SWAP_TYPE" = "file" ]; then
+            MSG_TYPE="swap file"
+        else
+            MSG_TYPE="resume partition"
+        fi
+        echo "ERROR: $MSG_TYPE '$RESUME' not active, can not suspend"
+        echo "$MSG_TYPE '$RESUME' not active" >> $INHIBIT
+        return 1
+    fi
+
+    if [ "$SLEEP_MODULE" = "kernel" ]; then
+        echo "  using kernel suspend method"
+        read DEV < /sys/power/resume
+        if [ "$DEV" = "0:0" ]; then
+            echo "ERROR: no resume partition set up in /sys/power/resume"
+            # maybe "resume=..." was given, but initrd did not set up
+            # /sys/power/resume correctly.
+            echo "resume device not correctly setup in /sys/power/resume" >> \
+                $INHIBIT
+            return 1
+        fi
+
+        X=$(stat -Lc '$((0x%t)):$((0x%T))' $RESUME)
+        RDEV=$(eval echo $X)
+        if [ "$DEV" != "$RDEV" ]; then
+            echo "ERROR: /sys/power/resume ($DEV) disagrees with resume= parameter ($RDEV)"
+            echo "       can not suspend."
+            echo "/sys/power/resume disagrees with resume= parameter" >> \
+                $INHIBIT
+            return 1
+        fi
+        if [ -n "$IMAGE_SIZE" -a -w /sys/power/image_size ]; then
+            echo "  setting image size to $IMAGE_SIZE"
+            echo "$IMAGE_SIZE" > /sys/power/image_size 2>/dev/null
+        fi
+    fi
+
+    if [ "$SLEEP_MODULE" = "uswsusp" ]; then
+        echo "  using userspace suspend method, temp. config file $S2DISK_CONF"
+        if [ "$S2DISK_CONF" != "/etc/suspend.conf" ]; then
+            rm -f $S2DISK_CONF
+            # Generate S2DISK_CONF
+            echo "  setting resume device to $RESUME"
+            echo "resume device = $RESUME" >> $S2DISK_CONF
+            if [ -n "$IMAGE_SIZE" ]; then
+                echo "  setting image size to $IMAGE_SIZE"
+                echo "image size = $IMAGE_SIZE" >> $S2DISK_CONF
+            fi
+            # add the parameters from /etc/suspend.conf to /var/lib/s2disk.conf
+            if [ -e /etc/suspend.conf ]; then
+                echo "# parameters taken from /etc/suspend.conf:" >> $S2DISK_CONF
+                sed '/^[[:space:]]*\(#\|$\)/d;' /etc/suspend.conf >> $S2DISK_CONF
+                echo "  adding these parameters from /etc/suspend.conf:"
+                sed '/^[[:space:]]*\(#\|$\)/d;s/^/    /;' /etc/suspend.conf
+            fi
+        else
+            # don't overwrite the user's config file, but warn about the issue
+            echo "WARNING: S2DISK_CONF is set to /etc/suspend.conf"
+            echo "    Disabling automatic generation of config file."
+            echo "    This is most likely a configuration error and will cause problems"
+            echo "    unless you configure /etc/suspend.conf completely on your own!"
+        fi
+    fi
+    return 0
+}
+
+# this only makes sense on hibernate or on suspend-hybrid
+case $1 in
+    hibernate)
+        ;;
+    suspend)
+        if [ "$2" != suspend_hybrid ]; then
+            exit 0
+        fi
+        ;;
+    *)
+        exit $NA
+        ;;
+esac
+
+[ -e /etc/pm/config.d/$1 ] && . /etc/pm/config.d/$1
+
+if [ -z "$SLEEP_MODULE" ]; then
+    # Decide the SLEEP_MODULE if not given
+    if [ -x /usr/sbin/s2disk -a -c /dev/snapshot ]; then
+        SLEEP_MODULE="uswsusp"
+    else
+        SLEEP_MODULE="kernel"
+    fi
+fi
+
+if ! checkhibernate; then
+    echo "WARNING: $INHIBIT will be created to prevent suspending!"
+    touch $INHIBIT
+    exit 1
+fi
+
+exit 0

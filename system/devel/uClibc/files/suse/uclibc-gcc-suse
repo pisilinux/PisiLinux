@@ -1,0 +1,75 @@
+#!/bin/sh
+# This scripts is a simple wrapper to compile .c files statically with uClibc.
+# Caution! Until now this has just been used to compile some helloworld.c and
+# compiling busybox. Don't expect this to work out of the box.
+# Patches welcome :)
+# set -x
+
+if [ $# -eq 0 ]; then
+	echo "gcc-uClibc: no input files"
+	exit 1
+fi
+
+# make does the job for us
+SHARED_LIB_LOADER_PREFIX=""
+RUNTIME_PREFIX="/usr/lib/uClibc/"
+DEVEL_PREFIX="/usr/lib/uClibc/"
+
+CMDLINE=($@)
+USE_C=
+END_GROUP=
+UCLIBC_END=
+
+# tweak the commandline
+for c in $(seq 0 $((${#CMDLINE[@]} - 1))); do
+    i="${CMDLINE[$c]}"
+    case "$i" in
+        -c)  USE_C=1 ;;
+        -r)  USE_C=1 ;;
+	-Wl,--end-group)
+	    UCLIBC_END="-Wl,--end-group"
+	    CMDLINE[$c]=
+	    ;;
+        -DDEBUGUCLIBC) DEBUG_UCLIBC=1 ;;
+    esac
+done
+
+# Environment
+CC=$(which gcc)
+LIBGCC="$($CC -print-libgcc-file-name)"
+CC_INC=$($CC -print-file-name=include)
+CC_INCFIXED=$($CC -print-file-name=include-fixed)
+UCLIBC_INC="${DEVEL_PREFIX}include"
+UCLIBC_CFLAGS="-Os -I$UCLIBC_INC -isystem $CC_INC -idirafter $CC_INCFIXED -idirafter /usr/include"
+UCLIBC_LDFLAGS="-static -nostdinc -nostdlib"
+if [ "$USE_C" ]; then
+    UCLIBC_OBJ=
+    UCLIBC_STATIC=
+else
+    UCLIBC_OBJ="${DEVEL_PREFIX}lib/crt[1in].o"
+    UCLIBC_STATIC="${DEVEL_PREFIX}lib/libc.a $LIBGCC"
+fi  
+
+if [ "$1" = "-E" -a "$3" = "-" ]; then
+    $CC "$@"
+    exit $?
+fi
+
+# Debug
+if [ "$DEBUG_UCLIBC" ]; then
+    echo CC=\"$CC\"
+    echo LIBGCC=\"$LIBGCC\"
+    echo GCC_INC=\"$GCC_INC\"
+    echo GCC_INCFIXED=\"$GCC_INCFIXED\"
+    echo UCLIBC_INC=\"$UCLIBC_INC\" 
+    echo UCLIBC_CFLAGS=\"$UCLIBC_CFLAGS\" 
+    echo UCLIBC_LDFLAGS=\"$UCLIBC_LDFLAGS\" 
+    echo UCLIBC_OBJ=\"$UCLIBC_OBJ\" 
+    echo UCLIBC_STATIC=\"$UCLIBC_STATIC\"
+    echo CMDLINE=\"${CMDLINE[@]}\"
+    set -x
+fi
+
+# call compiler
+$CC $UCLIBC_LDFLAGS $UCLIBC_CFLAGS $GCC_INC ${CMDLINE[@]} $UCLIBC_OBJ $UCLIBC_STATIC $UCLIBC_END
+

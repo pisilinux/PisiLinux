@@ -1,0 +1,78 @@
+
+2012-03-07  Jeff Law  <law@redhat.com>
+
+	* elf/dl-reloc.c (_dl_relocate_object): Move code to allocate
+	l_reloc_result prior to calling ELF_DYNAMIC_RELOCATE.
+
+diff -rup a/elf/dl-reloc.c b/elf/dl-reloc.c
+--- a/elf/dl-reloc.c	2012-01-01 05:16:32.000000000 -0700
++++ b/elf/dl-reloc.c	2012-03-06 15:41:56.486242640 -0700
+@@ -238,32 +238,9 @@ _dl_relocate_object (struct link_map *l,
+     /* String table object symbols.  */
+     const char *strtab = (const void *) D_PTR (l, l_info[DT_STRTAB]);
+ 
+-    /* This macro is used as a callback from the ELF_DYNAMIC_RELOCATE code.  */
+-#define RESOLVE_MAP(ref, version, r_type) \
+-    (ELFW(ST_BIND) ((*ref)->st_info) != STB_LOCAL			      \
+-     ? ((__builtin_expect ((*ref) == l->l_lookup_cache.sym, 0)		      \
+-	 && elf_machine_type_class (r_type) == l->l_lookup_cache.type_class)  \
+-	? (bump_num_cache_relocations (),				      \
+-	   (*ref) = l->l_lookup_cache.ret,				      \
+-	   l->l_lookup_cache.value)					      \
+-	: ({ lookup_t _lr;						      \
+-	     int _tc = elf_machine_type_class (r_type);			      \
+-	     l->l_lookup_cache.type_class = _tc;			      \
+-	     l->l_lookup_cache.sym = (*ref);				      \
+-	     const struct r_found_version *v = NULL;			      \
+-	     if ((version) != NULL && (version)->hash != 0)		      \
+-	       v = (version);						      \
+-	     _lr = _dl_lookup_symbol_x (strtab + (*ref)->st_name, l, (ref),   \
+-					scope, v, _tc,			      \
+-					DL_LOOKUP_ADD_DEPENDENCY, NULL);      \
+-	     l->l_lookup_cache.ret = (*ref);				      \
+-	     l->l_lookup_cache.value = _lr; }))				      \
+-     : l)
+-
+-#include "dynamic-link.h"
+-
+-    ELF_DYNAMIC_RELOCATE (l, lazy, consider_profiling, skip_ifunc);
+-
++    /* ELF_DYNAMIC_RELOCATE may need to examine l_reloc_result
++       when handling MACHINE_IRELATIVE relocs.  So we must
++       allocate l_reloc_result prior to calling ELF_DYNAMIC_RELOCATE.  */
+ #ifndef PROF
+     if (__builtin_expect (consider_profiling, 0))
+       {
+@@ -290,6 +267,32 @@ _dl_relocate_object (struct link_map *l,
+ 	  }
+       }
+ #endif
++
++    /* This macro is used as a callback from the ELF_DYNAMIC_RELOCATE code.  */
++#define RESOLVE_MAP(ref, version, r_type) \
++    (ELFW(ST_BIND) ((*ref)->st_info) != STB_LOCAL			      \
++     ? ((__builtin_expect ((*ref) == l->l_lookup_cache.sym, 0)		      \
++	 && elf_machine_type_class (r_type) == l->l_lookup_cache.type_class)  \
++	? (bump_num_cache_relocations (),				      \
++	   (*ref) = l->l_lookup_cache.ret,				      \
++	   l->l_lookup_cache.value)					      \
++	: ({ lookup_t _lr;						      \
++	     int _tc = elf_machine_type_class (r_type);			      \
++	     l->l_lookup_cache.type_class = _tc;			      \
++	     l->l_lookup_cache.sym = (*ref);				      \
++	     const struct r_found_version *v = NULL;			      \
++	     if ((version) != NULL && (version)->hash != 0)		      \
++	       v = (version);						      \
++	     _lr = _dl_lookup_symbol_x (strtab + (*ref)->st_name, l, (ref),   \
++					scope, v, _tc,			      \
++					DL_LOOKUP_ADD_DEPENDENCY, NULL);      \
++	     l->l_lookup_cache.ret = (*ref);				      \
++	     l->l_lookup_cache.value = _lr; }))				      \
++     : l)
++
++#include "dynamic-link.h"
++
++    ELF_DYNAMIC_RELOCATE (l, lazy, consider_profiling, skip_ifunc);
+   }
+ 
+   /* Mark the object so we know this work has been done.  */

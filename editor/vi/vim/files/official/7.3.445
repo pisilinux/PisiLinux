@@ -1,0 +1,199 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.445
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.445 (after 7.3.443)
+Problem:    Can't properly escape commands for cmd.exe.
+Solution:   Default 'shellxquote' to '('.  Append ')' to make '(command)'.
+	    No need to use "/s" for 'shellcmdflag'.
+Files:	    src/misc2.c, src/option.c, src/os_win32.c
+
+
+*** ../vim-7.3.444/src/misc2.c	2012-01-20 17:15:47.000000000 +0100
+--- src/misc2.c	2012-02-16 05:34:37.000000000 +0100
+***************
+*** 3230,3236 ****
+  	    {
+  		STRCPY(ncmd, p_sxq);
+  		STRCAT(ncmd, cmd);
+! 		STRCAT(ncmd, p_sxq);
+  		retval = mch_call_shell(ncmd, opt);
+  		vim_free(ncmd);
+  	    }
+--- 3230,3240 ----
+  	    {
+  		STRCPY(ncmd, p_sxq);
+  		STRCAT(ncmd, cmd);
+! 		/* When 'shellxquote' is ( append ).
+! 		 * When 'shellxquote' is "( append )". */
+! 		STRCAT(ncmd, STRCMP(p_sxq, "(") == 0 ? (char_u *)")"
+! 			   : STRCMP(p_sxq, "\"(") == 0 ? (char_u *)")\""
+! 			   : p_sxq);
+  		retval = mch_call_shell(ncmd, opt);
+  		vim_free(ncmd);
+  	    }
+*** ../vim-7.3.444/src/option.c	2012-02-12 23:23:25.000000000 +0100
+--- src/option.c	2012-02-19 18:08:48.000000000 +0100
+***************
+*** 3933,3959 ****
+  	 *   my path/to/echo" "my args to echo
+  	 * when executed.
+  	 *
+! 	 * To avoid this, use the /s argument in addition to /c to force the
+! 	 * stripping behavior, and also set shellxquote to automatically
+! 	 * surround the entire command in quotes (which get stripped as
+! 	 * noted).
+  	 */
+- 
+- 	/* Set shellxquote default to add the quotes to be stripped. */
+  	idx3 = findoption((char_u *)"sxq");
+  	if (idx3 >= 0 && !(options[idx3].flags & P_WAS_SET))
+  	{
+! 	    p_sxq = (char_u *)"\"";
+  	    options[idx3].def_val[VI_DEFAULT] = p_sxq;
+  	}
+  
+- 	/* Set shellcmdflag default to always strip the quotes, note the order
+- 	 * between /s and /c is important or cmd.exe will treat the /s as part
+- 	 * of the command to be executed.  */
+  	idx3 = findoption((char_u *)"shcf");
+  	if (idx3 >= 0 && !(options[idx3].flags & P_WAS_SET))
+  	{
+! 	    p_shcf = (char_u *)"/s /c";
+  	    options[idx3].def_val[VI_DEFAULT] = p_shcf;
+  	}
+      }
+--- 3933,3954 ----
+  	 *   my path/to/echo" "my args to echo
+  	 * when executed.
+  	 *
+! 	 * To avoid this, set shellxquote to surround the command in
+! 	 * parenthesis.  This appears to make most commands work, without
+! 	 * breaking commands that worked previously, such as
+! 	 * '"path with spaces/cmd" "a&b"'.
+  	 */
+  	idx3 = findoption((char_u *)"sxq");
+  	if (idx3 >= 0 && !(options[idx3].flags & P_WAS_SET))
+  	{
+! 	    p_sxq = (char_u *)"(";
+  	    options[idx3].def_val[VI_DEFAULT] = p_sxq;
+  	}
+  
+  	idx3 = findoption((char_u *)"shcf");
+  	if (idx3 >= 0 && !(options[idx3].flags & P_WAS_SET))
+  	{
+! 	    p_shcf = (char_u *)"/c";
+  	    options[idx3].def_val[VI_DEFAULT] = p_shcf;
+  	}
+      }
+*** ../vim-7.3.444/src/os_win32.c	2011-08-27 15:10:00.000000000 +0200
+--- src/os_win32.c	2012-02-19 18:11:23.000000000 +0100
+***************
+*** 3908,3915 ****
+  	newcmd = lalloc(cmdlen, TRUE);
+  	if (newcmd != NULL)
+  	{
+! 	    char_u *cmdbase = (*cmd == '"' ? cmd + 1 : cmd);
+  
+  	    if ((STRNICMP(cmdbase, "start", 5) == 0) && vim_iswhite(cmdbase[5]))
+  	    {
+  		STARTUPINFO		si;
+--- 3908,3920 ----
+  	newcmd = lalloc(cmdlen, TRUE);
+  	if (newcmd != NULL)
+  	{
+! 	    char_u *cmdbase = cmd;
+  
++ 	    /* Skip a leading ", ( and "(. */
++ 	    if (*cmdbase == '"' )
++ 		++cmdbase;
++ 	    if (*cmdbase == '(')
++ 		++cmdbase;
+  	    if ((STRNICMP(cmdbase, "start", 5) == 0) && vim_iswhite(cmdbase[5]))
+  	    {
+  		STARTUPINFO		si;
+***************
+*** 3953,3968 ****
+  		 * empty, keep the double quotes around the command.
+  		 * Otherwise remove the double quotes, they aren't needed
+  		 * here, because we don't use a shell to run the command. */
+! 		if (*cmd == '"' && *p_sxq == NUL)
+  		{
+! 		    newcmd[0] = '"';
+! 		    STRCPY(newcmd + 1, cmdbase);
+! 		}
+! 		else
+! 		{
+! 		    STRCPY(newcmd, cmdbase);
+! 		    if (*cmd == '"' && *newcmd != NUL)
+! 			newcmd[STRLEN(newcmd) - 1] = NUL;
+  		}
+  
+  		/*
+--- 3958,3983 ----
+  		 * empty, keep the double quotes around the command.
+  		 * Otherwise remove the double quotes, they aren't needed
+  		 * here, because we don't use a shell to run the command. */
+! 		if (cmdbase > cmd)
+  		{
+! 		    if (STRNCMP(cmd, p_sxq, cmd - cmdbase) != 0)
+! 		    {
+! 			STRCPY(newcmd, cmd);
+! 		    }
+! 		    else
+! 		    {
+! 			char_u *p;
+! 
+! 			STRCPY(newcmd, cmdbase);
+! 			/* Remove a trailing ", ) and )" if they have a match
+! 			 * at the start of the command. */
+! 			p = newcmd + STRLEN(newcmd);
+! 			if (p > newcmd && p[-1] == '"' && *cmd == '"')
+! 			    *--p = NUL;
+! 			if (p > newcmd && p[-1] == ')'
+! 					     && (*cmd =='(' || cmd[1] == '('))
+! 			    *--p = NUL;
+! 		    }
+  		}
+  
+  		/*
+***************
+*** 3970,3976 ****
+  		 * inherit our handles which causes unpleasant dangling swap
+  		 * files if we exit before the spawned process
+  		 */
+! 		if (CreateProcess (NULL,	// Executable name
+  			newcmd,			// Command to execute
+  			NULL,			// Process security attributes
+  			NULL,			// Thread security attributes
+--- 3985,3991 ----
+  		 * inherit our handles which causes unpleasant dangling swap
+  		 * files if we exit before the spawned process
+  		 */
+! 		if (CreateProcess(NULL,		// Executable name
+  			newcmd,			// Command to execute
+  			NULL,			// Process security attributes
+  			NULL,			// Thread security attributes
+*** ../vim-7.3.444/src/version.c	2012-02-13 00:01:38.000000000 +0100
+--- src/version.c	2012-02-19 18:01:46.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     445,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+80. At parties, you introduce your spouse as your "service provider."
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

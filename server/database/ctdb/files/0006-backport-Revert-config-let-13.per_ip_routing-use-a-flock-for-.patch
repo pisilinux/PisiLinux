@@ -1,0 +1,82 @@
+From 3dd7c30a15c5211077b42ae1e70d52e94b4690a1 Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Wed, 10 Nov 2010 13:00:46 +0100
+Subject: [PATCH 06/12] Revert "config: let 13.per_ip_routing use a flock for generate_auto_link_local()"
+
+This reverts commit dc2d0d0e559308ad2676f9ad973746c147d65eb9.
+
+This is not needed anymore as we use a global flock for the whole event
+
+metze
+---
+ config/events.d/13.per_ip_routing |   50 ++++++------------------------------
+ 1 files changed, 9 insertions(+), 41 deletions(-)
+
+diff --git a/config/events.d/13.per_ip_routing b/config/events.d/13.per_ip_routing
+index d037e4b..d12d3f8 100755
+--- a/config/events.d/13.per_ip_routing
++++ b/config/events.d/13.per_ip_routing
+@@ -185,51 +185,19 @@ generate_auto_link_local()
+ 
+ 	local _line="$_ip $_netip/$_maskbits"
+ 
+-	local _lockfile="$CTDB_PER_IP_ROUTING_CONF.lock"
+-	local _script="$CTDB_PER_IP_ROUTING_CONF.$$.sh"
+-
+-	echo "#!/bin/sh" > $_script
+-	echo "#" >> $_script
+-	echo "" >> $_script
+-	echo "_config=\`cat $CTDB_PER_IP_ROUTING_CONF 2>/dev/null\`" >> $_script
+-	echo "_exact=\`echo -n \"\$_config\" | grep \"^$_line\$\" | wc -l | xargs\`" >> $_script
+-	echo "" >> $_script
+-
+-	echo "test x\"\$_exact\" = x\"1\" && {" >> $_script
+-	echo "    exit 0;" >> $_script
+-	echo "}" >> $_script
+-	echo "" >> $_script
+-
+-	echo "_tmp=\"$CTDB_PER_IP_ROUTING_CONF.$$.tmp\"" >> $_script
+-	echo "echo -n \"\$_config\" | grep -v \"^$_ip \" | cat > \$_tmp || {" >> $_script
+-	echo "    echo \"echo -n \\\"\$_config\\\" | grep -v \\\"^$_ip \\\" > \$_tmp - failed\"" >> $_script
+-	echo "    exit 1;" >> $_script
+-	echo "}" >> $_script
+-	echo "echo \"$_line\" >> \$_tmp || {" >> $_script
+-	echo "    echo \"echo \\\"$_line\\\" >> \$_tmp - failed\"" >> $_script
+-	echo "    exit 1;" >> $_script
+-	echo "}" >> $_script
+-	echo "" >> $_script
+-
+-	echo "mv \$_tmp $CTDB_PER_IP_ROUTING_CONF || {" >> $_script
+-	echo "    echo \"mv \$_tmp $CTDB_PER_IP_ROUTING_CONF - failed\"" >> $_script
+-	echo "    exit 1;" >> $_script
+-	echo "}" >> $_script
+-	echo "" >> $_script
+-
+-	echo "echo \"Added '$_line' to $CTDB_PER_IP_ROUTING_CONF\"">> $_script
+-	echo "exit 0" >> $_script
++	local _config=`cat $CTDB_PER_IP_ROUTING_CONF 2>/dev/null`
+ 
+-	chmod +x $_script
++	local _exact=`echo -n "$_config" | grep "^$line$" | wc -l | xargs`
+ 
+-	test -f $_lockfile || {
+-		touch $_lockfile
++	test x"$_exact" = x"1" && {
++		return 0;
+ 	}
+ 
+-	flock --timeout 30 $_lockfile $_script
+-	ret=$?
+-	rm $_script
+-	return $ret
++	local _tmp="$CTDB_PER_IP_ROUTING_CONF.$$.tmp"
++	echo -n "$_config" | grep -v "^$_ip " > $_tmp
++	echo "$_line" >> $_tmp
++
++	mv $_tmp $CTDB_PER_IP_ROUTING_CONF
+ }
+ 
+ generate_per_ip_routing()
+-- 
+1.7.4
+

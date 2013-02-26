@@ -1,0 +1,104 @@
+Archer-upstreamed:
+http://sourceware.org/ml/archer/2010-q2/msg00031.html
+
+--- ./gdb/breakpoint.c	2010-05-29 01:12:32.000000000 +0200
++++ ./gdb/breakpoint.c	2010-05-29 01:22:21.000000000 +0200
+@@ -1679,14 +1679,11 @@ create_exception_master_breakpoint (void
+       debug_hook = lookup_minimal_symbol_text ("_Unwind_DebugHook", objfile);
+       if (debug_hook != NULL)
+ 	{
+-	  CORE_ADDR pc;
+ 	  struct breakpoint *b;
+ 
+-	  pc = find_function_start_pc (get_objfile_arch (objfile),
+-				       SYMBOL_VALUE_ADDRESS (debug_hook),
+-				       SYMBOL_OBJ_SECTION (debug_hook));
+ 	  b = create_internal_breakpoint (get_objfile_arch (objfile),
+-					  pc, bp_exception_master);
++					  SYMBOL_VALUE_ADDRESS (debug_hook),
++					  bp_exception_master);
+ 	  b->addr_string = xstrdup ("_Unwind_DebugHook");
+ 	  b->enable_state = bp_disabled;
+ 	}
+--- ./gdb/testsuite/gdb.cp/cxxexec.cc	1970-01-01 01:00:00.000000000 +0100
++++ ./gdb/testsuite/gdb.cp/cxxexec.cc	2010-05-29 01:18:56.000000000 +0200
+@@ -0,0 +1,25 @@
++/* This test script is part of GDB, the GNU debugger.
++
++   Copyright 2010 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#include <unistd.h>
++
++int
++main()
++{
++  execlp ("true", "true", NULL);
++  return 1;
++}
+--- ./gdb/testsuite/gdb.cp/cxxexec.exp	1970-01-01 01:00:00.000000000 +0100
++++ ./gdb/testsuite/gdb.cp/cxxexec.exp	2010-05-29 01:29:25.000000000 +0200
+@@ -0,0 +1,51 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++if { [skip_cplus_tests] } { continue }
++
++set testfile cxxexec
++if { [prepare_for_testing ${testfile}.exp ${testfile} ${testfile}.cc {c++ debug}] } {
++    return -1
++}
++
++runto_main
++
++# We could stop after `continue' again at `main'.
++delete_breakpoints
++
++set test "p _Unwind_DebugHook"
++gdb_test_multiple $test $test {
++    -re " = .* 0x\[0-9a-f\].*\r\n$gdb_prompt $" {
++	pass $test
++    }
++    -re "\r\nNo symbol .*\r\n$gdb_prompt $" {
++	xfail $test
++	untested ${testfile}.exp
++	return -1
++    }
++}
++
++set test continue
++gdb_test_multiple $test $test {
++    -re "Cannot access memory at address 0x\[0-9a-f\]+\r\n$gdb_prompt $" {
++	fail $test
++    }
++    -re "\r\n$gdb_prompt $" {
++	pass $test
++    }
++}
++
++# `info inferiors' can show <null> on older GDBs.
++gdb_test "info threads" "info threads" "program finished"

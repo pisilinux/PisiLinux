@@ -1,0 +1,116 @@
+2005-11-15  Jeff Johnston  <jjohnstn@redhat.com>
+
+	* linux-thread-db.c (thread_db_wait): Don't bother continuing if
+	the wait result indicates the program terminated with a signal.
+	* linux-nat.c (linux_nat_wait): For SIGILL and SIGTRAP, don't
+	throw away the event if the user has specified nostop noprint.
+
+gdb/testsuite:
+
+2005-11-15  Jeff Johnston  <jjohnstn@redhat.com>
+
+	* gdb.arch/ia64-sigill.c: New test.
+	* gdb.arch/ia64-sigill.exp: Ditto.
+
+Index: gdb-6.8.50.20081128/gdb/testsuite/gdb.arch/ia64-sigill.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20081128/gdb/testsuite/gdb.arch/ia64-sigill.exp	2008-12-02 21:10:57.000000000 +0100
+@@ -0,0 +1,59 @@
++#   Copyright 2005 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# Please email any bugs, comments, and/or additions to this file to:
++# bug-gdb@prep.ai.mit.edu
++
++# This file was written by Jeff Johnston (jjohnstn@redhat.com)
++
++if $tracelevel then {
++    strace $tracelevel
++}
++
++#
++# test running programs
++#
++set prms_id 0
++set bug_id 0
++
++if ![istarget "ia64-*-*"] then {
++    return
++}
++
++set testfile "ia64-sigill"
++set srcfile ${testfile}.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++# Deliberately compile with pthreads, even though test is single-threaded.
++# We want to force gdb thread code to be exercised.
++if  { [gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug additional_flags=-w}] != "" } {
++    gdb_suppress_entire_file "Testcase compile failed, so all tests in this file will automatically fail."
++}
++
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++# We set up SIGILL nostop, noprint, pass and then run the program.
++# We expect to just see a normal run.
++gdb_test "handle SIGILL nostop noprint" "SIGILL.*No.*No.*Yes.*" "handle sigill"
++gdb_test "run" "Starting program.*ia64-sigill.*\[New thread.*\].*hello world.*Program exited normally." "run to exit"
++ 
+Index: gdb-6.8.50.20081128/gdb/testsuite/gdb.arch/ia64-sigill.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20081128/gdb/testsuite/gdb.arch/ia64-sigill.c	2008-12-02 21:10:57.000000000 +0100
+@@ -0,0 +1,8 @@
++#include <stdio.h>
++
++int main()
++{
++  printf ("hello world\n");
++  return 0;
++}
++
+Index: gdb-6.8.50.20081128/gdb/linux-nat.c
+===================================================================
+--- gdb-6.8.50.20081128.orig/gdb/linux-nat.c	2008-12-02 19:04:38.000000000 +0100
++++ gdb-6.8.50.20081128/gdb/linux-nat.c	2008-12-02 21:11:11.000000000 +0100
+@@ -2974,7 +2974,8 @@ retry:
+      threads can be a bit time-consuming so if we want decent
+      performance with heavily multi-threaded programs, especially when
+      they're using a high frequency timer, we'd better avoid it if we
+-     can.  */
++     can.  For possible trap signals like SIGTRAP and SIGILL, don't
++     avoid reporting.  */
+ 
+   if (WIFSTOPPED (status))
+     {
+@@ -2992,7 +2993,9 @@ retry:
+ 	  && inf->stop_soon == NO_STOP_QUIETLY
+ 	  && signal_stop_state (signo) == 0
+ 	  && signal_print_state (signo) == 0
+-	  && signal_pass_state (signo) == 1)
++	  && signal_pass_state (signo) == 1
++	  && signo != TARGET_SIGNAL_ILL
++	  && signo != TARGET_SIGNAL_TRAP)
+ 	{
+ 	  /* FIMXE: kettenis/2001-06-06: Should we resume all threads
+ 	     here?  It is not clear we should.  GDB may not expect

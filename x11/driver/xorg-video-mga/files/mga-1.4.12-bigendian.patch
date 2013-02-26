@@ -1,0 +1,93 @@
+This is pretty lame, sticking INREG into the blit path is probably going
+to hurt performance.  Which, whatever, G-series are old cards, but still.
+Redo me to put the needed bits in the pMga at init time instead. - ajax
+
+diff -up xf86-video-mga-1.4.12/src/mga_dri.c.jx xf86-video-mga-1.4.12/src/mga_dri.c
+--- xf86-video-mga-1.4.12/src/mga_dri.c.jx	2008-08-15 13:55:06.000000000 -0400
++++ xf86-video-mga-1.4.12/src/mga_dri.c	2011-06-20 12:04:43.047560274 -0400
+@@ -374,7 +374,8 @@ void MGAGetQuiescence( ScrnInfoPtr pScrn
+ 
+       pMga->SrcOrg = 0;
+       OUTREG( MGAREG_DSTORG, pMga->DstOrg );
+-      OUTREG( MGAREG_OPMODE, MGAOPM_DMA_BLIT );
++      OUTREG( MGAREG_OPMODE,
++	      (INREG(MGAREG_OPMODE) & ~MGAOPM_DMA_MASK) | MGAOPM_DMA_BLIT );
+       OUTREG( MGAREG_CXBNDRY, 0xFFFF0000 ); /* (maxX << 16) | minX */
+       OUTREG( MGAREG_YTOP, 0x00000000 );    /* minPixelPointer */
+       OUTREG( MGAREG_YBOT, 0x007FFFFF );    /* maxPixelPointer */
+diff -up xf86-video-mga-1.4.12/src/mga_exa.c.jx xf86-video-mga-1.4.12/src/mga_exa.c
+--- xf86-video-mga-1.4.12/src/mga_exa.c.jx	2009-04-27 11:47:42.000000000 -0400
++++ xf86-video-mga-1.4.12/src/mga_exa.c	2011-06-20 12:08:14.368304719 -0400
+@@ -701,7 +701,8 @@ mgaUploadToScreen(PixmapPtr pDst, int x,
+ 
+     mgaSetup(pMga, pDst, NULL, 10);
+ 
+-    OUTREG(MGAREG_OPMODE, MGAOPM_DMA_BLIT);
++    OUTREG(MGAREG_OPMODE,
++	   (INREG(MGAREG_OPMODE) & ~MGAOPM_DMA_MASK) | MGAOPM_DMA_BLIT);
+     OUTREG(MGAREG_DSTORG, exaGetPixmapOffset(pDst));
+     OUTREG(MGAREG_PITCH, mgaGetPixmapPitch(pDst));
+     OUTREG(MGAREG_PLNWT, 0xffffffff);
+diff -up xf86-video-mga-1.4.12/src/mga_reg.h.jx xf86-video-mga-1.4.12/src/mga_reg.h
+--- xf86-video-mga-1.4.12/src/mga_reg.h.jx	2011-06-20 11:57:31.000000000 -0400
++++ xf86-video-mga-1.4.12/src/mga_reg.h	2011-06-20 12:01:22.891854925 -0400
+@@ -124,6 +124,7 @@
+ #define MGAOPM_DMA_GENERAL	(0x00 << 2)
+ #define MGAOPM_DMA_BLIT		(0x01 << 2)
+ #define MGAOPM_DMA_VECTOR	(0x10 << 2)
++#define MGAOPM_DMA_MASK		(0x11 << 2)
+ 
+ /* MACCESS register additives */
+ #define MGAMAC_PW8               0x00
+diff -up xf86-video-mga-1.4.12/src/mga_storm.c.jx xf86-video-mga-1.4.12/src/mga_storm.c
+--- xf86-video-mga-1.4.12/src/mga_storm.c.jx	2011-06-20 11:57:31.000000000 -0400
++++ xf86-video-mga-1.4.12/src/mga_storm.c	2011-06-20 12:11:51.721070061 -0400
+@@ -2192,6 +2192,7 @@ MGAFillSolidRectsDMA(
+     MGAPtr pMga = MGAPTR(pScrn);
+     XAAInfoRecPtr infoRec = pMga->AccelInfoRec;
+     CARD32 *base = (CARD32*)pMga->ILOADBase;
++    CARD32 opmode;
+ 
+     CHECK_DMA_QUIESCENT(pMga, pScrn);
+ 
+@@ -2207,7 +2208,8 @@ MGAFillSolidRectsDMA(
+ 
+     if(!nBox) return;
+ 
+-    OUTREG(MGAREG_OPMODE, MGAOPM_DMA_GENERAL);
++    opmode = INREG(MGAREG_OPMODE) & ~MGAOPM_DMA_MASK;
++    OUTREG(MGAREG_OPMODE, opmode | MGAOPM_DMA_GENERAL);
+     while(nBox) {
+ 	base[0] = DMAINDICES(MGAREG_FXBNDRY, MGAREG_YDSTLEN + MGAREG_EXEC,
+                 MGAREG_FXBNDRY, MGAREG_YDSTLEN + MGAREG_EXEC);
+@@ -2219,7 +2221,7 @@ MGAFillSolidRectsDMA(
+ 	pBox++;
+ 	base += 5; nBox -= 2;
+     }
+-    OUTREG(MGAREG_OPMODE, MGAOPM_DMA_BLIT);
++    OUTREG(MGAREG_OPMODE, opmode | MGAOPM_DMA_BLIT);
+ }
+ 
+ static void
+@@ -2256,9 +2258,11 @@ MGAFillSolidSpansDMA(
+     }
+ 
+     if(n) {
++	CARD32 opmode;
+ 	if(n > 838860) n = 838860;  /* maximum number we have room for */
+ 
+-	OUTREG(MGAREG_OPMODE, MGAOPM_DMA_GENERAL);
++	opmode = INREG(MGAREG_OPMODE) | MGAOPM_DMA_MASK;
++	OUTREG(MGAREG_OPMODE, opmode | MGAOPM_DMA_GENERAL);
+ 	while(n) {
+ 	    base[0] = DMAINDICES(MGAREG_FXBNDRY, MGAREG_YDSTLEN + MGAREG_EXEC,
+                 MGAREG_FXBNDRY, MGAREG_YDSTLEN + MGAREG_EXEC);
+@@ -2270,7 +2274,7 @@ MGAFillSolidSpansDMA(
+ 	    ppt++;
+ 	    base += 5; n -= 2;
+ 	}
+-	OUTREG(MGAREG_OPMODE, MGAOPM_DMA_BLIT);
++	OUTREG(MGAREG_OPMODE, opmode | MGAOPM_DMA_BLIT);
+     }
+ 
+     if(infoRec->ClipBox) {

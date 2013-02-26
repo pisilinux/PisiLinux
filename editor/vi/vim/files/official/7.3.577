@@ -1,0 +1,273 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.577
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.577
+Problem:    Size of memory does not fit in 32 bit unsigned.
+Solution:   Use Kbyte instead of byte.  Call GlobalMemoryStatusEx() instead of
+	    GlobalMemoryStatus() when available.
+Files:	    src/misc2.c, src/option.c, src/os_amiga.c, src/os_msdos.c,
+	    src/os_win16.c, src/os_win32.c
+
+
+*** ../vim-7.3.576/src/misc2.c	2012-02-29 13:58:43.000000000 +0100
+--- src/misc2.c	2012-06-29 15:30:54.000000000 +0200
+***************
+*** 815,820 ****
+--- 815,821 ----
+  #else
+  # define KEEP_ROOM (2 * 8192L)
+  #endif
++ #define KEEP_ROOM_KB (KEEP_ROOM / 1024L)
+  
+  /*
+   * Note: if unsigned is 16 bits we can only allocate up to 64K with alloc().
+***************
+*** 940,946 ****
+  	    allocated = 0;
+  # endif
+  	    /* 3. check for available memory: call mch_avail_mem() */
+! 	    if (mch_avail_mem(TRUE) < KEEP_ROOM && !releasing)
+  	    {
+  		free((char *)p);	/* System is low... no go! */
+  		p = NULL;
+--- 941,947 ----
+  	    allocated = 0;
+  # endif
+  	    /* 3. check for available memory: call mch_avail_mem() */
+! 	    if (mch_avail_mem(TRUE) < KEEP_ROOM_KB && !releasing)
+  	    {
+  		free((char *)p);	/* System is low... no go! */
+  		p = NULL;
+*** ../vim-7.3.576/src/option.c	2012-03-28 19:58:34.000000000 +0200
+--- src/option.c	2012-06-29 15:31:46.000000000 +0200
+***************
+*** 3154,3160 ****
+  	{
+  #ifdef HAVE_AVAIL_MEM
+  	    /* Use amount of memory available at this moment. */
+! 	    n = (mch_avail_mem(FALSE) >> 11);
+  #else
+  # ifdef HAVE_TOTAL_MEM
+  	    /* Use amount of memory available to Vim. */
+--- 3154,3160 ----
+  	{
+  #ifdef HAVE_AVAIL_MEM
+  	    /* Use amount of memory available at this moment. */
+! 	    n = (mch_avail_mem(FALSE) >> 1);
+  #else
+  # ifdef HAVE_TOTAL_MEM
+  	    /* Use amount of memory available to Vim. */
+***************
+*** 6702,6708 ****
+      {
+  	for (s = *varp; *s;)
+  	{
+! 	    while(*s == ',' || *s == ' ')
+  		s++;
+  	    if (!*s)
+  		break;
+--- 6702,6708 ----
+      {
+  	for (s = *varp; *s;)
+  	{
+! 	    while (*s == ',' || *s == ' ')
+  		s++;
+  	    if (!*s)
+  		break;
+***************
+*** 7391,7397 ****
+  	    new_unnamed |= CLIP_UNNAMED;
+  	    p += 7;
+  	}
+!         else if (STRNCMP(p, "unnamedplus", 11) == 0
+  					    && (p[11] == ',' || p[11] == NUL))
+  	{
+  	    new_unnamed |= CLIP_UNNAMED_PLUS;
+--- 7391,7397 ----
+  	    new_unnamed |= CLIP_UNNAMED;
+  	    p += 7;
+  	}
+! 	else if (STRNCMP(p, "unnamedplus", 11) == 0
+  					    && (p[11] == ',' || p[11] == NUL))
+  	{
+  	    new_unnamed |= CLIP_UNNAMED_PLUS;
+*** ../vim-7.3.576/src/os_amiga.c	2011-10-20 18:24:16.000000000 +0200
+--- src/os_amiga.c	2012-06-29 15:33:59.000000000 +0200
+***************
+*** 191,206 ****
+  }
+  
+  /*
+!  * Return amount of memory still available.
+   */
+      long_u
+  mch_avail_mem(special)
+      int	    special;
+  {
+  #ifdef __amigaos4__
+!     return (long_u)AvailMem(MEMF_ANY);
+  #else
+!     return (long_u)AvailMem(special ? (long)MEMF_CHIP : (long)MEMF_ANY);
+  #endif
+  }
+  
+--- 191,206 ----
+  }
+  
+  /*
+!  * Return amount of memory still available in Kbyte.
+   */
+      long_u
+  mch_avail_mem(special)
+      int	    special;
+  {
+  #ifdef __amigaos4__
+!     return (long_u)AvailMem(MEMF_ANY) >> 10;
+  #else
+!     return (long_u)(AvailMem(special ? (long)MEMF_CHIP : (long)MEMF_ANY)) >> 10;
+  #endif
+  }
+  
+*** ../vim-7.3.576/src/os_msdos.c	2011-06-19 01:14:22.000000000 +0200
+--- src/os_msdos.c	2012-06-29 15:33:26.000000000 +0200
+***************
+*** 550,564 ****
+  #endif
+  
+  /*
+!  * Return amount of memory currently available.
+   */
+      long_u
+  mch_avail_mem(int special)
+  {
+  #ifdef DJGPP
+!     return _go32_dpmi_remaining_virtual_memory();
+  #else
+!     return coreleft();
+  #endif
+  }
+  
+--- 550,564 ----
+  #endif
+  
+  /*
+!  * Return amount of memory currently available in Kbyte.
+   */
+      long_u
+  mch_avail_mem(int special)
+  {
+  #ifdef DJGPP
+!     return _go32_dpmi_remaining_virtual_memory() >> 10;
+  #else
+!     return coreleft() >> 10;
+  #endif
+  }
+  
+*** ../vim-7.3.576/src/os_win16.c	2011-10-20 18:24:16.000000000 +0200
+--- src/os_win16.c	2012-06-29 15:34:18.000000000 +0200
+***************
+*** 379,391 ****
+  
+  
+  /*
+!  * How much memory is available?
+   */
+      long_u
+  mch_avail_mem(
+      int special)
+  {
+!     return GetFreeSpace(0);
+  }
+  
+  
+--- 379,391 ----
+  
+  
+  /*
+!  * How much memory is available in Kbyte?
+   */
+      long_u
+  mch_avail_mem(
+      int special)
+  {
+!     return GetFreeSpace(0) >> 10;
+  }
+  
+  
+*** ../vim-7.3.576/src/os_win32.c	2012-06-29 13:13:59.000000000 +0200
+--- src/os_win32.c	2012-06-29 15:39:52.000000000 +0200
+***************
+*** 4992,5009 ****
+  
+  
+  /*
+!  * How much memory is available?
+   * Return sum of available physical and page file memory.
+   */
+  /*ARGSUSED*/
+      long_u
+  mch_avail_mem(int special)
+  {
+!     MEMORYSTATUS	ms;
+  
+!     ms.dwLength = sizeof(MEMORYSTATUS);
+!     GlobalMemoryStatus(&ms);
+!     return (long_u) (ms.dwAvailPhys + ms.dwAvailPageFile);
+  }
+  
+  #ifdef FEAT_MBYTE
+--- 4992,5020 ----
+  
+  
+  /*
+!  * How much memory is available in Kbyte?
+   * Return sum of available physical and page file memory.
+   */
+  /*ARGSUSED*/
+      long_u
+  mch_avail_mem(int special)
+  {
+!     if (g_PlatformId != VER_PLATFORM_WIN32_NT)
+!     {
+! 	MEMORYSTATUS	ms;
+  
+! 	ms.dwLength = sizeof(MEMORYSTATUS);
+! 	GlobalMemoryStatus(&ms);
+! 	return (long_u)((ms.dwAvailPhys + ms.dwAvailPageFile) >> 10);
+!     }
+!     else
+!     {
+! 	MEMORYSTATUSEX	ms;
+! 
+! 	ms.dwLength = sizeof(MEMORYSTATUSEX);
+! 	GlobalMemoryStatusEx(&ms);
+! 	return (long_u)((ms.ullAvailPhys + ms.ullAvailPageFile) >> 10);
+!     }
+  }
+  
+  #ifdef FEAT_MBYTE
+*** ../vim-7.3.576/src/version.c	2012-06-29 15:04:34.000000000 +0200
+--- src/version.c	2012-06-29 15:45:44.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     577,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+75. You start wondering whether you could actually upgrade your brain
+    with a Pentium Pro microprocessor 80.  The upgrade works just fine.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,90 @@
+diff -Naur xmoto-0.5.2/configure.in xmoto-0.5.2_patched/configure.in
+--- xmoto-0.5.2/configure.in	2009-09-02 15:23:25.000000000 +0300
++++ xmoto-0.5.2_patched/configure.in	2009-11-16 14:10:59.338821368 +0200
+@@ -39,12 +39,15 @@
+ then
+   MINGW32_LIBS="-lmingw32 -lSDLmain -lSDL -lopengl32 -lglu32 -mwindows -luserenv -lintl -lSDL_ttf -lSDL_mixer -lSDL_net -lode xmoto_icone.o" # -mwindows to avoid dos window
+   # -MD is for gettext (see gettext faq)
+-  # CFLAGS="$CFLAGS"" -mthreads -MD" => produce unstable .exe
+-  LDFLAGS="$LDFLAGS"" -mthreads -MD"
++  CFLAGS="$CFLAGS"" -mthreads -MD"     # threads
++  CXXFLAGS="$CXXFLAGS"" -mthreads -MD" # threads
++  LDFLAGS="$LDFLAGS"" -mthreads -MD"   # threads
++  CFLAGS="$CFLAGS"" -DdDOUBLE"         # ode double
++  CXXFLAGS="$CXXFLAGS"" -DdDOUBLE"     # ode double
++  HAVEDGETCONFIGURATION=1              # ode dGetConfiguration function
+ 
+   # this one should be removed once i've found why it doesn't use it on my computer  
+   LDFLAGS="$LDFLAGS"" -L/usr/i586-mingw32msvc/lib"
+-
+   AC_SUBST([MINGW32_LIBS])
+ fi
+ AM_CONDITIONAL([WIN32], test "$target_os" = "mingw32")
+@@ -115,8 +118,18 @@
+ 
+ if test "$target_os" != "mingw32" # make me crazy to detect it because it compiles
+ then
+-  AC_SEARCH_LIBS(dJointAttach,ode, [], [AC_MSG_ERROR(libode required)], -lstdc++)
++  AC_SEARCH_LIBS(dJointAttach,ode,
++		[ODECFLAGS=`ode-config --cflags`],
++		[AC_MSG_ERROR(libode required)], -lstdc++)
++
++  AC_SEARCH_LIBS(dGetConfiguration,ode,
++		[HAVEDGETCONFIGURATION=1],
++		[HAVEDGETCONFIGURATION=0], -lstdc++)
++
++  CXXFLAGS="$CXXFLAGS"" ""$ODECFLAGS"
++  CFLAGS="$CFLAGS"" ""$ODECFLAGS"
+ fi
++AC_SUBST([HAVEDGETCONFIGURATION])
+ 
+ AC_LANG_POP()
+ 
+diff -Naur xmoto-0.5.2/src/GameInit.cpp xmoto-0.5.2_patched/src/GameInit.cpp
+--- xmoto-0.5.2/src/GameInit.cpp	2009-08-05 14:46:06.000000000 +0300
++++ xmoto-0.5.2_patched/src/GameInit.cpp	2009-11-16 14:10:59.335821614 +0200
+@@ -461,6 +461,32 @@
+   // init physics
+   // if(dInitODE2(0) == 0) { /* erreur */} ; // ode 0.10
+   dInitODE();
++
++  // check ode configuration
++#if HAVEDGETCONFIGURATION == 1
++  LogInfo("Ode config: %s", dGetConfiguration());
++#ifdef dSINGLE
++  LogInfo("Ode config: X-Moto compiled with dSINGLE defined");
++  if(dCheckConfiguration("ODE_single_precision") != 1) {
++    throw Exception("XMoto compiled with ode single precision, but libode library wasn't.");
++  }
++#endif
++#ifdef dDOUBLE
++  LogInfo("Ode config: X-Moto compiled with dDOUBLE defined");
++  if(dCheckConfiguration("ODE_double_precision") != 1) {
++    throw Exception("XMoto compiled with ode as double precision, but libode library wasn't.");
++  }
++#endif
++#if !defined(dSINGLE) && !defined(dDOUBLE)
++  LogInfo("Ode config: X-Moto compiled with dSINGLE and dDOUBLE undefined, dSINGLE is used by default");
++  if(dCheckConfiguration("ODE_single_precision") != 1) {
++    throw Exception("XMoto compiled with ode single precision, but libode library wasn't.");
++  }
++#endif
++#else
++  // old ode version
++  LogWarning("You've an old ode library, xmoto is not able to check whether it's compatible or not");
++#endif
+   m_isODEInitialized = true;
+ 
+   if(v_xmArgs.isOptServerOnly() == false) {
+diff -Naur xmoto-0.5.2/src/Makefile.am xmoto-0.5.2_patched/src/Makefile.am
+--- xmoto-0.5.2/src/Makefile.am	2009-07-13 22:41:49.000000000 +0300
++++ xmoto-0.5.2_patched/src/Makefile.am	2009-11-16 14:10:59.334821836 +0200
+@@ -2,7 +2,7 @@
+ 
+ SVNDEF = -D'SVN_REV="$(shell if test -d $(srcdir)/.svn; then svnversion -n $(srcdir); fi)"'
+ 
+-XM_FLAGS = -DNOMMGR $(WANTED_WARNNING) -DGAMEDATADIR=\"$(GAMEDATADIR)\" -DLOCALESDIR=\"$(LOCALESDIR)\" -DASIAN_TTF_FILE=\"$(ASIAN_TTF_FILE)\" -DALLOW_DEV=$(ALLOW_DEV) -DCONFIGURE_DEFAULT_THEME=\"$(CONFIGURE_DEFAULT_THEME)\" $(GL_CFLAGS) $(SDL_CFLAGS) -DUSE_OPENGL=$(USE_OPENGL) -DUSE_SDLGFX=$(USE_SDLGFX) $(SVNDEF)
++XM_FLAGS = -DHAVEDGETCONFIGURATION=$(HAVEDGETCONFIGURATION) -DNOMMGR $(WANTED_WARNNING) -DGAMEDATADIR=\"$(GAMEDATADIR)\" -DLOCALESDIR=\"$(LOCALESDIR)\" -DASIAN_TTF_FILE=\"$(ASIAN_TTF_FILE)\" -DALLOW_DEV=$(ALLOW_DEV) -DCONFIGURE_DEFAULT_THEME=\"$(CONFIGURE_DEFAULT_THEME)\" $(GL_CFLAGS) $(SDL_CFLAGS) -DUSE_OPENGL=$(USE_OPENGL) -DUSE_SDLGFX=$(USE_SDLGFX) $(SVNDEF)
+ 
+ AM_CFLAGS =   $(CFLAGS)   $(XM_FLAGS) 
+ AM_CXXFLAGS = $(CXXFLAGS) $(XM_FLAGS) 

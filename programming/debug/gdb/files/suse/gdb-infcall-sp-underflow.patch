@@ -1,0 +1,81 @@
+http://sourceware.org/ml/gdb-patches/2010-02/msg00515.html
+Subject: [patch] infcall: Remove gdb_assert ($sp overflow)
+
+Hi,
+
+set $sp=0
+call something()
+->
+../../gdb/infcall.c:521: internal-error: call_function_by_hand: Assertion
+`(gdbarch_inner_than (gdbarch, 1, 2) && sp <= old_sp) || (gdbarch_inner_than
+(gdbarch, 2, 1) && sp >= old_sp)' failed.
+
+as $sp - frame == 0xffffsmth which is not lower than $sp.
+
+It must not be gdb_assert().  It can be an error() but I left it just to do:
+	(gdb) set $sp=0
+	(gdb) call doubleit (1)
+	Cannot access memory at address 0xffffffffffffff78
+	(gdb) set $sp=-1
+	(gdb) call doubleit (1)
+	Cannot access memory at address 0xffffffffffffff68
+
+Unaware how inconvenient is an intentional crash of the testcase on some
+embedded/non-MMU systems.
+No regressions on {x86_64,x86_64-m32,i686}-fedora12-linux-gnu.
+
+
+Thanks,
+Jan
+
+
+gdb/
+2010-02-19  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* infcall.c (call_function_by_hand): Remove gdb_assert on sp and old_sp.
+	New comment.
+
+gdb/testsuite/
+2010-02-19  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/callfuncs.exp: New tests for $spval 0 and -1.  Remove return.
+
+--- a/gdb/infcall.c
++++ b/gdb/infcall.c
+@@ -518,10 +518,9 @@ call_function_by_hand (struct value *function, int nargs, struct value **args)
+ 	      /* Stack grows up.  */
+ 	      sp = gdbarch_frame_align (gdbarch, old_sp + 1);
+ 	  }
+-	gdb_assert ((gdbarch_inner_than (gdbarch, 1, 2)
+-		    && sp <= old_sp)
+-		    || (gdbarch_inner_than (gdbarch, 2, 1)
+-		       && sp >= old_sp));
++	/* SP may have overflown address zero here from OLD_SP.  Memory access
++	   functions will probably fail in such case but that is a target's
++	   problem.  */
+       }
+     else
+       /* FIXME: cagney/2002-09-18: Hey, you loose!
+--- a/gdb/testsuite/gdb.base/callfuncs.exp
++++ b/gdb/testsuite/gdb.base/callfuncs.exp
+@@ -469,5 +469,18 @@ if {$old_reg_content == $new_reg_content} then {
+     fail "nested call dummies preserve register contents"
+ }
+ 
+-return 0
++# GDB should not crash by internal error on $sp overflow during the inferior
++# call.  It is OK it will stop on some: Cannot access memory at address 0x$hex.
+ 
++foreach spval {0 -1} {
++    set old_ldprefix $pf_prefix
++    lappend pf_prefix "sp=$spval:"
++
++    gdb_test {set $old_sp = $sp}
++    gdb_test "set \$sp = $spval"
++
++    gdb_test "call doubleit (1)"
++
++    gdb_test {set $sp = $old_sp}
++    set pf_prefix $old_ldprefix
++}
+

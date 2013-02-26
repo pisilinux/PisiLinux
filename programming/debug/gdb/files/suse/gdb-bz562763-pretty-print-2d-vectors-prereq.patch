@@ -1,0 +1,427 @@
+commit e5ea8d026015c2a0c7774788b425914857de1ffb
+Author: pmuldoon <pmuldoon>
+Date:   Wed Apr 14 12:02:42 2010 +0000
+
+    2010-04-14  Phil Muldoon  <pmuldoon@redhat.com>
+    
+    	PR python/11381
+    
+    	* python/py-prettyprint.c (pretty_print_one_value): Test for
+    	Py_None.
+    	(print_string_repr): Test for Py_None.  Set flags accordingly.
+    	Return value depending on return type.
+    	(print_children): Take a value indicating whether data was printed
+    	before this function was called.  Alter output accordingly.
+    	(apply_val_pretty_printer): Capture return value from
+    	print_string_repr and pass to print_children.
+    
+    2010-04-14  Phil Muldoon  <pmuldoon@redhat.com>
+    
+    	* gdb.python/py-prettyprint.py (NoStringContainerPrinter): New printer.
+    	* gdb.python/py-prettyprint.c: Add justchildren struct, typedefs.
+    	* gdb.python/py-prettyprint.exp: New test for to_string returning None.
+    	* gdb.python/py-mi.exp: New test for to_string returning None.
+    
+    2010-04-14  Phil Muldoon  <pmuldoon@redhat.com>
+    
+    	* gdb.texinfo (Pretty Printing): Document behaviour when to_string
+    	returns None.
+
+### a/gdb/ChangeLog
+### b/gdb/ChangeLog
+## -1,3 +1,16 @@
++2010-04-14  Phil Muldoon  <pmuldoon@redhat.com>
++
++	PR python/11381
++
++	* python/py-prettyprint.c (pretty_print_one_value): Test for
++	Py_None.
++	(print_string_repr): Test for Py_None.  Set flags accordingly.
++	Return value depending on return type.
++	(print_children): Take a value indicating whether data was printed
++	before this function was called.  Alter output accordingly.
++	(apply_val_pretty_printer): Capture return value from
++	print_string_repr and pass to print_children.
++
+ 2010-04-13  Mark Kettenis  <kettenis@gnu.org>
+ 
+ 	PR corefiles/11481
+### a/gdb/doc/ChangeLog
+### b/gdb/doc/ChangeLog
+## -1,3 +1,8 @@
++2010-04-14  Phil Muldoon  <pmuldoon@redhat.com>
++
++	* gdb.texinfo (Pretty Printing): Document behaviour when to_string
++	returns None.
++
+ 2010-04-09  Stan Shebs  <stan@codesourcery.com>
+ 
+ 	* gdb.texinfo (gdb/mi Tracepoint Commands) <-trace-status>:
+Index: gdb-7.1/gdb/doc/gdb.texinfo
+===================================================================
+--- gdb-7.1.orig/gdb/doc/gdb.texinfo	2010-06-30 03:22:07.000000000 +0200
++++ gdb-7.1/gdb/doc/gdb.texinfo	2010-06-30 03:22:20.000000000 +0200
+@@ -20344,6 +20344,9 @@ the resulting value.  Again, this may re
+ pretty-printer.  Python scalars (integers, floats, and booleans) and
+ strings are convertible to @code{gdb.Value}; other types are not.
+ 
++Finally, if this method returns @code{None} then no further operations
++are peformed in this method and nothing is printed.
++
+ If the result is not one of these types, an exception is raised.
+ @end defop
+ 
+Index: gdb-7.1/gdb/python/py-prettyprint.c
+===================================================================
+--- gdb-7.1.orig/gdb/python/py-prettyprint.c	2010-06-30 03:22:02.000000000 +0200
++++ gdb-7.1/gdb/python/py-prettyprint.c	2010-06-30 03:23:38.000000000 +0200
+@@ -125,9 +125,12 @@ find_pretty_printer (PyObject *value)
+ 
+ /* Pretty-print a single value, via the printer object PRINTER.
+    If the function returns a string, a PyObject containing the string
+-   is returned.  Otherwise, if the function returns a value,
+-   *OUT_VALUE is set to the value, and NULL is returned.  On error,
+-   *OUT_VALUE is set to NULL, and NULL is returned.  */
++   is returned.  If the function returns Py_NONE that means the pretty
++   printer returned the Python None as a value.  Otherwise, if the
++   function returns a value,  *OUT_VALUE is set to the value, and NULL
++   is returned.  On error, *OUT_VALUE is set to NULL, and NULL is
++   returned.  */
++
+ static PyObject *
+ pretty_print_one_value (PyObject *printer, struct value **out_value)
+ {
+@@ -140,7 +143,8 @@ pretty_print_one_value (PyObject *printe
+       result = PyObject_CallMethodObjArgs (printer, gdbpy_to_string_cst, NULL);
+       if (result)
+ 	{
+-	  if (! gdbpy_is_string (result) && ! gdbpy_is_lazy_string (result))
++	  if (! gdbpy_is_string (result) && ! gdbpy_is_lazy_string (result)  
++	      && result != Py_None)
+ 	    {
+ 	      *out_value = convert_value_from_python (result);
+  	      if (PyErr_Occurred ())
+@@ -184,8 +188,11 @@ gdbpy_get_display_hint (PyObject *printe
+ }
+ 
+ /* Helper for apply_val_pretty_printer which calls to_string and
+-   formats the result.  */
+-static void
++   formats the result.  If the value returnd is Py_None, nothing is
++   printed and the function returns a 1; in all other cases data is
++   printed as given by the pretty printer and the function returns 0.
++*/
++static int
+ print_string_repr (PyObject *printer, const char *hint,
+ 		   struct ui_file *stream, int recurse,
+ 		   const struct value_print_options *options,
+@@ -194,52 +201,58 @@ print_string_repr (PyObject *printer, co
+ {
+   struct value *replacement = NULL;
+   PyObject *py_str = NULL;
++  int is_py_none = 0;
+ 
+   py_str = pretty_print_one_value (printer, &replacement);
+   if (py_str)
+     {
+-      gdb_byte *output = NULL;
+-      long length;
+-      struct type *type;
+-      char *encoding = NULL;
+-      PyObject *string = NULL;
+-      int is_lazy;
+-      
+-      is_lazy = gdbpy_is_lazy_string (py_str);
+-      if (is_lazy)
+-	output = gdbpy_extract_lazy_string (py_str, &type, &length, &encoding);
++      if (py_str == Py_None)
++	is_py_none = 1;
+       else
+ 	{
+-	  string = python_string_to_target_python_string (py_str);
+-	  if (string)
++	  gdb_byte *output = NULL;
++	  long length;
++	  struct type *type;
++	  char *encoding = NULL;
++	  PyObject *string = NULL;
++	  int is_lazy;
++
++	  is_lazy = gdbpy_is_lazy_string (py_str);
++	  if (is_lazy)
++	    output = gdbpy_extract_lazy_string (py_str, &type, &length, &encoding);
++	  else
+ 	    {
+-	      output = PyString_AsString (string);
+-	      length = PyString_Size (string);
+-	      type = builtin_type (gdbarch)->builtin_char;
++	      string = python_string_to_target_python_string (py_str);
++	      if (string)
++		{
++		  output = PyString_AsString (string);
++		  length = PyString_Size (string);
++		  type = builtin_type (gdbarch)->builtin_char;
++		}
++	      else
++		gdbpy_print_stack ();
++	      
++	    }
++	
++	  if (output)
++	    {
++	      if (is_lazy || (hint && !strcmp (hint, "string")))
++		LA_PRINT_STRING (stream, type, output, length, encoding,
++				 0, options);
++	      else
++		fputs_filtered (output, stream);
+ 	    }
+ 	  else
+ 	    gdbpy_print_stack ();
+ 	  
+-	}
+-      
+-      if (output)
+-	{
+-	  if (is_lazy || (hint && !strcmp (hint, "string")))
+-	    LA_PRINT_STRING (stream, type, output, length, encoding,
+-			     0, options);
++	  if (string)
++	    Py_DECREF (string);
+ 	  else
+-	    fputs_filtered (output, stream);
+-	}
+-      else
+-	gdbpy_print_stack ();
+-      
+-      if (string)
+-	Py_DECREF (string);
+-      else
+-	xfree (output);
++	    xfree (output);
+       
+-      xfree (encoding);
+-      Py_DECREF (py_str);
++	  xfree (encoding);
++	  Py_DECREF (py_str);
++	}
+     }
+   else if (replacement)
+     {
+@@ -250,6 +263,8 @@ print_string_repr (PyObject *printer, co
+     }
+   else
+     gdbpy_print_stack ();
++
++  return is_py_none;
+ }
+ 
+ static void
+@@ -328,12 +343,14 @@ push_dummy_python_frame ()
+ }
+ 
+ /* Helper for apply_val_pretty_printer that formats children of the
+-   printer, if any exist.  */
++   printer, if any exist.  If is_py_none is true, then nothing has
++   been printed by to_string, and format output accordingly. */
+ static void
+ print_children (PyObject *printer, const char *hint,
+ 		struct ui_file *stream, int recurse,
+ 		const struct value_print_options *options,
+-		const struct language_defn *language)
++		const struct language_defn *language,
++		int is_py_none)
+ {
+   int is_map, is_array, done_flag, pretty;
+   unsigned int i;
+@@ -413,7 +430,13 @@ print_children (PyObject *printer, const
+ 	 2. Arrays.  Always print a ",".
+ 	 3. Other.  Always print a ",".  */
+       if (i == 0)
+-	fputs_filtered (" = {", stream);
++	{
++         if (is_py_none)
++           fputs_filtered ("{", stream);
++         else
++           fputs_filtered (" = {", stream);
++       }
++
+       else if (! is_map || i % 2 == 0)
+ 	fputs_filtered (pretty ? "," : ", ", stream);
+ 
+@@ -537,7 +560,7 @@ apply_val_pretty_printer (struct type *t
+   char *hint = NULL;
+   struct cleanup *cleanups;
+   int result = 0;
+-
++  int is_py_none = 0;
+   cleanups = ensure_python_env (gdbarch, language);
+ 
+   /* Instantiate the printer.  */
+@@ -562,9 +585,11 @@ apply_val_pretty_printer (struct type *t
+   make_cleanup (free_current_contents, &hint);
+ 
+   /* Print the section */
+-  print_string_repr (printer, hint, stream, recurse, options, language,
+-		     gdbarch);
+-  print_children (printer, hint, stream, recurse, options, language);
++  is_py_none = print_string_repr (printer, hint, stream, recurse,
++				  options, language, gdbarch);
++  print_children (printer, hint, stream, recurse, options, language,
++		  is_py_none);
++
+   result = 1;
+ 
+ 
+Index: gdb-7.1/gdb/testsuite/gdb.python/py-mi.exp
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.python/py-mi.exp	2010-01-14 09:03:37.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.python/py-mi.exp	2010-06-30 03:22:20.000000000 +0200
+@@ -61,6 +61,16 @@ mi_list_varobj_children container {
+ 
+ mi_delete_varobj container "delete varobj"
+ 
++mi_create_dynamic_varobj nscont nstype \
++  "create nscont varobj, no pretty-printing"
++
++mi_list_varobj_children nscont {
++  { nscont.len len 0 int }
++  { nscont.elements elements 1 "int ." }
++} "examine nscont children=0, no pretty-printing"
++
++mi_delete_varobj nscont "delete varobj"
++
+ mi_gdb_test "-enable-pretty-printing" ""
+ 
+ mi_create_varobj_checked string string_1 \
+@@ -239,4 +249,29 @@ mi_continue_to_line \
+ 
+ mi_varobj_update_with_type_change container int 0 "update after type change"
+ 
++
++mi_continue_to_line \
++    [gdb_get_line_number {break to inspect struct and union} ${testfile}.c] \
++    "step to outer breakpoint"
++
++mi_create_dynamic_varobj nscont nstype \
++  "create nstype varobj"
++
++mi_list_varobj_children nscont {
++    { {nscont.\[0\]} {\[0\]} 0 int }
++    { {nscont.\[1\]} {\[1\]} 0 int }
++} "list children after setting update range"
++
++mi_gdb_test "-var-set-visualizer nscont None" \
++  "\\^done" \
++  "clear visualizer"
++
++mi_gdb_test "-var-update nscont" \
++  "\\^done,changelist=\\\[\\\]" \
++  "varobj update after clearing"
++
++mi_gdb_test "-var-set-visualizer nscont gdb.default_visualizer" \
++  "\\^done" \
++  "choose default visualizer"
++
+ remote_file host delete ${remote_python_file}
+Index: gdb-7.1/gdb/testsuite/gdb.python/py-prettyprint.c
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.python/py-prettyprint.c	2010-01-14 09:03:37.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.python/py-prettyprint.c	2010-06-30 03:22:20.000000000 +0200
+@@ -119,6 +119,15 @@ typedef struct string_repr
+ 
+ /* This lets us avoid malloc.  */
+ int array[100];
++int narray[10];
++
++struct justchildren
++{
++  int len;
++  int *elements;
++};
++
++typedef struct justchildren nostring_type;
+ 
+ struct container
+ {
+@@ -196,7 +205,9 @@ main ()
+   const struct string_repr cstring = { { "const string" } };
+   /* Clearing by being `static' could invoke an other GDB C++ bug.  */
+   struct nullstr nullstr;
+-
++  nostring_type nstype;
++  nstype.elements = narray;
++  nstype.len = 0;
+ 
+   init_ss(&ss, 1, 2);
+   init_ss(ssa+0, 3, 4);
+@@ -249,5 +260,9 @@ main ()
+   do_nothing ();
+ #endif
+ 
++  nstype.elements[0] = 7;
++  nstype.elements[1] = 42;
++  nstype.len = 2;
++  
+   return 0;      /* break to inspect struct and union */
+ }
+Index: gdb-7.1/gdb/testsuite/gdb.python/py-prettyprint.exp
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.python/py-prettyprint.exp	2010-06-30 03:22:02.000000000 +0200
++++ gdb-7.1/gdb/testsuite/gdb.python/py-prettyprint.exp	2010-06-30 03:24:14.000000000 +0200
+@@ -115,6 +115,7 @@ proc run_lang_tests {lang} {
+ 
+     gdb_test "print nullstr" "RuntimeError: Error reading string from inferior.*"
+ 
++    gdb_test "print nstype" " = {$nl *.0. = 7,$nl *.1. = 42$nl}"
+     gdb_test "continue" "Program exited normally\."
+ 
+     remote_file host delete ${remote_python_file}
+Index: gdb-7.1/gdb/testsuite/gdb.python/py-prettyprint.py
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.python/py-prettyprint.py	2010-01-14 09:03:37.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.python/py-prettyprint.py	2010-06-30 03:22:20.000000000 +0200
+@@ -53,6 +53,33 @@ class ContainerPrinter:
+     def children(self):
+         return self._iterator(self.val['elements'], self.val['len'])
+ 
++# Test a printer where to_string is None
++class NoStringContainerPrinter:
++    class _iterator:
++        def __init__ (self, pointer, len):
++            self.start = pointer
++            self.pointer = pointer
++            self.end = pointer + len
++
++        def __iter__(self):
++            return self
++
++        def next(self):
++            if self.pointer == self.end:
++                raise StopIteration
++            result = self.pointer
++            self.pointer = self.pointer + 1
++            return ('[%d]' % int (result - self.start), result.dereference())
++
++    def __init__(self, val):
++        self.val = val
++
++    def to_string(self):
++        return None
++
++    def children(self):
++        return self._iterator(self.val['elements'], self.val['len'])
++
+ class pp_s:
+     def __init__(self, val):
+         self.val = val
+@@ -190,8 +217,10 @@ def register_pretty_printers ():
+     # both the C and C++ cases.
+     pretty_printers_dict[re.compile ('^struct string_repr$')] = string_print
+     pretty_printers_dict[re.compile ('^struct container$')] = ContainerPrinter
++    pretty_printers_dict[re.compile ('^struct justchildren$')] = NoStringContainerPrinter
+     pretty_printers_dict[re.compile ('^string_repr$')] = string_print
+     pretty_printers_dict[re.compile ('^container$')] = ContainerPrinter
++    pretty_printers_dict[re.compile ('^justchildren$')] = NoStringContainerPrinter
+     
+     pretty_printers_dict[re.compile ('^struct ns$')]  = pp_ns
+     pretty_printers_dict[re.compile ('^ns$')]  = pp_ns

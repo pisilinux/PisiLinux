@@ -1,0 +1,211 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.284
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.284
+Problem:    The str2special() function doesn't handle multi-byte characters
+	    properly.
+Solution:   Recognize multi-byte characters. (partly by Vladimir Vichniakov)
+Files:	    src/getchar.c, src/message.c, src/misc2.c
+
+
+*** ../vim-7.3.283/src/getchar.c	2011-08-17 17:18:14.000000000 +0200
+--- src/getchar.c	2011-08-17 20:11:58.000000000 +0200
+***************
+*** 3964,3970 ****
+      if (*mp->m_str == NUL)
+  	msg_puts_attr((char_u *)"<Nop>", hl_attr(HLF_8));
+      else
+! 	msg_outtrans_special(mp->m_str, FALSE);
+  #ifdef FEAT_EVAL
+      if (p_verbose > 0)
+  	last_set_msg(mp->m_script_ID);
+--- 3964,3980 ----
+      if (*mp->m_str == NUL)
+  	msg_puts_attr((char_u *)"<Nop>", hl_attr(HLF_8));
+      else
+!     {
+! 	/* Remove escaping of CSI, because "m_str" is in a format to be used
+! 	 * as typeahead. */
+! 	char_u *s = vim_strsave(mp->m_str);
+! 	if (s != NULL)
+! 	{
+! 	    vim_unescape_csi(s);
+! 	    msg_outtrans_special(s, FALSE);
+! 	    vim_free(s);
+! 	}
+!     }
+  #ifdef FEAT_EVAL
+      if (p_verbose > 0)
+  	last_set_msg(mp->m_script_ID);
+*** ../vim-7.3.283/src/message.c	2011-03-22 13:07:19.000000000 +0100
+--- src/message.c	2011-08-17 18:40:10.000000000 +0200
+***************
+*** 1547,1562 ****
+  	if (IS_SPECIAL(c) || modifiers)	/* special key */
+  	    special = TRUE;
+      }
+-     *sp = str + 1;
+  
+  #ifdef FEAT_MBYTE
+!     /* For multi-byte characters check for an illegal byte. */
+!     if (has_mbyte && MB_BYTE2LEN(*str) > (*mb_ptr2len)(str))
+      {
+! 	transchar_nonprint(buf, c);
+! 	return buf;
+      }
+  #endif
+  
+      /* Make unprintable characters in <> form, also <M-Space> and <Tab>.
+       * Use <Space> only for lhs of a mapping. */
+--- 1547,1573 ----
+  	if (IS_SPECIAL(c) || modifiers)	/* special key */
+  	    special = TRUE;
+      }
+  
+  #ifdef FEAT_MBYTE
+!     if (has_mbyte && !IS_SPECIAL(c))
+      {
+!         int len = (*mb_ptr2len)(str);
+! 
+! 	/* For multi-byte characters check for an illegal byte. */
+! 	if (has_mbyte && MB_BYTE2LEN(*str) > len)
+! 	{
+! 	    transchar_nonprint(buf, c);
+! 	    *sp = str + 1;
+! 	    return buf;
+! 	}
+!         /* Since 'special' is TRUE the multi-byte character 'c' will be
+!          * processed by get_special_key_name() */
+!         c = (*mb_ptr2char)(str);
+!         *sp = str + len;
+      }
++     else
+  #endif
++ 	*sp = str + 1;
+  
+      /* Make unprintable characters in <> form, also <M-Space> and <Tab>.
+       * Use <Space> only for lhs of a mapping. */
+*** ../vim-7.3.283/src/misc2.c	2011-07-27 17:31:42.000000000 +0200
+--- src/misc2.c	2011-08-17 20:27:30.000000000 +0200
+***************
+*** 2754,2759 ****
+--- 2754,2760 ----
+      int		bit;
+      int		key;
+      unsigned long n;
++     int		l;
+  
+      src = *srcp;
+      if (src[0] != '<')
+***************
+*** 2766,2773 ****
+  	if (*bp == '-')
+  	{
+  	    last_dash = bp;
+! 	    if (bp[1] != NUL && bp[2] == '>')
+! 		++bp;	/* anything accepted, like <C-?> */
+  	}
+  	if (bp[0] == 't' && bp[1] == '_' && bp[2] && bp[3])
+  	    bp += 3;	/* skip t_xx, xx may be '-' or '>' */
+--- 2767,2783 ----
+  	if (*bp == '-')
+  	{
+  	    last_dash = bp;
+! 	    if (bp[1] != NUL)
+! 	    {
+! #ifdef FEAT_MBYTE
+! 		if (has_mbyte)
+! 		    l = mb_ptr2len(bp + 1);
+! 		else
+! #endif
+! 		    l = 1;
+! 		if (bp[l + 1] == '>')
+! 		    bp += l;	/* anything accepted, like <C-?> */
+! 	    }
+  	}
+  	if (bp[0] == 't' && bp[1] == '_' && bp[2] && bp[3])
+  	    bp += 3;	/* skip t_xx, xx may be '-' or '>' */
+***************
+*** 2777,2791 ****
+      {
+  	end_of_name = bp + 1;
+  
+- 	if (STRNICMP(src + 1, "char-", 5) == 0 && VIM_ISDIGIT(src[6]))
+- 	{
+- 	    /* <Char-123> or <Char-033> or <Char-0x33> */
+- 	    vim_str2nr(src + 6, NULL, NULL, TRUE, TRUE, NULL, &n);
+- 	    *modp = 0;
+- 	    *srcp = end_of_name;
+- 	    return (int)n;
+- 	}
+- 
+  	/* Which modifiers are given? */
+  	modifiers = 0x0;
+  	for (bp = src + 1; bp < last_dash; bp++)
+--- 2787,2792 ----
+***************
+*** 2804,2814 ****
+  	 */
+  	if (bp >= last_dash)
+  	{
+  	    /*
+  	     * Modifier with single letter, or special key name.
+  	     */
+! 	    if (modifiers != 0 && last_dash[2] == '>')
+! 		key = last_dash[1];
+  	    else
+  	    {
+  		key = get_special_key_code(last_dash + 1);
+--- 2805,2831 ----
+  	 */
+  	if (bp >= last_dash)
+  	{
++ 	    if (STRNICMP(last_dash + 1, "char-", 5) == 0
++ 						 && VIM_ISDIGIT(last_dash[6]))
++ 	    {
++ 		/* <Char-123> or <Char-033> or <Char-0x33> */
++ 		vim_str2nr(last_dash + 6, NULL, NULL, TRUE, TRUE, NULL, &n);
++ 		*modp = modifiers;
++ 		*srcp = end_of_name;
++ 		return (int)n;
++ 	    }
++ 
+  	    /*
+  	     * Modifier with single letter, or special key name.
+  	     */
+! #ifdef FEAT_MBYTE
+! 	    if (has_mbyte)
+! 		l = mb_ptr2len(last_dash + 1);
+! 	    else
+! #endif
+! 		l = 1;
+! 	    if (modifiers != 0 && last_dash[l + 1] == '>')
+! 		key = PTR2CHAR(last_dash + 1);
+  	    else
+  	    {
+  		key = get_special_key_code(last_dash + 1);
+*** ../vim-7.3.283/src/version.c	2011-08-17 17:18:14.000000000 +0200
+--- src/version.c	2011-08-17 20:27:47.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     284,
+  /**/
+
+-- 
+Snoring is prohibited unless all bedroom windows are closed and securely
+locked.
+		[real standing law in Massachusetts, United States of America]
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

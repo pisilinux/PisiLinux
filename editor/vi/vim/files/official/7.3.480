@@ -1,0 +1,237 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.480
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.480
+Problem:    When using ":qa" and there is a changed buffer picking the buffer
+	    to jump to is not very good.
+Solution:   Consider current and other tab pages. (Hirohito Higashi)
+Files:	    src/ex_cmds2.c
+
+
+*** ../vim-7.3.479/src/ex_cmds2.c	2012-02-22 18:29:29.000000000 +0100
+--- src/ex_cmds2.c	2012-03-23 17:01:31.000000000 +0100
+***************
+*** 1569,1574 ****
+--- 1569,1594 ----
+  		|| forceit);
+  }
+  
++ static void add_bufnum __ARGS((int *bufnrs, int *bufnump, int nr));
++ 
++ /*
++  * Add a buffer number to "bufnrs", unless it's already there.
++  */
++     static void
++ add_bufnum(bufnrs, bufnump, nr)
++     int	    *bufnrs;
++     int	    *bufnump;
++     int	    nr;
++ {
++     int i;
++ 
++     for (i = 0; i < *bufnump; ++i)
++ 	if (bufnrs[i] == nr)
++ 	    return;
++     bufnrs[*bufnump] = nr;
++     *bufnump = *bufnump + 1;
++ }
++ 
+  /*
+   * Return TRUE if any buffer was changed and cannot be abandoned.
+   * That changed buffer becomes the current buffer.
+***************
+*** 1577,1608 ****
+  check_changed_any(hidden)
+      int		hidden;		/* Only check hidden buffers */
+  {
+      buf_T	*buf;
+      int		save;
+  #ifdef FEAT_WINDOWS
+      win_T	*wp;
+  #endif
+  
+!     for (;;)
+      {
+! 	/* check curbuf first: if it was changed we can't abandon it */
+! 	if (!hidden && curbufIsChanged())
+! 	    buf = curbuf;
+! 	else
+  	{
+! 	    for (buf = firstbuf; buf != NULL; buf = buf->b_next)
+! 		if ((!hidden || buf->b_nwindows == 0) && bufIsChanged(buf))
+! 		    break;
+  	}
+- 	if (buf == NULL)    /* No buffers changed */
+- 	    return FALSE;
+- 
+- 	/* Try auto-writing the buffer.  If this fails but the buffer no
+- 	 * longer exists it's not changed, that's OK. */
+- 	if (check_changed(buf, p_awa, TRUE, FALSE, TRUE) && buf_valid(buf))
+- 	    break;	    /* didn't save - still changes */
+      }
+  
+      exiting = FALSE;
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+      /*
+--- 1597,1660 ----
+  check_changed_any(hidden)
+      int		hidden;		/* Only check hidden buffers */
+  {
++     int		ret = FALSE;
+      buf_T	*buf;
+      int		save;
++     int		i;
++     int		bufnum = 0;
++     int		bufcount = 0;
++     int		*bufnrs;
+  #ifdef FEAT_WINDOWS
++     tabpage_T   *tp;
+      win_T	*wp;
+  #endif
+  
+!     for (buf = firstbuf; buf != NULL; buf = buf->b_next)
+! 	++bufcount;
+! 
+!     if (bufcount == 0)
+! 	return FALSE;
+! 
+!     bufnrs = (int *)alloc(sizeof(int) * bufcount);
+!     if (bufnrs == NULL)
+! 	return FALSE;
+! 
+!     /* curbuf */
+!     bufnrs[bufnum++] = curbuf->b_fnum;
+! #ifdef FEAT_WINDOWS
+!     /* buf in curtab */
+!     FOR_ALL_WINDOWS(wp)
+! 	if (wp->w_buffer != curbuf)
+! 	    add_bufnum(bufnrs, &bufnum, wp->w_buffer->b_fnum);
+! 
+!     /* buf in other tab */
+!     for (tp = first_tabpage; tp != NULL; tp = tp->tp_next)
+! 	if (tp != curtab)
+! 	    for (wp = tp->tp_firstwin; wp != NULL; wp = wp->w_next)
+! 		add_bufnum(bufnrs, &bufnum, wp->w_buffer->b_fnum);
+! #endif
+!     /* any other buf */
+!     for (buf = firstbuf; buf != NULL; buf = buf->b_next)
+! 	add_bufnum(bufnrs, &bufnum, buf->b_fnum);
+! 
+!     for (i = 0; i < bufnum; ++i)
+      {
+! 	buf = buflist_findnr(bufnrs[i]);
+! 	if (buf == NULL)
+! 	    continue;
+! 	if ((!hidden || buf->b_nwindows == 0) && bufIsChanged(buf))
+  	{
+! 	    /* Try auto-writing the buffer.  If this fails but the buffer no
+! 	    * longer exists it's not changed, that's OK. */
+! 	    if (check_changed(buf, p_awa, TRUE, FALSE, TRUE) && buf_valid(buf))
+! 		break;	    /* didn't save - still changes */
+  	}
+      }
+  
++     if (i >= bufnum)
++ 	goto theend;
++ 
++     ret = TRUE;
+      exiting = FALSE;
+  #if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
+      /*
+***************
+*** 1635,1658 ****
+  #ifdef FEAT_WINDOWS
+      /* Try to find a window that contains the buffer. */
+      if (buf != curbuf)
+! 	for (wp = firstwin; wp != NULL; wp = wp->w_next)
+  	    if (wp->w_buffer == buf)
+  	    {
+! 		win_goto(wp);
+  # ifdef FEAT_AUTOCMD
+  		/* Paranoia: did autocms wipe out the buffer with changes? */
+  		if (!buf_valid(buf))
+! 		    return TRUE;
+  # endif
+! 		break;
+  	    }
+  #endif
+  
+      /* Open the changed buffer in the current window. */
+      if (buf != curbuf)
+  	set_curbuf(buf, DOBUF_GOTO);
+  
+!     return TRUE;
+  }
+  
+  /*
+--- 1687,1715 ----
+  #ifdef FEAT_WINDOWS
+      /* Try to find a window that contains the buffer. */
+      if (buf != curbuf)
+! 	FOR_ALL_TAB_WINDOWS(tp, wp)
+  	    if (wp->w_buffer == buf)
+  	    {
+! 		goto_tabpage_win(tp, wp);
+  # ifdef FEAT_AUTOCMD
+  		/* Paranoia: did autocms wipe out the buffer with changes? */
+  		if (!buf_valid(buf))
+! 		{
+! 		    goto theend;
+! 		}
+  # endif
+! 		goto buf_found;
+  	    }
++ buf_found:
+  #endif
+  
+      /* Open the changed buffer in the current window. */
+      if (buf != curbuf)
+  	set_curbuf(buf, DOBUF_GOTO);
+  
+! theend:
+!     vim_free(bufnrs);
+!     return ret;
+  }
+  
+  /*
+***************
+*** 3274,3280 ****
+  	    home_replace(NULL, SCRIPT_ITEM(i).sn_name,
+  						    NameBuff, MAXPATHL, TRUE);
+  	    smsg((char_u *)"%3d: %s", i, NameBuff);
+!         }
+  }
+  
+  # if defined(BACKSLASH_IN_FILENAME) || defined(PROTO)
+--- 3331,3337 ----
+  	    home_replace(NULL, SCRIPT_ITEM(i).sn_name,
+  						    NameBuff, MAXPATHL, TRUE);
+  	    smsg((char_u *)"%3d: %s", i, NameBuff);
+! 	}
+  }
+  
+  # if defined(BACKSLASH_IN_FILENAME) || defined(PROTO)
+*** ../vim-7.3.479/src/version.c	2012-03-23 16:25:13.000000000 +0100
+--- src/version.c	2012-03-23 16:48:06.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     480,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+243. You unsuccessfully try to download a pizza from www.dominos.com.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,151 @@
+--- mc-2007-06-04-22/src/execute.c.prompt	2005-09-28 23:28:06.000000000 +0200
++++ mc-2007-06-04-22/src/execute.c	2007-06-20 14:07:17.000000000 +0200
+@@ -140,6 +140,8 @@ do_execute (const char *shell, const cha
+ 	    printf ("\r\n");
+ 	    fflush (stdout);
+ 	}
++	update_prompt = TRUE;
++	do_update_prompt ();
+ 	if (console_flag) {
+ 	    if (output_lines && keybar_visible) {
+ 		putchar ('\n');
+--- mc-2007-06-04-22/src/main.c.prompt	2007-06-20 14:07:17.000000000 +0200
++++ mc-2007-06-04-22/src/main.c	2007-06-20 14:07:17.000000000 +0200
+@@ -454,7 +454,7 @@ void
+ do_update_prompt (void)
+ {
+     if (update_prompt) {
+-	printf ("%s", subshell_prompt);
++	printf ("\r\n%s", original_subshell_prompt);
+ 	fflush (stdout);
+ 	update_prompt = 0;
+     }
+--- mc-2007-06-04-22/src/subshell.h.prompt	2004-12-03 20:17:47.000000000 +0100
++++ mc-2007-06-04-22/src/subshell.h	2007-06-20 14:07:17.000000000 +0200
+@@ -20,6 +20,9 @@ extern enum subshell_state_enum subshell
+ /* Holds the latest prompt captured from the subshell */
+ extern char *subshell_prompt;
+ 
++/* Holds the latest prompt captured from the subshell with terminal codes */
++extern char *original_subshell_prompt;
++
+ /* For the `how' argument to various functions */
+ enum {QUIETLY, VISIBLY};
+ 
+--- mc-2007-06-04-22/src/subshell.c.prompt	2007-06-20 14:07:17.000000000 +0200
++++ mc-2007-06-04-22/src/subshell.c	2007-06-20 14:24:14.000000000 +0200
+@@ -107,6 +107,9 @@ enum subshell_state_enum subshell_state;
+ /* Holds the latest prompt captured from the subshell */
+ char *subshell_prompt = NULL;
+ 
++/* Holds the latest prompt captured from the subshell with terminal codes */
++char *original_subshell_prompt = NULL;
++
+ /* Initial length of the buffer for the subshell's prompt */
+ #define INITIAL_PROMPT_SIZE 10
+ 
+@@ -148,6 +151,7 @@ static struct termios raw_mode;
+ /* This counter indicates how many characters of prompt we have read */
+ /* FIXME: try to figure out why this had to become global */
+ static int prompt_pos;
++static int original_prompt_pos;
+ 
+ 
+ /*
+@@ -567,6 +571,7 @@ int invoke_subshell (const char *command
+ 	init_subshell ();
+ 
+     prompt_pos = 0;
++    original_prompt_pos = 0;
+ 
+     return quit;
+ }
+@@ -576,6 +581,7 @@ int
+ read_subshell_prompt (void)
+ {
+     static int prompt_size = INITIAL_PROMPT_SIZE;
++    static int original_prompt_size = INITIAL_PROMPT_SIZE;
+     int bytes = 0, i, rc = 0;
+     struct timeval timeleft = { 0, 0 };
+ 
+@@ -586,7 +592,10 @@ read_subshell_prompt (void)
+     if (subshell_prompt == NULL) {	/* First time through */
+ 	subshell_prompt = g_malloc (prompt_size);
+ 	*subshell_prompt = '\0';
++	original_subshell_prompt = g_malloc (original_prompt_size);
++	*original_subshell_prompt = '\0';
+ 	prompt_pos = 0;
++	original_prompt_pos = 0;
+     }
+ 
+     while (subshell_alive
+@@ -607,20 +616,27 @@ read_subshell_prompt (void)
+ 
+ 	/* Extract the prompt from the shell output */
+ 
+-	for (i = 0; i < bytes; ++i)
++	for (i = 0; i < bytes; ++i) {
++	    if (!pty_buffer[i])
++		continue;
++
++	    original_subshell_prompt[original_prompt_pos++] = pty_buffer[i];
++	    if (original_prompt_pos == original_prompt_size)
++		original_subshell_prompt =
++		    g_realloc (original_subshell_prompt, original_prompt_size *= 2);
++
+ 	    if (pty_buffer[i] == '\n' || pty_buffer[i] == '\r') {
+ 		prompt_pos = 0;
+ 	    } else {
+-		if (!pty_buffer[i])
+-		    continue;
+-
+ 		subshell_prompt[prompt_pos++] = pty_buffer[i];
+ 		if (prompt_pos == prompt_size)
+ 		    subshell_prompt =
+ 			g_realloc (subshell_prompt, prompt_size *= 2);
+ 	    }
++	}
+ 
+ 	subshell_prompt[prompt_pos] = '\0';
++	original_subshell_prompt[original_prompt_pos] = '\0';
+     }
+     if (rc == 0 && bytes == 0)
+ 	return FALSE;
+@@ -743,6 +759,8 @@ subshell_name_quote (const char *s)
+ void
+ do_subshell_chdir (const char *directory, int do_update, int reset_prompt)
+ {
++    static char *old_subshell_prompt = NULL;
++
+     if (!
+ 	(subshell_state == INACTIVE
+ 	 && strcmp (subshell_cwd, current_panel->cwd))) {
+@@ -750,8 +768,14 @@ do_subshell_chdir (const char *directory
+ 	 * the main program.  Please note that in the code after this
+ 	 * if, the cd command that is sent will make the subshell
+ 	 * repaint the prompt, so we don't have to paint it. */
+-	if (do_update)
+-	    do_update_prompt ();
++	if (do_update) {
++	    if (old_subshell_prompt == NULL
++		|| strcmp (old_subshell_prompt, original_subshell_prompt)) {
++		g_free (old_subshell_prompt);
++		old_subshell_prompt = g_strdup (original_subshell_prompt);
++		do_update_prompt ();
++	    }
++	}
+ 	return;
+     }
+ 
+@@ -802,8 +826,10 @@ do_subshell_chdir (const char *directory
+ 	}
+     }
+ 
+-    if (reset_prompt)
++    if (reset_prompt) {
+ 	prompt_pos = 0;
++	original_prompt_pos = 0;
++    }
+     update_prompt = FALSE;
+     /* Make sure that MC never stores the CWD in a silly format */
+     /* like /usr////lib/../bin, or the strcmp() above will fail */

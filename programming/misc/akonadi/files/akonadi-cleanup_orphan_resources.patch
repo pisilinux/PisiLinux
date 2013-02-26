@@ -1,0 +1,114 @@
+commit 992096665110674e8e9bc5be6e91c5b78249266e
+Author: David Faure <faure@kde.org>
+Date:   Fri Jan 20 00:23:55 2012 +0100
+
+    New cleanup in "akonadictl fsck": clean up orphan resources from the DB
+    
+    The only way this can ever happen is when hacking agentsrc and removing
+    resources from it (or removing the whole ~/.config). But then you get
+    dead collection trees in kmail, always red, always unusable, and this is
+    the only way to clean this up.
+
+diff --git a/server/src/storagejanitor.cpp b/server/src/storagejanitor.cpp
+index ea520a8..0e26596 100644
+--- a/server/src/storagejanitor.cpp
++++ b/server/src/storagejanitor.cpp
+@@ -21,6 +21,7 @@
+ 
+ #include "storage/datastore.h"
+ #include "storage/selectquerybuilder.h"
++#include "resourcemanager.h"
+ 
+ #include <akdbus.h>
+ #include <akdebug.h>
+@@ -29,6 +30,8 @@
+ #include <libs/protocol_p.h>
+ #include <libs/xdgbasedirs_p.h>
+ 
++#include <agentmanagerinterface.h>
++
+ #include <QStringBuilder>
+ #include <QtDBus/QDBusConnection>
+ #include <QtSql/QSqlQuery>
+@@ -70,8 +73,11 @@ StorageJanitor::~StorageJanitor()
+   DataStore::self()->close();
+ }
+ 
+-void StorageJanitor::check()
++void StorageJanitor::check() // implementation of `akonadictl fsck`
+ {
++  inform( "Looking for resources in the DB not matching a configured resource..." );
++  findOrphanedResources();
++
+   inform( "Looking for collections not belonging to a valid resource..." );
+   findOrphanedCollections();
+ 
+@@ -106,6 +112,43 @@ void StorageJanitor::check()
+   inform( "Consistency check done." );
+ }
+ 
++void StorageJanitor::findOrphanedResources()
++{
++  SelectQueryBuilder<Resource> qbres;
++  OrgFreedesktopAkonadiAgentManagerInterface iface(
++      AkDBus::serviceName(AkDBus::Control),
++      QLatin1String( "/AgentManager" ),
++      QDBusConnection::sessionBus(),
++      this
++    );
++  if (!iface.isValid()) {
++      inform( QString::fromLatin1("ERROR: Couldn't talk to %1").arg(AkDBus::Control) );
++      return;
++  }
++  const QStringList knownResources = iface.agentInstances();
++  if (knownResources.isEmpty()) {
++      inform( QString::fromLatin1("ERROR: no known resources. This must be a mistake?") );
++      return;
++  }
++  akDebug() << "Known resources:" << knownResources;
++  qbres.addValueCondition( Resource::nameFullColumnName(), Query::NotIn, QVariant(knownResources) );
++  qbres.addValueCondition( Resource::idFullColumnName(), Query::NotEquals, 1 ); // skip akonadi_search_resource
++  qbres.exec();
++  //akDebug() << "SQL:" << qbres.query().lastQuery();
++  const Resource::List orphanResources = qbres.result();
++  if ( orphanResources.size() > 0 ) {
++    QStringList resourceNames;
++    foreach ( const Resource& resource, orphanResources ) {
++        resourceNames.append(resource.name());
++    }
++    inform( QString::fromLatin1( "Found %1 orphan resources: %2" ).arg( orphanResources.size() ). arg( resourceNames.join(QLatin1String(",")) ) );
++    foreach ( const QString& resourceName, resourceNames ) {
++        inform( QString::fromLatin1( "Removing resource %1" ).arg( resourceName ) );
++        ResourceManager::self()->removeResourceInstance( resourceName );
++    }
++  }
++}
++
+ void StorageJanitor::findOrphanedCollections()
+ {
+   SelectQueryBuilder<Collection> qb;
+@@ -137,7 +180,7 @@ void StorageJanitor::checkPathToRoot(const Akonadi::Collection& col)
+           + QLatin1Literal( ") belongs to a different resource than its parent." ) );
+     // can/should we actually fix that?
+   }
+-  
++
+   checkPathToRoot( parent );
+ }
+ 
+diff --git a/server/src/storagejanitor.h b/server/src/storagejanitor.h
+index afc79c6..be3442e 100644
+--- a/server/src/storagejanitor.h
++++ b/server/src/storagejanitor.h
+@@ -63,6 +63,11 @@ class StorageJanitor : public QObject
+     void inform( const QString &msg );
+ 
+     /**
++     * Look for resources in the DB not existing in reality.
++     */
++    void findOrphanedResources();
++
++    /**
+      * Look for collections belonging to non-existent resources.
+      */
+     void findOrphanedCollections();

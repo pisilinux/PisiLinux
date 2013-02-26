@@ -1,0 +1,537 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.632
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.632
+Problem:    Cannot select beyond 222 columns with the mouse in xterm.
+Solution:   Add support for SGR mouse tracking. (Hayaki Saito)
+Files:      runtime/doc/options.txt, src/feature.h, src/keymap.h, src/misc2.c,
+            src/option.h, src/os_unix.c, src/term.c, src/version.c
+
+
+*** ../vim-7.3.631/runtime/doc/options.txt	2012-07-10 16:49:08.000000000 +0200
+--- runtime/doc/options.txt	2012-08-15 16:04:26.000000000 +0200
+***************
+*** 7383,7388 ****
+--- 7424,7435 ----
+  	   jsbterm	JSB term mouse handling.
+  							*pterm-mouse*
+  	   pterm	QNX pterm mouse handling.
++ 							*urxvt-mouse*
++ 	   urxvt	Mouse handling for the urxvt (rxvt-unicode) terminal.
++ 							*sgr-mouse*
++ 	   sgr		Mouse handling for the terminal that emits SGR-styled
++ 			mouse reporting. Works with xterm version 277 or
++ 			later.
+  
+  	The mouse handling must be enabled at compile time |+mouse_xterm|
+  	|+mouse_dec| |+mouse_netterm|.
+***************
+*** 7395,7400 ****
+--- 7442,7448 ----
+  	or "xterm2" already.  The main use of this option is to set it to
+  	"xterm", when the terminal name doesn't start with "xterm", but it can
+  	handle xterm mouse codes.
++ 	The "sgr" value will be set if the xterm version is 277 or later.
+  	The "xterm2" value will be set if the xterm version is reported to be
+  	95 or higher.  This only works when compiled with the |+termresponse|
+  	feature and if |t_RV| is set to the escape sequence to request the
+*** ../vim-7.3.631/src/feature.h	2012-04-25 16:50:44.000000000 +0200
+--- src/feature.h	2012-08-15 15:46:07.000000000 +0200
+***************
+*** 1056,1061 ****
+--- 1056,1064 ----
+  # ifdef FEAT_BIG
+  #  define FEAT_MOUSE_URXVT
+  # endif
++ # ifdef FEAT_BIG
++ #  define FEAT_MOUSE_SGR
++ # endif
+  # if defined(FEAT_NORMAL) && (defined(MSDOS) || defined(WIN3264))
+  #  define DOS_MOUSE
+  # endif
+***************
+*** 1077,1082 ****
+--- 1080,1090 ----
+  # define FEAT_MOUSE_XTERM
+  #endif
+  
++ /* sgr is a small variation of mouse_xterm, and shares its code */
++ #if defined(FEAT_MOUSE_SGR) && !defined(FEAT_MOUSE_XTERM)
++ # define FEAT_MOUSE_XTERM
++ #endif
++ 
+  /* Define FEAT_MOUSE when any of the above is defined or FEAT_GUI. */
+  #if !defined(FEAT_MOUSE_TTY) \
+  	&& (defined(FEAT_MOUSE_XTERM) \
+***************
+*** 1087,1093 ****
+  	    || defined(FEAT_MOUSE_JSB) \
+  	    || defined(FEAT_MOUSE_PTERM) \
+  	    || defined(FEAT_SYSMOUSE) \
+! 	    || defined(FEAT_MOUSE_URXVT))
+  # define FEAT_MOUSE_TTY		/* include non-GUI mouse support */
+  #endif
+  #if !defined(FEAT_MOUSE) && (defined(FEAT_MOUSE_TTY) || defined(FEAT_GUI))
+--- 1095,1102 ----
+  	    || defined(FEAT_MOUSE_JSB) \
+  	    || defined(FEAT_MOUSE_PTERM) \
+  	    || defined(FEAT_SYSMOUSE) \
+! 	    || defined(FEAT_MOUSE_URXVT) \
+! 	    || defined(FEAT_MOUSE_SGR))
+  # define FEAT_MOUSE_TTY		/* include non-GUI mouse support */
+  #endif
+  #if !defined(FEAT_MOUSE) && (defined(FEAT_MOUSE_TTY) || defined(FEAT_GUI))
+*** ../vim-7.3.631/src/keymap.h	2012-01-20 17:15:47.000000000 +0100
+--- src/keymap.h	2012-08-15 15:46:07.000000000 +0200
+***************
+*** 110,115 ****
+--- 110,118 ----
+  /* Used for the urxvt mouse. */
+  #define KS_URXVT_MOUSE		238
+  
++ /* Used for the sgr mouse. */
++ #define KS_SGR_MOUSE		237
++ 
+  /*
+   * Filler used after KS_SPECIAL and others
+   */
+***************
+*** 412,417 ****
+--- 415,421 ----
+  #define K_JSBTERM_MOUSE	TERMCAP2KEY(KS_JSBTERM_MOUSE, KE_FILLER)
+  #define K_PTERM_MOUSE	TERMCAP2KEY(KS_PTERM_MOUSE, KE_FILLER)
+  #define K_URXVT_MOUSE	TERMCAP2KEY(KS_URXVT_MOUSE, KE_FILLER)
++ #define K_SGR_MOUSE	TERMCAP2KEY(KS_SGR_MOUSE, KE_FILLER)
+  
+  #define K_SELECT	TERMCAP2KEY(KS_SELECT, KE_FILLER)
+  #define K_TEAROFF	TERMCAP2KEY(KS_TEAROFF, KE_FILLER)
+*** ../vim-7.3.631/src/misc2.c	2012-08-15 14:04:50.000000000 +0200
+--- src/misc2.c	2012-08-15 15:46:07.000000000 +0200
+***************
+*** 2433,2438 ****
+--- 2433,2441 ----
+  #ifdef FEAT_MOUSE_URXVT
+      {K_URXVT_MOUSE,	(char_u *)"UrxvtMouse"},
+  #endif
++ #ifdef FEAT_MOUSE_SGR
++     {K_SGR_MOUSE,	(char_u *)"SgrMouse"},
++ #endif
+      {K_LEFTMOUSE,	(char_u *)"LeftMouse"},
+      {K_LEFTMOUSE_NM,	(char_u *)"LeftMouseNM"},
+      {K_LEFTDRAG,	(char_u *)"LeftDrag"},
+*** ../vim-7.3.631/src/option.h	2012-07-10 16:49:08.000000000 +0200
+--- src/option.h	2012-08-15 15:46:07.000000000 +0200
+***************
+*** 822,828 ****
+  EXTERN char_u	*p_ttym;	/* 'ttymouse' */
+  EXTERN unsigned ttym_flags;
+  # ifdef IN_OPTION_C
+! static char *(p_ttym_values[]) = {"xterm", "xterm2", "dec", "netterm", "jsbterm", "pterm", "urxvt", NULL};
+  # endif
+  # define TTYM_XTERM		0x01
+  # define TTYM_XTERM2		0x02
+--- 822,828 ----
+  EXTERN char_u	*p_ttym;	/* 'ttymouse' */
+  EXTERN unsigned ttym_flags;
+  # ifdef IN_OPTION_C
+! static char *(p_ttym_values[]) = {"xterm", "xterm2", "dec", "netterm", "jsbterm", "pterm", "urxvt", "sgr", NULL};
+  # endif
+  # define TTYM_XTERM		0x01
+  # define TTYM_XTERM2		0x02
+***************
+*** 831,836 ****
+--- 831,837 ----
+  # define TTYM_JSBTERM		0x10
+  # define TTYM_PTERM		0x20
+  # define TTYM_URXVT		0x40
++ # define TTYM_SGR		0x80
+  #endif
+  EXTERN char_u	*p_udir;	/* 'undodir' */
+  EXTERN long	p_ul;		/* 'undolevels' */
+*** ../vim-7.3.631/src/os_unix.c	2012-04-20 15:55:10.000000000 +0200
+--- src/os_unix.c	2012-08-15 16:06:54.000000000 +0200
+***************
+*** 2159,2168 ****
+--- 2159,2171 ----
+   * Return 1 for "xterm".
+   * Return 2 for "xterm2".
+   * Return 3 for "urxvt".
++  * Return 4 for "sgr".
+   */
+      int
+  use_xterm_mouse()
+  {
++     if (ttym_flags == TTYM_SGR)
++ 	return 4;
+      if (ttym_flags == TTYM_URXVT)
+  	return 3;
+      if (ttym_flags == TTYM_XTERM2)
+***************
+*** 3339,3345 ****
+      xterm_mouse_vers = use_xterm_mouse();
+  
+  # ifdef FEAT_MOUSE_URXVT
+!     if (ttym_flags == TTYM_URXVT) {
+  	out_str_nf((char_u *)
+  		   (on
+  		   ? IF_EB("\033[?1015h", ESC_STR "[?1015h")
+--- 3342,3349 ----
+      xterm_mouse_vers = use_xterm_mouse();
+  
+  # ifdef FEAT_MOUSE_URXVT
+!     if (ttym_flags == TTYM_URXVT)
+!     {
+  	out_str_nf((char_u *)
+  		   (on
+  		   ? IF_EB("\033[?1015h", ESC_STR "[?1015h")
+***************
+*** 3348,3353 ****
+--- 3352,3368 ----
+      }
+  # endif
+  
++ # ifdef FEAT_MOUSE_SGR
++     if (ttym_flags == TTYM_SGR)
++     {
++ 	out_str_nf((char_u *)
++ 		   (on
++ 		   ? IF_EB("\033[?1006h", ESC_STR "[?1006h")
++ 		   : IF_EB("\033[?1006l", ESC_STR "[?1006l")));
++ 	ison = on;
++     }
++ # endif
++ 
+      if (xterm_mouse_vers > 0)
+      {
+  	if (on)	/* enable mouse events, use mouse tracking if available */
+***************
+*** 3577,3582 ****
+--- 3592,3618 ----
+      else
+  	del_mouse_termcode(KS_URXVT_MOUSE);
+  # endif
++ # ifdef FEAT_MOUSE_SGR
++     /* same as the dec mouse */
++     if (use_xterm_mouse() == 4
++ #  ifdef FEAT_GUI
++ 	    && !gui.in_use
++ #  endif
++ 	    )
++     {
++ 	set_mouse_termcode(KS_SGR_MOUSE, (char_u *)(term_is_8bit(T_NAME)
++ 		    ? IF_EB("\233<", CSI_STR "<")
++ 		    : IF_EB("\033[<", ESC_STR "[<")));
++ 
++ 	if (*p_mouse != NUL)
++ 	{
++ 	    mch_setmouse(FALSE);
++ 	    setmouse();
++ 	}
++     }
++     else
++ 	del_mouse_termcode(KS_SGR_MOUSE);
++ # endif
+  }
+  #endif
+  
+*** ../vim-7.3.631/src/term.c	2012-02-05 22:05:44.000000000 +0100
+--- src/term.c	2012-08-15 16:14:09.000000000 +0200
+***************
+*** 1997,2002 ****
+--- 1997,2003 ----
+  #  define HMT_JSBTERM	8
+  #  define HMT_PTERM	16
+  #  define HMT_URXVT	32
++ #  define HMT_SGR	64
+  static int has_mouse_termcode = 0;
+  # endif
+  
+***************
+*** 2037,2042 ****
+--- 2038,2048 ----
+  	has_mouse_termcode |= HMT_URXVT;
+      else
+  #   endif
++ #   ifdef FEAT_MOUSE_SGR
++     if (n == KS_SGR_MOUSE)
++ 	has_mouse_termcode |= HMT_SGR;
++     else
++ #   endif
+  	has_mouse_termcode |= HMT_NORMAL;
+  #  endif
+  }
+***************
+*** 2079,2084 ****
+--- 2085,2095 ----
+  	has_mouse_termcode &= ~HMT_URXVT;
+      else
+  #   endif
++ #   ifdef FEAT_MOUSE_SGR
++     if (n == KS_SGR_MOUSE)
++ 	has_mouse_termcode &= ~HMT_SGR;
++     else
++ #   endif
+  	has_mouse_termcode &= ~HMT_NORMAL;
+  #  endif
+  }
+***************
+*** 4023,4029 ****
+  #ifdef FEAT_TERMRESPONSE
+  	if (key_name[0] == NUL
+  	    /* URXVT mouse uses <ESC>[#;#;#M, but we are matching <ESC>[ */
+! 	    || key_name[0] == KS_URXVT_MOUSE)
+  	{
+  	    /* Check for xterm version string: "<Esc>[>{x};{vers};{y}c".  Also
+  	     * eat other possible responses to t_RV, rxvt returns
+--- 4034,4041 ----
+  #ifdef FEAT_TERMRESPONSE
+  	if (key_name[0] == NUL
+  	    /* URXVT mouse uses <ESC>[#;#;#M, but we are matching <ESC>[ */
+! 	    || key_name[0] == KS_URXVT_MOUSE
+! 	    || key_name[0] == KS_SGR_MOUSE)
+  	{
+  	    /* Check for xterm version string: "<Esc>[>{x};{vers};{y}c".  Also
+  	     * eat other possible responses to t_RV, rxvt returns
+***************
+*** 4061,4066 ****
+--- 4073,4088 ----
+  
+  		    if (tp[1 + (tp[0] != CSI)] == '>' && j == 2)
+  		    {
++ # ifdef TTYM_SGR
++ 			if (extra >= 277
++ # ifdef TTYM_URXVT
++ 				&& ttym_flags != TTYM_URXVT
++ # endif
++ 				)
++ 			    set_option_value((char_u *)"ttym", 0L,
++ 							  (char_u *)"sgr", 0);
++                         else
++ # endif
+  			/* if xterm version >= 95 use mouse dragging */
+  			if (extra >= 95
+  # ifdef TTYM_URXVT
+***************
+*** 4147,4167 ****
+  	/*
+  	 * If it is a mouse click, get the coordinates.
+  	 */
+! 	if (key_name[0] == (int)KS_MOUSE
+  # ifdef FEAT_MOUSE_JSB
+! 		|| key_name[0] == (int)KS_JSBTERM_MOUSE
+  # endif
+  # ifdef FEAT_MOUSE_NET
+! 		|| key_name[0] == (int)KS_NETTERM_MOUSE
+  # endif
+  # ifdef FEAT_MOUSE_DEC
+! 		|| key_name[0] == (int)KS_DEC_MOUSE
+  # endif
+  # ifdef FEAT_MOUSE_PTERM
+! 		|| key_name[0] == (int)KS_PTERM_MOUSE
+  # endif
+  # ifdef FEAT_MOUSE_URXVT
+! 		|| key_name[0] == (int)KS_URXVT_MOUSE
+  # endif
+  		)
+  	{
+--- 4169,4192 ----
+  	/*
+  	 * If it is a mouse click, get the coordinates.
+  	 */
+! 	if (key_name[0] == KS_MOUSE
+  # ifdef FEAT_MOUSE_JSB
+! 		|| key_name[0] == KS_JSBTERM_MOUSE
+  # endif
+  # ifdef FEAT_MOUSE_NET
+! 		|| key_name[0] == KS_NETTERM_MOUSE
+  # endif
+  # ifdef FEAT_MOUSE_DEC
+! 		|| key_name[0] == KS_DEC_MOUSE
+  # endif
+  # ifdef FEAT_MOUSE_PTERM
+! 		|| key_name[0] == KS_PTERM_MOUSE
+  # endif
+  # ifdef FEAT_MOUSE_URXVT
+! 		|| key_name[0] == KS_URXVT_MOUSE
+! # endif
+! # ifdef FEAT_MOUSE_SGR
+! 		|| key_name[0] == KS_SGR_MOUSE
+  # endif
+  		)
+  	{
+***************
+*** 4243,4250 ****
+  		}
+  	    }
+  
+! # ifdef FEAT_MOUSE_URXVT
+! 	    if (key_name[0] == (int)KS_URXVT_MOUSE)
+  	    {
+  		for (;;)
+  		{
+--- 4268,4276 ----
+  		}
+  	    }
+  
+! # if defined(FEAT_MOUSE_URXVT) || defined(FEAT_MOUSE_SGR)
+! 	    if (key_name[0] == KS_URXVT_MOUSE
+! 		|| key_name[0] == KS_SGR_MOUSE)
+  	    {
+  		for (;;)
+  		{
+***************
+*** 4256,4261 ****
+--- 4282,4301 ----
+  		     *		  ^-- row
+  		     *	       ^----- column
+  		     *	    ^-------- code
++ 		     *
++ 		     * SGR 1006 mouse reporting mode:
++ 		     * Almost identical to xterm mouse mode, except the values
++ 		     * are decimal instead of bytes.
++ 		     *
++ 		     * \033[<%d;%d;%dM
++ 		     *		   ^-- row
++ 		     *	        ^----- column
++ 		     *	     ^-------- code
++ 		     *
++ 		     * \033[<%d;%d;%dm        : mouse release event
++ 		     *		   ^-- row
++ 		     *	        ^----- column
++ 		     *	     ^-------- code
+  		     */
+  		    p = tp + slen;
+  
+***************
+*** 4263,4294 ****
+  		    if (*p++ != ';')
+  			return -1;
+  
+  		    mouse_col = getdigits(&p) - 1;
+  		    if (*p++ != ';')
+  			return -1;
+  
+  		    mouse_row = getdigits(&p) - 1;
+! 		    if (*p++ != 'M')
+  			return -1;
+  
+  		    slen += (int)(p - (tp + slen));
+  
+  		    /* skip this one if next one has same code (like xterm
+  		     * case) */
+  		    j = termcodes[idx].len;
+! 		    if (STRNCMP(tp, tp + slen, (size_t)j) == 0) {
+! 			/* check if the command is complete by looking for the
+! 			 * M */
+  			int slen2;
+  			int cmd_complete = 0;
+! 			for (slen2 = slen; slen2 < len; slen2++) {
+! 			    if (tp[slen2] == 'M') {
+  				cmd_complete = 1;
+  				break;
+  			    }
+  			}
+  			p += j;
+! 			if (cmd_complete && getdigits(&p) == mouse_code) {
+  			    slen += j; /* skip the \033[ */
+  			    continue;
+  			}
+--- 4303,4348 ----
+  		    if (*p++ != ';')
+  			return -1;
+  
++ 		    /* when mouse reporting is SGR, add 32 to mouse code */
++                     if (key_name[0] == KS_SGR_MOUSE)
++                         mouse_code += 32;
++ 
+  		    mouse_col = getdigits(&p) - 1;
+  		    if (*p++ != ';')
+  			return -1;
+  
+  		    mouse_row = getdigits(&p) - 1;
+!                     if (key_name[0] == KS_SGR_MOUSE && *p == 'm')
+! 			mouse_code |= MOUSE_RELEASE;
+!                     else if (*p != 'M')
+  			return -1;
++                     p++;
+  
+  		    slen += (int)(p - (tp + slen));
+  
+  		    /* skip this one if next one has same code (like xterm
+  		     * case) */
+  		    j = termcodes[idx].len;
+! 		    if (STRNCMP(tp, tp + slen, (size_t)j) == 0)
+! 		    {
+  			int slen2;
+  			int cmd_complete = 0;
+! 
+! 			/* check if the command is complete by looking for the
+! 			 * 'M' */
+! 			for (slen2 = slen; slen2 < len; slen2++)
+! 			{
+! 			    if (tp[slen2] == 'M'
+!                                 || (key_name[0] == KS_SGR_MOUSE
+! 							 && tp[slen2] == 'm'))
+! 			    {
+  				cmd_complete = 1;
+  				break;
+  			    }
+  			}
+  			p += j;
+! 			if (cmd_complete && getdigits(&p) == mouse_code)
+! 			{
+  			    slen += j; /* skip the \033[ */
+  			    continue;
+  			}
+***************
+*** 4302,4307 ****
+--- 4356,4364 ----
+  #ifdef FEAT_MOUSE_URXVT
+  	    || key_name[0] == (int)KS_URXVT_MOUSE
+  #endif
++ #ifdef FEAT_MOUSE_SGR
++ 	    || key_name[0] == KS_SGR_MOUSE
++ #endif
+  	    )
+  	{
+  #  if !defined(MSWIN) && !defined(MSDOS)
+*** ../vim-7.3.631/src/version.c	2012-08-15 14:04:50.000000000 +0200
+--- src/version.c	2012-08-15 15:47:30.000000000 +0200
+***************
+*** 384,389 ****
+--- 384,394 ----
+  # else
+  	"-mouse_urxvt",
+  # endif
++ # ifdef FEAT_MOUSE_SGR
++ 	"+mouse_sgr",
++ # else
++ 	"-mouse_sgr",
++ # endif
+  #endif
+  #ifdef __QNX__
+  # ifdef FEAT_MOUSE_PTERM
+*** ../vim-7.3.631/src/version.c	2012-08-15 14:04:50.000000000 +0200
+--- src/version.c	2012-08-15 15:47:30.000000000 +0200
+***************
+*** 716,717 ****
+--- 721,724 ----
+  {   /* Add new patch number below this line */
++ /**/
++     632,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+243. You unsuccessfully try to download a pizza from www.dominos.com.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

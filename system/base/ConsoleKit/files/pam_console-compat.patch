@@ -1,0 +1,146 @@
+diff --git a/src/ck-manager.c b/src/ck-manager.c
+index bf4926f..2b728aa 100644
+--- a/src/ck-manager.c
++++ b/src/ck-manager.c
+@@ -1703,6 +1703,99 @@ session_idle_hint_changed (CkSession  *session,
+         manager_update_system_idle_hint (manager);
+ }
+ 
++#define PAM_CONSOLE_DIR "/var/run/console"
++/*
++  Create pam_console like tag file in /var/run/console
++*/
++static const char*
++get_pam_console_tagfile(CkSession *session)
++{
++        guint uid;
++        struct passwd *pwd;
++        static char tagfile[256];
++
++        /* get user name */
++        if (!ck_session_get_unix_user (session, &uid, NULL)) {
++                g_warning ("create_pam_console_tag(): Could not get Unix user");
++                return NULL;
++        }
++        if (!(pwd = getpwuid (uid))) {
++                g_warning ("Could not map unix user %i to user name", uid);
++                return NULL;
++        }
++
++        snprintf (tagfile, sizeof(tagfile), "%s/%s", PAM_CONSOLE_DIR, pwd->pw_name);
++        return tagfile;
++}
++
++static void
++create_pam_console_tag(CkSession *session)
++{
++        const char* tagfile;
++        struct stat st;
++        FILE *f;
++        gboolean is_local;
++
++        if (!ck_session_is_local (session, &is_local, NULL)) {
++                g_error ("could not determine session locality");
++                return;
++        }
++        if (!is_local) {
++                g_debug ("not a local session, not creating PAM console tag");
++                return;
++        }
++
++        tagfile = get_pam_console_tagfile(session);
++        if (!tagfile)
++                return;
++
++        /* ensure that PAM_CONSOLE_DIR is a directory */
++        mkdir (PAM_CONSOLE_DIR, 0755);
++        if (stat (PAM_CONSOLE_DIR, &st) != 0 ||
++            !S_ISDIR(st.st_mode)) {
++                g_error (PAM_CONSOLE_DIR " is not a directory");
++                return;
++        }
++
++        g_debug ("Creating tag file %s", tagfile);
++        if (!(f = fopen(tagfile, "w"))) {
++                g_error ("Could not create tag file %s: %s", tagfile, strerror (errno));
++                return;
++        }
++        fclose(f);
++}
++
++static void
++remove_pam_console_tag(CkSession *session)
++{
++        const char* tagfile;
++        struct stat st;
++        gboolean is_local;
++
++        if (!ck_session_is_local (session, &is_local, NULL)) {
++                g_error ("could not determine session locality");
++                return;
++        }
++        if (!is_local) {
++                g_debug ("not a local session, not creating PAM console tag");
++                return;
++        }
++
++        tagfile = get_pam_console_tagfile(session);
++        if (!tagfile)
++                return;
++
++        if (stat (tagfile, &st) != 0 ||
++            !S_ISREG(st.st_mode)) {
++                g_error ("%s is not a regular file", tagfile);
++                return;
++        }
++
++        g_debug ("Removing tag file %s", tagfile);
++        if (unlink(tagfile) != 0)
++                g_error ("Could not remove tag file %s: %s", tagfile, strerror (errno));
++}
++
+ /*
+   Example:
+   dbus-send --system --dest=org.freedesktop.ConsoleKit \
+@@ -1813,6 +1906,8 @@ open_session_for_leader (CkManager             *manager,
+ 
+         ck_seat_add_session (seat, session, NULL);
+ 
++        create_pam_console_tag(session);
++
+         /* FIXME: connect to signals */
+         /* FIXME: add weak ref */
+ 
+@@ -2237,6 +2332,32 @@ remove_session_for_cookie (CkManager  *manager,
+                         }
+                 }
+         }
++
++        /* remove pam_console tag file if this was the last session for the user */
++        guint my_uid;
++
++        if (ck_session_get_unix_user (orig_session, &my_uid, NULL)) {
++            GHashTableIter iter;
++            gpointer key, value;
++            gboolean last_user_session = TRUE;
++            guint uid;
++
++            g_hash_table_iter_init (&iter, manager->priv->sessions);
++            while (g_hash_table_iter_next (&iter, &key, &value)) {
++                    if (value == orig_session)
++                            continue;
++                    if (!ck_session_get_unix_user ((CkSession*) value, &uid, NULL))
++                            continue;
++                    if (uid == my_uid) {
++                            last_user_session = FALSE;
++                            break;
++                    }
++            }
++            if (last_user_session)
++                    remove_pam_console_tag (orig_session);
++            else
++                    g_debug ("Unix user %i has more active sessions, not removing pam_console tag file", my_uid);
++        }
+         g_free (sid);
+ 
+         /* Remove the session from the list but don't call

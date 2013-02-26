@@ -1,0 +1,51 @@
+#!/usr/bin/perl -w
+use XML::Simple;
+
+my $file = shift || die "Usage: $0 [install.rdf|somefile.xpi]\n";
+my $xml;
+
+if ($file =~ /\.xpi$/) {
+	use Archive::Zip qw/:ERROR_CODES :CONSTANTS/;
+	my $zip = Archive::Zip->new();
+	if ( $zip->read($file) != AZ_OK ) {
+		die "zip file read error\n";
+	}
+	my $data = $zip->contents("install.rdf");
+	die "missing install.rdf in $file\n" unless $data;
+	$xml = XMLin($data) || die "$!\n";
+} elsif ($file =~ /install.rdf/) {
+	$xml = XMLin($file) || die "$!\n";
+} else {
+	die "unsupported file format\n";
+}
+
+my $desc;
+for my $tag (qw/RDF:Description Description/) {
+	if (exists $xml->{$tag}) {
+		if (ref $xml->{$tag} eq 'ARRAY') {
+			$desc = $xml->{$tag};
+		} else {
+			$desc = [ $xml->{$tag} ];
+		}
+	}
+}
+
+my $uuid;
+my $id;
+for my $x (@$desc) {
+	if ($x->{"em:id"} =~ /{[[:xdigit:]]+-/) {
+		print STDERR "Warning: multiple uuids!\n" if defined $uuid;
+		$uuid = $x->{"em:id"};
+	} elsif ($x->{"em:id"} =~ /@/) {
+		print STDERR "Warning: multiple ids!\n" if defined $id;
+		$id = $x->{"em:id"};
+	}
+}
+
+if (defined $id) {
+	print "$id\n";
+} elsif (defined $uuid) {
+	print "$uuid\n";
+} else {
+	exit 1;
+}

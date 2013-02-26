@@ -1,0 +1,235 @@
+--- procps-3.2.7/proc/sysinfo.h.kzak	2006-06-25 08:41:48.000000000 +0200
++++ procps-3.2.7/proc/sysinfo.h	2006-08-04 11:19:09.000000000 +0200
+@@ -57,7 +57,7 @@
+ #define BUFFSIZE (64*1024)
+ typedef unsigned long long jiff;
+ extern void getstat(jiff *restrict cuse, jiff *restrict cice, jiff *restrict csys, jiff *restrict cide, jiff *restrict ciow, jiff *restrict cxxx, jiff *restrict cyyy, jiff *restrict czzz,
+-	     unsigned long *restrict pin, unsigned long *restrict pout, unsigned long *restrict s_in, unsigned long *restrict sout,
++	     unsigned long long *restrict pin, unsigned long long *restrict pout, unsigned long long *restrict s_in, unsigned long long *restrict sout,
+ 	     unsigned *restrict intr, unsigned *restrict ctxt,
+ 	     unsigned int *restrict running, unsigned int *restrict blocked,
+ 	     unsigned int *restrict btime, unsigned int *restrict processes);
+@@ -72,10 +72,10 @@
+ extern unsigned long vm_nr_reverse_maps;
+ extern unsigned long vm_nr_mapped;
+ extern unsigned long vm_nr_slab;
+-extern unsigned long vm_pgpgin;
+-extern unsigned long vm_pgpgout;
+-extern unsigned long vm_pswpin;
+-extern unsigned long vm_pswpout;
++extern unsigned long long vm_pgpgin;
++extern unsigned long long vm_pgpgout;
++extern unsigned long long vm_pswpin;
++extern unsigned long long vm_pswpout;
+ extern unsigned long vm_pgalloc;
+ extern unsigned long vm_pgfree;
+ extern unsigned long vm_pgactivate;
+--- procps-3.2.7/proc/sysinfo.c.kzak	2006-06-25 08:41:48.000000000 +0200
++++ procps-3.2.7/proc/sysinfo.c	2006-08-04 12:04:06.000000000 +0200
+@@ -368,7 +368,7 @@
+ /***********************************************************************/
+ 
+ void getstat(jiff *restrict cuse, jiff *restrict cice, jiff *restrict csys, jiff *restrict cide, jiff *restrict ciow, jiff *restrict cxxx, jiff *restrict cyyy, jiff *restrict czzz,
+-	     unsigned long *restrict pin, unsigned long *restrict pout, unsigned long *restrict s_in, unsigned long *restrict sout,
++	     unsigned long long *restrict pin, unsigned long long *restrict pout, unsigned long long *restrict s_in, unsigned long long *restrict sout,
+ 	     unsigned *restrict intr, unsigned *restrict ctxt,
+ 	     unsigned int *restrict running, unsigned int *restrict blocked,
+ 	     unsigned int *restrict btime, unsigned int *restrict processes) {
+@@ -396,11 +396,11 @@
+   if(b) sscanf(b,  "cpu  %Lu %Lu %Lu %Lu %Lu %Lu %Lu %Lu", cuse, cice, csys, cide, ciow, cxxx, cyyy, czzz);
+ 
+   b = strstr(buff, "page ");
+-  if(b) sscanf(b,  "page %lu %lu", pin, pout);
++  if(b) sscanf(b,  "page %llu %llu", pin, pout);
+   else need_vmstat_file = 1;
+ 
+   b = strstr(buff, "swap ");
+-  if(b) sscanf(b,  "swap %lu %lu", s_in, sout);
++  if(b) sscanf(b,  "swap %llu %llu", s_in, sout);
+   else need_vmstat_file = 1;
+ 
+   b = strstr(buff, "intr ");
+@@ -611,9 +611,12 @@
+ 
+ typedef struct vm_table_struct {
+   const char *name;     /* VM statistic name */
+-  unsigned long *slot;       /* slot in return struct */
++  void *slot;           /* slot in return struct */
++  int  sz;		/* size of slot value */
+ } vm_table_struct;
+ 
++#define VM_TABENTRY(_name_)	{ # _name_, &vm_ ## _name_, sizeof(vm_ ## _name_) }
++
+ static int compare_vm_table_structs(const void *a, const void *b){
+   return strcmp(((const vm_table_struct*)a)->name,((const vm_table_struct*)b)->name);
+ }
+@@ -626,10 +629,10 @@
+ unsigned long vm_nr_reverse_maps;    // includes PageDirect
+ unsigned long vm_nr_mapped;          // mapped into pagetables
+ unsigned long vm_nr_slab;            // in slab
+-unsigned long vm_pgpgin;             // kB disk reads  (same as 1st num on /proc/stat page line)
+-unsigned long vm_pgpgout;            // kB disk writes (same as 2nd num on /proc/stat page line)
+-unsigned long vm_pswpin;             // swap reads     (same as 1st num on /proc/stat swap line)
+-unsigned long vm_pswpout;            // swap writes    (same as 2nd num on /proc/stat swap line)
++unsigned long long vm_pgpgin;        // kB disk reads  (same as 1st num on /proc/stat page line)
++unsigned long long vm_pgpgout;       // kB disk writes (same as 2nd num on /proc/stat page line)
++unsigned long long vm_pswpin;        // swap reads     (same as 1st num on /proc/stat swap line)
++unsigned long long vm_pswpout;       // swap writes    (same as 2nd num on /proc/stat swap line)
+ unsigned long vm_pgalloc;            // page allocations
+ unsigned long vm_pgfree;             // page freeings
+ unsigned long vm_pgactivate;         // pages moved inactive -> active
+@@ -668,54 +671,54 @@
+ 
+ void vminfo(void){
+   char namebuf[16]; /* big enough to hold any row name */
+-  vm_table_struct findme = { namebuf, NULL};
++  vm_table_struct findme = { namebuf, NULL, 0};
+   vm_table_struct *found;
+   char *head;
+   char *tail;
+   static const vm_table_struct vm_table[] = {
+-  {"allocstall",          &vm_allocstall},
+-  {"kswapd_inodesteal",   &vm_kswapd_inodesteal},
+-  {"kswapd_steal",        &vm_kswapd_steal},
+-  {"nr_dirty",            &vm_nr_dirty},           // page version of meminfo Dirty
+-  {"nr_mapped",           &vm_nr_mapped},          // page version of meminfo Mapped
+-  {"nr_page_table_pages", &vm_nr_page_table_pages},// same as meminfo PageTables
+-  {"nr_pagecache",        &vm_nr_pagecache},       // gone in 2.5.66+ kernels
+-  {"nr_reverse_maps",     &vm_nr_reverse_maps},    // page version of meminfo ReverseMaps GONE
+-  {"nr_slab",             &vm_nr_slab},            // page version of meminfo Slab
+-  {"nr_unstable",         &vm_nr_unstable},
+-  {"nr_writeback",        &vm_nr_writeback},       // page version of meminfo Writeback
+-  {"pageoutrun",          &vm_pageoutrun},
+-  {"pgactivate",          &vm_pgactivate},
+-  {"pgalloc",             &vm_pgalloc},  // GONE (now separate dma,high,normal)
+-  {"pgalloc_dma",         &vm_pgalloc_dma},
+-  {"pgalloc_high",        &vm_pgalloc_high},
+-  {"pgalloc_normal",      &vm_pgalloc_normal},
+-  {"pgdeactivate",        &vm_pgdeactivate},
+-  {"pgfault",             &vm_pgfault},
+-  {"pgfree",              &vm_pgfree},
+-  {"pginodesteal",        &vm_pginodesteal},
+-  {"pgmajfault",          &vm_pgmajfault},
+-  {"pgpgin",              &vm_pgpgin},     // important
+-  {"pgpgout",             &vm_pgpgout},     // important
+-  {"pgrefill",            &vm_pgrefill},  // GONE (now separate dma,high,normal)
+-  {"pgrefill_dma",        &vm_pgrefill_dma},
+-  {"pgrefill_high",       &vm_pgrefill_high},
+-  {"pgrefill_normal",     &vm_pgrefill_normal},
+-  {"pgrotated",           &vm_pgrotated},
+-  {"pgscan",              &vm_pgscan},  // GONE (now separate direct,kswapd and dma,high,normal)
+-  {"pgscan_direct_dma",   &vm_pgscan_direct_dma},
+-  {"pgscan_direct_high",  &vm_pgscan_direct_high},
+-  {"pgscan_direct_normal",&vm_pgscan_direct_normal},
+-  {"pgscan_kswapd_dma",   &vm_pgscan_kswapd_dma},
+-  {"pgscan_kswapd_high",  &vm_pgscan_kswapd_high},
+-  {"pgscan_kswapd_normal",&vm_pgscan_kswapd_normal},
+-  {"pgsteal",             &vm_pgsteal},  // GONE (now separate dma,high,normal)
+-  {"pgsteal_dma",         &vm_pgsteal_dma},
+-  {"pgsteal_high",        &vm_pgsteal_high},
+-  {"pgsteal_normal",      &vm_pgsteal_normal},
+-  {"pswpin",              &vm_pswpin},     // important
+-  {"pswpout",             &vm_pswpout},     // important
+-  {"slabs_scanned",       &vm_slabs_scanned},
++  	VM_TABENTRY(allocstall),
++	VM_TABENTRY(kswapd_inodesteal),
++	VM_TABENTRY(kswapd_steal),
++	VM_TABENTRY(nr_dirty),
++	VM_TABENTRY(nr_mapped),
++	VM_TABENTRY(nr_page_table_pages),
++	VM_TABENTRY(nr_pagecache),
++	VM_TABENTRY(nr_reverse_maps),
++	VM_TABENTRY(nr_slab),
++	VM_TABENTRY(nr_unstable),
++	VM_TABENTRY(nr_writeback),
++	VM_TABENTRY(pageoutrun),
++	VM_TABENTRY(pgactivate),
++	VM_TABENTRY(pgalloc),
++	VM_TABENTRY(pgalloc_dma),
++	VM_TABENTRY(pgalloc_high),
++	VM_TABENTRY(pgalloc_normal),
++	VM_TABENTRY(pgdeactivate),
++	VM_TABENTRY(pgfault),
++	VM_TABENTRY(pgfree),
++	VM_TABENTRY(pginodesteal),
++	VM_TABENTRY(pgmajfault),
++	VM_TABENTRY(pgpgin),
++	VM_TABENTRY(pgpgout),
++	VM_TABENTRY(pgrefill),
++	VM_TABENTRY(pgrefill_dma),
++	VM_TABENTRY(pgrefill_high),
++	VM_TABENTRY(pgrefill_normal),
++	VM_TABENTRY(pgrotated),
++	VM_TABENTRY(pgscan),
++	VM_TABENTRY(pgscan_direct_dma),
++	VM_TABENTRY(pgscan_direct_high),
++	VM_TABENTRY(pgscan_direct_normal),
++	VM_TABENTRY(pgscan_kswapd_dma),
++	VM_TABENTRY(pgscan_kswapd_high),
++	VM_TABENTRY(pgscan_kswapd_normal),
++	VM_TABENTRY(pgsteal),
++	VM_TABENTRY(pgsteal_dma),
++	VM_TABENTRY(pgsteal_high),
++	VM_TABENTRY(pgsteal_normal),
++	VM_TABENTRY(pswpin),
++	VM_TABENTRY(pswpout),
++	VM_TABENTRY(slabs_scanned)
+   };
+   const int vm_table_count = sizeof(vm_table)/sizeof(vm_table_struct);
+ 
+@@ -741,7 +744,10 @@
+     );
+     head = tail+1;
+     if(!found) goto nextline;
+-    *(found->slot) = strtoul(head,&tail,10);
++    if (found->sz == sizeof(unsigned long long))
++	    *((unsigned long long *) found->slot) = strtoull(head,&tail,10);
++    else
++	    *((unsigned long *) found->slot) = strtoul(head,&tail,10);
+ nextline:
+ 
+ //if(found) fprintf(stderr,"%s=%d\n",found->name,*(found->slot));
+--- procps-3.2.7/vmstat.c.kzak	2006-08-04 10:52:38.000000000 +0200
++++ procps-3.2.7/vmstat.c	2006-08-04 12:05:49.000000000 +0200
+@@ -180,7 +180,7 @@
+   unsigned int running,blocked,dummy_1,dummy_2;
+   jiff cpu_use[2], cpu_nic[2], cpu_sys[2], cpu_idl[2], cpu_iow[2], cpu_xxx[2], cpu_yyy[2], cpu_zzz[2];
+   jiff duse, dsys, didl, diow, dstl, Div, divo2;
+-  unsigned long pgpgin[2], pgpgout[2], pswpin[2], pswpout[2];
++  unsigned long long pgpgin[2], pgpgout[2], pswpin[2], pswpout[2];
+   unsigned int intr[2], ctxt[2];
+   unsigned int sleep_half; 
+   unsigned long kb_per_page = sysconf(_SC_PAGESIZE) / 1024ul;
+@@ -509,7 +509,7 @@
+ static void sum_format(void) {
+   unsigned int running, blocked, btime, processes;
+   jiff cpu_use, cpu_nic, cpu_sys, cpu_idl, cpu_iow, cpu_xxx, cpu_yyy, cpu_zzz;
+-  unsigned long pgpgin, pgpgout, pswpin, pswpout;
++  unsigned long long pgpgin, pgpgout, pswpin, pswpout;
+   unsigned int intr, ctxt;
+ 
+   meminfo();
+@@ -539,10 +539,10 @@
+   printf("%13Lu IRQ cpu ticks\n", cpu_xxx);
+   printf("%13Lu softirq cpu ticks\n", cpu_yyy);
+   printf("%13Lu stolen cpu ticks\n", cpu_zzz);
+-  printf("%13lu pages paged in\n", pgpgin);
+-  printf("%13lu pages paged out\n", pgpgout);
+-  printf("%13lu pages swapped in\n", pswpin);
+-  printf("%13lu pages swapped out\n", pswpout);
++  printf("%13llu pages paged in\n", pgpgin);
++  printf("%13llu pages paged out\n", pgpgout);
++  printf("%13llu pages swapped in\n", pswpin);
++  printf("%13llu pages swapped out\n", pswpout);
+   printf("%13u interrupts\n", intr);
+   printf("%13u CPU context switches\n", ctxt);
+   printf("%13u boot time\n", btime);
+@@ -554,7 +554,7 @@
+ static void fork_format(void) {
+   unsigned int running, blocked, btime, processes;
+   jiff cpu_use, cpu_nic, cpu_sys, cpu_idl, cpu_iow, cpu_xxx, cpu_yyy, cpu_zzz;
+-  unsigned long pgpgin, pgpgout, pswpin, pswpout;
++  unsigned long long pgpgin, pgpgout, pswpin, pswpout;
+   unsigned int intr, ctxt;
+ 
+   getstat(&cpu_use, &cpu_nic, &cpu_sys, &cpu_idl,

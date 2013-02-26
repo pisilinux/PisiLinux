@@ -1,0 +1,363 @@
+
+Move syntax highlighting options into their own menu, and make TAB and
+Whitespace highlighting selectable.
+
+Signed-off-by: Jan Engelhardt <jengelh@computergmbh.de>
+
+---
+ edit/edit.c        |    6 ++
+ edit/edit.h        |    7 ++
+ edit/editcmddef.h  |    1 
+ edit/editdraw.c    |    4 +
+ edit/editkeys.c    |    1 
+ edit/editmenu.c    |    6 ++
+ edit/editoptions.c |  141 ++++++++++++++++++++++++++++++++++++++++-------------
+ src/setup.c        |    1 
+ 8 files changed, 133 insertions(+), 34 deletions(-)
+
+Index: mc/edit/edit.c
+===================================================================
+--- mc.orig/edit/edit.c
++++ mc/edit/edit.c
+@@ -2487,6 +2487,12 @@ edit_execute_cmd (WEdit *edit, int comma
+ 	edit->force |= REDRAW_PAGE;
+ 	break;
+ 
++    case CK_Toggle_Syntax2:
++	++option_highlighting;
++	option_highlighting %= 4;
++	edit->force |= REDRAW_PAGE;
++	break;
++
+     case CK_Find:
+ 	edit_search_cmd (edit, 0);
+ 	break;
+Index: mc/edit/edit.h
+===================================================================
+--- mc.orig/edit/edit.h
++++ mc/edit/edit.h
+@@ -228,6 +228,7 @@ int line_is_blank (WEdit *edit, long lin
+ int edit_indent_width (WEdit *edit, long p);
+ void edit_insert_indent (WEdit *edit, int indent);
+ void edit_options_dialog (void);
++void edit_syntax_opt_dialog(void);
+ void edit_syntax_dialog (void);
+ void edit_mail_dialog (WEdit *edit);
+ void format_paragraph (WEdit *edit, int force);
+@@ -279,10 +280,16 @@ typedef enum {
+     EDIT_DO_BACKUP
+ } edit_save_mode_t;
+ 
++enum {
++	HL_WHITESPACE = 1 << 0,
++	HL_TABS       = 1 << 1,
++};
++
+ extern int option_save_mode;
+ extern int option_save_position;
+ extern int option_max_undo;
+ extern int option_syntax_highlighting;
++extern unsigned int option_highlighting;
+ extern int option_auto_syntax;
+ extern char *option_syntax_type;
+ extern int editor_option_check_nl_at_eof;
+Index: mc/edit/editcmddef.h
+===================================================================
+--- mc.orig/edit/editcmddef.h
++++ mc/edit/editcmddef.h
+@@ -109,6 +109,7 @@
+ #define CK_Maximize		458
+ 
+ #define CK_Toggle_Syntax	480
++#define CK_Toggle_Syntax2	481
+ 
+ /* macro */
+ #define CK_Begin_Record_Macro	501
+Index: mc/edit/editdraw.c
+===================================================================
+--- mc.orig/edit/editdraw.c
++++ mc/edit/editdraw.c
+@@ -273,7 +273,9 @@ print_to_widget (WEdit *edit, long row,
+     }
+ }
+ 
+-int visible_tabs = 1, visible_tws = 1;
++unsigned int option_highlighting = HL_TABS | HL_WHITESPACE;
++#define visible_tabs (option_highlighting & HL_TABS)
++#define visible_tws  (option_highlighting & HL_WHITESPACE)
+ 
+ /* b is a pointer to the beginning of the line */
+ static void
+Index: mc/edit/editkeys.c
+===================================================================
+--- mc.orig/edit/editkeys.c
++++ mc/edit/editkeys.c
+@@ -114,6 +114,7 @@ static const edit_key_map_type common_ke
+     { XCTRL ('l'), CK_Refresh },
+     { XCTRL ('o'), CK_Shell },
+     { XCTRL ('s'), CK_Toggle_Syntax },
++    { XCTRL ('v'), CK_Toggle_Syntax2 },
+     { XCTRL ('u'), CK_Undo },
+     { XCTRL ('t'), CK_Select_Codepage },
+     { XCTRL ('q'), CK_Insert_Literal },
+Index: mc/edit/editmenu.c
+===================================================================
+--- mc.orig/edit/editmenu.c
++++ mc/edit/editmenu.c
+@@ -283,6 +283,11 @@ menu_options (void)
+     edit_options_dialog ();
+ }
+ 
++static void menu_syntax_options(void)
++{
++	edit_syntax_opt_dialog();
++}
++
+ static void
+ menu_syntax (void)
+ {
+@@ -410,6 +415,7 @@ static menu_entry CmdMenuEmacs[] =
+ static menu_entry OptMenu[] =
+ {
+     {' ', N_("&General...  "), 'G', menu_options},
++    {' ', N_("Highlight options... "), ' ', menu_syntax_options},
+     {' ', N_("&Save mode..."), 'S', menu_save_mode_cmd},
+     {' ', N_("Learn &Keys..."), 'K', learn_keys},
+     {' ', N_("Syntax &Highlighting..."), 'H', menu_syntax},
+Index: mc/edit/editoptions.c
+===================================================================
+--- mc.orig/edit/editoptions.c
++++ mc/edit/editoptions.c
+@@ -43,9 +43,6 @@
+ #include "../src/dialog.h"	/* B_CANCEL */
+ #include "../src/wtools.h"	/* QuickDialog */
+ 
+-#define OPT_DLG_H 17
+-#define OPT_DLG_W 72
+-
+ #ifndef USE_INTERNAL_EDIT
+ #define USE_INTERNAL_EDIT 1
+ #endif
+@@ -65,12 +62,98 @@ i18n_translate_array (const char *array[
+     }
+ }
+ 
++#define OPT_DLG_H 12
++#define OPT_DLG_W 40
++void edit_syntax_opt_dialog(void)
++{
++	int f_syntax_hl = option_syntax_highlighting;
++	int f_tab_hl    = option_highlighting & HL_TABS;
++	int f_ws_hl     = option_highlighting & HL_WHITESPACE;
++
++	int old_syntax_hl = f_syntax_hl;
++
++	QuickWidget quick_widgets[] = {
++		{
++			.widget_type = quick_button,
++			.relative_x  = 6,
++			.x_divisions = 10,
++			.relative_y  = OPT_DLG_H - 3,
++			.y_divisions = OPT_DLG_H,
++			.text        = N_("&Cancel"),
++			.value       = B_CANCEL,
++		},
++		{
++			.widget_type = quick_button,
++			.relative_x  = 2,
++			.x_divisions = 10,
++			.relative_y  = OPT_DLG_H - 3,
++			.y_divisions = OPT_DLG_H,
++			.text        = N_("&OK"),
++			.value       = B_ENTER,
++		},
++		{
++			.widget_type = quick_checkbox,
++			.relative_x  = 6,
++			.x_divisions = OPT_DLG_W,
++			.relative_y  = 6,
++			.y_divisions = OPT_DLG_H,
++			.text        = N_("Whitespace highlighting"),
++			.result      = &f_ws_hl,
++		},
++		{
++			.widget_type = quick_checkbox,
++			.relative_x  = 6,
++			.x_divisions = OPT_DLG_W,
++			.relative_y  = 5,
++			.y_divisions = OPT_DLG_H,
++			.text        = N_("Tab highlighting"),
++			.result      = &f_tab_hl,
++		},
++		{
++			.widget_type = quick_checkbox,
++			.relative_x  = 6,
++			.x_divisions = OPT_DLG_W,
++			.relative_y  = 4,
++			.y_divisions = OPT_DLG_H,
++			.text        = N_("Syntax highlighting"),
++			.result      = &f_syntax_hl,
++		},
++		NULL_QuickWidget,
++	};
++	QuickDialog quick_options = {
++		.xlen    = OPT_DLG_W,
++		.ylen    = OPT_DLG_H,
++		.xpos    = -1,
++		.ypos    = 0,
++		.title   = N_(" Syntax options "),
++		.help    = "",
++		.widgets = quick_widgets,
++	};
++
++	if (quick_dialog(&quick_options) == B_CANCEL)
++		return;
++
++	if (old_syntax_hl != f_syntax_hl)
++		/* Load or unload syntax rules if the option has changed */
++		edit_load_syntax(wedit, NULL, option_syntax_type);
++
++	option_syntax_highlighting = f_syntax_hl;
++	option_highlighting = 0;
++	if (f_tab_hl)
++		option_highlighting |= HL_TABS;
++	if (f_ws_hl)
++		option_highlighting |= HL_WHITESPACE;
++}
++#undef OPT_DLG_H
++#undef OPT_DLG_W
++
++#define OPT_DLG_H 17
++#define OPT_DLG_W 72
+ void
+ edit_options_dialog (void)
+ {
+     char wrap_length[32], tab_spacing[32], *p, *q;
+     int wrap_mode = 0;
+-    int old_syntax_hl;
+     int tedit_key_emulation = edit_key_emulation;
+     int toption_fill_tabs_with_spaces = option_fill_tabs_with_spaces;
+     int toption_save_position = option_save_position;
+@@ -102,37 +185,34 @@ edit_options_dialog (void)
+ 	 OPT_DLG_H, "", OPT_DLG_W / 2 - 4 - 24, 0, 0, 0,
+ 	 "edit-tab-spacing"},
+ 	/* 6 */
+-	{quick_checkbox, OPT_DLG_W / 2 + 1, OPT_DLG_W, OPT_DLG_H - 8,
+-	 OPT_DLG_H, N_("Synta&x highlighting"), 8, 0, 0, 0, NULL},
+-	/* 7 */
+ 	{quick_checkbox, OPT_DLG_W / 2 + 1, OPT_DLG_W, OPT_DLG_H - 9,
+ 	 OPT_DLG_H, N_("Save file &position"), 0, 0, 0, 0, NULL},
+-	/* 8 */
++	/* 7 */
+ 	{quick_checkbox, OPT_DLG_W / 2 + 1, OPT_DLG_W, OPT_DLG_H - 10,
+ 	 OPT_DLG_H, N_("Confir&m before saving"), 6, 0, 0, 0, NULL},
+-	/* 9 */
++	/* 8 */
+ 	{quick_checkbox, OPT_DLG_W / 2 + 1, OPT_DLG_W, OPT_DLG_H - 11,
+ 	 OPT_DLG_H, N_("Fill tabs with &spaces"), 0, 0, 0, 0, NULL},
+-	/* 10 */
++	/* 9 */
+ 	{quick_checkbox, OPT_DLG_W / 2 + 1, OPT_DLG_W, OPT_DLG_H - 12,
+ 	 OPT_DLG_H, N_("&Return does autoindent"), 0, 0, 0, 0, NULL},
+-	/* 11 */
++	/* 10 */
+ 	{quick_checkbox, OPT_DLG_W / 2 + 1, OPT_DLG_W, OPT_DLG_H - 13,
+ 	 OPT_DLG_H, N_("&Backspace through tabs"), 0, 0, 0, 0, NULL},
+-	/* 12 */
++	/* 11 */
+ 	{quick_checkbox, OPT_DLG_W / 2 + 1, OPT_DLG_W, OPT_DLG_H - 14,
+ 	 OPT_DLG_H, N_("&Fake half tabs"), 0, 0, 0, 0, NULL},
+-	/* 13 */
++	/* 12 */
+ 	{quick_radio, 5, OPT_DLG_W, OPT_DLG_H - 7, OPT_DLG_H, "", 3, 0, 0,
+ 	 const_cast(char **, wrap_str), "wrapm"},
+-	/* 14 */
++	/* 13 */
+ 	{quick_label, 4, OPT_DLG_W, OPT_DLG_H - 8, OPT_DLG_H,
+ 	 N_("Wrap mode"), 0, 0,
+ 	 0, 0, NULL},
+-	/* 15 */
++	/* 14 */
+ 	{quick_radio, 5, OPT_DLG_W, OPT_DLG_H - 13, OPT_DLG_H, "", 3, 0, 0,
+ 	 const_cast(char **, key_emu_str), "keyemu"},
+-	/* 16 */
++	/* 15 */
+ 	{quick_label, 4, OPT_DLG_W, OPT_DLG_H - 14, OPT_DLG_H,
+ 	 N_("Key emulation"), 0, 0, 0, 0, NULL},
+ 	NULL_QuickWidget
+@@ -156,13 +236,12 @@ edit_options_dialog (void)
+     quick_widgets[3].str_result = &p;
+     quick_widgets[5].text = tab_spacing;
+     quick_widgets[5].str_result = &q;
+-    quick_widgets[6].result = &tedit_syntax_highlighting;
+-    quick_widgets[7].result = &toption_save_position;
+-    quick_widgets[8].result = &tedit_confirm_save;
+-    quick_widgets[9].result = &toption_fill_tabs_with_spaces;
+-    quick_widgets[10].result = &toption_return_does_auto_indent;
+-    quick_widgets[11].result = &toption_backspace_through_tabs;
+-    quick_widgets[12].result = &toption_fake_half_tabs;
++    quick_widgets[6].result = &toption_save_position;
++    quick_widgets[7].result = &tedit_confirm_save;
++    quick_widgets[8].result = &toption_fill_tabs_with_spaces;
++    quick_widgets[9].result = &toption_return_does_auto_indent;
++    quick_widgets[10].result = &toption_backspace_through_tabs;
++    quick_widgets[11].result = &toption_fake_half_tabs;
+ 
+     if (option_auto_para_formatting)
+ 	wrap_mode = 1;
+@@ -171,19 +250,17 @@ edit_options_dialog (void)
+     else
+ 	wrap_mode = 0;
+ 
+-    quick_widgets[13].result = &wrap_mode;
+-    quick_widgets[13].value = wrap_mode;
++    quick_widgets[12].result = &wrap_mode;
++    quick_widgets[12].value = wrap_mode;
+ 
+-    quick_widgets[15].result = &tedit_key_emulation;
+-    quick_widgets[15].value = tedit_key_emulation;
++    quick_widgets[14].result = &tedit_key_emulation;
++    quick_widgets[14].value = tedit_key_emulation;
+ 
+     Quick_options.widgets = quick_widgets;
+ 
+     if (quick_dialog (&Quick_options) == B_CANCEL)
+ 	return;
+ 
+-    old_syntax_hl = option_syntax_highlighting;
+-
+     if (p) {
+ 	option_word_wrap_line_length = atoi (p);
+ 	g_free (p);
+@@ -195,7 +272,6 @@ edit_options_dialog (void)
+ 	g_free (q);
+     }
+ 
+-    option_syntax_highlighting = tedit_syntax_highlighting;
+     edit_confirm_save = tedit_confirm_save;
+     option_save_position = toption_save_position;
+     option_fill_tabs_with_spaces = toption_fill_tabs_with_spaces;
+@@ -220,9 +296,8 @@ edit_options_dialog (void)
+ 	edit_reload_menu ();
+     }
+ 
+-    /* Load or unload syntax rules if the option has changed */
+-    if (option_syntax_highlighting != old_syntax_hl)
+- 	edit_load_syntax (wedit, NULL, option_syntax_type);
+     /* Load usermap if it's needed */
+     edit_load_user_map (wedit);
+ }
++#undef DLG_OPT_W
++#undef DLG_OPT_H
+Index: mc/src/setup.c
+===================================================================
+--- mc.orig/src/setup.c
++++ mc/src/setup.c
+@@ -216,6 +216,7 @@ static const struct {
+     { "editor_option_typewriter_wrap", &option_typewriter_wrap },
+     { "editor_edit_confirm_save", &edit_confirm_save },
+     { "editor_syntax_highlighting", &option_syntax_highlighting },
++    { "editor_highlight", &option_highlighting },
+ #endif /* USE_INTERNAL_EDIT */
+ 
+     { "nice_rotating_dash", &nice_rotating_dash },

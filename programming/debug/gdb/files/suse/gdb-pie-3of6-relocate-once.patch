@@ -1,0 +1,412 @@
+http://sourceware.org/ml/gdb-patches/2010-03/msg01001.html
+Subject: [patch 3/6] PIE: Fix occasional error attaching i686 binary
+
+[ Testcase diff backported.  ]
+
+Hi,
+
+this is the real bugreport which started this patch series.
+	gdb "Cannot access memory" on a running process
+	https://bugzilla.redhat.com/show_bug.cgi?id=576742
+
+Offsets on i686 cause that while attaching to an unprelinked running PIE
+scan_dyntag will incorrectly get a successful read in scan_dyntag from DT_DEBUG
+it expects is from the mani executable but in fact it is from some ld.so or
+libc.so (located low for --exec-shield).  Another issue is that scan_dyntag
+could verify more that the target memory matches the .dynamic section it is
+reading from exec_bfd.  It could also complain when the read failed (as always
+failed so for for PIE attaches first, succeeded later so nobody has noticed
+anything).
+
+The successful read reads a bogus DT_DEBUG value and GDB errors on it later.
+This is again a non-fatal error after the patch by Joel Brobecker above but it
+was not so before and it is incorrect anyway.
+
+The svr4_relocate_main_executable call in svr4_special_symbol_handling was
+there before delayed that way for svr4_static_exec_displacement.
+But svr4_static_exec_displacement has been removed in the meantime by:
+	Re: RFC: Verify AT_ENTRY before using it
+	http://sourceware.org/ml/gdb-patches/2010-03/msg00030.html
+
+So it can be simplified + corrected now.  Moreover GDB will now finally print
+exactly "Using PIE (Position Independent Executable) displacement" exactly
+once.
+
+The reproducer depends on various offsets which may be distro dependent but it
+was made so that it is hopefully reproducible everywhere.  Reproduced + fixed
+on Fedora 12 x86_64 and i686.
+
+No regressions on {x86_64,x86_64-m32,i686}-fedora12-linux-gnu for the whole
+patch series together.
+
+
+Thanks,
+Jan
+
+
+gdb/
+2010-03-29  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* auxv.c (memory_xfer_auxv): Update attach comment.
+	* solib-svr4.c (svr4_special_symbol_handling): Remove the call to
+	svr4_relocate_main_executable.
+	(svr4_solib_create_inferior_hook): Make the call to
+	svr4_relocate_main_executable unconditional.
+
+gdb/testsuite/
+2010-03-29  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/attach-pie-misread.exp, gdb.base/attach-pie-misread.c: New.
+
+--- a/gdb/auxv.c
++++ b/gdb/auxv.c
+@@ -198,7 +198,8 @@ memory_xfer_auxv (struct target_ops *ops,
+ 
+    /* ld_so_xfer_auxv is the only function safe for virtual executables being
+       executed by valgrind's memcheck.  As using ld_so_xfer_auxv is problematic
+-      during inferior startup GDB does call it only for attached processes.  */
++      during inferior startup as ld.so symbol tables are not yet relocated GDB
++      calls ld_so_xfer_auxv only for attached processes.  */
+ 
+   if (current_inferior ()->attach_flag != 0)
+     {
+--- a/gdb/solib-svr4.c
++++ b/gdb/solib-svr4.c
+@@ -1628,7 +1628,6 @@ enable_break (struct svr4_info *info, int from_tty)
+ static void
+ svr4_special_symbol_handling (void)
+ {
+-  svr4_relocate_main_executable ();
+ }
+ 
+ /* Read the ELF program headers from ABFD.  Return the contents and
+@@ -2065,8 +2064,7 @@ svr4_solib_create_inferior_hook (int from_tty)
+   info = get_svr4_info ();
+ 
+   /* Relocate the main executable if necessary.  */
+-  if (current_inferior ()->attach_flag == 0)
+-    svr4_relocate_main_executable ();
++  svr4_relocate_main_executable ();
+ 
+   if (!svr4_have_link_map_offsets ())
+     return;
+--- /dev/null
++++ b/gdb/testsuite/gdb.base/attach-pie-misread.c
+@@ -0,0 +1,47 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2010 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#include <stdio.h>
++#include <unistd.h>
++
++const char stub[] = {
++#ifdef GEN
++# include GEN
++#endif
++};
++
++int
++main (int argc, char **argv)
++{
++  /* Generator of GEN written in Python takes about 15s for x86_64's 4MB.  */
++  if (argc == 2)
++    {
++      long count = strtol (argv[1], NULL, 0);
++
++      while (count-- > 0)
++	puts ("0x55,");
++
++      return 0;
++    }
++  if (argc != 1)
++    return 1;
++
++  puts ("sleeping");
++  fflush (stdout);
++
++  return sleep (60);
++}
+--- /dev/null
++++ b/gdb/testsuite/gdb.base/attach-pie-misread.exp
+@@ -0,0 +1,209 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# This test only works on GNU/Linux.
++if { ![isnative] || [is_remote host] || ![istarget *-linux*] || [skip_shlib_tests]} {
++    continue
++}
++
++set test "attach-pie-misread"
++set srcfile ${test}.c
++set genfile ${objdir}/${subdir}/${test}-gen.h
++set executable ${test}
++set binfile ${objdir}/${subdir}/${executable}
++
++if {[build_executable ${test}.exp $executable $srcfile [list "additional_flags=-fPIE -pie"]] == -1} {
++    return -1
++}
++
++# Program Headers:
++#   Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
++#   LOAD           0x000000 0x0000000000400000 0x0000000000400000 0x134f5ec 0x134f5ec R E 0x200000
++#   LOAD           0x134f5f0 0x000000000194f5f0 0x000000000194f5f0 0x1dbc60 0x214088 RW  0x200000
++#   DYNAMIC        0x134f618 0x000000000194f618 0x000000000194f618 0x000200 0x000200 RW  0x8
++#
++proc read_phdr {binfile test} {
++    set readelf_program [transform readelf]
++    set command "exec $readelf_program -Wl $binfile"
++    verbose -log "command is $command"
++    set result [catch $command output]
++    verbose -log "result is $result"
++    verbose -log "output is $output"
++    if {$result != 0} {
++	fail $test
++	return
++    }
++    if ![regexp {\nProgram Headers:\n *Type [^\n]* Align\n(.*?)\n\n} $output trash phdr] {
++	fail "$test (no Program Headers)"
++	return
++    }
++    if ![regexp -line {^ *DYNAMIC +0x[0-9a-f]+ +(0x[0-9a-f]+) } $phdr trash dynamic_vaddr] {
++	fail "$test (no DYNAMIC found)"
++	return
++    }
++    verbose -log "dynamic_vaddr is $dynamic_vaddr"
++    set align_max -1
++    foreach {trash align} [regexp -line -all -inline {^ *LOAD .* (0x[0-9]+)$} $phdr] {
++	if {$align_max < $align} {
++	    set align_max $align
++	}
++    }
++    verbose -log "align_max is $align_max"
++    if {$align_max == -1} {
++	fail "$test (no LOAD found)"
++	return
++    }
++    pass $test
++    return [list $dynamic_vaddr $align_max]
++}
++
++set phdr [read_phdr $binfile "readelf initial scan"]
++set dynamic_vaddr [lindex $phdr 0]
++set align_max [lindex $phdr 1]
++
++set stub_size [format 0x%x [expr "2 * $align_max - ($dynamic_vaddr & ($align_max - 1))"]]
++verbose -log "stub_size is $stub_size"
++
++# On x86_64 it is commonly about 4MB.
++if {$stub_size > 25000000} {
++    xfail "stub size $stub_size is too large"
++    return
++}
++
++set test "generate stub"
++set command "exec $binfile $stub_size >$genfile"
++verbose -log "command is $command"
++set result [catch $command output]
++verbose -log "result is $result"
++verbose -log "output is $output"
++if {$result == 0} {
++    pass $test
++} else {
++    fail $test
++}
++
++if {[build_executable ${test}.exp $executable $srcfile [list "additional_flags=-fPIE -pie -DGEN=\"$genfile\""]] == -1} {
++    return -1
++}
++
++# x86_64 file has 25MB, no need to keep it.
++file delete -- $genfile
++
++set phdr [read_phdr $binfile "readelf rebuilt with stub_size"]
++set dynamic_vaddr_prelinkno [lindex $phdr 0]
++
++set command "exec /usr/sbin/prelink -q -N --no-exec-shield -R $binfile"
++verbose -log "command is $command"
++set result [catch $command output]
++verbose -log "result is $result"
++verbose -log "output is $output"
++
++set test "prelink -R"
++if {$result == 0 && $output == ""} {
++    pass $test
++} elseif {$result == 1 && [regexp {^(couldn't execute "/usr/sbin/prelink[^\r\n]*": no such file or directory\n?)*$} $output]} {
++    untested attach-pie-misread.exp
++    return -1
++} else {
++    fail $test
++}
++
++set phdr [read_phdr $binfile "readelf with prelink -R"]
++set dynamic_vaddr_prelinkyes [lindex $phdr 0]
++
++set first_offset [format 0x%x [expr $dynamic_vaddr_prelinkyes - $dynamic_vaddr_prelinkno]]
++verbose -log "first_offset is $first_offset"
++
++set test "first offset is non-zero"
++if {$first_offset == 0} {
++    fail "$test (-fPIE -pie in effect?)"
++} else {
++    pass $test
++}
++
++set test "start inferior"
++gdb_exit
++
++set res [remote_spawn host $binfile];
++if { $res < 0 || $res == "" } {
++    perror "Spawning $binfile failed."
++    fail $test
++    return
++}
++set pid [exp_pid -i $res]
++gdb_expect {
++    -re "sleeping\r\n" {
++	pass $test
++    }
++    eof {
++	fail "$test (eof)"
++	remote_exec host "kill -9 $pid"
++	return
++    }
++    timeout {
++	fail "$test (timeout)"
++	remote_exec host "kill -9 $pid"
++	return
++    }
++}
++
++# Due to alignments it was reproducible with 1 on x86_64 but 2 on i686.
++foreach align_mult {1 2} {
++    set old_ldprefix $pf_prefix
++    lappend pf_prefix "shift-by-$align_mult:"
++
++    # FIXME: We believe there is enough room under FIRST_OFFSET.
++    set shifted_offset [format 0x%x [expr "$first_offset - $align_mult * $align_max"]]
++    verbose -log "shifted_offset is $shifted_offset"
++
++    set command "exec /usr/sbin/prelink -q -N --no-exec-shield -r $shifted_offset $binfile"
++    verbose -log "command is $command"
++    set result [catch $command output]
++    verbose -log "result is $result"
++    verbose -log "output is $output"
++
++    set test "prelink -r"
++    if {$result == 0 && $output == ""} {
++	pass $test
++    } else {
++	fail $test
++    }
++
++    clean_restart $executable
++
++    set test "attach"
++    gdb_test_multiple "attach $pid" $test {
++	-re "Attaching to program: .*, process $pid\r\n" {
++	    # Missing "$gdb_prompt $" is intentional.
++	    pass $test
++	}
++    }
++
++    set test "error on Cannot access memory at address"
++    gdb_test_multiple "" $test {
++	-re "\r\nCannot access memory at address .*$gdb_prompt $" {
++	    fail $test
++	}
++	-re "$gdb_prompt $" {
++	    pass $test
++	}
++    }
++
++    gdb_test "detach" "Detaching from program: .*"
++
++    set pf_prefix $old_ldprefix
++}
++
++remote_exec host "kill -9 $pid"
+--- a/gdb/testsuite/gdb.base/break-interp.exp
++++ b/gdb/testsuite/gdb.base/break-interp.exp
+@@ -248,9 +248,8 @@ proc reach {func command displacement} {
+ 		}
+ 		if {$displacement == $case} {
+ 		    pass $test_displacement
+-		    # Permit multiple such messages.
+ 		    set displacement "FOUND-$displacement"
+-		} elseif {$displacement != "FOUND-$case"} {
++		} else {
+ 		    fail $test_displacement
+ 		}
+ 		exp_continue
+@@ -304,9 +303,8 @@ proc test_core {file displacement} {
+ 	    }
+ 	    if {$displacement == $case} {
+ 		pass $test_displacement
+-		# Permit multiple such messages.
+ 		set displacement "FOUND-$displacement"
+-	    } elseif {$displacement != "FOUND-$case"} {
++	    } else {
+ 		fail $test_displacement
+ 	    }
+ 	    exp_continue
+@@ -362,9 +360,8 @@ proc test_attach_gdb {file pid displacement prefix} {
+ 	    }
+ 	    if {$displacement == $case} {
+ 		pass $test_displacement
+-		# Permit multiple such messages.
+ 		set displacement "FOUND-$displacement"
+-	    } elseif {$displacement != "FOUND-$case"} {
++	    } else {
+ 		fail $test_displacement
+ 	    }
+ 	    exp_continue
+@@ -451,9 +448,7 @@
+     gdb_test "bt" "#0 +\[^\r\n\]*\\mdl_main\\M.*" "dl bt"
+ 
+     if $ifmain {
+-	# Displacement message will be printed the second time on initializing
+-	# the linker from svr4_special_symbol_handling.
+-	reach "main" continue $displacement
++	reach "main" continue "NONE"
+ 
+ 	reach "libfunc" continue "NONE"
+ 
+@@ -528,9 +517,8 @@ proc test_ld {file ifmain trynosym displacement} {
+ 		}
+ 		if {$displacement == $case} {
+ 		    pass $test_displacement
+-		    # Permit multiple such messages.
+ 		    set displacement "FOUND-$displacement"
+-		} elseif {$displacement != "FOUND-$case"} {
++		} else {
+ 		    fail $test_displacement
+ 		}
+ 		exp_continue
+

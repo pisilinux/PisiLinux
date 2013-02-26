@@ -1,0 +1,114 @@
+diff -up kdebase-workspace-4.6.95/startkde.cmake.redhat_startkde kdebase-workspace-4.6.95/startkde.cmake
+--- kdebase-workspace-4.6.95/startkde.cmake.redhat_startkde	2011-07-07 09:03:11.000000000 -0500
++++ kdebase-workspace-4.6.95/startkde.cmake	2011-07-12 07:46:27.961497331 -0500
+@@ -25,33 +25,17 @@ elif test $kcheckrunning_result -eq 2 ; 
+         exit 1
+ fi
+ 
+-# Set the background to plain grey.
++# Set the background to the Red Hat default.
+ # The standard X background is nasty, causing moire effects and exploding
+ # people's heads. We use colours from the standard KDE palette for those with
+ # palettised displays.
+ if test -z "$XDM_MANAGED" || echo "$XDM_MANAGED" | grep ",auto" > /dev/null; then
+-  xsetroot -solid "#000000"
++  xsetroot -solid "#103D77"
+ fi
+ 
+ # we have to unset this for Darwin since it will screw up KDE's dynamic-loading
+ unset DYLD_FORCE_FLAT_NAMESPACE
+ 
+-# in case we have been started with full pathname spec without being in PATH
+-bindir=`echo "$0" | sed -n 's,^\(/.*\)/[^/][^/]*$,\1,p'`
+-if [ -n "$bindir" ]; then
+-  qbindir=`$bindir/kde4-config --qt-binaries`
+-  if [ -n "$qbindir" ]; then
+-    case $PATH in
+-      $qbindir|$qbindir:*|*:$qbindir|*:$qbindir:*) ;;
+-      *) PATH=$qbindir:$PATH; export PATH;;
+-    esac
+-  fi
+-  case $PATH in
+-    $bindir|$bindir:*|*:$bindir|*:$bindir:*) ;;
+-    *) PATH=$bindir:$PATH; export PATH;;
+-  esac
+-fi
+-
+ # Boot sequence:
+ #
+ # kdeinit is used to fork off processes which improves memory usage
+@@ -72,6 +56,37 @@ fi
+ kdehome=$HOME/@KDE_DEFAULT_HOME@
+ test -n "$KDEHOME" && kdehome=`echo "$KDEHOME"|sed "s,^~/,$HOME/,"`
+ 
++# Read LANG and write the country part to kdeglobals
++# de_AT.UTF-8 => Country=at
++# This is necessary because klocale.cpp (kdelibs) does only try to read the value
++# from kdeglobals and then falls back to default instead of triyng to detect it
++
++if [ ! -e $kdehome/share/config/kdeglobals ] || [ ! `grep "Country=" $kdehome/share/config/kdeglobals` ]; then
++  if [ ! $LANG ]; then
++    if [ -e /etc/default/locale ]; then
++      localefile='/etc/default/locale'
++    elif [ -e /etc/sysconfig/i18n ]; then
++      localefile='/etc/sysconfig/i18n'
++    elif [ -e /etc/environment ]; then
++      localefile='/etc/environment'
++    fi
++    if [ $localefile ]; then
++      locale=`sed -ne 's/^LANG="\(.*\)"$/\1/p' $localefile`
++    fi
++  else
++    locale=$LANG
++  fi
++  if [ $locale ]; then
++    country=`echo $locale | sed -ne 's/^[A-Za-z]*_\([A-Za-z]*\).*$/\1/p'|tr 'A-Z' 'a-z'`
++    if [ ! $country = "" ]; then
++cat >>$kdehome/share/config/kdeglobals <<EOF
++[Locale]
++Country=$country
++EOF
++    fi
++  fi
++fi
++
+ # see kstartupconfig source for usage
+ mkdir -m 700 -p $kdehome
+ mkdir -m 700 -p $kdehome/share
+@@ -89,7 +104,15 @@ krandrrc [Screen2]
+ krandrrc [Screen3]
+ kcmfonts General forceFontDPI 0
+ kdeglobals Locale Language '' # trigger requesting languages from KLocale
++kdeglobals Locale Country ''
+ EOF
++# read the default KSplash theme to use out of kde-settings
++if [ -e /usr/share/kde-settings/kde-profile/default/share/config/ksplashrc ]
++  then eval `grep '^Theme=' /usr/share/kde-settings/kde-profile/default/share/config/ksplashrc`
++       if [ -n "$Theme" ]
++         then sed -i -e "s/Default/$Theme/g" $kdehome/share/config/startupconfigkeys
++       fi
++fi
+ kstartupconfig4
+ returncode=$?
+ if test $returncode -ne 0; then
+@@ -168,8 +191,9 @@ fi
+ # better use the Autostart folder.
+ 
+ libpath=`kde4-config --path lib | tr : '\n'`
++envpath=/etc/kde/env/
+ 
+-for prefix in `echo "$libpath" | sed -n -e 's,/lib[^/]*/,/env/,p'`; do
++for prefix in `echo "$libpath" | sed -n -e 's,/lib[^/]*/,/env/,p'` $envpath ; do
+   for file in "$prefix"*.sh; do
+     test -r "$file" && . "$file"
+   done
+@@ -378,7 +402,8 @@ kde3 dcopserver_shutdown --wait 2>/dev/n
+ echo 'startkde: Running shutdown scripts...'  1>&2
+ 
+ # Run scripts found in $KDEDIRS/shutdown
+-for prefix in `echo "$libpath" | sed -n -e 's,/lib[^/]*/,/shutdown/,p'`; do
++shutdownpath=/etc/kde/shutdown/
++for prefix in `echo "$libpath" | sed -n -e 's,/lib[^/]*/,/shutdown/,p'` $shutdownpath; do
+   for file in `ls "$prefix" 2> /dev/null | egrep -v '(~|\.bak)$'`; do
+     test -x "$prefix$file" && "$prefix$file"
+   done

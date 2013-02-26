@@ -1,0 +1,254 @@
+http://bugs.gentoo.org/show_bug.cgi?id=296816
+
+Author: Peter Volkov <pva@gentoo.org> with some ideas from Jonathan-Christofer Demay.
+
+=== modified file 'configure'
+--- configure	2009-12-15 08:46:59 +0000
++++ configure	2009-12-17 08:26:59 +0000
+@@ -243,11 +243,11 @@
+ 
+ if [ -n "$SSH_PATH" ]; then
+     echo "                                      ... found"
+-    echo 'NOTE: ensure that you have libssh v0.11 installed!! Get it from http://0xbadc0de.be !'
++    echo 'NOTE: ensure that you have libssh v0.4 or later installed!! Get it from http://www.libssh.org !'
+ fi
+ if [ "X" = "X$SSH_PATH" ]; then
+     echo "                                      ... NOT found, module ssh2 disabled"
+-    echo 'Get it from http://0xbadc0de.be/ - use v0.11!'
++    echo 'Get it from http://www.libssh.org/ - use v0.4!'
+ fi
+ if [ "$SSH_IPATH" = "/usr/include" ]; then
+     SSH_IPATH=""
+
+=== modified file 'hydra-ssh2.c'
+--- hydra-ssh2.c	2009-12-15 08:46:59 +0000
++++ hydra-ssh2.c	2009-12-18 10:21:52 +0000
+@@ -7,31 +7,70 @@
+ }
+ #else
+ 
+-#warning "If compilation of hydra-ssh2 fails, you are not using v0.11. Download from http://www.0xbadc0de.be/"
+-
+ #include <libssh/libssh.h>
+ 
+ extern char *HYDRA_EXIT;
+ 
++/* try to authenticate with one password */
++static int
++try_password(ssh_session ssh_session, const char *login, const char *password){
++  int auth_state;
++  int i, j, n;
++  int methods;
++
++#ifdef DEBUG_SSH2
++  printf("[DEBUG] try_password(): trying login = \"%s\", pass \"%s\"\n", login, password);
++#endif
++
++  methods = ssh_auth_list(ssh_session);
++  if (methods & SSH_AUTH_METHOD_INTERACTIVE) {
++#ifdef DEBUG_SSH2
++    printf("[DEBUG] try_password(): trying keyboard interactive method\n");
++#endif
++    auth_state = ssh_userauth_kbdint(ssh_session, login, NULL);
++    /* For safety we'll limit number of prompts to 33 */
++    for(j=0; auth_state == SSH_AUTH_INFO && j<33; j++) {
++      n=ssh_userauth_kbdint_getnprompts(ssh_session);
++      for(i=0; i<n; ++i) {
++        ssh_userauth_kbdint_setanswer(ssh_session, i, password);
++      }
++      auth_state = ssh_userauth_kbdint(ssh_session, login, NULL);
++    }
++    /* Password is valid but an other authentication token is needed */
++    if(auth_state == SSH_AUTH_PARTIAL 
++        || auth_state == SSH_AUTH_SUCCESS)
++        return SSH_AUTH_SUCCESS;
++  }
++
++  if (methods & SSH_AUTH_METHOD_PASSWORD) {
++#ifdef DEBUG_SSH2
++    printf("[DEBUG] try_password(): trying password method\n");
++#endif
++    auth_state = ssh_userauth_password(ssh_session, login, password);
++    if(auth_state == SSH_AUTH_PARTIAL
++        || auth_state == SSH_AUTH_SUCCESS)
++      return SSH_AUTH_SUCCESS;
++  }
++  return auth_state;
++}
++
++
+ int
+-start_ssh2(int s, unsigned long int ip, int port, unsigned char options, char *miscptr, FILE * fp)
++start_ssh2(int s, unsigned long int ip, int port, unsigned char options, char *miscptr, FILE * fp, char *libssh_error)
+ {
+   char *empty = "";
+-  char *login, *pass;
++  char *login, *pass, prev_login[260];
+   char *buf;
+-  char *rc;
+   struct sockaddr_in targetip;
+-  SSH_SESSION *ssh_session;
+-  SSH_OPTIONS *ssh_opt;
++  ssh_session ssh_session = ssh_new();
+   int auth_state;
+-  int i = 0;
+ 
+   if (strlen(login = hydra_get_next_login()) == 0)
+     login = empty;
++  strcpy(prev_login, login);
+   if (strlen(pass = hydra_get_next_password()) == 0)
+     pass = empty;
+ 
+-  ssh_opt=options_new();
+   memset(&targetip, 0, sizeof(targetip));
+   memcpy(&targetip.sin_addr.s_addr, &ip, 4);
+   targetip.sin_family = AF_INET;
+@@ -41,62 +80,79 @@
+   buf = malloc(20);
+   inet_ntop(AF_INET, &targetip.sin_addr, buf, 20);
+ #endif
+-  options_set_wanted_method(ssh_opt,KEX_COMP_C_S,"none");
+-  options_set_wanted_method(ssh_opt,KEX_COMP_S_C,"none");
+-  options_set_port(ssh_opt, port);
+-  options_set_host(ssh_opt, buf);
+-  options_set_username(ssh_opt, login);
+-
+-  if ((ssh_session = ssh_connect(ssh_opt)) == NULL) {
+-    rc = ssh_get_error(ssh_session);
+-    if ((rc != NULL) && (rc[0] != '\0')) {
+-      if (strncmp("connect:", ssh_get_error(ssh_session), strlen("connect:")) == 0)
+-        return 3;
+-      else
+-        return 4;
+-    }
++
++#ifdef DEBUG_SSH2
++  printf("[DEBUG] ssh_options_set host=%s:%d, login=%s.\n", buf, port, login);
++#endif
++  ssh_options_set(ssh_session, SSH_OPTIONS_HOST, buf);
++  ssh_options_set(ssh_session, SSH_OPTIONS_PORT, &port);
++  ssh_options_set(ssh_session, SSH_OPTIONS_USER, login);
++  ssh_options_set(ssh_session, SSH_OPTIONS_COMPRESSION_C_S, "none");
++  ssh_options_set(ssh_session, SSH_OPTIONS_COMPRESSION_S_C, "none");
++
++  if ( ssh_connect(ssh_session) != SSH_OK ) {
++#ifdef DEBUG_SSH2
++    printf("[DEBUG] ssh_connect(ssh_session) != SSH_OK\n");
++#endif
++    strcpy(libssh_error,ssh_get_error(ssh_session));
++    ssh_disconnect(ssh_session);
++    return 3;
+   }
+ #ifndef CYGWIN
+   free(buf);
+   buf = NULL;
+ #endif
+ 
++  /* Try 'none' method for passwordless servers */
++  auth_state = ssh_userauth_none(ssh_session, login);
++#ifdef DEBUG_SSH2
++  printf("[DEBUG] ssh_userauth_none (0) state = %d\n", auth_state);
++#endif
+   do {
+-    /* why this crap? */
+-    auth_state = ssh_userauth_kbdint(ssh_session, login, NULL);
+-    while (i < 10 && auth_state == SSH_AUTH_INFO) {
+-      ssh_userauth_kbdint_setanswer(ssh_session, i, pass);
+-      auth_state = ssh_userauth_kbdint(ssh_session, login, NULL);
+-      i++;
+-    }
+-    
+-    if (auth_state == SSH_AUTH_SUCCESS || ssh_userauth_password(ssh_session, login, pass) == SSH_AUTH_SUCCESS) {
+-      ssh_disconnect(ssh_session);	/* this automagically frees the ssh_opt buffer */
++    if (auth_state != SSH_AUTH_SUCCESS)
++      auth_state = try_password(ssh_session, login, pass);
++#ifdef DEBUG_SSH2
++    printf("[DEBUG] try_password returned auth_state = %d\n", auth_state);
++#endif
++    if (auth_state == SSH_AUTH_SUCCESS) {
++      ssh_disconnect(ssh_session);
+       hydra_report_found_host(port, ip, "ssh2", fp);
+       hydra_completed_pair_found();
+       if (memcmp(hydra_get_next_pair(), &HYDRA_EXIT, sizeof(HYDRA_EXIT)) == 0)
+         return 2;
+-      /* free(ssh_opt); */ /* DOUBLE FREE ! */
+       return 1;
++    } 
++    if (auth_state == SSH_AUTH_DENIED) {
++      hydra_completed_pair();
++      if (memcmp(hydra_get_next_pair(), &HYDRA_EXIT, sizeof(HYDRA_EXIT)) == 0) {
++        ssh_disconnect(ssh_session);
++        return 2;
++      }
++      if (strlen(login = hydra_get_next_login()) == 0)
++        login = empty;
++
++      if(strcmp(login,prev_login) != 0) {
++        ssh_disconnect(ssh_session); 
++#ifdef DEBUG_SSH2
++        printf("[DEBUG] new login (%s): we have to restart ssh sessionte\n", login);
++#endif
++        return 1;
++      }
++      if (strlen(pass = hydra_get_next_password()) == 0)
++        pass = empty;
+     } else {
+-      if (ssh_error_code(ssh_session) == 1) {
+-        hydra_completed_pair();
+-        if (memcmp(hydra_get_next_pair(), &HYDRA_EXIT, sizeof(HYDRA_EXIT)) == 0)
+-          return 2;
+-      } else {
+-        ssh_disconnect(ssh_session);	/* this automagically frees the ssh_opt buffer */
+-        hydra_completed_pair(); /* really? */
+-        if (memcmp(hydra_get_next_pair(), &HYDRA_EXIT, sizeof(HYDRA_EXIT)) == 0)
+-          return 2;
+-        /* free(ssh_opt); */ /* DOUBLE FREE ! */
+-        return 1;
+-      }
++#ifdef DEBUG_SSH2
++        printf("[DEBUG] ssh session problem (%d)\n", auth_state);
++#endif
++       hydra_completed_pair(); /* really? */
++       ssh_disconnect(ssh_session); 
++       if (memcmp(hydra_get_next_pair(), &HYDRA_EXIT, sizeof(HYDRA_EXIT)) == 0)
++         return 2;
++       return 1;
+     }
+   } while(1);
+ 
+   /* not reached */
+-
+-  /* free(ssh_opt); */ /* risk of double free */
+   return 1;
+ }
+ 
+@@ -104,6 +160,7 @@
+ service_ssh2(unsigned long int ip, int sp, unsigned char options, char *miscptr, FILE * fp, int port)
+ {
+   int run = 1, next_run = 1, sock = -1;
++  char libssh_error[1024]; /* check ERROR_BUFFERLEN in libssh */
+ 
+   hydra_register_socket(sp);
+   if (memcmp(hydra_get_next_pair(), &HYDRA_EXIT, sizeof(HYDRA_EXIT)) == 0)
+@@ -111,16 +168,15 @@
+   while (1) {
+     switch (run) {
+     case 1:                    /* connect and service init function */
+-      next_run = start_ssh2(sock, ip, port, options, miscptr, fp);
++      next_run = start_ssh2(sock, ip, port, options, miscptr, fp, libssh_error);
+       break;
+     case 2:
+       hydra_child_exit(0);
++      break;
+     case 3:                    /* clean exit */
+-      fprintf(stderr, "Error: could not connect to target port %d\n", port);
++      fprintf(stderr, "ssh_connect failed: %s\n", libssh_error);
+       hydra_child_exit(1);
+-    case 4:
+-      fprintf(stderr, "Error: ssh2 protocol error\n");
+-      hydra_child_exit(2);
++      break;
+     default:
+       hydra_report(stderr, "Caught unknown return code, exiting!\n");
+       hydra_child_exit(-1);
+

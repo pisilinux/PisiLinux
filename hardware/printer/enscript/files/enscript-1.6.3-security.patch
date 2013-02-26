@@ -1,0 +1,177 @@
+diff -u -p -Nr --exclude CVS orig/enscript-1.6.3/src/gsint.h enscript-1.6.3.CAN-2004-1184/src/gsint.h
+--- orig/enscript-1.6.3/src/gsint.h	2000-07-11 17:28:06.000000000 +0200
++++ enscript-1.6.3.CAN-2004-1184/src/gsint.h	2005-01-04 20:45:24.000000000 +0100
+@@ -701,4 +701,9 @@ FILE *printer_open ___P ((char *cmd, cha
+  */
+ void printer_close ___P ((void *context));
+ 
++/*
++ * Escape filenames for shell usage
++ */
++char *shell_escape ___P ((const char *fn));
++
+ #endif /* not GSINT_H */
+diff -u -p -Nr --exclude CVS orig/enscript-1.6.3/src/main.c enscript-1.6.3.CAN-2004-1184/src/main.c
+--- orig/enscript-1.6.3/src/main.c	2005-01-04 20:52:31.000000000 +0100
++++ enscript-1.6.3.CAN-2004-1184/src/main.c	2005-01-05 10:57:44.000000000 +0100
+@@ -1555,9 +1555,13 @@ name             width\theight\tllx\tlly
+       buffer_append (&cmd, intbuf);
+       buffer_append (&cmd, " ");
+ 
+-      buffer_append (&cmd, "-Ddocument_title=\"");
+-      buffer_append (&cmd, title);
+-      buffer_append (&cmd, "\" ");
++      buffer_append (&cmd, "-Ddocument_title=\'");
++      if ((cp = shell_escape (title)) != NULL)
++	{
++	  buffer_append (&cmd, cp);
++	  free (cp);
++	}
++      buffer_append (&cmd, "\' ");
+ 
+       buffer_append (&cmd, "-Dtoc=");
+       buffer_append (&cmd, toc ? "1" : "0");
+@@ -1574,8 +1578,14 @@ name             width\theight\tllx\tlly
+       /* Append input files. */
+       for (i = optind; i < argc; i++)
+ 	{
+-	  buffer_append (&cmd, " ");
+-	  buffer_append (&cmd, argv[i]);
++	  char *cp;
++	  if ((cp = shell_escape (argv[i])) != NULL)
++	    {
++	      buffer_append (&cmd, " \'");
++	      buffer_append (&cmd, cp);
++	      buffer_append (&cmd, "\'");
++	      free (cp);
++	    }
+ 	}
+ 
+       /* And do the job. */
+@@ -1636,7 +1645,7 @@ name             width\theight\tllx\tlly
+ 				 buffer_ptr (opts), buffer_len (opts));
+ 	    }
+ 
+-	  buffer_append (&buffer, " \"%s\"");
++	  buffer_append (&buffer, " \'%s\'");
+ 
+ 	  input_filter = buffer_copy (&buffer);
+ 	  input_filter_stdin = "-";
+diff -u -p -Nr --exclude CVS orig/enscript-1.6.3/src/util.c enscript-1.6.3.CAN-2004-1184/src/util.c
+--- orig/enscript-1.6.3/src/util.c	1999-09-17 17:26:51.000000000 +0200
++++ enscript-1.6.3.CAN-2004-1184/src/util.c	2005-01-05 10:43:23.000000000 +0100
+@@ -1239,6 +1239,8 @@ escape_string (char *string)
+ 
+   /* Create result. */
+   cp = xmalloc (len + 1);
++  if (cp == NULL)
++      return NULL;
+   for (i = 0, j = 0; string[i]; i++)
+     switch (string[i])
+       {
+@@ -1879,6 +1881,7 @@ is_open (InputStream *is, FILE *fp, char
+       char *cmd = NULL;
+       int cmdlen;
+       int i, pos;
++      char *cp;
+ 
+       is->is_pipe = 1;
+ 
+@@ -1902,12 +1905,16 @@ is_open (InputStream *is, FILE *fp, char
+ 		{
+ 		case 's':
+ 		  /* Expand cmd-buffer. */
+-		  cmdlen += strlen (fname);
+-		  cmd = xrealloc (cmd, cmdlen);
++		  if ((cp = shell_escape (fname)) != NULL)
++		    {
++		      cmdlen += strlen (cp);
++		      cmd = xrealloc (cmd, cmdlen);
+ 
+-		  /* Paste filename. */
+-		  strcpy (cmd + pos, fname);
+-		  pos += strlen (fname);
++		      /* Paste filename. */
++		      strcpy (cmd + pos, cp);
++		      pos += strlen (cp);
++		      free (cp);
++		    }
+ 
+ 		  i++;
+ 		  break;
+@@ -2116,3 +2123,36 @@ buffer_len (Buffer *buffer)
+ {
+   return buffer->len;
+ }
++
++/*
++ * Escapes the name of a file so that the shell groks it in 'single'
++ * quotation marks.  The resulting pointer has to be free()ed when not
++ * longer used.
++*/
++char *
++shell_escape(const char *fn)
++{
++  size_t len = 0;
++  const char *inp;
++  char *retval, *outp;
++
++  for(inp = fn; *inp; ++inp)
++    switch(*inp)
++    {
++      case '\'': len += 4; break;
++      default:   len += 1; break;
++    }
++
++  outp = retval = malloc(len + 1);
++  if(!outp)
++    return NULL; /* perhaps one should do better error handling here */
++  for(inp = fn; *inp; ++inp)
++    switch(*inp)
++    {
++      case '\'': *outp++ = '\''; *outp++ = '\\'; *outp++ = '\'', *outp++ = '\''; break;
++      default:   *outp++ = *inp; break;
++    }
++  *outp = 0;
++
++  return retval;
++}
+diff -u -p -Nr --exclude CVS enscript-1.6.3.CAN-2004-1184/src/psgen.c enscript-1.6.3.CAN-2004-1185/src/psgen.c
+--- enscript-1.6.3.CAN-2004-1184/src/psgen.c	2005-01-04 20:59:56.000000000 +0100
++++ enscript-1.6.3.CAN-2004-1185/src/psgen.c	2005-01-05 15:22:40.000000000 +0100
+@@ -2385,9 +2385,10 @@ recognize_eps_file (Token *token)
+   MESSAGE (2, (stderr, "^@epsf=\"%s\"\n", token->u.epsf.filename));
+ 
+   i = strlen (token->u.epsf.filename);
++  /*
+   if (i > 0 && token->u.epsf.filename[i - 1] == '|')
+     {
+-      /* Read EPS data from pipe. */
++      / * Read EPS data from pipe. * /
+       token->u.epsf.pipe = 1;
+       token->u.epsf.filename[i - 1] = '\0';
+       token->u.epsf.fp = popen (token->u.epsf.filename, "r");
+@@ -2400,6 +2401,7 @@ recognize_eps_file (Token *token)
+ 	}
+     }
+   else
++  */
+     {
+       char *filename;
+ 
+diff -u -p -Nr --exclude CVS enscript-1.6.3.CAN-2004-1185/src/psgen.c enscript-1.6.3.CAN-2004-1186/src/psgen.c
+--- enscript-1.6.3.CAN-2004-1185/src/psgen.c	2005-01-05 15:22:40.000000000 +0100
++++ enscript-1.6.3.CAN-2004-1186/src/psgen.c	2005-01-05 15:22:44.000000000 +0100
+@@ -2034,8 +2034,9 @@ dump_ps_page_header (char *fname, int em
+   else
+     {
+       ftail++;
+-      strncpy (buf, fname, ftail - fname);
+-      buf[ftail - fname] = '\0';
++      i = ftail - fname >= sizeof (buf)-1 ? sizeof (buf)-1 : ftail - fname;
++      strncpy (buf, fname, i);
++      buf[i] = '\0';
+     }
+ 
+   if (nup > 1)
+ 

@@ -1,0 +1,1030 @@
+From 2f762bc732fef1c0e91b7e920c025783d204100e Mon Sep 17 00:00:00 2001
+From: Enrico Scholz <enrico.scholz@informatik.tu-chemnitz.de>
+Date: Sat, 19 Apr 2008 17:35:14 +0200
+Subject: [PATCH] Support for dynamic PAGE_SIZE
+
+This patch adds support for dynamic PAGE_SIZE values. It
+is a little bit invasive in several aspects:
+
+* it modifies the startup code. We need to know the position of
+  the elf-info auxilary table which is located after 'environ'.
+  We can not use 'environ' directly because it might be modified
+  by the application.
+
+  Hence, an additional __elfinfo variable is placed into .bss and
+  filled in the startup code. Depending on platform, this adds
+  4-8 instructions and an additional pointer to .bss.
+
+  I tested only the i386 and x86_64 modifications; it would be
+  nice when people with corresponding hardware would test the
+  other ones. I am especially uncertain regarding the parisc
+  changes.
+
+  The elf-info stuff (which might be interesting e.g. for dynamic
+  linking or sysconf(_SC_CLK_TCK)) can be enabled without the
+  dynamic pagesize too.
+
+* it removes the 'PAGE_SIZE' macro from <sys/shm.h>; this will
+  break compilation of existing userspace application which are
+  using this deprecated macro
+
+* I added a new internal 'dietpagesize.h' header which defines
+
+  | __DIET_PAGE_SIZE
+  | __DIET_PAGE_SHIFT
+
+  macros. These return either builtin constants (when
+  WANT_DYN_PAGESIZE is not selected), or values derived from
+  __libc_getpagesize().
+
+  Every usage of PAGE_SIZE in dietlibc code was replaced by these
+  macros.
+
+* due to the previous point, the internal 'struct __dirstream'
+  was modified. I replaced
+
+  | getdents64(d->fd,(struct dirent64*)d->buf, sizeof (d->buf)-1);
+
+  with
+
+  | getdents64(d->fd,(struct dirent64*)d->buf,  __DIRSTREAM_BUF_SIZE-1);
+
+  literally but I am not sure where the '-1' is coming from.
+  There is one hunk, where this '-1' is missing so I think the
+  '-1' should be removed from all calls to getdents64().
+
+* changes affect the *alloc() functions too; on x86_64 around 64
+  bytes were added to .text of alloc.o
+
+* the new testprogramm requires a 'getconf' binary which returns
+  the correct values for PAGE_SIZE and CLK_TCK
+
+Patch seems to work fine on i386, x86_64, ppc and ppc64.  Things
+went a little bit complicated with linux 2.6.25; previous kernels
+exported a elf_addr_t type in <linux/elf.h> which is used in the
+auxilary elf-info table. Now, this is not available anymore and I
+use a type derived from __WORD_SIZE.
+---
+ alpha/start.S             |    9 +++++
+ arm/start.S               |   13 +++++++-
+ dietdirent.h              |    6 +++-
+ dietelfinfo.h             |   20 +++++++++++
+ dietfeatures.h            |   14 ++++++++
+ dietpagesize.h            |   31 +++++++++++++++++
+ dynlinker/ldso_start.S    |    9 +++++
+ i386/start.S              |    7 ++++
+ ia64/start.S              |   10 ++++++
+ include/sys/shm.h         |    9 -----
+ lib/__get_elf_aux_value.c |   14 ++++++++
+ lib/alloc.c               |    9 +++--
+ lib/closedir.c            |    4 ++-
+ lib/mmap64.c              |    6 ++-
+ lib/opendir.c             |    4 ++-
+ lib/readdir.c             |    2 +-
+ lib/readdir64.c           |    6 ++--
+ lib/stackgap.c            |   20 +++++++++++-
+ libcruft/getpagesize.c    |   28 +++++++--------
+ libcruft/sysconf.c        |   17 +++++++---
+ mips/start.S              |    9 +++++
+ parisc/start.S            |   10 ++++++
+ ppc/start.S               |    9 +++++
+ ppc64/start.S             |    9 +++++
+ s390/start.S              |   11 ++++++
+ s390x/start.S             |   11 ++++++
+ sparc/shmat.c             |    8 ++---
+ sparc/start.S             |   11 ++++++
+ sparc64/start.S           |   11 ++++++
+ syscalls.s/environ.S      |   16 +++++++++
+ test/Makefile             |    2 +-
+ test/runtests.sh          |    2 +-
+ test/sysconf.c            |   80 +++++++++++++++++++++++++++++++++++++++++++++
+ x86_64/start.S            |   16 +++++++++
+ 34 files changed, 392 insertions(+), 51 deletions(-)
+ create mode 100644 dietelfinfo.h
+ create mode 100644 dietpagesize.h
+ create mode 100644 lib/__get_elf_aux_value.c
+ create mode 100644 test/sysconf.c
+
+diff --git a/alpha/start.S b/alpha/start.S
+index 7e7cf9b..b13c9c9 100644
+--- a/alpha/start.S
++++ b/alpha/start.S
+@@ -24,6 +24,15 @@ _start:
+ 
+ 	stq	$18, environ
+ 
++#ifdef WANT_ELFINFO
++#  warning "MAKE ME alpha ASSEMBLER!"
++1:	ldq	$19, $18	; load *envp into $19
++	addq	$18,  1,  $18	; increment *envp
++	orr	$19, $19, $19
++	jne	1b
++	stq	$18, __elfinfo
++#endif
++
+ #ifdef WANT_DYNAMIC
+ /* in v0 ($0) is the ld.so _fini pointer */
+ 	mov	 $0, $19	/* mov v0(dynload) to a3 */
+diff --git a/arm/start.S b/arm/start.S
+index ccbac48..c9cee01 100644
+--- a/arm/start.S
++++ b/arm/start.S
+@@ -59,11 +59,22 @@ _start:
+ #ifdef __DYN_LIB
+ 	ldr	sl, .L4
+ 1:	add	sl, pc, sl
+-	str	a3, [sl, ip]		@ environ = envp
++	str	a3, [ip, sl]!		@ environ = envp; ip = GOT(environ)
+ #else
+ 	str	a3, [ip, #0]		@ environ = envp
+ #endif
+ 
++#ifdef WANT_ELFINFO
++1:	ldr	r5, [a3], #4		@ load *envp and increment it
++	cmp	r5, #0			@ read value==0?
++	bne	1b
++#ifdef __DYN_LIB
++	str	a3, [ip, sl]		@ __elfinfo = envp
++#else
++	str	a3, [ip, #4]		@ __elfinfo = envp
++#endif
++#endif
++
+ #ifdef PROFILING
+ 	stmdb	sp!, { r0 - r3 }
+ 	ldr	r0, .L5
+diff --git a/dietdirent.h b/dietdirent.h
+index dbd7206..c9c7127 100644
+--- a/dietdirent.h
++++ b/dietdirent.h
+@@ -1,8 +1,12 @@
+ #include <sys/shm.h>
+ 
++#include "dietpagesize.h"
++
+ struct __dirstream {
+   int fd;
+-  char buf[PAGE_SIZE-(sizeof (int)*3)];
+   unsigned int num;
+   unsigned int cur;
++  char buf[];
+ };				/* stream data from opendir() */
++
++#define __DIRSTREAM_BUF_SIZE	(__DIET_PAGE_SIZE - offsetof(struct __dirstream, buf))
+diff --git a/dietelfinfo.h b/dietelfinfo.h
+new file mode 100644
+index 0000000..f18627b
+--- /dev/null
++++ b/dietelfinfo.h
+@@ -0,0 +1,20 @@
++#include "dietfeatures.h"
++
++#ifdef WANT_ELFINFO
++#include <elf.h>
++#include <endian.h>
++#include <stdint.h>
++
++/* TODO: exported interface from <linux/elf.h> has been changed in 2.6.25 so
++ * the 'elf_addr_t' type is not available anymore. Hence, derive it from
++ * __WORDSIZE__. */
++
++#if __WORDSIZE == 64
++typedef uint64_t	__diet_elf_addr_t;
++#elif __WORDSIZE == 32
++typedef uint32_t	__diet_elf_addr_t;
++#endif
++
++__diet_elf_addr_t *	__get_elf_aux_value(unsigned int tag)
++	__attribute__((__visibility__("hidden"),__const__)) __pure;
++#endif
+diff --git a/dietfeatures.h b/dietfeatures.h
+index 7ba02ec..ab892d6 100644
+--- a/dietfeatures.h
++++ b/dietfeatures.h
+@@ -119,6 +119,16 @@
+ #define WANT_SSP
+ #endif
+ 
++/* Some platforms like x86_64, ppc* or mips do not have a fixed PAGE_SIZE.
++ * Select WANT_DYN_PAGESIZE to detect the current PAGE_SIZE at runtime. Else,
++ * define WANT_STATIC_PAGESIZE to a proper value (must be a power of 2)
++ * matching the configured pagesize of the kernel where your binaries are
++ * running on.
++ *
++ * Selecting WANT_DYN_PAGESIZE enlarges the startup code by around 1-3
++ * instructions and might add an additional __elfinfo symbol */
++#define WANT_DYN_PAGESIZE
++/* #define WANT_STATIC_PAGESIZE 0x10000UL */
+ 
+ 
+ /* stop uncommenting here ;-) */
+@@ -150,4 +160,8 @@
+ #endif
+ #endif
+ 
++#ifdef WANT_DYN_PAGESIZE
++#define WANT_ELFINFO
++#endif
++
+ #endif
+diff --git a/dietpagesize.h b/dietpagesize.h
+new file mode 100644
+index 0000000..8ce6ce7
+--- /dev/null
++++ b/dietpagesize.h
+@@ -0,0 +1,31 @@
++#ifndef H_DIETLIBC_DIETPAGESIZE_H
++#define H_DIETLIBC_DIETPAGESIZE_H
++
++#include <strings.h>
++#include "dietfeatures.h"
++
++extern size_t __libc_getpagesize(void) __attribute__((__const__)) __pure;
++
++#if defined(WANT_STATIC_PAGESIZE)
++#  define __DIET_PAGE_SIZE_PREDEF	(WANT_STATIC_PAGESIZE)
++#  define __DIET_PAGE_SHIFT_PREDEF	(ffs(__DIET_PAGE_SIZE_PREDEF)-1)
++#elif defined(__alpha__) || defined(__sparc__)
++#  define __DIET_PAGE_SIZE_PREDEF	(8192UL)
++#  define __DIET_PAGE_SHIFT_PREDEF	(13)
++#elif defined(__powerpc64__)
++#  define __DIET_PAGE_SIZE_PREDEF	(65536UL)
++#  define __DIET_PAGE_SHIFT_PREDEF	(16)
++#else
++#  define __DIET_PAGE_SIZE_PREDEF	(4096UL)
++#  define __DIET_PAGE_SHIFT_PREDEF	(12)
++#endif
++
++#ifdef WANT_DYN_PAGESIZE
++#  define __DIET_PAGE_SIZE	(__libc_getpagesize())
++#  define __DIET_PAGE_SHIFT	(ffs(__DIET_PAGE_SIZE)-1)
++#else
++#  define __DIET_PAGE_SIZE	__DIET_PAGE_SIZE_PREDEF
++#  define __DIET_PAGE_SHIFT	__DIET_PAGE_SHIFT_PREDEF
++#endif
++
++#endif	/* H_DIETLIBC_DIETPAGESIZE_H */
+diff --git a/dynlinker/ldso_start.S b/dynlinker/ldso_start.S
+index ca278d7..da36845 100644
+--- a/dynlinker/ldso_start.S
++++ b/dynlinker/ldso_start.S
+@@ -86,6 +86,15 @@ __environ:
+ 	.long 0
+ #endif
+ 
++/* __elfinfo must follow __environ immediately */
++.global __elfinfo
++__elfinfo:
++#if __WORDSIZE == 64
++	.quad 0
++#else
++	.long 0
++#endif
++
+ .global fini_entry
+ fini_entry:
+ 	.long 0
+diff --git a/i386/start.S b/i386/start.S
+index 94a4f73..9ad41ff 100644
+--- a/i386/start.S
++++ b/i386/start.S
+@@ -25,6 +25,13 @@ _start:
+ 	PIC_INIT			/* non-PIC: this is an empty line */
+ 	PUT_VAR %eax, environ, %ecx	/* non-PIC: movl %eax,environ */
+ 
++#ifdef WANT_ELFINFO
++1:	add	$4, %eax		/* increment envp */
++	cmpl	$0, -4(%eax)		/* load envp[-1] */
++	jne	1b			/* ... until envp[-1]==NULL */
++	PUT_VAR %eax, __elfinfo, %ecx
++#endif
++
+ #ifdef PROFILING
+ 	pushl	$_etext
+ 	pushl	$.text
+diff --git a/ia64/start.S b/ia64/start.S
+index 50fd015..c917721 100644
+--- a/ia64/start.S
++++ b/ia64/start.S
+@@ -40,6 +40,16 @@ _start:
+ 	;;
+ 	st8  [r14] = out2           /* store envp in environ */
+ 
++#ifdef WANT_ELFINFO
++#  warning "MAKE ME IE64 CODE!"
++1:	ld8	r9 = [out2], 8	    /* load *envp and increment it */
++	orr	r9 = r9, r9	    /* test for NULL */
++	bne	1b
++
++	adds r14 = 8, r14	    /* __elfinfo = environ + 8 */
++	st8  [r14] = out2           /* store envp in __elfinfo */
++#endif
++
+ #ifdef WANT_DYNAMIC
+ /* FIXME: dl_init parameter ??? */
+ 	br.call.sptk.few rp = _dyn_start
+diff --git a/include/sys/shm.h b/include/sys/shm.h
+index 9b2d04d..70bb17e 100644
+--- a/include/sys/shm.h
++++ b/include/sys/shm.h
+@@ -60,15 +60,6 @@ struct shm_info {
+   unsigned long swap_successes;
+ };
+ 
+-#if defined(__i386__) || defined(__mips__) || defined(__arm__) || defined(__powerpc__) || defined (__powerpc64__) || defined(__s390__) || defined(__hppa__) || defined(__x86_64__) || defined(__ia64__)
+-#define PAGE_SIZE 4096UL
+-#define PAGE_SHIFT 12
+-#elif defined(__alpha__) || defined(__sparc__)
+-/* sun4* has 4k except sun4 architecture, sparc64 has 8k */
+-#define PAGE_SIZE 8192UL
+-#define PAGE_SHIFT 13
+-#endif
+-
+ extern int shmget(key_t key, int size, int shmflg) __THROW;
+ extern void *shmat(int shmid, const void *shmaddr, int shmflg) __THROW;
+ extern int shmdt (const void *shmaddr) __THROW;
+diff --git a/lib/__get_elf_aux_value.c b/lib/__get_elf_aux_value.c
+new file mode 100644
+index 0000000..6ddddb4
+--- /dev/null
++++ b/lib/__get_elf_aux_value.c
+@@ -0,0 +1,14 @@
++#include <stdlib.h>
++#include "../dietelfinfo.h"
++
++__diet_elf_addr_t *__get_elf_aux_value(unsigned int tag)
++{
++  extern __diet_elf_addr_t const * const	__elfinfo;
++  __diet_elf_addr_t				*aux_ptr;
++
++  for (aux_ptr = __elfinfo; aux_ptr[0]!=AT_NULL; aux_ptr += 2)
++    if (aux_ptr[0]==tag)
++      return aux_ptr+1;
++
++  return NULL;
++}
+diff --git a/lib/alloc.c b/lib/alloc.c
+index 9690565..3f0cedb 100644
+--- a/lib/alloc.c
++++ b/lib/alloc.c
+@@ -18,8 +18,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
+-#include <sys/shm.h>	/* for PAGE_SIZE */
+-
++#include "../dietpagesize.h"
+ 
+ /* -- HELPER CODE --------------------------------------------------------- */
+ 
+@@ -39,7 +38,7 @@ typedef struct {
+ #define BLOCK_START(b)	(((void*)(b))-sizeof(__alloc_t))
+ #define BLOCK_RET(b)	(((void*)(b))+sizeof(__alloc_t))
+ 
+-#define MEM_BLOCK_SIZE	PAGE_SIZE
++#define MEM_BLOCK_SIZE	__DIET_PAGE_SIZE
+ #define PAGE_ALIGN(s)	(((s)+MEM_BLOCK_SIZE-1)&(unsigned long)(~(MEM_BLOCK_SIZE-1)))
+ 
+ /* a simple mmap :) */
+@@ -66,7 +65,9 @@ static __alloc_t* __small_mem[8];
+ 
+ #define FIRST_SMALL(p)		(((unsigned long)(p))&(~(MEM_BLOCK_SIZE-1)))
+ 
+-static inline int __ind_shift() { return (MEM_BLOCK_SIZE==4096)?4:5; }
++static inline int __ind_shift() {
++	return __DIET_PAGE_SHIFT - sizeof(__small_mem)/sizeof(__small_mem[0]);
++}
+ 
+ static size_t REGPARM(1) get_index(size_t _size) {
+   register size_t idx=0;
+diff --git a/lib/closedir.c b/lib/closedir.c
+index 3aade81..21de234 100644
+--- a/lib/closedir.c
++++ b/lib/closedir.c
+@@ -4,8 +4,10 @@
+ #include <dirent.h>
+ #include <stdlib.h>
+ 
++#include "../dietpagesize.h"
++
+ int closedir (DIR* d) {
+   int res=close(d->fd);
+-  munmap (d, PAGE_SIZE);
++  munmap (d, __DIET_PAGE_SIZE);
+   return res;
+ }
+diff --git a/lib/mmap64.c b/lib/mmap64.c
+index 0ab29a6..5012394 100644
+--- a/lib/mmap64.c
++++ b/lib/mmap64.c
+@@ -4,16 +4,18 @@
+ #include <syscalls.h>
+ #include <errno.h>
+ 
++#include "../dietpagesize.h"
++
+ #ifdef __NR_mmap2
+ void*__mmap2(void*start,size_t length,int prot,int flags,int fd,off_t pgoffset);
+ 
+ void*__libc_mmap64(void*addr,size_t len,int prot,int flags,int fd,off64_t offset);
+ void*__libc_mmap64(void*addr,size_t len,int prot,int flags,int fd,off64_t offset) {
+-  if (offset&(PAGE_SIZE-1)) {
++  if (offset&(__DIET_PAGE_SIZE)) {
+     errno=-EINVAL;
+     return MAP_FAILED;
+   }
+-  return __mmap2(addr,len,prot,flags,fd,offset>>PAGE_SHIFT);
++  return __mmap2(addr,len,prot,flags,fd,offset>>__DIET_PAGE_SHIFT);
+ }
+ 
+ void*mmap64(void*addr,size_t len,int prot,int flags,int fd,off64_t offset)
+diff --git a/lib/opendir.c b/lib/opendir.c
+index 2530d1a..847685e 100644
+--- a/lib/opendir.c
++++ b/lib/opendir.c
+@@ -5,6 +5,8 @@
+ #include <stdlib.h>
+ #include <fcntl.h>
+ 
++#include "../dietpagesize.h"
++
+ DIR*  opendir ( const char* name ) {
+   int   fd = open (name, O_RDONLY | O_DIRECTORY);
+   DIR*  t  = NULL;
+@@ -12,7 +14,7 @@ DIR*  opendir ( const char* name ) {
+   if ( fd >= 0 ) {
+     if (fcntl (fd, F_SETFD, FD_CLOEXEC) < 0)
+       goto lose;
+-    t = (DIR *) mmap (NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, 
++    t = (DIR *) mmap (NULL, __DIET_PAGE_SIZE, PROT_READ | PROT_WRITE,
+ 		MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+     if (t == MAP_FAILED)
+ lose:
+diff --git a/lib/readdir.c b/lib/readdir.c
+index ed885a5..d80a406 100644
+--- a/lib/readdir.c
++++ b/lib/readdir.c
+@@ -5,7 +5,7 @@
+ 
+ struct dirent* readdir(DIR *d) {
+   if (!d->num || (d->cur += ((struct dirent*)(d->buf+d->cur))->d_reclen)>=d->num) {
+-    int res=getdents(d->fd,(struct dirent*)d->buf,sizeof (d->buf)-1);
++    int res=getdents(d->fd,(struct dirent*)d->buf,__DIRSTREAM_BUF_SIZE-1);
+     if (res<=0) return 0;
+     d->num=res; d->cur=0;
+   }
+diff --git a/lib/readdir64.c b/lib/readdir64.c
+index 924f0a8..06d073b 100644
+--- a/lib/readdir64.c
++++ b/lib/readdir64.c
+@@ -14,7 +14,7 @@
+ #ifndef WANT_LARGEFILE_BACKCOMPAT
+ struct dirent64* readdir64(DIR *d) {
+   if (!d->num || (d->cur += ((struct dirent64*)(d->buf+d->cur))->d_reclen)>=d->num) {
+-    int res=getdents64(d->fd,(struct dirent64*)d->buf, sizeof (d->buf)-1);
++    int res=getdents64(d->fd,(struct dirent64*)d->buf, __DIRSTREAM_BUF_SIZE-1);
+     if (res<=0) return 0;
+     d->num=res; d->cur=0;
+   }
+@@ -32,7 +32,7 @@ again:
+   if (!trygetdents64) {
+ #endif
+     if (!d->num || (d->cur += ((struct dirent*)(d->buf+d->cur))->d_reclen)>=d->num) {
+-      int res=getdents(d->fd,(struct dirent*)d->buf, sizeof (d->buf)-1);
++      int res=getdents(d->fd,(struct dirent*)d->buf, __DIRSTREAM_BUF_SIZE-1);
+       if (res<=0) return 0;
+       d->num=res; d->cur=0;
+     }
+@@ -46,7 +46,7 @@ again:
+ #ifdef __NR_getdents64
+   }
+   if (!d->num || (d->cur += ((struct dirent64*)(d->buf+d->cur))->d_reclen)>=d->num) {
+-    int res=getdents64(d->fd,(struct dirent64*)d->buf,sizeof (d->buf));
++    int res=getdents64(d->fd,(struct dirent64*)d->buf,__DIRSTREAM_BUF_SIZE);
+     if (res<=0) {
+       if (errno==ENOSYS) {
+ 	trygetdents64=0;
+diff --git a/lib/stackgap.c b/lib/stackgap.c
+index 0149bbe..49ad489 100644
+--- a/lib/stackgap.c
++++ b/lib/stackgap.c
+@@ -6,6 +6,7 @@
+ #include <endian.h>
+ #include <elf.h>
+ #include "dietfeatures.h"
++#include "dietelfinfo.h"
+ 
+ extern int main(int argc,char* argv[],char* envp[]);
+ 
+@@ -30,6 +31,7 @@ static void findtlsdata(long* auxvec) {
+   Elf32_Phdr* x=0;
+ #endif
+   size_t i,n;
++#ifndef WANT_ELFINFO
+   while (*auxvec) {
+     if (auxvec[0]==3) {
+       x=(void*)auxvec[1];
+@@ -37,6 +39,10 @@ static void findtlsdata(long* auxvec) {
+     }
+     auxvec+=2;
+   } /* if we don't find the entry, the kernel let us down */
++#else
++  (void)auxvec;
++  x = __get_elf_aux_value(AT_PHDR);
++#endif
+   if (!x) return;	/* a kernel this old does not support thread local storage anyway */
+   n=x->p_memsz/sizeof(*x);
+   for (i=1; i<n; ++i)
+@@ -90,6 +96,7 @@ static void setup_tls(tcbhead_t* mainthread) {
+ }
+ #endif
+ 
++#ifndef WANT_ELFINFO
+ static void* find_rand(long* x) {
+   while (*x) {
+     if (*x==25)
+@@ -98,20 +105,27 @@ static void* find_rand(long* x) {
+   }
+   return NULL;
+ }
++#endif
+ 
+ int stackgap(int argc,char* argv[],char* envp[]);
+ int stackgap(int argc,char* argv[],char* envp[]) {
+ #if defined(WANT_STACKGAP) || defined(WANT_SSP) || defined(WANT_TLS)
+-  long* auxvec=(long*)envp;
+   char* rand;
+   char* tlsdata;
++#ifndef WANT_ELFINFO
++  long* auxvec=(long*)envp;
+   while (*auxvec) ++auxvec; ++auxvec;	/* skip envp to get to auxvec */
++#endif
+ #ifdef WANT_STACKGAP
+   unsigned short s;
+ #endif
+ #if defined(WANT_STACKGAP) || defined(WANT_SSP)
+   volatile char* gap;
++#ifndef WANT_ELFINFO
+   rand=find_rand(auxvec);
++#else
++  rand = __get_elf_aux_value(25);
++#endif
+   if (!rand) {
+     char myrand[10];
+     int fd=open("/dev/urandom",O_RDONLY);
+@@ -132,7 +146,11 @@ int stackgap(int argc,char* argv[],char* envp[]) {
+ #endif
+ 
+ #if defined(WANT_SSP) || defined(WANT_TLS)
++#ifndef WANT_ELFINFO
+   findtlsdata(auxvec);
++#else
++  findtlsdata(NULL);
++#endif
+   tlsdata=alloca(__tmemsize+sizeof(tcbhead_t));
+   memcpy(tlsdata,__tdataptr,__tdatasize);
+   memset(tlsdata+__tdatasize,0,__tmemsize-__tdatasize);
+diff --git a/libcruft/getpagesize.c b/libcruft/getpagesize.c
+index 5ff8973..80f476b 100644
+--- a/libcruft/getpagesize.c
++++ b/libcruft/getpagesize.c
+@@ -1,25 +1,23 @@
+ #include <sys/types.h>
+ #include <sys/ipc.h>
+ #include <sys/shm.h>
+-/* for environ: */
+-#include <stdlib.h>
+ 
+-#ifndef PAGE_SIZE
+-#define PAGE_SIZE 4096
+-#endif
++#include "../dietelfinfo.h"
++#include "../dietpagesize.h"
+ 
+-size_t __libc_getpagesize(void);
+ size_t __libc_getpagesize(void) {
+-  long* x=(long*)environ;
+-  int fd;
+-  while (*x) ++x; ++x;	/* skip envp to get to auxvec */
+-  while (*x) {
+-    if (*x==6)
+-      return x[1];
+-    x+=2;
++#ifdef WANT_DYN_PAGESIZE
++  static size_t	pgsz;
++
++  if (__unlikely(pgsz==0)) {
++    __diet_elf_addr_t	*v = __get_elf_aux_value(AT_PAGESZ);
++    pgsz = *v;	/* causes segfault when 'v==NULL' */
+   }
+-  return PAGE_SIZE;
++
++  return pgsz;
++#else
++  return __DIET_PAGE_SIZE_PREDEF;
++#endif
+ }
+ 
+ size_t getpagesize(void)       __attribute__((weak,alias("__libc_getpagesize")));
+-
+diff --git a/libcruft/sysconf.c b/libcruft/sysconf.c
+index e9c15cb..b98195c 100644
+--- a/libcruft/sysconf.c
++++ b/libcruft/sysconf.c
+@@ -3,6 +3,9 @@
+ #include <limits.h>
+ #include <sys/resource.h>
+ 
++#include "dietelfinfo.h"
++#include "dietpagesize.h"
++
+ extern int __sc_nr_cpus();
+ 
+ long sysconf(int name)
+@@ -16,6 +19,14 @@ long sysconf(int name)
+       return limit.rlim_cur;
+     }
+   case _SC_CLK_TCK:
++#ifdef WANT_ELFINFO
++    {
++      __diet_elf_addr_t	*v = __get_elf_aux_value(AT_CLKTCK);
++      if (v)
++	return *v;
++    }
++#endif
++
+ #ifdef __alpha__
+     return 1024;
+ #else
+@@ -23,11 +34,7 @@ long sysconf(int name)
+ #endif
+ 
+   case _SC_PAGESIZE:
+-#if ( defined(__alpha__) || defined(__sparc__) )
+-    return 8192;
+-#else
+-    return 4096;
+-#endif
++    return __libc_getpagesize();
+ 
+   case _SC_ARG_MAX:
+     return ARG_MAX;
+diff --git a/mips/start.S b/mips/start.S
+index 57144b3..3cf3433 100644
+--- a/mips/start.S
++++ b/mips/start.S
+@@ -47,6 +47,15 @@ __start:
+ #endif
+ 	add	$a2, $a2, $a1
+ 	sw	$a2, environ
++#ifdef WANT_ELFINFO
++#  warning "MAKE ME MIPS CODE!"
++1:	addu	$a2, $a2, 4	/* increment envp */
++	lw	$4, -4($a2)     /* load envp[-1]; TODO: is $4 a proper
++				   temporary register? */
++	bnz	1b		/* ... until envp[-1]==NULL
++				   TODO: use proper 'bnz' operation */
++	sw	$a2, __elfinfo
++#endif
+ 	jalr	$25
+ 	la	$25, exit
+ 	move	$4,$2
+diff --git a/parisc/start.S b/parisc/start.S
+index 69d9cce..894255c 100644
+--- a/parisc/start.S
++++ b/parisc/start.S
+@@ -34,6 +34,16 @@ _start:
+ 	ldil LP%environ, %r19
+ 	ldo RP%environ(%r19), %r19
+ 
++#ifdef WANT_ELFINFO
++#  warning "MAKE ME PARISC CODE!"
++1:	add %r20, %r19, %r19		; envp += 4
++	ldw -4(0,%r19), %r21		; load envp[-4] into %r21
++	comibf =,0, 0,%21,1b		; compare %21 with 0 without nullification
++
++	ldil LP%__elfinfo, %r19
++	ldo RP%__elfinfo(%r19), %r19
++#endif
++
+ 	/* Expand the stack to store the 5th through 7th args */
+ 	ldo 64(%sp), %sp
+ 
+diff --git a/ppc/start.S b/ppc/start.S
+index 771f1ad..3b5cab1 100644
+--- a/ppc/start.S
++++ b/ppc/start.S
+@@ -31,6 +31,15 @@ _start:
+ 	lis	14,environ@ha
+ 	stw	5,environ@l(14)
+ 
++#ifdef WANT_ELFINFO
++1:	lwzu	15,0(5)
++	addi	5, 5, 4
++	cmpwi	15,0
++	bne	1b
++
++	stw	5,__elfinfo@l(14)
++#endif
++
+ #ifdef WANT_DYNAMIC
+ 	mr	6,7
+ 	bl	_dyn_start
+diff --git a/ppc64/start.S b/ppc64/start.S
+index a9208ff..46b4bf0 100644
+--- a/ppc64/start.S
++++ b/ppc64/start.S
+@@ -58,6 +58,15 @@ _start:
+ 	oris	14,14,environ@ha
+ 	std	5,environ@l(14)
+ 
++#ifdef WANT_ELFINFO
++1:	ldu	15,0(5)
++	addi	5, 5, 8
++	cmpdi	15,0
++	bne	1b
++
++	std	5,__elfinfo@l(14)
++#endif
++
+ #ifdef WANT_DYNAMIC
+ /* #warning dynamic */
+ 	mr	6,7
+diff --git a/s390/start.S b/s390/start.S
+index c0f971f..585faf7 100644
+--- a/s390/start.S
++++ b/s390/start.S
+@@ -30,6 +30,17 @@ _start:
+ 	l	%r1,8(%r13)
+ 	st	%r4,0(%r1)
+ 
++#ifdef WANT_ELFINFO
++#  warning "VERIFY ME!"
++1:	ahi	%r4, 4		# increment envp
++	l	%r12, -4(0,%r4)	# load envp[-1] into %r12
++	or	%r12, %r12	# test %r12 for NULL
++	brc	1, 1b
++
++	ahi	%r1, 4
++	st	%r4,0(%r1)
++#endif
++
+ /* call main or _dyn_start */
+ 	l	%r1,0(%r13)
+ 	basr	%r14,%r1
+diff --git a/s390x/start.S b/s390x/start.S
+index 25895a6..15ad1f9 100644
+--- a/s390x/start.S
++++ b/s390x/start.S
+@@ -26,6 +26,17 @@ _start:
+ 	larl	%r13,environ
+ 	stg	%r4,0(%r13)
+ 
++#ifdef WANT_ELFINFO
++#  warning "VERIFY ME!"
++1:	aghi	%r4, 8		# increment envp
++	lg	%r12, -8(0,%r4)	# load envp[-1] into %r12
++	ogr	%r12, %r12	# test %r12 for NULL
++	brc	1, 1b
++
++	aghi	%r13, 8
++	stg	%r4,0(%r13)
++#endif
++
+ /* call main or _dyn_start */
+ #ifdef WANT_DYNAMIC
+ 	brasl	%r14,_dyn_start
+diff --git a/sparc/shmat.c b/sparc/shmat.c
+index b7dce2e..ce3bfcb 100644
+--- a/sparc/shmat.c
++++ b/sparc/shmat.c
+@@ -3,17 +3,15 @@
+ #include <sys/shm.h>
+ #include <unistd.h>
+ 
+-extern void* __ipc();
++#include "../dietpagesize.h"
+ 
+-#ifndef PAGE_SIZE
+-#define PAGE_SIZE 4096
+-#endif
++extern void* __ipc();
+ 
+ void* shmat(int shmid,const void* shmaddr,int shmflg) {
+   void* raddr;
+   register void* result;
+   result=__ipc(SHMAT,shmid,shmflg,&raddr,shmaddr);
+-  if ((unsigned long)result <= -(unsigned long)PAGE_SIZE)
++  if ((unsigned long)result <= -(unsigned long)__DIET_PAGE_SIZE)
+     result=raddr;
+   return result;
+ }
+diff --git a/sparc/start.S b/sparc/start.S
+index a7841e3..bb463c9 100644
+--- a/sparc/start.S
++++ b/sparc/start.S
+@@ -25,6 +25,17 @@ _start:
+ 	or	%o3, %lo(environ), %o3
+ 	st	%o2, [%o3]
+ 
++#ifdef WANT_ELFINFO
++#  warning "VERIFY ME!"
++1:	add	%o2, %o2, 4
++	ld	[%o2-4], %o4
++	orcc	%o4, %o4, %o4
++	bne	1b
++
++	add	%o3, %o3, 4
++	st	%o2, [%o3]
++#endif
++
+ /* When starting a binary via the dynamic linker, %g1 contains the
+    address of the shared library termination function, which will be
+    registered with atexit(). If we are statically linked, this will
+diff --git a/sparc64/start.S b/sparc64/start.S
+index a79c4e7..a884658 100644
+--- a/sparc64/start.S
++++ b/sparc64/start.S
+@@ -25,6 +25,17 @@ _start:
+ 	or	%o3, %lo(environ), %o3
+ 	stx	%o2, [%o3]
+ 
++#ifdef WANT_ELFINFO
++#  warning "VERIFY ME!"
++1:	add	%o2, %o2, 8
++	ldx	[%o2-8], %o4
++	orcc	%o4, %o4, %o4
++	bne	1b
++
++	add	%o3, %o3, 8
++	stx	%o2, [%o3]
++#endif
++
+ /* When starting a binary via the dynamic linker, %g1 contains the
+    address of the shared library termination function, which will be
+    registered with atexit(). If we are statically linked, this will
+diff --git a/syscalls.s/environ.S b/syscalls.s/environ.S
+index a4dd95e..294f2d4 100644
+--- a/syscalls.s/environ.S
++++ b/syscalls.s/environ.S
+@@ -1,6 +1,7 @@
+ .section ".bss"
+ .align 8
+ #include <endian.h>
++#include <dietfeatures.h>
+ 
+ .type environ,object
+ .weak environ
+@@ -15,3 +16,18 @@ environ:
+ #endif
+ .size environ,.-environ
+ .size __environ,.-__environ
++
++/* __elfinfo will be initialized in start.S to point to the
++   terminating NULL of the environment. */
++
++#ifdef WANT_ELFINFO
++.type __elfinfo,object
++.weak __elfinfo
++__elfinfo:
++#if __WORDSIZE == 64
++	.quad 0
++#else
++	.long 0
++#endif
++.size __elfinfo,.-__elfinfo
++#endif
+diff --git a/test/runtests.sh b/test/runtests.sh
+index 6d89efb..908caa5 100644
+--- a/test/runtests.sh
++++ b/test/runtests.sh
+@@ -1,6 +1,6 @@
+ SUBDIRS="dirent inet stdio string stdlib time"
+ 
+-TESTPROGRAMS="adjtime argv atexit bsearch byteswap calloc confstr empty flush fputc ffs fnmatch ftw fwrite getaddrinfo getenv getdelim getgrnam gethostbyaddr gethostbyname gethostbyname_r getmntent getopt getpwnam getservbyname getservbyport getusershell glob grent hasmntopt hello iconv if_nameindex ltostr malloc-debugger md5_testharness memccpy memchr memcmp memrchr memusage mktime mmap_test pipe printf printftest protoent prototypes putenv pwent rand48 readdir regex select sendfile servent siglist speed spent sprintf sscanf stdarg strcasecmp strcmp strncat strncpy strptime strrchr strstr strtol sysenter ungetc waitpid"
++TESTPROGRAMS="adjtime argv atexit bsearch byteswap calloc confstr empty flush fputc ffs fnmatch ftw fwrite getaddrinfo getenv getdelim getgrnam gethostbyaddr gethostbyname gethostbyname_r getmntent getopt getpwnam getservbyname getservbyport getusershell glob grent hasmntopt hello iconv if_nameindex ltostr malloc-debugger md5_testharness memccpy memchr memcmp memrchr memusage mktime mmap_test pipe printf printftest protoent prototypes putenv pwent rand48 readdir regex select sendfile servent siglist speed spent sprintf sscanf stdarg strcasecmp strcmp strncat strncpy strptime strrchr strstr strtol sysconf sysenter ungetc waitpid"
+ 
+ STDIN="read1"
+ PASS="getpass" 
+diff --git a/test/sysconf.c b/test/sysconf.c
+new file mode 100644
+index 0000000..32263a5
+--- /dev/null
++++ b/test/sysconf.c
+@@ -0,0 +1,80 @@
++#include <unistd.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <assert.h>
++#include <sys/wait.h>
++
++#include "../dietpagesize.h"
++
++static long exec_getconf(char const *var)
++{
++  char	buf[128];
++  pid_t	pid;
++  int	fd[2];
++  int	status;
++  ssize_t	l;
++
++  if (pipe(fd)<0 || (pid = fork())<0)
++    abort();
++
++  if (pid==0) {
++    close(fd[0]);
++
++    if (fd[1]!=1) {
++      dup2(fd[1], 1);
++      close(fd[1]);
++    }
++
++    execlp("getconf", "getconf", var, NULL);
++    _exit(1);
++  }
++
++  close(fd[1]);
++  l = read(fd[0], buf, sizeof(buf)-1);
++  if (l<0) {
++    perror("read()");
++    goto err;
++  } else if (l==sizeof(buf)-1)
++    goto err;
++  close(fd[0]);
++
++  buf[l] = '\0';
++
++  if (waitpid(pid, &status, 0)<0)
++    goto err;
++
++  if (!WIFEXITED(status) || WEXITSTATUS(status)!=0)
++    goto err;
++
++  return strtol(buf, NULL, 10);
++
++ err:
++  kill(pid, SIGKILL);
++  abort();
++}
++
++static unsigned int do_check(char const *var, long exp)
++{
++  long	cur = exec_getconf(var);
++
++  if (cur!=exp) {
++    fprintf(stderr, "%s mismatch: got %ld, expected %ld\n",
++	    var, cur, exp);
++    return 1;
++  }
++
++  return 0;
++}
++
++int main(int argc, char *argv[])
++{
++  unsigned int	err = 0;
++
++  assert(sysconf(_SC_PAGESIZE) == __DIET_PAGE_SIZE);
++  assert(__DIET_PAGE_SIZE == (1<<__DIET_PAGE_SHIFT));
++
++  err += do_check("PAGE_SIZE", sysconf(_SC_PAGESIZE));
++  err += do_check("CLK_TCK",   sysconf(_SC_CLK_TCK));
++
++  return err;
++}
+diff --git a/x86_64/start.S b/x86_64/start.S
+index adc461a..8b4f3c9 100644
+--- a/x86_64/start.S
++++ b/x86_64/start.S
+@@ -12,12 +12,28 @@ _start:
+ 	
+ 	leaq	8(%rsi,%rdi,8),%rdx	/* %rdx = envp = (8*rdi)+%rsi+8 */
+ 
++
++#ifdef WANT_ELFINFO
++#ifdef __DYN_LIB
++	movq	environ@GOTPCREL(%rip), %rax
++#else
++	leaq	environ(%rip), %rax
++#endif
++	movq	%rdx, (%rax)	/* environ */
++
++1:	add	$8, %rdx	/* increment envp */
++	cmpq	$0, -8(%rdx)	/* load envp[-1] */
++	jne	1b		/* ... until envp[-1]==NULL */
++
++	movq	%rdx, 8(%rax)	/* __elfinfo */
++#else
+ #ifdef __DYN_LIB
+ 	movq	environ@GOTPCREL(%rip), %rax
+ 	movq	%rdx, (%rax)
+ #else
+ 	movq	%rdx, environ(%rip)
+ #endif
++#endif
+ 
+ #ifdef PROFILING
+ 	pushq	%rdi			/* save reg args */
+-- 
+1.6.0.6
+

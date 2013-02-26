@@ -1,0 +1,1744 @@
+Index: gdb-7.0.50.20100115/gdb/event-top.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/event-top.c	2010-01-01 08:31:31.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/event-top.c	2010-01-15 11:45:20.000000000 +0100
+@@ -33,6 +33,7 @@
+ #include "cli/cli-script.h"     /* for reset_command_nest_depth */
+ #include "main.h"
+ #include "gdbthread.h"
++#include "symfile.h"
+ 
+ /* For dont_repeat() */
+ #include "gdbcmd.h"
+@@ -193,6 +194,8 @@ cli_command_loop (void)
+       char *a_prompt;
+       char *gdb_prompt = get_prompt ();
+ 
++      debug_flush_missing ();
++
+       /* Tell readline what the prompt to display is and what function it
+          will need to call after a whole line is read. This also displays
+          the first prompt. */
+@@ -264,6 +267,8 @@ display_gdb_prompt (char *new_prompt)
+   /* Reset the nesting depth used when trace-commands is set.  */
+   reset_command_nest_depth ();
+ 
++  debug_flush_missing ();
++
+   /* Each interpreter has its own rules on displaying the command
+      prompt.  */
+   if (!current_interp_display_prompt_p ())
+Index: gdb-7.0.50.20100115/gdb/elfread.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/elfread.c	2010-01-15 11:43:30.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/elfread.c	2010-01-15 11:45:34.000000000 +0100
+@@ -40,6 +40,7 @@
+ #include "gdbcore.h"
+ #include "gdbcmd.h"
+ #include "observer.h"
++#include "elf/external.h"
+ 
+ extern void _initialize_elfread (void);
+ 
+@@ -1119,8 +1120,353 @@ build_id_to_filename (struct build_id *b
+   return retval;
+ }
+ 
++#ifdef HAVE_LIBRPM
++
++#include <rpm/rpmlib.h>
++#include <rpm/rpmts.h>
++#include <rpm/rpmdb.h>
++#include <rpm/header.h>
++#ifdef DLOPEN_LIBRPM
++#include <dlfcn.h>
++#endif
++
++/* This MISSING_RPM_HASH tracker is used to collect all the missing rpm files
++   and avoid their duplicities during a single inferior run.  */
++
++static struct htab *missing_rpm_hash;
++
++/* This MISSING_RPM_LIST tracker is used to collect and print as a single line
++   all the rpms right before the nearest GDB prompt.  It gets cleared after
++   each such print (it is questionable if we should clear it after the print).
++   */
++
++struct missing_rpm
++  {
++    struct missing_rpm *next;
++    char rpm[1];
++  };
++static struct missing_rpm *missing_rpm_list;
++static int missing_rpm_list_entries;
++
++/* Returns the count of newly added rpms.  */
++
++static int
++missing_rpm_enlist (const char *filename)
++{
++  static int rpm_init_done = 0;
++  rpmts ts;
++  rpmdbMatchIterator mi;
++  int count = 0;
++
++#ifdef DLOPEN_LIBRPM
++  /* Duplicate here the declarations to verify they match.  The same sanity
++     check is present also in `configure.ac'.  */
++  extern char * headerFormat(Header h, const char * fmt, errmsg_t * errmsg);
++  static char *(*headerFormat_p) (Header h, const char * fmt, errmsg_t *errmsg);
++  extern int rpmReadConfigFiles(const char * file, const char * target);
++  static int (*rpmReadConfigFiles_p) (const char * file, const char * target);
++  extern rpmdbMatchIterator rpmdbFreeIterator(rpmdbMatchIterator mi);
++  static rpmdbMatchIterator (*rpmdbFreeIterator_p) (rpmdbMatchIterator mi);
++  extern Header rpmdbNextIterator(rpmdbMatchIterator mi);
++  static Header (*rpmdbNextIterator_p) (rpmdbMatchIterator mi);
++  extern rpmts rpmtsCreate(void);
++  static rpmts (*rpmtsCreate_p) (void);
++  extern rpmts rpmtsFree(rpmts ts);
++  static rpmts (*rpmtsFree_p) (rpmts ts);
++  extern rpmdbMatchIterator rpmtsInitIterator(const rpmts ts, rpmTag rpmtag,
++                                              const void * keyp, size_t keylen);
++  static rpmdbMatchIterator (*rpmtsInitIterator_p) (const rpmts ts,
++						    rpmTag rpmtag,
++						    const void *keyp,
++						    size_t keylen);
++#else	/* !DLOPEN_LIBRPM */
++# define headerFormat_p headerFormat
++# define rpmReadConfigFiles_p rpmReadConfigFiles
++# define rpmdbFreeIterator_p rpmdbFreeIterator
++# define rpmdbNextIterator_p rpmdbNextIterator
++# define rpmtsCreate_p rpmtsCreate
++# define rpmtsFree_p rpmtsFree
++# define rpmtsInitIterator_p rpmtsInitIterator
++#endif	/* !DLOPEN_LIBRPM */
++
++  if (filename == NULL)
++    return 0;
++
++  if (!rpm_init_done)
++    {
++      static int init_tried;
++
++      /* Already failed the initialization before?  */
++      if (init_tried)
++      	return 0;
++      init_tried = 1;
++
++#ifdef DLOPEN_LIBRPM
++      {
++	void *h;
++
++	h = dlopen (DLOPEN_LIBRPM, RTLD_LAZY);
++	if (!h)
++	  {
++	    warning (_("Unable to open \"%s\" (%s), "
++		      "missing debuginfos notifications will not be displayed"),
++		     DLOPEN_LIBRPM, dlerror ());
++	    return 0;
++	  }
++
++	if (!((headerFormat_p = dlsym (h, "headerFormat"))
++	      && (rpmReadConfigFiles_p = dlsym (h, "rpmReadConfigFiles"))
++	      && (rpmdbFreeIterator_p = dlsym (h, "rpmdbFreeIterator"))
++	      && (rpmdbNextIterator_p = dlsym (h, "rpmdbNextIterator"))
++	      && (rpmtsCreate_p = dlsym (h, "rpmtsCreate"))
++	      && (rpmtsFree_p = dlsym (h, "rpmtsFree"))
++	      && (rpmtsInitIterator_p = dlsym (h, "rpmtsInitIterator"))))
++	  {
++	    warning (_("Opened library \"%s\" is incompatible (%s), "
++		      "missing debuginfos notifications will not be displayed"),
++		     DLOPEN_LIBRPM, dlerror ());
++	    if (dlclose (h))
++	      warning (_("Error closing library \"%s\": %s\n"), DLOPEN_LIBRPM,
++		       dlerror ());
++	    return 0;
++	  }
++      }
++#endif	/* DLOPEN_LIBRPM */
++
++      if (rpmReadConfigFiles_p (NULL, NULL) != 0)
++	{
++	  warning (_("Error reading the rpm configuration files"));
++	  return 0;
++	}
++
++      rpm_init_done = 1;
++    }
++
++  ts = rpmtsCreate_p ();
++
++  mi = rpmtsInitIterator_p (ts, RPMTAG_BASENAMES, filename, 0);
++  if (mi != NULL)
++    {
++      for (;;)
++	{
++	  Header h;
++	  char *debuginfo, **slot, *s, *s2;
++	  errmsg_t err;
++	  size_t srcrpmlen = sizeof (".src.rpm") - 1;
++	  size_t debuginfolen = sizeof ("-debuginfo") - 1;
++	  rpmdbMatchIterator mi_debuginfo;
++
++	  h = rpmdbNextIterator_p (mi);
++	  if (h == NULL)
++	    break;
++
++	  /* Verify the debuginfo file is not already installed.  */
++
++	  debuginfo = headerFormat_p (h, "%{sourcerpm}-debuginfo.%{arch}",
++				      &err);
++	  if (!debuginfo)
++	    {
++	      warning (_("Error querying the rpm file `%s': %s"), filename,
++	               err);
++	      continue;
++	    }
++	  /* s = `.src.rpm-debuginfo.%{arch}' */
++	  s = strrchr (debuginfo, '-') - srcrpmlen;
++	  s2 = NULL;
++	  if (s > debuginfo && memcmp (s, ".src.rpm", srcrpmlen) == 0)
++	    {
++	      /* s2 = `-%{release}.src.rpm-debuginfo.%{arch}' */
++	      s2 = memrchr (debuginfo, '-', s - debuginfo);
++	    }
++	  if (s2)
++	    {
++	      /* s2 = `-%{version}-%{release}.src.rpm-debuginfo.%{arch}' */
++	      s2 = memrchr (debuginfo, '-', s2 - debuginfo);
++	    }
++	  if (!s2)
++	    {
++	      warning (_("Error querying the rpm file `%s': %s"), filename,
++	               debuginfo);
++	      xfree (debuginfo);
++	      continue;
++	    }
++	  /* s = `.src.rpm-debuginfo.%{arch}' */
++	  /* s2 = `-%{version}-%{release}.src.rpm-debuginfo.%{arch}' */
++	  memmove (s2 + debuginfolen, s2, s - s2);
++	  memcpy (s2, "-debuginfo", debuginfolen);
++	  /* s = `XXXX.%{arch}' */
++	  /* strlen ("XXXX") == srcrpmlen + debuginfolen */
++	  /* s2 = `-debuginfo-%{version}-%{release}XX.%{arch}' */
++	  /* strlen ("XX") == srcrpmlen */
++	  memmove (s + debuginfolen, s + srcrpmlen + debuginfolen,
++		   strlen (s + srcrpmlen + debuginfolen) + 1);
++	  /* s = `-debuginfo-%{version}-%{release}.%{arch}' */
++
++	  /* RPMDBI_PACKAGES requires keylen == sizeof (int).  */
++	  /* RPMDBI_LABEL is an interface for NVR-based dbiFindByLabel().  */
++	  mi_debuginfo = rpmtsInitIterator_p (ts, RPMDBI_LABEL, debuginfo, 0);
++	  xfree (debuginfo);
++	  if (mi_debuginfo)
++	    {
++	      rpmdbFreeIterator_p (mi_debuginfo);
++	      count = 0;
++	      break;
++	    }
++
++	  /* The allocated memory gets utilized below for MISSING_RPM_HASH.  */
++	  debuginfo = headerFormat_p (h,
++				      "%{name}-%{version}-%{release}.%{arch}",
++				      &err);
++	  if (!debuginfo)
++	    {
++	      warning (_("Error querying the rpm file `%s': %s"), filename,
++	               err);
++	      continue;
++	    }
++
++	  /* Base package name for `debuginfo-install'.  We do not use the
++	     `yum' command directly as the line
++		 yum --disablerepo='*' --enablerepo='*-debuginfo' \
++		     install NAME-debuginfo.ARCH
++	     would be more complicated than just:
++		 debuginfo-install NAME-VERSION-RELEASE.ARCH
++	     Do not supply the rpm base name (derived from .src.rpm name) as
++	     debuginfo-install is unable to install the debuginfo package if
++	     the base name PKG binary rpm is not installed while for example
++	     PKG-libs would be installed (RH Bug 467901).
++	     FUTURE: After multiple debuginfo versions simultaneously installed
++	     get supported the support for the VERSION-RELEASE tags handling
++	     may need an update.  */
++
++	  if (missing_rpm_hash == NULL)
++	    {
++	      /* DEL_F is passed NULL as MISSING_RPM_LIST's HTAB_DELETE
++		 should not deallocate the entries.  */
++
++	      missing_rpm_hash = htab_create_alloc (64, htab_hash_string,
++			       (int (*) (const void *, const void *)) streq,
++						    NULL, xcalloc, xfree);
++	    }
++	  slot = (char **) htab_find_slot (missing_rpm_hash, debuginfo, INSERT);
++	  /* XCALLOC never returns NULL.  */
++	  gdb_assert (slot != NULL);
++	  if (*slot == NULL)
++	    {
++	      struct missing_rpm *missing_rpm;
++
++	      *slot = debuginfo;
++
++	      missing_rpm = xmalloc (sizeof (*missing_rpm) + strlen (debuginfo));
++	      strcpy (missing_rpm->rpm, debuginfo);
++	      missing_rpm->next = missing_rpm_list;
++	      missing_rpm_list = missing_rpm;
++	      missing_rpm_list_entries++;
++	    }
++	  else
++	    xfree (debuginfo);
++	  count++;
++	}
++
++      rpmdbFreeIterator_p (mi);
++    }
++
++  rpmtsFree_p (ts);
++
++  return count;
++}
++
++static int
++missing_rpm_list_compar (const char *const *ap, const char *const *bp)
++{
++  return strcoll (*ap, *bp);
++}
++
++/* It returns a NULL-terminated array of strings needing to be FREEd.  It may
++   also return only NULL.  */
++
++static void
++missing_rpm_list_print (void)
++{
++  char **array, **array_iter;
++  struct missing_rpm *list_iter;
++  struct cleanup *cleanups;
++
++  if (missing_rpm_list_entries == 0)
++    return;
++
++  array = xmalloc (sizeof (*array) * missing_rpm_list_entries);
++  cleanups = make_cleanup (xfree, array);
++
++  array_iter = array;
++  for (list_iter = missing_rpm_list; list_iter != NULL;
++       list_iter = list_iter->next)
++    {
++      *array_iter++ = list_iter->rpm;
++    }
++  gdb_assert (array_iter == array + missing_rpm_list_entries);
++
++  qsort (array, missing_rpm_list_entries, sizeof (*array),
++	 (int (*) (const void *, const void *)) missing_rpm_list_compar);
++
++  printf_unfiltered (_("Missing separate debuginfos, use: %s"),
++		     "debuginfo-install");
++  for (array_iter = array; array_iter < array + missing_rpm_list_entries;
++       array_iter++)
++    {
++      putchar_unfiltered (' ');
++      puts_unfiltered (*array_iter);
++    }
++  putchar_unfiltered ('\n');
++
++  while (missing_rpm_list != NULL)
++    {
++      list_iter = missing_rpm_list;
++      missing_rpm_list = list_iter->next;
++      xfree (list_iter);
++    }
++  missing_rpm_list_entries = 0;
++
++  do_cleanups (cleanups);
++}
++
++static void
++missing_rpm_change (void)
++{
++  debug_flush_missing ();
++
++  gdb_assert (missing_rpm_list == NULL);
++  if (missing_rpm_hash != NULL)
++    {
++      htab_delete (missing_rpm_hash);
++      missing_rpm_hash = NULL;
++    }
++}
++
++enum missing_exec
++  {
++    /* Init state.  EXEC_BFD also still could be NULL.  */
++    MISSING_EXEC_NOT_TRIED,
++    /* We saw a non-NULL EXEC_BFD but RPM has no info about it.  */
++    MISSING_EXEC_NOT_FOUND,
++    /* We found EXEC_BFD by RPM and we either have its symbols (either embedded
++       or separate) or the main executable's RPM is now contained in
++       MISSING_RPM_HASH.  */
++    MISSING_EXEC_ENLISTED
++  };
++static enum missing_exec missing_exec = MISSING_EXEC_NOT_TRIED;
++
++#endif	/* HAVE_LIBRPM */
++
++void
++debug_flush_missing (void)
++{
++#ifdef HAVE_LIBRPM
++  missing_rpm_list_print ();
++#endif
++}
++
+ /* This MISSING_FILEPAIR_HASH tracker is used only for the duplicite messages
+-     Try to install the hash file ...
++     yum --disablerepo='*' --enablerepo='*-debuginfo' install ...
+    avoidance.  */
+ 
+ struct missing_filepair
+@@ -1174,11 +1520,17 @@ missing_filepair_change (void)
+       /* All their memory came just from missing_filepair_OBSTACK.  */
+       missing_filepair_hash = NULL;
+     }
++#ifdef HAVE_LIBRPM
++  missing_exec = MISSING_EXEC_NOT_TRIED;
++#endif
+ }
+ 
+ static void
+ debug_print_executable_changed (void)
+ {
++#ifdef HAVE_LIBRPM
++  missing_rpm_change ();
++#endif
+   missing_filepair_change ();
+ }
+ 
+@@ -1245,14 +1597,34 @@ debug_print_missing (const char *binary,
+ 
+   *slot = missing_filepair;
+ 
+-  /* We do not collect and flush these messages as each such message
+-     already requires its own separate lines.  */
++#ifdef HAVE_LIBRPM
++  if (missing_exec == MISSING_EXEC_NOT_TRIED)
++    {
++      char *exec_filename;
+ 
+-  fprintf_unfiltered (gdb_stdlog,
+-		      _("Missing separate debuginfo for %s\n"), binary);
+-  if (debug != NULL)
+-    fprintf_unfiltered (gdb_stdlog, _("Try to install the hash file %s\n"),
+-			debug);
++      exec_filename = get_exec_file (0);
++      if (exec_filename != NULL)
++	{
++	  if (missing_rpm_enlist (exec_filename) == 0)
++	    missing_exec = MISSING_EXEC_NOT_FOUND;
++	  else
++	    missing_exec = MISSING_EXEC_ENLISTED;
++	}
++    }
++  if (missing_exec != MISSING_EXEC_ENLISTED)
++    if (missing_rpm_enlist (binary) == 0 && missing_rpm_enlist (debug) == 0)
++#endif	/* HAVE_LIBRPM */
++      {
++	/* We do not collect and flush these messages as each such message
++	   already requires its own separate lines.  */
++
++	fprintf_unfiltered (gdb_stdlog,
++			    _("Missing separate debuginfo for %s\n"), binary);
++        if (debug != NULL)
++	  fprintf_unfiltered (gdb_stdlog, _("Try: %s %s\n"),
++			      "yum --disablerepo='*' --enablerepo='*-debuginfo'"
++			      " install", debug);
++      }
+ }
+ 
+ static char *
+Index: gdb-7.0.50.20100115/gdb/symfile.h
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/symfile.h	2010-01-15 11:12:33.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/symfile.h	2010-01-15 11:45:20.000000000 +0100
+@@ -398,6 +398,7 @@ extern struct build_id *build_id_addr_ge
+ extern char *build_id_to_filename (struct build_id *build_id,
+ 				   char **link_return, int add_debug_suffix);
+ extern void debug_print_missing (const char *binary, const char *debug);
++extern void debug_flush_missing (void);
+ 
+ /* From dwarf2read.c */
+ 
+Index: gdb-7.0.50.20100115/gdb/testsuite/lib/gdb.exp
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/testsuite/lib/gdb.exp	2010-01-15 11:12:33.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/testsuite/lib/gdb.exp	2010-01-15 11:45:20.000000000 +0100
+@@ -1248,7 +1248,7 @@ proc default_gdb_start { } {
+ 	    warning "Couldn't set the width to 0."
+ 	}
+     }
+-    # Turn off the missing warnings as the testsuite does not expect it.
++    # Turn off the missing RPMs warnings as the testsuite does not expect it.
+     send_gdb "set build-id-verbose 0\n"
+     gdb_expect 10 {
+ 	-re "$gdb_prompt $" {
+Index: gdb-7.0.50.20100115/gdb/testsuite/lib/mi-support.exp
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/testsuite/lib/mi-support.exp	2010-01-15 11:12:33.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/testsuite/lib/mi-support.exp	2010-01-15 11:45:20.000000000 +0100
+@@ -221,7 +221,7 @@ proc default_mi_gdb_start { args } {
+ 	    }
+     	}
+     }
+-    # Turn off the missing warnings as the testsuite does not expect it.
++    # Turn off the missing RPMs warnings as the testsuite does not expect it.
+     send_gdb "190-gdb-set build-id-verbose 0\n"
+     gdb_expect 10 {
+ 	-re ".*190-gdb-set build-id-verbose 0\r\n190\\\^done\r\n$mi_gdb_prompt$" {
+Index: gdb-7.0.50.20100115/gdb/tui/tui-interp.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/tui/tui-interp.c	2010-01-01 08:32:07.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/tui/tui-interp.c	2010-01-15 11:45:20.000000000 +0100
+@@ -30,6 +30,7 @@
+ #include "tui/tui.h"
+ #include "tui/tui-io.h"
+ #include "exceptions.h"
++#include "symfile.h"
+ 
+ /* Set to 1 when the TUI mode must be activated when we first start
+    gdb.  */
+@@ -128,6 +129,8 @@ tui_command_loop (void *data)
+       char *a_prompt;
+       char *gdb_prompt = get_prompt ();
+ 
++      debug_flush_missing ();
++
+       /* Tell readline what the prompt to display is and what function
+          it will need to call after a whole line is read. This also
+          displays the first prompt.  */
+Index: gdb-7.0.50.20100115/gdb/aclocal.m4
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/aclocal.m4	2009-11-11 05:42:39.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/aclocal.m4	2010-01-15 11:45:20.000000000 +0100
+@@ -19,6 +19,162 @@ You have another version of autoconf.  I
+ If you have problems, you may need to regenerate the build system entirely.
+ To do so, use the procedure documented by the package, typically `autoreconf'.])])
+ 
++# pkg.m4 - Macros to locate and utilise pkg-config.            -*- Autoconf -*-
++# 
++# Copyright © 2004 Scott James Remnant <scott@netsplit.com>.
++#
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful, but
++# WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++# General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++#
++# As a special exception to the GNU General Public License, if you
++# distribute this file as part of a program that contains a
++# configuration script generated by Autoconf, you may include it under
++# the same distribution terms that you use for the rest of that program.
++
++# PKG_PROG_PKG_CONFIG([MIN-VERSION])
++# ----------------------------------
++AC_DEFUN([PKG_PROG_PKG_CONFIG],
++[m4_pattern_forbid([^_?PKG_[A-Z_]+$])
++m4_pattern_allow([^PKG_CONFIG(_PATH)?$])
++AC_ARG_VAR([PKG_CONFIG], [path to pkg-config utility])dnl
++if test "x$ac_cv_env_PKG_CONFIG_set" != "xset"; then
++	AC_PATH_TOOL([PKG_CONFIG], [pkg-config])
++fi
++if test -n "$PKG_CONFIG"; then
++	_pkg_min_version=m4_default([$1], [0.9.0])
++	AC_MSG_CHECKING([pkg-config is at least version $_pkg_min_version])
++	if $PKG_CONFIG --atleast-pkgconfig-version $_pkg_min_version; then
++		AC_MSG_RESULT([yes])
++	else
++		AC_MSG_RESULT([no])
++		PKG_CONFIG=""
++	fi
++		
++fi[]dnl
++])# PKG_PROG_PKG_CONFIG
++
++# PKG_CHECK_EXISTS(MODULES, [ACTION-IF-FOUND], [ACTION-IF-NOT-FOUND])
++#
++# Check to see whether a particular set of modules exists.  Similar
++# to PKG_CHECK_MODULES(), but does not set variables or print errors.
++#
++#
++# Similar to PKG_CHECK_MODULES, make sure that the first instance of
++# this or PKG_CHECK_MODULES is called, or make sure to call
++# PKG_CHECK_EXISTS manually
++# --------------------------------------------------------------
++AC_DEFUN([PKG_CHECK_EXISTS],
++[AC_REQUIRE([PKG_PROG_PKG_CONFIG])dnl
++if test -n "$PKG_CONFIG" && \
++    AC_RUN_LOG([$PKG_CONFIG --exists --print-errors "$1"]); then
++  m4_ifval([$2], [$2], [:])
++m4_ifvaln([$3], [else
++  $3])dnl
++fi])
++
++
++# _PKG_CONFIG([VARIABLE], [COMMAND], [MODULES])
++# ---------------------------------------------
++m4_define([_PKG_CONFIG],
++[if test -n "$$1"; then
++    pkg_cv_[]$1="$$1"
++ elif test -n "$PKG_CONFIG"; then
++    PKG_CHECK_EXISTS([$3],
++                     [pkg_cv_[]$1=`$PKG_CONFIG --[]$2 "$3" 2>/dev/null`],
++		     [pkg_failed=yes])
++ else
++    pkg_failed=untried
++fi[]dnl
++])# _PKG_CONFIG
++
++# _PKG_SHORT_ERRORS_SUPPORTED
++# -----------------------------
++AC_DEFUN([_PKG_SHORT_ERRORS_SUPPORTED],
++[AC_REQUIRE([PKG_PROG_PKG_CONFIG])
++if $PKG_CONFIG --atleast-pkgconfig-version 0.20; then
++        _pkg_short_errors_supported=yes
++else
++        _pkg_short_errors_supported=no
++fi[]dnl
++])# _PKG_SHORT_ERRORS_SUPPORTED
++
++
++# PKG_CHECK_MODULES(VARIABLE-PREFIX, MODULES, [ACTION-IF-FOUND],
++# [ACTION-IF-NOT-FOUND])
++#
++#
++# Note that if there is a possibility the first call to
++# PKG_CHECK_MODULES might not happen, you should be sure to include an
++# explicit call to PKG_PROG_PKG_CONFIG in your configure.ac
++#
++#
++# --------------------------------------------------------------
++AC_DEFUN([PKG_CHECK_MODULES],
++[AC_REQUIRE([PKG_PROG_PKG_CONFIG])dnl
++AC_ARG_VAR([$1][_CFLAGS], [C compiler flags for $1, overriding pkg-config])dnl
++AC_ARG_VAR([$1][_LIBS], [linker flags for $1, overriding pkg-config])dnl
++
++pkg_failed=no
++AC_MSG_CHECKING([for $1])
++
++_PKG_CONFIG([$1][_CFLAGS], [cflags], [$2])
++_PKG_CONFIG([$1][_LIBS], [libs], [$2])
++
++m4_define([_PKG_TEXT], [Alternatively, you may set the environment variables $1[]_CFLAGS
++and $1[]_LIBS to avoid the need to call pkg-config.
++See the pkg-config man page for more details.])
++
++if test $pkg_failed = yes; then
++        _PKG_SHORT_ERRORS_SUPPORTED
++        if test $_pkg_short_errors_supported = yes; then
++	        $1[]_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors "$2" 2>&1`
++        else 
++	        $1[]_PKG_ERRORS=`$PKG_CONFIG --print-errors "$2" 2>&1`
++        fi
++	# Put the nasty error message in config.log where it belongs
++	echo "$$1[]_PKG_ERRORS" >&AS_MESSAGE_LOG_FD
++
++	ifelse([$4], , [AC_MSG_ERROR(dnl
++[Package requirements ($2) were not met:
++
++$$1_PKG_ERRORS
++
++Consider adjusting the PKG_CONFIG_PATH environment variable if you
++installed software in a non-standard prefix.
++
++_PKG_TEXT
++])],
++		[AC_MSG_RESULT([no])
++                $4])
++elif test $pkg_failed = untried; then
++	ifelse([$4], , [AC_MSG_FAILURE(dnl
++[The pkg-config script could not be found or is too old.  Make sure it
++is in your PATH or set the PKG_CONFIG environment variable to the full
++path to pkg-config.
++
++_PKG_TEXT
++
++To get pkg-config, see <http://pkg-config.freedesktop.org/>.])],
++		[$4])
++else
++	$1[]_CFLAGS=$pkg_cv_[]$1[]_CFLAGS
++	$1[]_LIBS=$pkg_cv_[]$1[]_LIBS
++        AC_MSG_RESULT([yes])
++	ifelse([$3], , :, [$3])
++fi[]dnl
++])# PKG_CHECK_MODULES
++
+ # Copyright (C) 2002, 2003, 2005, 2006, 2007, 2008  Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+Index: gdb-7.0.50.20100115/gdb/config.in
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/config.in	2010-01-15 03:22:31.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/config.in	2010-01-15 11:45:20.000000000 +0100
+@@ -42,6 +42,9 @@
+ /* Define to BFD's default target vector. */
+ #undef DEFAULT_BFD_VEC
+ 
++/* librpm version specific library name to dlopen. */
++#undef DLOPEN_LIBRPM
++
+ /* Define to 1 if translation of program messages to the user's native
+    language is requested. */
+ #undef ENABLE_NLS
+@@ -221,6 +224,9 @@
+ /* Define if Python 2.6 is being used. */
+ #undef HAVE_LIBPYTHON2_6
+ 
++/* Define if librpm library is being used. */
++#undef HAVE_LIBRPM
++
+ /* Define if libunwind library is being used. */
+ #undef HAVE_LIBUNWIND
+ 
+Index: gdb-7.0.50.20100115/gdb/configure
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/configure	2010-01-15 03:22:31.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/configure	2010-01-15 11:45:20.000000000 +0100
+@@ -676,6 +676,9 @@ REPORT_BUGS_TO
+ PKGVERSION
+ TARGET_OBS
+ subdirs
++RPM_LIBS
++RPM_CFLAGS
++PKG_CONFIG
+ pythondir
+ GDB_DATADIR_PATH
+ GDB_DATADIR
+@@ -888,6 +891,7 @@ with_separate_debug_dir
+ with_gdb_datadir
+ with_relocated_sources
+ with_pythondir
++with_rpm
+ enable_targets
+ enable_64_bit_bfd
+ enable_gdbcli
+@@ -928,6 +932,9 @@ LDFLAGS
+ LIBS
+ CPPFLAGS
+ CPP
++PKG_CONFIG
++RPM_CFLAGS
++RPM_LIBS
+ YACC
+ YFLAGS
+ XMKMF'
+@@ -1593,6 +1600,8 @@ Optional Packages:
+                           [DATADIR/gdb]
+   --with-pythondir        install Python data files in this path
+                           [DATADIR/gdb/python]
++  --with-rpm              query rpm database for missing debuginfos (yes/no,
++                          def. auto=librpm.so)
+   --with-libunwind        use libunwind frame unwinding support
+   --with-curses           use the curses library instead of the termcap
+                           library
+@@ -1627,6 +1636,9 @@ Some influential environment variables:
+   CPPFLAGS    C/C++/Objective C preprocessor flags, e.g. -I<include dir> if
+               you have headers in a nonstandard directory <include dir>
+   CPP         C preprocessor
++  PKG_CONFIG  path to pkg-config utility
++  RPM_CFLAGS  C compiler flags for RPM, overriding pkg-config
++  RPM_LIBS    linker flags for RPM, overriding pkg-config
+   YACC        The `Yet Another C Compiler' implementation to use. Defaults to
+               the first program found out of: `bison -y', `byacc', `yacc'.
+   YFLAGS      The list of arguments that will be passed by default to $YACC.
+@@ -6760,6 +6772,486 @@ else
+ fi
+ 
+ 
++# Integration with rpm library to support missing debuginfo suggestions.
++# --without-rpm: Disable any rpm support.
++# --with-rpm=libname.so: Try to dynamically open `libname.so' during runtime.
++#   Even with runtime missing `libname.so' GDB will still other run correctly.
++#   Missing `libname.so' during ./configure will abort the configuration.
++# --with-rpm=librpm.so: Like `--with-rpm=libname.so' but try to find specific
++#   minor version first such as `librpm-4.6.so' as minor version differences
++#   mean API+ABI incompatibility.  If the specific match versioned library name
++#   could not be found still open dynamically at least `librpm.so'.
++# --with-rpm: Like `--with-rpm=librpm.so' but if any of its detection fails try
++#   to find librpm for compilation-time linking by pkg-config.  GDB binary will
++#   be probably linked with the version specific library (as `librpm-4.6.so').
++#   Failure to find librpm by pkg-config will abort the configuration.
++# (default) --with-rpm=auto: Like `--with-rpm=librpm.so' but if even pkg-config
++#   cannot find librpm use to the rpmless compilation (like `--without-rpm').
++
++
++# Check whether --with-rpm was given.
++if test "${with_rpm+set}" = set; then :
++  withval=$with_rpm;
++else
++  with_rpm="auto"
++fi
++
++
++
++
++if test "x$with_rpm" != "xno"; then
++  if test "x$with_rpm" = "xyes"; then
++    LIBRPM="librpm.so"
++    RPM_REQUIRE=true
++    DLOPEN_REQUIRE=false
++  elif test "x$with_rpm" = "xauto"; then
++    LIBRPM="librpm.so"
++    RPM_REQUIRE=false
++    DLOPEN_REQUIRE=false
++  else
++    LIBRPM="$with_rpm"
++    RPM_REQUIRE=true
++    DLOPEN_REQUIRE=true
++  fi
++  LIBRPM_STRING='"'"$LIBRPM"'"'
++
++  { $as_echo "$as_me:${as_lineno-$LINENO}: checking specific librpm version" >&5
++$as_echo_n "checking specific librpm version... " >&6; }
++  HAVE_DLOPEN_LIBRPM=false
++  save_LIBS="$LIBS"
++  LIBS="$LIBS -ldl"
++  if test "$cross_compiling" = yes; then :
++  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
++$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
++as_fn_error "cannot run test program while cross compiling
++See \`config.log' for more details." "$LINENO" 5; }
++else
++  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++#include <rpm/rpmlib.h>
++#include <dlfcn.h>
++#include <errno.h>
++
++int
++main ()
++{
++
++    void *h;
++    const char *const *rpmverp;
++    FILE *f;
++
++    f = fopen ("conftest.out", "w");
++    if (!f)
++      {
++	fprintf (stderr, "Cannot write \"%s\": %s\n", "conftest.out",
++		 strerror (errno));
++	return 1;
++      }
++    h = dlopen ($LIBRPM_STRING, RTLD_LAZY);
++    if (!h)
++      {
++	fprintf (stderr, "dlopen (\"%s\"): %s\n", $LIBRPM_STRING, dlerror ());
++	return 1;
++      }
++    rpmverp = dlsym (h, "RPMVERSION");
++    if (!rpmverp)
++      {
++	fprintf (stderr, "dlsym (\"RPMVERSION\"): %s\n", dlerror ());
++	return 1;
++      }
++    fprintf (stderr, "RPMVERSION is: \"");
++    fprintf (stderr, "%s\"\n", *rpmverp);
++
++    /* Try to find the specific librpm version only for "librpm.so" as we do
++       not know how to assemble the version string otherwise.  */
++
++    if (strcmp ("librpm.so", $LIBRPM_STRING) != 0)
++      {
++	fprintf (f, "%s\n", $LIBRPM_STRING);
++	return 0;
++      }
++    else
++      {
++	char *h2_name;
++	void *h2;
++	int major, minor;
++
++	if (sscanf (*rpmverp, "%d.%d", &major, &minor) != 2)
++	  {
++	    fprintf (stderr, "Unable to parse RPMVERSION.\n");
++	    fprintf (f, "%s\n", $LIBRPM_STRING);
++	    return 0;
++	  }
++	/* Avoid the square brackets by malloc.  */
++	h2_name = malloc (64);
++	sprintf (h2_name, "librpm-%d.%d.so", major, minor);
++	h2 = dlopen (h2_name, RTLD_LAZY);
++	if (!h2)
++	  {
++	    fprintf (stderr, "dlopen (\"%s\"): %s\n", h2_name, dlerror ());
++	    fprintf (f, "%s\n", $LIBRPM_STRING);
++	    return 0;
++	  }
++	if (h2 != h)
++	  {
++	    fprintf (stderr, "dlopen of \"%s\" and \"%s\" are different.\n",
++		     $LIBRPM_STRING, h2_name);
++	    fprintf (f, "%s\n", $LIBRPM_STRING);
++	    return 0;
++	  }
++	/* Found the valid .so name with a specific version.  */
++	fprintf (f, "%s\n", h2_name);
++	return 0;
++      }
++
++  ;
++  return 0;
++}
++_ACEOF
++if ac_fn_c_try_run "$LINENO"; then :
++
++    DLOPEN_LIBRPM="`cat conftest.out`"
++    if test "x$DLOPEN_LIBRPM" != "x"; then
++      HAVE_DLOPEN_LIBRPM=true
++      { $as_echo "$as_me:${as_lineno-$LINENO}: result: $DLOPEN_LIBRPM" >&5
++$as_echo "$DLOPEN_LIBRPM" >&6; }
++    fi
++
++fi
++rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
++  conftest.$ac_objext conftest.beam conftest.$ac_ext
++fi
++
++  rm -f conftest.out
++
++
++
++  if $HAVE_DLOPEN_LIBRPM; then
++
++    { $as_echo "$as_me:${as_lineno-$LINENO}: checking rpm library API compatibility" >&5
++$as_echo_n "checking rpm library API compatibility... " >&6; }
++    # The compilation requires -Werror to verify anything.
++    save_CFLAGS="$CFLAGS"
++    CFLAGS="$CFLAGS -Werror"
++    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++/* Duplicate here the declarations to verify they match "elfread.c".  */
++#include <rpm/rpmlib.h>
++#include <rpm/rpmts.h>
++#include <rpm/rpmdb.h>
++#include <rpm/header.h>
++extern char * headerFormat(Header h, const char * fmt, errmsg_t * errmsg);
++extern int rpmReadConfigFiles(const char * file, const char * target);
++extern rpmdbMatchIterator rpmdbFreeIterator(rpmdbMatchIterator mi);
++extern Header rpmdbNextIterator(rpmdbMatchIterator mi);
++extern rpmts rpmtsCreate(void);
++extern rpmts rpmtsFree(rpmts ts);
++extern rpmdbMatchIterator rpmtsInitIterator(const rpmts ts, rpmTag rpmtag,
++					    const void * keyp, size_t keylen);
++
++int
++main ()
++{
++
++  ;
++  return 0;
++}
++_ACEOF
++if ac_fn_c_try_compile "$LINENO"; then :
++
++      LIBRPM_COMPAT=true
++      { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
++$as_echo "yes" >&6; }
++
++else
++
++      LIBRPM_COMPAT=false
++      { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++
++fi
++rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
++    CFLAGS="$save_CFLAGS"
++
++    if ! $LIBRPM_COMPAT; then
++      HAVE_DLOPEN_LIBRPM=false
++    fi
++  fi
++
++  if $HAVE_DLOPEN_LIBRPM; then
++    DLOPEN_LIBRPM_STRING='"'"$DLOPEN_LIBRPM"'"'
++
++cat >>confdefs.h <<_ACEOF
++#define DLOPEN_LIBRPM $DLOPEN_LIBRPM_STRING
++_ACEOF
++
++
++$as_echo "#define HAVE_LIBRPM 1" >>confdefs.h
++
++  else
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++    LIBS="$save_LIBS"
++    if $DLOPEN_REQUIRE; then
++      as_fn_error "Specific name $LIBRPM was requested but it could not be opened." "$LINENO" 5
++    fi
++
++
++if test "x$ac_cv_env_PKG_CONFIG_set" != "xset"; then
++	if test -n "$ac_tool_prefix"; then
++  # Extract the first word of "${ac_tool_prefix}pkg-config", so it can be a program name with args.
++set dummy ${ac_tool_prefix}pkg-config; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if test "${ac_cv_path_PKG_CONFIG+set}" = set; then :
++  $as_echo_n "(cached) " >&6
++else
++  case $PKG_CONFIG in
++  [\\/]* | ?:[\\/]*)
++  ac_cv_path_PKG_CONFIG="$PKG_CONFIG" # Let the user override the test with a path.
++  ;;
++  *)
++  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
++    ac_cv_path_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++  ;;
++esac
++fi
++PKG_CONFIG=$ac_cv_path_PKG_CONFIG
++if test -n "$PKG_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PKG_CONFIG" >&5
++$as_echo "$PKG_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++
++fi
++if test -z "$ac_cv_path_PKG_CONFIG"; then
++  ac_pt_PKG_CONFIG=$PKG_CONFIG
++  # Extract the first word of "pkg-config", so it can be a program name with args.
++set dummy pkg-config; ac_word=$2
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
++$as_echo_n "checking for $ac_word... " >&6; }
++if test "${ac_cv_path_ac_pt_PKG_CONFIG+set}" = set; then :
++  $as_echo_n "(cached) " >&6
++else
++  case $ac_pt_PKG_CONFIG in
++  [\\/]* | ?:[\\/]*)
++  ac_cv_path_ac_pt_PKG_CONFIG="$ac_pt_PKG_CONFIG" # Let the user override the test with a path.
++  ;;
++  *)
++  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
++for as_dir in $PATH
++do
++  IFS=$as_save_IFS
++  test -z "$as_dir" && as_dir=.
++    for ac_exec_ext in '' $ac_executable_extensions; do
++  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
++    ac_cv_path_ac_pt_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
++    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
++    break 2
++  fi
++done
++  done
++IFS=$as_save_IFS
++
++  ;;
++esac
++fi
++ac_pt_PKG_CONFIG=$ac_cv_path_ac_pt_PKG_CONFIG
++if test -n "$ac_pt_PKG_CONFIG"; then
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_pt_PKG_CONFIG" >&5
++$as_echo "$ac_pt_PKG_CONFIG" >&6; }
++else
++  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++fi
++
++  if test "x$ac_pt_PKG_CONFIG" = x; then
++    PKG_CONFIG=""
++  else
++    case $cross_compiling:$ac_tool_warned in
++yes:)
++{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
++$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
++ac_tool_warned=yes ;;
++esac
++    PKG_CONFIG=$ac_pt_PKG_CONFIG
++  fi
++else
++  PKG_CONFIG="$ac_cv_path_PKG_CONFIG"
++fi
++
++fi
++if test -n "$PKG_CONFIG"; then
++	_pkg_min_version=0.9.0
++	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking pkg-config is at least version $_pkg_min_version" >&5
++$as_echo_n "checking pkg-config is at least version $_pkg_min_version... " >&6; }
++	if $PKG_CONFIG --atleast-pkgconfig-version $_pkg_min_version; then
++		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
++$as_echo "yes" >&6; }
++	else
++		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++		PKG_CONFIG=""
++	fi
++
++fi
++
++pkg_failed=no
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for RPM" >&5
++$as_echo_n "checking for RPM... " >&6; }
++
++if test -n "$RPM_CFLAGS"; then
++    pkg_cv_RPM_CFLAGS="$RPM_CFLAGS"
++ elif test -n "$PKG_CONFIG"; then
++    if test -n "$PKG_CONFIG" && \
++    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"rpm\""; } >&5
++  ($PKG_CONFIG --exists --print-errors "rpm") 2>&5
++  ac_status=$?
++  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; then
++  pkg_cv_RPM_CFLAGS=`$PKG_CONFIG --cflags "rpm" 2>/dev/null`
++else
++  pkg_failed=yes
++fi
++ else
++    pkg_failed=untried
++fi
++if test -n "$RPM_LIBS"; then
++    pkg_cv_RPM_LIBS="$RPM_LIBS"
++ elif test -n "$PKG_CONFIG"; then
++    if test -n "$PKG_CONFIG" && \
++    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"rpm\""; } >&5
++  ($PKG_CONFIG --exists --print-errors "rpm") 2>&5
++  ac_status=$?
++  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; then
++  pkg_cv_RPM_LIBS=`$PKG_CONFIG --libs "rpm" 2>/dev/null`
++else
++  pkg_failed=yes
++fi
++ else
++    pkg_failed=untried
++fi
++
++
++
++if test $pkg_failed = yes; then
++
++if $PKG_CONFIG --atleast-pkgconfig-version 0.20; then
++        _pkg_short_errors_supported=yes
++else
++        _pkg_short_errors_supported=no
++fi
++        if test $_pkg_short_errors_supported = yes; then
++	        RPM_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors "rpm" 2>&1`
++        else
++	        RPM_PKG_ERRORS=`$PKG_CONFIG --print-errors "rpm" 2>&1`
++        fi
++	# Put the nasty error message in config.log where it belongs
++	echo "$RPM_PKG_ERRORS" >&5
++
++	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++                HAVE_LIBRPM=false
++elif test $pkg_failed = untried; then
++	HAVE_LIBRPM=false
++else
++	RPM_CFLAGS=$pkg_cv_RPM_CFLAGS
++	RPM_LIBS=$pkg_cv_RPM_LIBS
++        { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
++$as_echo "yes" >&6; }
++	HAVE_LIBRPM=true
++fi
++
++    if $HAVE_LIBRPM; then
++
++    { $as_echo "$as_me:${as_lineno-$LINENO}: checking rpm library API compatibility" >&5
++$as_echo_n "checking rpm library API compatibility... " >&6; }
++    # The compilation requires -Werror to verify anything.
++    save_CFLAGS="$CFLAGS"
++    CFLAGS="$CFLAGS -Werror"
++    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++/* Duplicate here the declarations to verify they match "elfread.c".  */
++#include <rpm/rpmlib.h>
++#include <rpm/rpmts.h>
++#include <rpm/rpmdb.h>
++#include <rpm/header.h>
++extern char * headerFormat(Header h, const char * fmt, errmsg_t * errmsg);
++extern int rpmReadConfigFiles(const char * file, const char * target);
++extern rpmdbMatchIterator rpmdbFreeIterator(rpmdbMatchIterator mi);
++extern Header rpmdbNextIterator(rpmdbMatchIterator mi);
++extern rpmts rpmtsCreate(void);
++extern rpmts rpmtsFree(rpmts ts);
++extern rpmdbMatchIterator rpmtsInitIterator(const rpmts ts, rpmTag rpmtag,
++					    const void * keyp, size_t keylen);
++
++int
++main ()
++{
++
++  ;
++  return 0;
++}
++_ACEOF
++if ac_fn_c_try_compile "$LINENO"; then :
++
++      LIBRPM_COMPAT=true
++      { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
++$as_echo "yes" >&6; }
++
++else
++
++      LIBRPM_COMPAT=false
++      { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++
++fi
++rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
++    CFLAGS="$save_CFLAGS"
++
++      if ! $LIBRPM_COMPAT; then
++	HAVE_LIBRPM=false
++	RPM_PKG_ERRORS="Found $LIBRPM API is incompatibile with this GDB"
++      fi
++    fi
++
++    if $HAVE_LIBRPM; then
++
++$as_echo "#define HAVE_LIBRPM 1" >>confdefs.h
++
++      CFLAGS="$CFLAGS $RPM_CFLAGS"
++      LIBS="$LIBS $RPM_LIBS"
++    else
++      if $RPM_REQUIRE; then
++	as_fn_error "$RPM_PKG_ERRORS" "$LINENO" 5
++      else
++	{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: $RPM_PKG_ERRORS" >&5
++$as_echo "$as_me: WARNING: $RPM_PKG_ERRORS" >&2;}
++      fi
++    fi
++  fi
++fi
++
+ 
+ 
+ 
+@@ -10043,265 +10535,25 @@ $as_echo "#define STDC_HEADERS 1" >>conf
+ 
+ fi
+ 
+-
+-
+ for ac_header in sys/user32.h sys/procfs32.h
+-do
+-as_ac_Header=`echo "ac_cv_header_$ac_header" | $as_tr_sh`
+-if eval "test \"\${$as_ac_Header+set}\" = set"; then
+-  echo "$as_me:$LINENO: checking for $ac_header" >&5
+-echo $ECHO_N "checking for $ac_header... $ECHO_C" >&6
+-if eval "test \"\${$as_ac_Header+set}\" = set"; then
+-  echo $ECHO_N "(cached) $ECHO_C" >&6
+-fi
+-echo "$as_me:$LINENO: result: `eval echo '${'$as_ac_Header'}'`" >&5
+-echo "${ECHO_T}`eval echo '${'$as_ac_Header'}'`" >&6
+-else
+-  # Is the header compilable?
+-echo "$as_me:$LINENO: checking $ac_header usability" >&5
+-echo $ECHO_N "checking $ac_header usability... $ECHO_C" >&6
+-cat >conftest.$ac_ext <<_ACEOF
+-/* confdefs.h.  */
+-_ACEOF
+-cat confdefs.h >>conftest.$ac_ext
+-cat >>conftest.$ac_ext <<_ACEOF
+-/* end confdefs.h.  */
+-$ac_includes_default
+-#include <$ac_header>
+-_ACEOF
+-rm -f conftest.$ac_objext
+-if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+-  (eval $ac_compile) 2>conftest.er1
+-  ac_status=$?
+-  grep -v '^ *+' conftest.er1 >conftest.err
+-  rm -f conftest.er1
+-  cat conftest.err >&5
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); } &&
+-	 { ac_try='test -z "$ac_c_werror_flag"
+-			 || test ! -s conftest.err'
+-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+-  (eval $ac_try) 2>&5
+-  ac_status=$?
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); }; } &&
+-	 { ac_try='test -s conftest.$ac_objext'
+-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+-  (eval $ac_try) 2>&5
+-  ac_status=$?
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); }; }; then
+-  ac_header_compiler=yes
+-else
+-  echo "$as_me: failed program was:" >&5
+-sed 's/^/| /' conftest.$ac_ext >&5
+-
+-ac_header_compiler=no
+-fi
+-rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
+-echo "$as_me:$LINENO: result: $ac_header_compiler" >&5
+-echo "${ECHO_T}$ac_header_compiler" >&6
+-
+-# Is the header present?
+-echo "$as_me:$LINENO: checking $ac_header presence" >&5
+-echo $ECHO_N "checking $ac_header presence... $ECHO_C" >&6
+-cat >conftest.$ac_ext <<_ACEOF
+-/* confdefs.h.  */
+-_ACEOF
+-cat confdefs.h >>conftest.$ac_ext
+-cat >>conftest.$ac_ext <<_ACEOF
+-/* end confdefs.h.  */
+-#include <$ac_header>
+-_ACEOF
+-if { (eval echo "$as_me:$LINENO: \"$ac_cpp conftest.$ac_ext\"") >&5
+-  (eval $ac_cpp conftest.$ac_ext) 2>conftest.er1
+-  ac_status=$?
+-  grep -v '^ *+' conftest.er1 >conftest.err
+-  rm -f conftest.er1
+-  cat conftest.err >&5
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); } >/dev/null; then
+-  if test -s conftest.err; then
+-    ac_cpp_err=$ac_c_preproc_warn_flag
+-    ac_cpp_err=$ac_cpp_err$ac_c_werror_flag
+-  else
+-    ac_cpp_err=
+-  fi
+-else
+-  ac_cpp_err=yes
+-fi
+-if test -z "$ac_cpp_err"; then
+-  ac_header_preproc=yes
+-else
+-  echo "$as_me: failed program was:" >&5
+-sed 's/^/| /' conftest.$ac_ext >&5
+-
+-  ac_header_preproc=no
+-fi
+-rm -f conftest.err conftest.$ac_ext
+-echo "$as_me:$LINENO: result: $ac_header_preproc" >&5
+-echo "${ECHO_T}$ac_header_preproc" >&6
+-
+-# So?  What about this header?
+-case $ac_header_compiler:$ac_header_preproc:$ac_c_preproc_warn_flag in
+-  yes:no: )
+-    { echo "$as_me:$LINENO: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&5
+-echo "$as_me: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&2;}
+-    { echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the compiler's result" >&5
+-echo "$as_me: WARNING: $ac_header: proceeding with the compiler's result" >&2;}
+-    ac_header_preproc=yes
+-    ;;
+-  no:yes:* )
+-    { echo "$as_me:$LINENO: WARNING: $ac_header: present but cannot be compiled" >&5
+-echo "$as_me: WARNING: $ac_header: present but cannot be compiled" >&2;}
+-    { echo "$as_me:$LINENO: WARNING: $ac_header:     check for missing prerequisite headers?" >&5
+-echo "$as_me: WARNING: $ac_header:     check for missing prerequisite headers?" >&2;}
+-    { echo "$as_me:$LINENO: WARNING: $ac_header: see the Autoconf documentation" >&5
+-echo "$as_me: WARNING: $ac_header: see the Autoconf documentation" >&2;}
+-    { echo "$as_me:$LINENO: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&5
+-echo "$as_me: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&2;}
+-    { echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the preprocessor's result" >&5
+-echo "$as_me: WARNING: $ac_header: proceeding with the preprocessor's result" >&2;}
+-    { echo "$as_me:$LINENO: WARNING: $ac_header: in the future, the compiler will take precedence" >&5
+-echo "$as_me: WARNING: $ac_header: in the future, the compiler will take precedence" >&2;}
+-    (
+-      cat <<\_ASBOX
+-## ------------------------------------------ ##
+-## Report this to the AC_PACKAGE_NAME lists.  ##
+-## ------------------------------------------ ##
+-_ASBOX
+-    ) |
+-      sed "s/^/$as_me: WARNING:     /" >&2
+-    ;;
+-esac
+-echo "$as_me:$LINENO: checking for $ac_header" >&5
+-echo $ECHO_N "checking for $ac_header... $ECHO_C" >&6
+-if eval "test \"\${$as_ac_Header+set}\" = set"; then
+-  echo $ECHO_N "(cached) $ECHO_C" >&6
+-else
+-  eval "$as_ac_Header=\$ac_header_preproc"
+-fi
+-echo "$as_me:$LINENO: result: `eval echo '${'$as_ac_Header'}'`" >&5
+-echo "${ECHO_T}`eval echo '${'$as_ac_Header'}'`" >&6
+-
+-fi
+-if test `eval echo '${'$as_ac_Header'}'` = yes; then
++do :
++  as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
++ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
++eval as_val=\$$as_ac_Header
++   if test "x$as_val" = x""yes; then :
+   cat >>confdefs.h <<_ACEOF
+-#define `echo "HAVE_$ac_header" | $as_tr_cpp` 1
++#define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
+ _ACEOF
+ 
+ fi
+ 
+ done
+ 
+-echo "$as_me:$LINENO: checking for struct elf_prstatus32.pr_reg" >&5
+-echo $ECHO_N "checking for struct elf_prstatus32.pr_reg... $ECHO_C" >&6
+-if test "${ac_cv_member_struct_elf_prstatus32_pr_reg+set}" = set; then
+-  echo $ECHO_N "(cached) $ECHO_C" >&6
+-else
+-  cat >conftest.$ac_ext <<_ACEOF
+-/* confdefs.h.  */
+-_ACEOF
+-cat confdefs.h >>conftest.$ac_ext
+-cat >>conftest.$ac_ext <<_ACEOF
+-/* end confdefs.h.  */
+-#include <sys/procfs.h>
+-
+-int
+-main ()
+-{
+-static struct elf_prstatus32 ac_aggr;
+-if (ac_aggr.pr_reg)
+-return 0;
+-  ;
+-  return 0;
+-}
+-_ACEOF
+-rm -f conftest.$ac_objext
+-if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+-  (eval $ac_compile) 2>conftest.er1
+-  ac_status=$?
+-  grep -v '^ *+' conftest.er1 >conftest.err
+-  rm -f conftest.er1
+-  cat conftest.err >&5
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); } &&
+-	 { ac_try='test -z "$ac_c_werror_flag"
+-			 || test ! -s conftest.err'
+-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+-  (eval $ac_try) 2>&5
+-  ac_status=$?
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); }; } &&
+-	 { ac_try='test -s conftest.$ac_objext'
+-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+-  (eval $ac_try) 2>&5
+-  ac_status=$?
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); }; }; then
+-  ac_cv_member_struct_elf_prstatus32_pr_reg=yes
+-else
+-  echo "$as_me: failed program was:" >&5
+-sed 's/^/| /' conftest.$ac_ext >&5
+-
+-cat >conftest.$ac_ext <<_ACEOF
+-/* confdefs.h.  */
+-_ACEOF
+-cat confdefs.h >>conftest.$ac_ext
+-cat >>conftest.$ac_ext <<_ACEOF
+-/* end confdefs.h.  */
+-#include <sys/procfs.h>
+-
+-int
+-main ()
+-{
+-static struct elf_prstatus32 ac_aggr;
+-if (sizeof ac_aggr.pr_reg)
+-return 0;
+-  ;
+-  return 0;
+-}
+-_ACEOF
+-rm -f conftest.$ac_objext
+-if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+-  (eval $ac_compile) 2>conftest.er1
+-  ac_status=$?
+-  grep -v '^ *+' conftest.er1 >conftest.err
+-  rm -f conftest.er1
+-  cat conftest.err >&5
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); } &&
+-	 { ac_try='test -z "$ac_c_werror_flag"
+-			 || test ! -s conftest.err'
+-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+-  (eval $ac_try) 2>&5
+-  ac_status=$?
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); }; } &&
+-	 { ac_try='test -s conftest.$ac_objext'
+-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+-  (eval $ac_try) 2>&5
+-  ac_status=$?
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); }; }; then
+-  ac_cv_member_struct_elf_prstatus32_pr_reg=yes
+-else
+-  echo "$as_me: failed program was:" >&5
+-sed 's/^/| /' conftest.$ac_ext >&5
+-
+-ac_cv_member_struct_elf_prstatus32_pr_reg=no
+-fi
+-rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
+-fi
+-rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
+-fi
+-echo "$as_me:$LINENO: result: $ac_cv_member_struct_elf_prstatus32_pr_reg" >&5
+-echo "${ECHO_T}$ac_cv_member_struct_elf_prstatus32_pr_reg" >&6
+-if test $ac_cv_member_struct_elf_prstatus32_pr_reg = yes; then
++ac_fn_c_check_member "$LINENO" "struct elf_prstatus32" "pr_reg" "ac_cv_member_struct_elf_prstatus32_pr_reg" "#include <sys/procfs.h>
++"
++if test "x$ac_cv_member_struct_elf_prstatus32_pr_reg" = x""yes; then :
+ 
+-cat >>confdefs.h <<\_ACEOF
+-#define HAVE_ELF_PRSTATUS32 1
+-_ACEOF
++$as_echo "#define HAVE_ELF_PRSTATUS32 1" >>confdefs.h
+ 
+ fi
+ 
+Index: gdb-7.0.50.20100115/gdb/configure.ac
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/configure.ac	2010-01-15 03:22:31.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/configure.ac	2010-01-15 11:45:20.000000000 +0100
+@@ -152,6 +152,199 @@ else
+ fi
+ AC_SUBST(pythondir)
+ 
++# Integration with rpm library to support missing debuginfo suggestions.
++# --without-rpm: Disable any rpm support.
++# --with-rpm=libname.so: Try to dynamically open `libname.so' during runtime.
++#   Even with runtime missing `libname.so' GDB will still other run correctly.
++#   Missing `libname.so' during ./configure will abort the configuration.
++# --with-rpm=librpm.so: Like `--with-rpm=libname.so' but try to find specific
++#   minor version first such as `librpm-4.6.so' as minor version differences
++#   mean API+ABI incompatibility.  If the specific match versioned library name
++#   could not be found still open dynamically at least `librpm.so'.
++# --with-rpm: Like `--with-rpm=librpm.so' but if any of its detection fails try
++#   to find librpm for compilation-time linking by pkg-config.  GDB binary will
++#   be probably linked with the version specific library (as `librpm-4.6.so').
++#   Failure to find librpm by pkg-config will abort the configuration.
++# (default) --with-rpm=auto: Like `--with-rpm=librpm.so' but if even pkg-config
++#   cannot find librpm use to the rpmless compilation (like `--without-rpm').
++
++AC_ARG_WITH([rpm],
++  [AS_HELP_STRING([--with-rpm],
++                  [query rpm database for missing debuginfos (yes/no, def. auto=librpm.so)])], [], [with_rpm="auto"])
++
++m4_pattern_allow([^AC_MSG_ERROR$])
++m4_pattern_allow([^AC_MSG_WARN$])
++if test "x$with_rpm" != "xno"; then
++  if test "x$with_rpm" = "xyes"; then
++    LIBRPM="librpm.so"
++    RPM_REQUIRE=true
++    DLOPEN_REQUIRE=false
++  elif test "x$with_rpm" = "xauto"; then
++    LIBRPM="librpm.so"
++    RPM_REQUIRE=false
++    DLOPEN_REQUIRE=false
++  else
++    LIBRPM="$with_rpm"
++    RPM_REQUIRE=true
++    DLOPEN_REQUIRE=true
++  fi
++  LIBRPM_STRING='"'"$LIBRPM"'"'
++
++  AC_MSG_CHECKING([specific librpm version])
++  HAVE_DLOPEN_LIBRPM=false
++  save_LIBS="$LIBS"
++  LIBS="$LIBS -ldl"
++  AC_RUN_IFELSE(AC_LANG_PROGRAM([[
++#include <rpm/rpmlib.h>
++#include <dlfcn.h>
++#include <errno.h>
++  ]], [[
++    void *h;
++    const char *const *rpmverp;
++    FILE *f;
++
++    f = fopen ("conftest.out", "w");
++    if (!f)
++      {
++	fprintf (stderr, "Cannot write \"%s\": %s\n", "conftest.out",
++		 strerror (errno));
++	return 1;
++      }
++    h = dlopen ($LIBRPM_STRING, RTLD_LAZY);
++    if (!h)
++      {
++	fprintf (stderr, "dlopen (\"%s\"): %s\n", $LIBRPM_STRING, dlerror ());
++	return 1;
++      }
++    rpmverp = dlsym (h, "RPMVERSION");
++    if (!rpmverp)
++      {
++	fprintf (stderr, "dlsym (\"RPMVERSION\"): %s\n", dlerror ());
++	return 1;
++      }
++    fprintf (stderr, "RPMVERSION is: \"");
++    fprintf (stderr, "%s\"\n", *rpmverp);
++
++    /* Try to find the specific librpm version only for "librpm.so" as we do
++       not know how to assemble the version string otherwise.  */
++
++    if (strcmp ("librpm.so", $LIBRPM_STRING) != 0)
++      {
++	fprintf (f, "%s\n", $LIBRPM_STRING);
++	return 0;
++      }
++    else
++      {
++	char *h2_name;
++	void *h2;
++	int major, minor;
++
++	if (sscanf (*rpmverp, "%d.%d", &major, &minor) != 2)
++	  {
++	    fprintf (stderr, "Unable to parse RPMVERSION.\n");
++	    fprintf (f, "%s\n", $LIBRPM_STRING);
++	    return 0;
++	  }
++	/* Avoid the square brackets by malloc.  */
++	h2_name = malloc (64);
++	sprintf (h2_name, "librpm-%d.%d.so", major, minor);
++	h2 = dlopen (h2_name, RTLD_LAZY);
++	if (!h2)
++	  {
++	    fprintf (stderr, "dlopen (\"%s\"): %s\n", h2_name, dlerror ());
++	    fprintf (f, "%s\n", $LIBRPM_STRING);
++	    return 0;
++	  }
++	if (h2 != h)
++	  {
++	    fprintf (stderr, "dlopen of \"%s\" and \"%s\" are different.\n",
++		     $LIBRPM_STRING, h2_name);
++	    fprintf (f, "%s\n", $LIBRPM_STRING);
++	    return 0;
++	  }
++	/* Found the valid .so name with a specific version.  */
++	fprintf (f, "%s\n", h2_name);
++	return 0;
++      }
++  ]]), [
++    DLOPEN_LIBRPM="`cat conftest.out`"
++    if test "x$DLOPEN_LIBRPM" != "x"; then
++      HAVE_DLOPEN_LIBRPM=true
++      AC_MSG_RESULT($DLOPEN_LIBRPM)
++    fi
++  ])
++  rm -f conftest.out
++
++  m4_define([CHECK_LIBRPM_COMPAT], [
++    AC_MSG_CHECKING([rpm library API compatibility])
++    # The compilation requires -Werror to verify anything.
++    save_CFLAGS="$CFLAGS"
++    CFLAGS="$CFLAGS -Werror"
++    AC_COMPILE_IFELSE(AC_LANG_PROGRAM([[
++/* Duplicate here the declarations to verify they match "elfread.c".  */
++#include <rpm/rpmlib.h>
++#include <rpm/rpmts.h>
++#include <rpm/rpmdb.h>
++#include <rpm/header.h>
++extern char * headerFormat(Header h, const char * fmt, errmsg_t * errmsg);
++extern int rpmReadConfigFiles(const char * file, const char * target);
++extern rpmdbMatchIterator rpmdbFreeIterator(rpmdbMatchIterator mi);
++extern Header rpmdbNextIterator(rpmdbMatchIterator mi);
++extern rpmts rpmtsCreate(void);
++extern rpmts rpmtsFree(rpmts ts);
++extern rpmdbMatchIterator rpmtsInitIterator(const rpmts ts, rpmTag rpmtag,
++					    const void * keyp, size_t keylen);
++    ]]), [
++      LIBRPM_COMPAT=true
++      AC_MSG_RESULT(yes)
++    ], [
++      LIBRPM_COMPAT=false
++      AC_MSG_RESULT(no)
++    ])
++    CFLAGS="$save_CFLAGS"
++  ])
++
++  if $HAVE_DLOPEN_LIBRPM; then
++    CHECK_LIBRPM_COMPAT
++    if ! $LIBRPM_COMPAT; then
++      HAVE_DLOPEN_LIBRPM=false
++    fi
++  fi
++
++  if $HAVE_DLOPEN_LIBRPM; then
++    DLOPEN_LIBRPM_STRING='"'"$DLOPEN_LIBRPM"'"'
++    AC_DEFINE_UNQUOTED(DLOPEN_LIBRPM, $DLOPEN_LIBRPM_STRING, [librpm version specific library name to dlopen.])
++    AC_DEFINE(HAVE_LIBRPM, 1, [Define if librpm library is being used.])
++  else
++    AC_MSG_RESULT(no)
++    LIBS="$save_LIBS"
++    if $DLOPEN_REQUIRE; then
++      AC_MSG_ERROR([Specific name $LIBRPM was requested but it could not be opened.])
++    fi
++    PKG_CHECK_MODULES(RPM, rpm, [HAVE_LIBRPM=true], [HAVE_LIBRPM=false])
++
++    if $HAVE_LIBRPM; then
++      CHECK_LIBRPM_COMPAT
++      if ! $LIBRPM_COMPAT; then
++	HAVE_LIBRPM=false
++	RPM_PKG_ERRORS="Found $LIBRPM API is incompatibile with this GDB"
++      fi
++    fi
++
++    if $HAVE_LIBRPM; then
++      AC_DEFINE(HAVE_LIBRPM, 1, [Define if librpm library is being used.])
++      CFLAGS="$CFLAGS $RPM_CFLAGS"
++      LIBS="$LIBS $RPM_LIBS"
++    else
++      if $RPM_REQUIRE; then
++	AC_MSG_ERROR($RPM_PKG_ERRORS)
++      else
++	AC_MSG_WARN($RPM_PKG_ERRORS)
++      fi
++    fi
++  fi
++fi
++
+ 
+ AC_CONFIG_SUBDIRS(doc testsuite)
+ 
+Index: gdb-7.0.50.20100115/gdb/acinclude.m4
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/acinclude.m4	2010-01-08 08:16:43.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/acinclude.m4	2010-01-15 11:45:20.000000000 +0100
+@@ -1,3 +1,5 @@
++# serial 1
++
+ dnl written by Rob Savoye <rob@cygnus.com> for Cygnus Support
+ dnl major rewriting for Tcl 7.5 by Don Libes <libes@nist.gov>
+ 
+@@ -81,8 +83,6 @@ AC_MSG_RESULT(yes)
+ # Foundation, Inc., 51 Franklin Street, Fifth Floor,
+ # Boston, MA 02110-1301, USA.
+ 
+-# serial 1
+-
+ # @defmac AC_PROG_CC_STDC
+ # @maindex PROG_CC_STDC
+ # @ovindex CC

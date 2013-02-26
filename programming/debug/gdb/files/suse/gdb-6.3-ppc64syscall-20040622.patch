@@ -1,0 +1,111 @@
+2004-06-22  Andrew Cagney  <cagney@gnu.org>
+
+	* rs6000-tdep.c (struct rs6000_framedata): Add field "func_start".
+	(skip_prologue): Delete local variable "orig_pc", use
+	"func_start".  Add local variable "num_skip_linux_syscall_insn",
+	use to skip over first half of a GNU/Linux syscall and update
+	"func_start".
+
+Index: gdb-6.8.50.20090802/gdb/rs6000-tdep.c
+===================================================================
+--- gdb-6.8.50.20090802.orig/gdb/rs6000-tdep.c	2009-07-31 17:23:20.000000000 +0200
++++ gdb-6.8.50.20090802/gdb/rs6000-tdep.c	2009-08-03 09:52:39.000000000 +0200
+@@ -126,6 +126,7 @@ static const char *powerpc_vector_abi_st
+ 
+ struct rs6000_framedata
+   {
++    CORE_ADDR func_start;	/* True function start.  */
+     int offset;			/* total size of frame --- the distance
+ 				   by which we decrement sp to allocate
+ 				   the frame */
+@@ -1488,7 +1489,6 @@ static CORE_ADDR
+ skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc, CORE_ADDR lim_pc,
+ 	       struct rs6000_framedata *fdata)
+ {
+-  CORE_ADDR orig_pc = pc;
+   CORE_ADDR last_prologue_pc = pc;
+   CORE_ADDR li_found_pc = 0;
+   gdb_byte buf[4];
+@@ -1506,12 +1506,14 @@ skip_prologue (struct gdbarch *gdbarch, 
+   int minimal_toc_loaded = 0;
+   int prev_insn_was_prologue_insn = 1;
+   int num_skip_non_prologue_insns = 0;
++  int num_skip_ppc64_gnu_linux_syscall_insn = 0;
+   int r0_contains_arg = 0;
+   const struct bfd_arch_info *arch_info = gdbarch_bfd_arch_info (gdbarch);
+   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+ 
+   memset (fdata, 0, sizeof (struct rs6000_framedata));
++  fdata->func_start = pc;
+   fdata->saved_gpr = -1;
+   fdata->saved_fpr = -1;
+   fdata->saved_vr = -1;
+@@ -1545,6 +1547,55 @@ skip_prologue (struct gdbarch *gdbarch, 
+ 	break;
+       op = extract_unsigned_integer (buf, 4, byte_order);
+ 
++      /* A PPC64 GNU/Linux system call function is split into two
++	 sub-functions: a non-threaded fast-path (__NAME_nocancel)
++	 which does not use a frame; and a threaded slow-path
++	 (Lpseudo_cancel) that does create a frame.  Ref:
++	 nptl/sysdeps/unix/sysv/linux/powerpc/powerpc32/sysdep-cancel.h
++
++	 *INDENT-OFF*
++	 NAME:
++	 	SINGLE_THREAD_P
++	 	bne- .Lpseudo_cancel
++	 __NAME_nocancel:
++	 	li r0,162
++	 	sc
++	 	bnslr+
++	 	b 0x7fe014ef64 <.__syscall_error>
++	 Lpseudo_cancel:
++	 	stdu r1,-128(r1)
++	 	...
++	 *INDENT-ON*
++
++	 Unfortunatly, because the latter case uses a local label (not
++	 in the symbol table) a PC in "Lpseudo_cancel" appears to be
++	 in "__NAME_nocancel".  The following code recognizes this,
++	 adjusting FUNC_START to point to where "Lpseudo_cancel"
++	 should be, and parsing the prologue sequence as if
++	 "Lpseudo_cancel" was the entry point.  */
++
++      if (((op & 0xffff0000) == 0x38000000 /* li r0,N */
++	   && pc == fdata->func_start + 0
++	   && num_skip_ppc64_gnu_linux_syscall_insn == 0)
++	  || (op == 0x44000002 /* sc */
++	      && pc == fdata->func_start + 4
++	      && num_skip_ppc64_gnu_linux_syscall_insn == 1)
++	  || (op == 0x4ca30020 /* bnslr+ */
++	      && pc == fdata->func_start + 8
++	      && num_skip_ppc64_gnu_linux_syscall_insn == 2))
++	{
++	  num_skip_ppc64_gnu_linux_syscall_insn++;
++	  continue;
++	}
++      else if ((op & 0xfc000003) == 0x48000000 /* b __syscall_error */
++	       && pc == fdata->func_start + 12
++	       && num_skip_ppc64_gnu_linux_syscall_insn == 3)
++	{
++	  num_skip_ppc64_gnu_linux_syscall_insn = -1;
++	  fdata->func_start = pc;
++	  continue;
++	}
++
+       if ((op & 0xfc1fffff) == 0x7c0802a6)
+ 	{			/* mflr Rx */
+ 	  /* Since shared library / PIC code, which needs to get its
+@@ -1726,9 +1777,9 @@ skip_prologue (struct gdbarch *gdbarch, 
+ 	     we have no line table information or the line info tells
+ 	     us that the subroutine call is not part of the line
+ 	     associated with the prologue.  */
+-	  if ((pc - orig_pc) > 8)
++	  if ((pc - fdata->func_start) > 8)
+ 	    {
+-	      struct symtab_and_line prologue_sal = find_pc_line (orig_pc, 0);
++	      struct symtab_and_line prologue_sal = find_pc_line (fdata->func_start, 0);
+ 	      struct symtab_and_line this_sal = find_pc_line (pc, 0);
+ 
+ 	      if ((prologue_sal.line == 0) || (prologue_sal.line != this_sal.line))

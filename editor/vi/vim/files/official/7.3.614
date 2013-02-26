@@ -1,0 +1,176 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.614
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.614
+Problem:    Number argument gets turned into a number while it should be a
+	    string.
+Solution:   Add flag to the call_vim_function() call. (Yasuhiro Matsumoto)
+Files:	    src/edit.c, src/eval.c, src/proto/eval.pro
+
+
+*** ../vim-7.3.613/src/edit.c	2012-07-10 17:14:50.000000000 +0200
+--- src/edit.c	2012-07-25 16:40:07.000000000 +0200
+***************
+*** 3959,3965 ****
+      curbuf_save = curbuf;
+  
+      /* Call a function, which returns a list or dict. */
+!     if (call_vim_function(funcname, 2, args, FALSE, &rettv) == OK)
+      {
+  	switch (rettv.v_type)
+  	{
+--- 3959,3965 ----
+      curbuf_save = curbuf;
+  
+      /* Call a function, which returns a list or dict. */
+!     if (call_vim_function(funcname, 2, args, FALSE, FALSE, &rettv) == OK)
+      {
+  	switch (rettv.v_type)
+  	{
+*** ../vim-7.3.613/src/eval.c	2012-07-19 18:05:40.000000000 +0200
+--- src/eval.c	2012-07-25 16:42:41.000000000 +0200
+***************
+*** 1564,1574 ****
+   * Returns OK or FAIL.
+   */
+      int
+! call_vim_function(func, argc, argv, safe, rettv)
+      char_u      *func;
+      int		argc;
+      char_u      **argv;
+      int		safe;		/* use the sandbox */
+      typval_T	*rettv;
+  {
+      typval_T	*argvars;
+--- 1564,1575 ----
+   * Returns OK or FAIL.
+   */
+      int
+! call_vim_function(func, argc, argv, safe, str_arg_only, rettv)
+      char_u      *func;
+      int		argc;
+      char_u      **argv;
+      int		safe;		/* use the sandbox */
++     int		str_arg_only;	/* all arguments are strings */
+      typval_T	*rettv;
+  {
+      typval_T	*argvars;
+***************
+*** 1593,1600 ****
+  	    continue;
+  	}
+  
+! 	/* Recognize a number argument, the others must be strings. */
+! 	vim_str2nr(argv[i], NULL, &len, TRUE, TRUE, &n, NULL);
+  	if (len != 0 && len == (int)STRLEN(argv[i]))
+  	{
+  	    argvars[i].v_type = VAR_NUMBER;
+--- 1594,1604 ----
+  	    continue;
+  	}
+  
+! 	if (str_arg_only)
+! 	    len = 0;
+! 	else
+! 	    /* Recognize a number argument, the others must be strings. */
+! 	    vim_str2nr(argv[i], NULL, &len, TRUE, TRUE, &n, NULL);
+  	if (len != 0 && len == (int)STRLEN(argv[i]))
+  	{
+  	    argvars[i].v_type = VAR_NUMBER;
+***************
+*** 1646,1652 ****
+      typval_T	rettv;
+      char_u	*retval;
+  
+!     if (call_vim_function(func, argc, argv, safe, &rettv) == FAIL)
+  	return NULL;
+  
+      retval = vim_strsave(get_tv_string(&rettv));
+--- 1650,1657 ----
+      typval_T	rettv;
+      char_u	*retval;
+  
+!     /* All arguments are passed as strings, no conversion to number. */
+!     if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+  	return NULL;
+  
+      retval = vim_strsave(get_tv_string(&rettv));
+***************
+*** 1671,1677 ****
+      typval_T	rettv;
+      long	retval;
+  
+!     if (call_vim_function(func, argc, argv, safe, &rettv) == FAIL)
+  	return -1;
+  
+      retval = get_tv_number_chk(&rettv, NULL);
+--- 1676,1683 ----
+      typval_T	rettv;
+      long	retval;
+  
+!     /* All arguments are passed as strings, no conversion to number. */
+!     if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+  	return -1;
+  
+      retval = get_tv_number_chk(&rettv, NULL);
+***************
+*** 1694,1700 ****
+  {
+      typval_T	rettv;
+  
+!     if (call_vim_function(func, argc, argv, safe, &rettv) == FAIL)
+  	return NULL;
+  
+      if (rettv.v_type != VAR_LIST)
+--- 1700,1707 ----
+  {
+      typval_T	rettv;
+  
+!     /* All arguments are passed as strings, no conversion to number. */
+!     if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+  	return NULL;
+  
+      if (rettv.v_type != VAR_LIST)
+*** ../vim-7.3.613/src/proto/eval.pro	2012-07-16 17:31:48.000000000 +0200
+--- src/proto/eval.pro	2012-07-25 16:42:59.000000000 +0200
+***************
+*** 23,29 ****
+  list_T *eval_spell_expr __ARGS((char_u *badword, char_u *expr));
+  int get_spellword __ARGS((list_T *list, char_u **pp));
+  typval_T *eval_expr __ARGS((char_u *arg, char_u **nextcmd));
+! int call_vim_function __ARGS((char_u *func, int argc, char_u **argv, int safe, typval_T *rettv));
+  void *call_func_retstr __ARGS((char_u *func, int argc, char_u **argv, int safe));
+  long call_func_retnr __ARGS((char_u *func, int argc, char_u **argv, int safe));
+  void *call_func_retlist __ARGS((char_u *func, int argc, char_u **argv, int safe));
+--- 23,29 ----
+  list_T *eval_spell_expr __ARGS((char_u *badword, char_u *expr));
+  int get_spellword __ARGS((list_T *list, char_u **pp));
+  typval_T *eval_expr __ARGS((char_u *arg, char_u **nextcmd));
+! int call_vim_function __ARGS((char_u *func, int argc, char_u **argv, int safe, int str_arg_only, typval_T *rettv));
+  void *call_func_retstr __ARGS((char_u *func, int argc, char_u **argv, int safe));
+  long call_func_retnr __ARGS((char_u *func, int argc, char_u **argv, int safe));
+  void *call_func_retlist __ARGS((char_u *func, int argc, char_u **argv, int safe));
+*** ../vim-7.3.613/src/version.c	2012-07-25 16:32:03.000000000 +0200
+--- src/version.c	2012-07-25 16:46:11.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     614,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+171. You invent another person and chat with yourself in empty chat rooms.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

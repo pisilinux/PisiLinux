@@ -1,0 +1,186 @@
+From 99d33809f7c02e4ace528edc4b8b6e2bb7e762aa Mon Sep 17 00:00:00 2001
+From: Nils Philippsen <nils@redhat.com>
+Date: Wed, 2 Jun 2010 14:16:56 +0200
+Subject: [PATCH] patch: pkgconfig
+
+Squashed commit of the following:
+
+commit 248577ef557e36b9a326d93fd143e5e376f1a0f1
+Author: Nils Philippsen <nils@redhat.com>
+Date:   Wed Jun 2 14:14:53 2010 +0200
+
+    use ${...} instead of $(...) (#598401)
+
+commit d615848c499842c5923c3274370d2536dc650916
+Author: Nils Philippsen <nils@redhat.com>
+Date:   Fri Feb 26 17:51:14 2010 +0100
+
+    pkgconfig file is data
+    (cherry picked from commit 1f0e85c705a42c7e6ccd938eaad69f531c63f63d)
+
+    Signed-off-by: Nils Philippsen <nils@redhat.com>
+
+commit 119d5af1ddd82dac034d0106a1d86b6d7564f25e
+Author: Nils Philippsen <nils@redhat.com>
+Date:   Wed Jun 17 13:09:51 2009 +0200
+
+    make sane-config multilib-aware on Linux
+    (cherry picked from commit 52ef5f47ccc0128c78ab3ad38ac7b7918dd7ac88)
+
+    Signed-off-by: Nils Philippsen <nils@redhat.com>
+
+commit 7ee1cbef01d851aca95d86145ac5dda02d9e7354
+Author: Nils Philippsen <nils@redhat.com>
+Date:   Wed May 5 10:22:15 2010 +0200
+
+    use pkg-config in sane-config
+---
+ tools/Makefile.am         |   14 +++++++++-
+ tools/sane-backends.pc.in |    6 ++--
+ tools/sane-config.in      |   66 ++++++++++++++++++++++++++++++++++----------
+ 3 files changed, 67 insertions(+), 19 deletions(-)
+
+Index: sane-backends-1.0.22/tools/Makefile.am
+===================================================================
+--- sane-backends-1.0.22.orig/tools/Makefile.am
++++ sane-backends-1.0.22/tools/Makefile.am
+@@ -7,6 +7,10 @@
+ AM_CPPFLAGS = -I. -I$(srcdir) -I$(top_builddir)/include \
+  -I$(top_srcdir)/include
+ 
++SUFFIXES = .pc.in .pc
++
++pkgconfigdir = ${libdir}/pkgconfig
++
+ bin_PROGRAMS = sane-find-scanner gamma4scanimage
+ noinst_PROGRAMS = sane-desc umax_pp
+ 
+@@ -26,8 +30,14 @@ noinst_SCRIPTS = $(HOTPLUG)
+ BUILT_SOURCES = $(HOTPLUG_DIR)
+ CLEANFILES = $(bin_SCRIPTS) $(dist_noinst_SCRIPTS)
+ 
++pkgconfig_DATA = sane-backends.pc
++
++.pc.in.pc:
++	cd $(top_builddir) \
++		&& CONFIG_FILES=$(subdir)/$@ CONFIG_HEADERS= $(SHELL) ./config.status
++
+ EXTRA_DIST = check-po.awk libtool-get-dll-ext mustek600iin-off.c \
+-	     RenSaneDlls.cmd README xerox
++	     RenSaneDlls.cmd README xerox sane-backends.pc.in
+ 
+ sane_find_scanner_SOURCES = sane-find-scanner.c check-usb-chip.c \
+ 			    ../backend/sane_strstatus.c
+@@ -72,5 +82,7 @@ hal/libsane.fdi: $(wildcard ${top_srcdir
+ 	@./sane-desc -m hal -s ${top_srcdir}/doc/descriptions:${top_srcdir}/doc/descriptions-external \
+ 	   -d 0 > $@
+ 
++sane-backends.pc:	$(top_builddir)/config.status
++
+ clean-local:
+ 	rm -f $(HOTPLUG)
+Index: sane-backends-1.0.22/tools/sane-config.in
+===================================================================
+--- sane-backends-1.0.22.orig/tools/sane-config.in
++++ sane-backends-1.0.22/tools/sane-config.in
+@@ -19,7 +19,7 @@ pkglibdir="@pkglibdir@"
+ includedir="@includedir@"
+ mandir="@mandir@"
+ infodir="@infodir@"
+-libdir="@libdir@"
++#libdir=
+ localstatedir="@localstatedir@"
+ sysconfdir="@sysconfdir@"
+ datarootdir="@datarootdir@"
+@@ -33,6 +33,30 @@ srcdir="@srcdir@"
+ top_srcdir="@top_srcdir@"
+ cflags=
+ 
++pkgconfig_package=sane-backends
++use_pkgconfig=0
++if test -x "@bindir@/pkg-config" && "@bindir@/pkg-config" --exists "$pkgconfig_package"; then
++    use_pkgconfig=1
++else
++    libdir=
++    if kernel="`uname -s 2>/dev/null`"; then
++        case "$kernel" in
++            Linux)
++            if hw="`uname -i 2>/dev/null`"; then
++                case "$hw" in
++                    *64)
++                    libdir="@exec_prefix@/lib64"
++                    ;;
++                esac
++            fi
++            ;;
++        esac
++    fi
++    if test "x$libdir" = "x"; then
++        libdir="@exec_prefix@/lib"
++    fi
++fi
++
+ usage ()
+ {
+   echo "Usage: "  1>&2
+@@ -60,7 +84,7 @@ if test $# -gt 0; then
+       if test $# -eq 1; then
+         usage
+       elif test $# -eq 2; then
+-        case $2 in 
++        case $2 in
+           --cflags)
+             echo "Usage: $0 --cflags"
+             echo "  Print C compiler flags for compiling code that uses SANE."
+@@ -86,26 +110,38 @@ if test $# -gt 0; then
+       ;;
+     --ldflags)
+ 
+-      if test -z "$LINKER_RPATH"; then
+-        echo "-L${libdir} @LDFLAGS@" 
++      if test "x$use_pkgconfig" = "x0"; then
++        if test -z "$LINKER_RPATH"; then
++          echo "-L${libdir} @LDFLAGS@"
++        else
++          echo "-L${libdir} @LDFLAGS@ ${LINKER_RPATH}${libdir}"
++        fi
+       else
+-        echo "-L${libdir} @LDFLAGS@ ${LINKER_RPATH}${libdir}"
++        pkg-config --libs-only-L "$pkgconfig_package"
+       fi
+       ;;
+     --libs)
+-      echo "-lsane ${LIBS}"
++      if test "x$use_pkgconfig" = "x0"; then
++        echo "-lsane ${LIBS}"
++      else
++        pkg-config --libs "$pkgconfig_package"
++      fi
+       ;;
+     --cflags)
+-      unique_cflags=
+-      if test "${includedir}" != "/usr/include"; then
+-        unique_cflags="${unique_cflags} -I${includedir}"
+-      fi
+-      for i in $cflags; do
+-        if test "${i}" != "-I${includedir}"; then
+-          unique_cflags="${unique_cflags} $i"
++      if test "x$use_pkgconfig" = "x0"; then
++        unique_cflags=
++        if test "${includedir}" != "/usr/include"; then
++          unique_cflags="${unique_cflags} -I${includedir}"
+         fi
+-      done
+-      echo ${unique_cflags}
++        for i in $cflags; do
++          if test "${i}" != "-I${includedir}"; then
++            unique_cflags="${unique_cflags} $i"
++          fi
++        done
++        echo ${unique_cflags}
++      else
++        pkg-config --cflags "$pkgconfig_package"
++      fi
+       ;;
+     --prefix)
+       echo ${prefix}

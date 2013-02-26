@@ -1,0 +1,847 @@
+2006-10-01  Jan Kratochvil  <jan.kratochvil@redhat.com>
+	    Fujitsu
+
+	* amd64-linux-nat.c: Support new linux_elfcore_write_prpsinfo,
+	linux_elfcore_write_prstatus, linux_elfcore_write_prfpreg.
+	(i386_linux_gregset32_reg_offset): New mapping for i386 on amd64.
+	* gcore.c (gcore_create_callback): Comment vdso Linux kernel bug.
+	* configure.ac: Check for <sys/user32.h>, <sys/procfs32.h>.
+	* configure, config.in: Regenerated.
+	* gdb_user32.h, gdb_procfs32.h: Define 32-bit core files even for
+	64-bit gdb, provide fallbacks for <sys/user32.h> and <sys/procfs32.h>.
+	* linux-nat.c: Virtualize `elfcore_*' by (*`linux_elfcore_*').
+	(linux_nat_do_thread_registers): Likewise.
+	(linux_nat_make_corefile_notes): Likewise.
+	* linux-nat.h: Likewise.
+	* Makefile.in: Dependencies updated.
+
+2007-10-16  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Port to GDB-6.7.
+
+2008-02-24  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Port to GDB-6.8pre.
+
+Index: gdb-7.0.50.20100115/gdb/amd64-linux-nat.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/amd64-linux-nat.c	2010-01-15 03:16:43.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/amd64-linux-nat.c	2010-01-15 03:20:58.000000000 +0100
+@@ -51,6 +51,9 @@
+ #include "i386-linux-tdep.h"
+ #include "amd64-nat.h"
+ #include "i386-nat.h"
++#include "i387-tdep.h"
++#include "elf-bfd.h"
++#include "gdb_procfs32.h"
+ 
+ /* Mapping between the general-purpose registers in GNU/Linux x86-64
+    `struct user' format and GDB's register cache layout.  */
+@@ -85,6 +88,35 @@ static int amd64_linux_gregset64_reg_off
+    GNU/Linux i386 registers are all 32-bit, but since we're
+    little-endian we get away with that.  */
+ 
++/* This info is not reusable from "i386-linux-nat.c" as gdb itself runs in
++   64-bit mode and so ptrace(2) has 64-bit structure layout.
++   Just the corefile being generated has 32-bit layout so we need to do
++   a conversion specific to the i386-on-amd64 compatibility mode.  */
++static int i386_linux_gregset32_reg_offset[] =
++{
++  6 * 4,			/* %eax */
++  1 * 4,			/* %ecx */
++  2 * 4,			/* %edx */
++  0 * 4,			/* %ebx */
++  15 * 4,			/* %esp */
++  5 * 4,			/* %ebp */
++  3 * 4,			/* %esi */
++  4 * 4,			/* %edi */
++  12 * 4,			/* %eip */
++  14 * 4,			/* %eflags */
++  13 * 4,			/* %cs */
++  16 * 4,			/* %ss */
++  7 * 4,			/* %ds */
++  8 * 4,			/* %es */
++  9 * 4,			/* %fs */
++  10 * 4,			/* %gs */
++  -1, -1, -1, -1, -1, -1, -1, -1,
++  -1, -1, -1, -1, -1, -1, -1, -1,
++  -1, -1, -1, -1, -1, -1, -1, -1,
++  -1,
++  11 * 4			/* "orig_eax" */
++};
++
+ /* From <sys/reg.h> on GNU/Linux i386.  */
+ static int amd64_linux_gregset32_reg_offset[] =
+ {
+@@ -103,6 +135,96 @@ static int amd64_linux_gregset32_reg_off
+ };
+ 
+ 
++/* This functions make ELF32 32-bit elfcore note sections
++   on amd64 environment. */
++
++static char *
++amd64_linux_elfcore_write_prpsinfo (bfd *abfd, char *buf, int *bufsiz,
++				    const char *fname, const char *psargs)
++{
++  if (gdbarch_ptr_bit (target_gdbarch) == 32)
++    {
++      int note_type;
++      char *note_name = "CORE";
++      struct elf_prpsinfo32 data;
++      note_type = NT_PRPSINFO;
++
++      memset (&data, 0, sizeof (data));
++      strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
++      strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
++      return elfcore_write_note (abfd, buf, bufsiz,
++				 note_name, note_type, &data, sizeof (data));
++    }
++  else
++    return elfcore_write_prpsinfo (abfd, buf, bufsiz, fname, psargs);
++}
++
++static void
++amd64_linux_set_registers (const gdb_byte *gregs, gdb_byte *buf)
++{
++  int i;
++  /* Copy the i386 registers in the amd64 layout into i386 layout.  */
++  for (i = 0; i < I386_NUM_GREGS; i++)
++    memcpy(buf + i386_linux_gregset32_reg_offset[i],
++	   gregs + amd64_linux_gregset32_reg_offset[i], 4);
++  for (i = I386_CS_REGNUM; i <= I386_GS_REGNUM; i++)
++    memcpy(buf + i386_linux_gregset32_reg_offset[i],
++	   gregs + amd64_linux_gregset32_reg_offset[i], 4);
++}
++
++static char *
++amd64_linux_elfcore_write_prstatus (bfd *abfd, char *buf, int *bufsiz,
++			      long pid, int cursig, const void *gregs)
++{
++  if (gdbarch_ptr_bit (target_gdbarch) == 32)
++    {
++      char *note_name = "CORE";
++      struct elf_prstatus32 prstat;
++      memset (&prstat, 0, sizeof (prstat));
++      prstat.pr_pid = pid;
++      prstat.pr_cursig = cursig;
++      amd64_linux_set_registers (gregs, (gdb_byte *) &prstat.pr_reg);
++      return elfcore_write_note (abfd, buf, bufsiz, note_name,
++				 NT_PRSTATUS, &prstat, sizeof (prstat));
++    }
++  else
++    return elfcore_write_prstatus (abfd, buf, bufsiz, pid, cursig, gregs);
++}
++
++static char *
++amd64_elfcore_write_prxfpreg32 (bfd *abfd, char *buf, int *bufsiz,
++				struct regcache *regcache)
++{
++  char *note_name = "LINUX";
++  elf_fpxregset32_t fpxregs32;
++
++  i387_collect_fxsave (regcache, -1, &fpxregs32);
++  return elfcore_write_note(abfd, buf, bufsiz,
++				     note_name, NT_PRXFPREG, &fpxregs32,
++				     sizeof(fpxregs32));
++}
++
++static char *
++amd64_linux_elfcore_write_prfpreg (bfd *abfd, char *buf,
++				   int *bufsiz, const void *fpregs, int size,
++				   struct regcache *regcache)
++{
++  if (gdbarch_ptr_bit (target_gdbarch) == 32)
++    {
++      char *note_name = "CORE";
++      elf_fpregset32_t fpregs32;
++  
++      i387_collect_fsave (regcache, -1, &fpregs32);
++      buf = elfcore_write_note(abfd, buf, bufsiz, note_name,
++			       NT_FPREGSET, &fpregs32, sizeof(fpregs32));
++
++      return amd64_elfcore_write_prxfpreg32 (abfd, buf, bufsiz, regcache);
++    }
++  else
++    return elfcore_write_prfpreg (abfd, buf, bufsiz, fpregs, size);
++}
++
++
+ /* Transfering the general-purpose registers between GDB, inferiors
+    and core files.  */
+ 
+@@ -727,6 +849,11 @@ _initialize_amd64_linux_nat (void)
+   t->to_fetch_registers = amd64_linux_fetch_inferior_registers;
+   t->to_store_registers = amd64_linux_store_inferior_registers;
+ 
++  /* This functions make elfcore note sections. */
++  linux_elfcore_write_prpsinfo = amd64_linux_elfcore_write_prpsinfo;
++  linux_elfcore_write_prstatus = amd64_linux_elfcore_write_prstatus;
++  linux_elfcore_write_prfpreg = amd64_linux_elfcore_write_prfpreg;
++
+   /* Register the target.  */
+   linux_nat_add_target (t);
+   linux_nat_set_new_thread (t, amd64_linux_new_thread);
+Index: gdb-7.0.50.20100115/gdb/config.in
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/config.in	2010-01-15 03:16:43.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/config.in	2010-01-15 03:20:58.000000000 +0100
+@@ -149,6 +149,9 @@
+ /* Define to 1 if you have the <elf_hp.h> header file. */
+ #undef HAVE_ELF_HP_H
+ 
++/* Define if struct elf_prstatus32 is available. */
++#undef HAVE_ELF_PRSTATUS32
++
+ /* Define to 1 if your system has the etext variable. */
+ #undef HAVE_ETEXT
+ 
+@@ -490,6 +493,9 @@
+ /* Define to 1 if you have the <sys/poll.h> header file. */
+ #undef HAVE_SYS_POLL_H
+ 
++/* Define to 1 if you have the <sys/procfs32.h> header file. */
++#undef HAVE_SYS_PROCFS32_H
++
+ /* Define to 1 if you have the <sys/procfs.h> header file. */
+ #undef HAVE_SYS_PROCFS_H
+ 
+@@ -517,6 +523,9 @@
+ /* Define to 1 if you have the <sys/types.h> header file. */
+ #undef HAVE_SYS_TYPES_H
+ 
++/* Define to 1 if you have the <sys/user32.h> header file. */
++#undef HAVE_SYS_USER32_H
++
+ /* Define to 1 if you have the <sys/user.h> header file. */
+ #undef HAVE_SYS_USER_H
+ 
+Index: gdb-7.0.50.20100115/gdb/configure
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/configure	2010-01-15 03:16:43.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/configure	2010-01-15 03:20:58.000000000 +0100
+@@ -10043,6 +10043,268 @@ $as_echo "#define STDC_HEADERS 1" >>conf
+ 
+ fi
+ 
++
++
++for ac_header in sys/user32.h sys/procfs32.h
++do
++as_ac_Header=`echo "ac_cv_header_$ac_header" | $as_tr_sh`
++if eval "test \"\${$as_ac_Header+set}\" = set"; then
++  echo "$as_me:$LINENO: checking for $ac_header" >&5
++echo $ECHO_N "checking for $ac_header... $ECHO_C" >&6
++if eval "test \"\${$as_ac_Header+set}\" = set"; then
++  echo $ECHO_N "(cached) $ECHO_C" >&6
++fi
++echo "$as_me:$LINENO: result: `eval echo '${'$as_ac_Header'}'`" >&5
++echo "${ECHO_T}`eval echo '${'$as_ac_Header'}'`" >&6
++else
++  # Is the header compilable?
++echo "$as_me:$LINENO: checking $ac_header usability" >&5
++echo $ECHO_N "checking $ac_header usability... $ECHO_C" >&6
++cat >conftest.$ac_ext <<_ACEOF
++/* confdefs.h.  */
++_ACEOF
++cat confdefs.h >>conftest.$ac_ext
++cat >>conftest.$ac_ext <<_ACEOF
++/* end confdefs.h.  */
++$ac_includes_default
++#include <$ac_header>
++_ACEOF
++rm -f conftest.$ac_objext
++if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
++  (eval $ac_compile) 2>conftest.er1
++  ac_status=$?
++  grep -v '^ *+' conftest.er1 >conftest.err
++  rm -f conftest.er1
++  cat conftest.err >&5
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); } &&
++	 { ac_try='test -z "$ac_c_werror_flag"
++			 || test ! -s conftest.err'
++  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); }; } &&
++	 { ac_try='test -s conftest.$ac_objext'
++  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); }; }; then
++  ac_header_compiler=yes
++else
++  echo "$as_me: failed program was:" >&5
++sed 's/^/| /' conftest.$ac_ext >&5
++
++ac_header_compiler=no
++fi
++rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
++echo "$as_me:$LINENO: result: $ac_header_compiler" >&5
++echo "${ECHO_T}$ac_header_compiler" >&6
++
++# Is the header present?
++echo "$as_me:$LINENO: checking $ac_header presence" >&5
++echo $ECHO_N "checking $ac_header presence... $ECHO_C" >&6
++cat >conftest.$ac_ext <<_ACEOF
++/* confdefs.h.  */
++_ACEOF
++cat confdefs.h >>conftest.$ac_ext
++cat >>conftest.$ac_ext <<_ACEOF
++/* end confdefs.h.  */
++#include <$ac_header>
++_ACEOF
++if { (eval echo "$as_me:$LINENO: \"$ac_cpp conftest.$ac_ext\"") >&5
++  (eval $ac_cpp conftest.$ac_ext) 2>conftest.er1
++  ac_status=$?
++  grep -v '^ *+' conftest.er1 >conftest.err
++  rm -f conftest.er1
++  cat conftest.err >&5
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); } >/dev/null; then
++  if test -s conftest.err; then
++    ac_cpp_err=$ac_c_preproc_warn_flag
++    ac_cpp_err=$ac_cpp_err$ac_c_werror_flag
++  else
++    ac_cpp_err=
++  fi
++else
++  ac_cpp_err=yes
++fi
++if test -z "$ac_cpp_err"; then
++  ac_header_preproc=yes
++else
++  echo "$as_me: failed program was:" >&5
++sed 's/^/| /' conftest.$ac_ext >&5
++
++  ac_header_preproc=no
++fi
++rm -f conftest.err conftest.$ac_ext
++echo "$as_me:$LINENO: result: $ac_header_preproc" >&5
++echo "${ECHO_T}$ac_header_preproc" >&6
++
++# So?  What about this header?
++case $ac_header_compiler:$ac_header_preproc:$ac_c_preproc_warn_flag in
++  yes:no: )
++    { echo "$as_me:$LINENO: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&5
++echo "$as_me: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&2;}
++    { echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the compiler's result" >&5
++echo "$as_me: WARNING: $ac_header: proceeding with the compiler's result" >&2;}
++    ac_header_preproc=yes
++    ;;
++  no:yes:* )
++    { echo "$as_me:$LINENO: WARNING: $ac_header: present but cannot be compiled" >&5
++echo "$as_me: WARNING: $ac_header: present but cannot be compiled" >&2;}
++    { echo "$as_me:$LINENO: WARNING: $ac_header:     check for missing prerequisite headers?" >&5
++echo "$as_me: WARNING: $ac_header:     check for missing prerequisite headers?" >&2;}
++    { echo "$as_me:$LINENO: WARNING: $ac_header: see the Autoconf documentation" >&5
++echo "$as_me: WARNING: $ac_header: see the Autoconf documentation" >&2;}
++    { echo "$as_me:$LINENO: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&5
++echo "$as_me: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&2;}
++    { echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the preprocessor's result" >&5
++echo "$as_me: WARNING: $ac_header: proceeding with the preprocessor's result" >&2;}
++    { echo "$as_me:$LINENO: WARNING: $ac_header: in the future, the compiler will take precedence" >&5
++echo "$as_me: WARNING: $ac_header: in the future, the compiler will take precedence" >&2;}
++    (
++      cat <<\_ASBOX
++## ------------------------------------------ ##
++## Report this to the AC_PACKAGE_NAME lists.  ##
++## ------------------------------------------ ##
++_ASBOX
++    ) |
++      sed "s/^/$as_me: WARNING:     /" >&2
++    ;;
++esac
++echo "$as_me:$LINENO: checking for $ac_header" >&5
++echo $ECHO_N "checking for $ac_header... $ECHO_C" >&6
++if eval "test \"\${$as_ac_Header+set}\" = set"; then
++  echo $ECHO_N "(cached) $ECHO_C" >&6
++else
++  eval "$as_ac_Header=\$ac_header_preproc"
++fi
++echo "$as_me:$LINENO: result: `eval echo '${'$as_ac_Header'}'`" >&5
++echo "${ECHO_T}`eval echo '${'$as_ac_Header'}'`" >&6
++
++fi
++if test `eval echo '${'$as_ac_Header'}'` = yes; then
++  cat >>confdefs.h <<_ACEOF
++#define `echo "HAVE_$ac_header" | $as_tr_cpp` 1
++_ACEOF
++
++fi
++
++done
++
++echo "$as_me:$LINENO: checking for struct elf_prstatus32.pr_reg" >&5
++echo $ECHO_N "checking for struct elf_prstatus32.pr_reg... $ECHO_C" >&6
++if test "${ac_cv_member_struct_elf_prstatus32_pr_reg+set}" = set; then
++  echo $ECHO_N "(cached) $ECHO_C" >&6
++else
++  cat >conftest.$ac_ext <<_ACEOF
++/* confdefs.h.  */
++_ACEOF
++cat confdefs.h >>conftest.$ac_ext
++cat >>conftest.$ac_ext <<_ACEOF
++/* end confdefs.h.  */
++#include <sys/procfs.h>
++
++int
++main ()
++{
++static struct elf_prstatus32 ac_aggr;
++if (ac_aggr.pr_reg)
++return 0;
++  ;
++  return 0;
++}
++_ACEOF
++rm -f conftest.$ac_objext
++if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
++  (eval $ac_compile) 2>conftest.er1
++  ac_status=$?
++  grep -v '^ *+' conftest.er1 >conftest.err
++  rm -f conftest.er1
++  cat conftest.err >&5
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); } &&
++	 { ac_try='test -z "$ac_c_werror_flag"
++			 || test ! -s conftest.err'
++  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); }; } &&
++	 { ac_try='test -s conftest.$ac_objext'
++  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); }; }; then
++  ac_cv_member_struct_elf_prstatus32_pr_reg=yes
++else
++  echo "$as_me: failed program was:" >&5
++sed 's/^/| /' conftest.$ac_ext >&5
++
++cat >conftest.$ac_ext <<_ACEOF
++/* confdefs.h.  */
++_ACEOF
++cat confdefs.h >>conftest.$ac_ext
++cat >>conftest.$ac_ext <<_ACEOF
++/* end confdefs.h.  */
++#include <sys/procfs.h>
++
++int
++main ()
++{
++static struct elf_prstatus32 ac_aggr;
++if (sizeof ac_aggr.pr_reg)
++return 0;
++  ;
++  return 0;
++}
++_ACEOF
++rm -f conftest.$ac_objext
++if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
++  (eval $ac_compile) 2>conftest.er1
++  ac_status=$?
++  grep -v '^ *+' conftest.er1 >conftest.err
++  rm -f conftest.er1
++  cat conftest.err >&5
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); } &&
++	 { ac_try='test -z "$ac_c_werror_flag"
++			 || test ! -s conftest.err'
++  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); }; } &&
++	 { ac_try='test -s conftest.$ac_objext'
++  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  echo "$as_me:$LINENO: \$? = $ac_status" >&5
++  (exit $ac_status); }; }; then
++  ac_cv_member_struct_elf_prstatus32_pr_reg=yes
++else
++  echo "$as_me: failed program was:" >&5
++sed 's/^/| /' conftest.$ac_ext >&5
++
++ac_cv_member_struct_elf_prstatus32_pr_reg=no
++fi
++rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
++fi
++rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
++fi
++echo "$as_me:$LINENO: result: $ac_cv_member_struct_elf_prstatus32_pr_reg" >&5
++echo "${ECHO_T}$ac_cv_member_struct_elf_prstatus32_pr_reg" >&6
++if test $ac_cv_member_struct_elf_prstatus32_pr_reg = yes; then
++
++cat >>confdefs.h <<\_ACEOF
++#define HAVE_ELF_PRSTATUS32 1
++_ACEOF
++
++fi
++
+ # elf_hp.h is for HP/UX 64-bit shared library support.
+ # FIXME: kettenis/20030102: In most cases we include these (ctype.h, time.h)
+ # unconditionally, so what's the point in checking these?
+Index: gdb-7.0.50.20100115/gdb/configure.ac
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/configure.ac	2010-01-15 03:16:43.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/configure.ac	2010-01-15 03:20:58.000000000 +0100
+@@ -758,6 +758,11 @@ AC_SUBST(PYTHON_CFLAGS)
+ AC_HEADER_DIRENT
+ AC_HEADER_STAT
+ AC_HEADER_STDC
++AC_CHECK_HEADERS([sys/user32.h sys/procfs32.h])
++AC_CHECK_MEMBER([struct elf_prstatus32.pr_reg],
++		[AC_DEFINE(HAVE_ELF_PRSTATUS32, 1,
++			   [Define if struct elf_prstatus32 is available. ])],
++		[], [#include <sys/procfs.h>])
+ # elf_hp.h is for HP/UX 64-bit shared library support.
+ # FIXME: kettenis/20030102: In most cases we include these (ctype.h, time.h)
+ # unconditionally, so what's the point in checking these?
+Index: gdb-7.0.50.20100115/gdb/gcore.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/gcore.c	2010-01-15 03:17:59.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/gcore.c	2010-01-15 03:20:58.000000000 +0100
+@@ -376,6 +376,11 @@ gcore_create_callback (CORE_ADDR vaddr, 
+   asection *osec;
+   flagword flags = SEC_ALLOC | SEC_HAS_CONTENTS | SEC_LOAD;
+ 
++  /* Some Linux kernel versions around 2.6.17 have for i386 inferiors running
++     in compatibility mode on amd64 kernel their VSYSCALL page (at 0xffffe000)
++     protected as RWX==000 by default and gdb fails to read the library header
++     upon loading the core.  This is a Linux kernel bug being fixed.  */
++
+   /* If the memory segment has no permissions set, ignore it, otherwise
+      when we later try to access it for read/write, we'll get an error
+      or jam the kernel.  */
+Index: gdb-7.0.50.20100115/gdb/gdb_procfs32.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.0.50.20100115/gdb/gdb_procfs32.h	2010-01-15 03:20:58.000000000 +0100
+@@ -0,0 +1,128 @@
++#ifdef HAVE_SYS_PROCFS32_H
++#include <sys/procfs32.h>
++#elif !defined HAVE_ELF_PRSTATUS32
++
++/* Copyright (C) 2006 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#ifndef _SYS_PROCFS32_H
++#define _SYS_PROCFS32_H	1
++
++/* This is somewhat modelled after the file of the same name on SVR4
++   systems.  It provides a definition of the core file format for ELF
++   used on Linux.  It doesn't have anything to do with the /proc file
++   system, even though Linux has one.
++
++   Anyway, the whole purpose of this file is for GDB and GDB only.
++   Don't read too much into it.  Don't use it for anything other than
++   GDB unless you know what you are doing.  */
++
++#include <features.h>
++#include <sys/time.h>
++#include <sys/types.h>
++#include "gdb_user32.h"
++
++/* We define here only the symbols differing from their 64-bit variant.  */
++#include <sys/procfs.h>
++
++__BEGIN_DECLS
++
++/* Type for a general-purpose register.  */
++typedef unsigned int elf_greg32_t;
++
++/* And the whole bunch of them.  We could have used `struct
++   user_regs_struct' directly in the typedef, but tradition says that
++   the register set is an array, which does have some peculiar
++   semantics, so leave it that way.  */
++#define ELF_NGREG32 (sizeof (struct user_regs32_struct) / sizeof(elf_greg32_t))
++typedef elf_greg32_t elf_gregset32_t[ELF_NGREG32];
++
++/* Register set for the floating-point registers.  */
++typedef struct user_fpregs32_struct elf_fpregset32_t;
++
++/* Register set for the extended floating-point registers.  Includes
++   the Pentium III SSE registers in addition to the classic
++   floating-point stuff.  */
++typedef struct user_fpxregs32_struct elf_fpxregset32_t;
++
++
++/* Definitions to generate Intel SVR4-like core files.  These mostly
++   have the same names as the SVR4 types with "elf_" tacked on the
++   front to prevent clashes with Linux definitions, and the typedef
++   forms have been avoided.  This is mostly like the SVR4 structure,
++   but more Linuxy, with things that Linux does not support and which
++   GDB doesn't really use excluded.  */
++
++struct prstatus32_timeval
++  {
++    int tv_sec;
++    int tv_usec;
++  };
++
++struct elf_prstatus32
++  {
++    struct elf_siginfo pr_info;		/* Info associated with signal.  */
++    short int pr_cursig;		/* Current signal.  */
++    unsigned int pr_sigpend;		/* Set of pending signals.  */
++    unsigned int pr_sighold;		/* Set of held signals.  */
++    __pid_t pr_pid;
++    __pid_t pr_ppid;
++    __pid_t pr_pgrp;
++    __pid_t pr_sid;
++    struct prstatus32_timeval pr_utime;		/* User time.  */
++    struct prstatus32_timeval pr_stime;		/* System time.  */
++    struct prstatus32_timeval pr_cutime;	/* Cumulative user time.  */
++    struct prstatus32_timeval pr_cstime;	/* Cumulative system time.  */
++    elf_gregset32_t pr_reg;		/* GP registers.  */
++    int pr_fpvalid;			/* True if math copro being used.  */
++  };
++
++
++struct elf_prpsinfo32
++  {
++    char pr_state;			/* Numeric process state.  */
++    char pr_sname;			/* Char for pr_state.  */
++    char pr_zomb;			/* Zombie.  */
++    char pr_nice;			/* Nice val.  */
++    unsigned int pr_flag;		/* Flags.  */
++    unsigned short int pr_uid;
++    unsigned short int pr_gid;
++    int pr_pid, pr_ppid, pr_pgrp, pr_sid;
++    /* Lots missing */
++    char pr_fname[16];			/* Filename of executable.  */
++    char pr_psargs[ELF_PRARGSZ];	/* Initial part of arg list.  */
++  };
++
++
++/* The rest of this file provides the types for emulation of the
++   Solaris <proc_service.h> interfaces that should be implemented by
++   users of libthread_db.  */
++
++/* Register sets.  Linux has different names.  */
++typedef elf_gregset_t prgregset32_t;
++typedef elf_fpregset_t prfpregset32_t;
++
++/* Process status and info.  In the end we do provide typedefs for them.  */
++typedef struct elf_prstatus32 prstatus32_t;
++typedef struct elf_prpsinfo32 prpsinfo32_t;
++
++__END_DECLS
++
++#endif	/* _SYS_PROCFS32_H */
++
++#endif /* HAVE_SYS_PROCFS32_H */
+Index: gdb-7.0.50.20100115/gdb/gdb_user32.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.0.50.20100115/gdb/gdb_user32.h	2010-01-15 03:20:58.000000000 +0100
+@@ -0,0 +1,108 @@
++#ifdef HAVE_SYS_USER32_H
++#include <sys/user32.h>
++#else
++
++#ifdef HAVE_STDINT_H
++#include <stdint.h>
++typedef  int32_t  gdb_int32_t;
++typedef uint32_t gdb_uint32_t;
++#else
++typedef   signed int gdb_uint32_t;
++typedef unsigned int gdb_uint32_t;
++#endif
++
++/* Copyright (C) 2006 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#ifndef _SYS_USER32_H
++#define _SYS_USER32_H	1
++
++/* These are the 32-bit x86 structures.  */
++
++struct user_fpregs32_struct
++{
++  int32_t cwd;
++  int32_t swd;
++  int32_t twd;
++  int32_t fip;
++  int32_t fcs;
++  int32_t foo;
++  int32_t fos;
++  int32_t st_space [20];
++};
++
++struct user_fpxregs32_struct
++{
++  unsigned short int cwd;
++  unsigned short int swd;
++  unsigned short int twd;
++  unsigned short int fop;
++  int32_t fip;
++  int32_t fcs;
++  int32_t foo;
++  int32_t fos;
++  int32_t mxcsr;
++  int32_t reserved;
++  int32_t st_space[32];   /* 8*16 bytes for each FP-reg = 128 bytes */
++  int32_t xmm_space[32];  /* 8*16 bytes for each XMM-reg = 128 bytes */
++  int32_t padding[56];
++};
++
++struct user_regs32_struct
++{
++  int32_t ebx;
++  int32_t ecx;
++  int32_t edx;
++  int32_t esi;
++  int32_t edi;
++  int32_t ebp;
++  int32_t eax;
++  int32_t xds;
++  int32_t xes;
++  int32_t xfs;
++  int32_t xgs;
++  int32_t orig_eax;
++  int32_t eip;
++  int32_t xcs;
++  int32_t eflags;
++  int32_t esp;
++  int32_t xss;
++};
++
++struct user32
++{
++  struct user_regs32_struct	regs;
++  int				u_fpvalid;
++  struct user_fpregs32_struct	i387;
++  uint32_t			u_tsize;
++  uint32_t			u_dsize;
++  uint32_t			u_ssize;
++  uint32_t			start_code;
++  uint32_t			start_stack;
++  int32_t			signal;
++  int				reserved;
++  struct user_regs32_struct*	u_ar0;
++  struct user_fpregs32_struct*	u_fpstate;
++  uint32_t			magic;
++  char				u_comm [32];
++  int				u_debugreg [8];
++};
++
++#endif	/* _SYS_USER32_H */
++
++#endif /* HAVE_SYS_USER32_H */
+Index: gdb-7.0.50.20100115/gdb/linux-nat.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/linux-nat.c	2010-01-15 03:20:45.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/linux-nat.c	2010-01-15 03:20:58.000000000 +0100
+@@ -225,6 +225,21 @@ static LONGEST (*super_xfer_partial) (st
+ 				      const gdb_byte *,
+ 				      ULONGEST, LONGEST);
+ 
++/* This functions make elfcore note sections.
++   They may get overriden by code adjusting data for multi-target builds.  */
++char *(*linux_elfcore_write_prpsinfo)
++  (bfd *, char *, int *, const char *, const char *) = elfcore_write_prpsinfo;
++char *(*linux_elfcore_write_prstatus)
++  (bfd *, char *, int *, long, int, const void *) = elfcore_write_prstatus;
++static char *
++linux_elfcore_write_prfpreg_bfd (bfd *abfd, char *buf, int *bufsiz,
++				 const void *fpregs, int size, struct regcache *regcache)
++{
++  return elfcore_write_prfpreg (abfd, buf, bufsiz, fpregs, size);
++}
++char *(*linux_elfcore_write_prfpreg) (bfd *, char *, int *, const void *, int,
++			   struct regcache *) = linux_elfcore_write_prfpreg_bfd;
++
+ static int debug_linux_nat;
+ static void
+ show_debug_linux_nat (struct ui_file *file, int from_tty,
+@@ -4187,7 +4202,7 @@ linux_nat_do_thread_registers (bfd *obfd
+   else
+     fill_gregset (regcache, &gregs, -1);
+ 
+-  note_data = (char *) elfcore_write_prstatus (obfd,
++  note_data = (char *) linux_elfcore_write_prstatus (obfd,
+ 					       note_data,
+ 					       note_size,
+ 					       lwp,
+@@ -4237,10 +4252,10 @@ linux_nat_do_thread_registers (bfd *obfd
+       else
+ 	fill_fpregset (regcache, &fpregs, -1);
+ 
+-      note_data = (char *) elfcore_write_prfpreg (obfd,
++      note_data = (char *) linux_elfcore_write_prfpreg (obfd,
+ 						  note_data,
+ 						  note_size,
+-						  &fpregs, sizeof (fpregs));
++						  &fpregs, sizeof (fpregs), regcache);
+     }
+ 
+   return note_data;
+@@ -4423,9 +4438,9 @@ linux_nat_make_corefile_notes (bfd *obfd
+ 		       psargs_end - string_end);
+ 	    }
+ 	}
+-      note_data = (char *) elfcore_write_prpsinfo (obfd,
+-						   note_data,
+-						   note_size, fname, psargs);
++      note_data = (char *) linux_elfcore_write_prpsinfo (obfd, note_data,
++							 note_size, fname,
++							 psargs);
+     }
+ 
+   /* Dump information for threads.  */
+Index: gdb-7.0.50.20100115/gdb/linux-nat.h
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/linux-nat.h	2010-01-15 03:17:07.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/linux-nat.h	2010-01-15 03:21:26.000000000 +0100
+@@ -169,3 +169,12 @@ struct siginfo *linux_nat_get_siginfo (p
+ 
+ /* Compute and return the processor core of a given thread.  */
+ int linux_nat_core_of_thread_1 (ptid_t ptid);
++
++/* These functions make elfcore note sections.
++   They may get overriden by code adjusting data for multi-target builds.  */
++extern char *(*linux_elfcore_write_prpsinfo)
++  (bfd *, char *, int *, const char *, const char *);
++extern char *(*linux_elfcore_write_prstatus)
++  (bfd *, char *, int *, long, int, const void *);
++extern char *(*linux_elfcore_write_prfpreg)
++  (bfd *, char *, int *, const void *, int, struct regcache *);

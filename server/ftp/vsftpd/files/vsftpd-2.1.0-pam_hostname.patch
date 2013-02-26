@@ -1,0 +1,57 @@
+diff -up vsftpd-2.2.0/sysdeputil.c.pam_hostname vsftpd-2.2.0/sysdeputil.c
+--- vsftpd-2.2.0/sysdeputil.c.pam_hostname	2009-08-08 03:51:10.000000000 +0200
++++ vsftpd-2.2.0/sysdeputil.c	2009-08-24 12:24:07.220623773 +0200
+@@ -16,6 +16,10 @@
+ #include "tunables.h"
+ #include "builddefs.h"
+ 
++/* For gethostbyaddr, inet_addr */
++#include <netdb.h>
++#include <arpa/inet.h>
++
+ /* For Linux, this adds nothing :-) */
+ #include "port/porting_junk.h"
+ 
+@@ -325,6 +329,10 @@ vsf_sysdep_check_auth(struct mystr* p_us
+                       const struct mystr* p_remote_host)
+ {
+   int retval;
++#ifdef PAM_RHOST
++  struct sockaddr_in sin;
++  struct hostent *host;
++#endif
+   pam_item_t item;
+   const char* pam_user_name = 0;
+   struct pam_conv the_conv =
+@@ -345,7 +353,12 @@ vsf_sysdep_check_auth(struct mystr* p_us
+     return 0;
+   }
+ #ifdef PAM_RHOST
+-  retval = pam_set_item(s_pamh, PAM_RHOST, str_getbuf(p_remote_host));
++  sin.sin_addr.s_addr = inet_addr(str_getbuf(p_remote_host));
++  host = gethostbyaddr((char*)&sin.sin_addr.s_addr,sizeof(struct in_addr),AF_INET);
++  if (host != (struct hostent*)0)
++    retval = pam_set_item(s_pamh, PAM_RHOST, host->h_name);
++  else
++    retval = pam_set_item(s_pamh, PAM_RHOST, str_getbuf(p_remote_host));
+   if (retval != PAM_SUCCESS)
+   {
+     (void) pam_end(s_pamh, retval);
+@@ -558,7 +571,7 @@ vsf_sysdep_has_capabilities(void)
+   }
+   return s_runtime_has_caps;
+ }
+-  
++
+   #ifndef VSF_SYSDEP_HAVE_LIBCAP
+ static int
+ do_checkcap(void)
+@@ -1080,7 +1093,7 @@ vsf_sysutil_recv_fd(const int sock_fd)
+   msg.msg_flags = 0;
+   /* In case something goes wrong, set the fd to -1 before the syscall */
+   p_fd = (int*)CMSG_DATA(CMSG_FIRSTHDR(&msg));
+-  *p_fd = -1;  
++  *p_fd = -1;
+   retval = recvmsg(sock_fd, &msg, 0);
+   if (retval != 1)
+   {

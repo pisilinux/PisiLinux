@@ -1,0 +1,1378 @@
+diff --git a/support/export/client.c b/support/export/client.c
+index dbfc2b1..ba2db8f 100644
+--- a/support/export/client.c
++++ b/support/export/client.c
+@@ -178,6 +178,7 @@ out_badprefix:
+ static int
+ init_netmask6(nfs_client *UNUSED(clp), const char *UNUSED(slash))
+ {
++	return 0;
+ }
+ #endif	/* IPV6_SUPPORTED */
+ 
+diff --git a/support/export/export.c b/support/export/export.c
+index f528603..4fda30a 100644
+--- a/support/export/export.c
++++ b/support/export/export.c
+@@ -38,6 +38,7 @@ export_free(nfs_export *exp)
+ 	xfree(exp->m_export.e_sqgids);
+ 	free(exp->m_export.e_mountpoint);
+ 	free(exp->m_export.e_fslocdata);
++	free(exp->m_export.e_uuid);
+ 
+ 	xfree(exp->m_export.e_hostname);
+ 	xfree(exp);
+diff --git a/support/include/nfslib.h b/support/include/nfslib.h
+index 3db5bec..53ece0e 100644
+--- a/support/include/nfslib.h
++++ b/support/include/nfslib.h
+@@ -163,6 +163,12 @@ void closeall(int min);
+ int			svctcp_socket (u_long __number, int __reuse);
+ int			svcudp_socket (u_long __number);
+ 
++/* Misc shared code prototypes */
++size_t  strlcat(char *, const char *, size_t);
++size_t  strlcpy(char *, const char *, size_t);
++ssize_t atomicio(ssize_t (*f) (int, void*, size_t),
++		 int, void *, size_t);
++
+ 
+ #define UNUSED(x) UNUSED_ ## x __attribute__((unused))
+ 
+diff --git a/support/nfs/Makefile.am b/support/nfs/Makefile.am
+index 60400b2..05c2fc4 100644
+--- a/support/nfs/Makefile.am
++++ b/support/nfs/Makefile.am
+@@ -5,7 +5,7 @@ libnfs_a_SOURCES = exports.c rmtab.c xio.c rpcmisc.c rpcdispatch.c \
+ 		   xlog.c xcommon.c wildmat.c nfsclient.c \
+ 		   nfsexport.c getfh.c nfsctl.c rpc_socket.c getport.c \
+ 		   svc_socket.c cacheio.c closeall.c nfs_mntent.c conffile.c \
+-		   svc_create.c
++		   svc_create.c atomicio.c strlcpy.c strlcat.c
+ 
+ MAINTAINERCLEANFILES = Makefile.in
+ 
+diff --git a/support/nfs/atomicio.c b/support/nfs/atomicio.c
+new file mode 100644
+index 0000000..5e760e6
+--- /dev/null
++++ b/support/nfs/atomicio.c
+@@ -0,0 +1,54 @@
++/*
++ * Copyright (c) 2002 Marius Aamodt Eriksen <marius@monkey.org>
++ * Copyright (c) 1995,1999 Theo de Raadt.  All rights reserved.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include <sys/types.h>
++#include <unistd.h>
++#include <errno.h>
++
++/*
++ * ensure all of data on socket comes through. f==read || f==write
++ */
++ssize_t atomicio(ssize_t(*f) (int, void *, size_t), int fd, void *_s, size_t n)
++{
++	char *s = _s;
++	ssize_t res, pos = 0;
++
++	while ((ssize_t)n > pos) {
++		res = (f) (fd, s + pos, n - pos);
++		switch (res) {
++		case -1:
++			if (errno == EINTR || errno == EAGAIN)
++				continue;
++		case 0:
++			if (pos != 0)
++				return pos;
++			return res;
++		default:
++			pos += res;
++		}
++	}
++	return pos;
++}
+diff --git a/support/nfs/exports.c b/support/nfs/exports.c
+index a93941c..1744ed6 100644
+--- a/support/nfs/exports.c
++++ b/support/nfs/exports.c
+@@ -332,6 +332,8 @@ dupexportent(struct exportent *dst, struct exportent *src)
+ 		dst->e_mountpoint = strdup(src->e_mountpoint);
+ 	if (src->e_fslocdata)
+ 		dst->e_fslocdata = strdup(src->e_fslocdata);
++	if (src->e_uuid)
++		dst->e_uuid = strdup(src->e_uuid);
+ 	dst->e_hostname = NULL;
+ }
+ 
+diff --git a/support/nfs/strlcat.c b/support/nfs/strlcat.c
+new file mode 100644
+index 0000000..daedd7a
+--- /dev/null
++++ b/support/nfs/strlcat.c
+@@ -0,0 +1,76 @@
++/*	$OpenBSD: strlcat.c,v 1.8 2001/05/13 15:40:15 deraadt Exp $	*/
++
++/*
++ * Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name of the author may not be used to endorse or promote products
++ *    derived from this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
++ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
++ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL
++ * THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
++ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
++ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
++ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
++ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#if defined(LIBC_SCCS) && !defined(lint)
++static char *rcsid = "$OpenBSD: strlcat.c,v 1.8 2001/05/13 15:40:15 deraadt Exp $";
++#endif /* LIBC_SCCS and not lint */
++
++#include <sys/types.h>
++#include <string.h>
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif /* HAVE_CONFIG_H */
++
++/*
++ * Appends src to string dst of size siz (unlike strncat, siz is the
++ * full size of dst, not space left).  At most siz-1 characters
++ * will be copied.  Always NUL terminates (unless siz <= strlen(dst)).
++ * Returns strlen(src) + MIN(siz, strlen(initial dst)).
++ * If retval >= siz, truncation occurred.
++ */
++size_t
++strlcat(char *dst,
++	const char *src,
++	size_t siz)
++{
++	register char *d = dst;
++	register const char *s = src;
++	register size_t n = siz;
++	size_t dlen;
++
++	/* Find the end of dst and adjust bytes left but don't go past end */
++	while (n-- != 0 && *d != '\0')
++		d++;
++	dlen = d - dst;
++	n = siz - dlen;
++
++	if (n == 0)
++		return(dlen + strlen(s));
++	while (*s != '\0') {
++		if (n != 1) {
++			*d++ = *s;
++			n--;
++		}
++		s++;
++	}
++	*d = '\0';
++
++	return(dlen + (s - src));	/* count does not include NUL */
++}
+diff --git a/support/nfs/strlcpy.c b/support/nfs/strlcpy.c
+new file mode 100644
+index 0000000..a2653ee
+--- /dev/null
++++ b/support/nfs/strlcpy.c
+@@ -0,0 +1,72 @@
++/*	$OpenBSD: strlcpy.c,v 1.5 2001/05/13 15:40:16 deraadt Exp $	*/
++
++/*
++ * Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name of the author may not be used to endorse or promote products
++ *    derived from this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
++ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
++ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL
++ * THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
++ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
++ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
++ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
++ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#if defined(LIBC_SCCS) && !defined(lint)
++static char *rcsid = "$OpenBSD: strlcpy.c,v 1.5 2001/05/13 15:40:16 deraadt Exp $";
++#endif /* LIBC_SCCS and not lint */
++
++#include <sys/types.h>
++#include <string.h>
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif /* HAVE_CONFIG_H */
++
++/*
++ * Copy src to string dst of size siz.  At most siz-1 characters
++ * will be copied.  Always NUL terminates (unless siz == 0).
++ * Returns strlen(src); if retval >= siz, truncation occurred.
++ */
++size_t
++strlcpy(char *dst,
++	const char *src,
++	size_t siz)
++{
++	register char *d = dst;
++	register const char *s = src;
++	register size_t n = siz;
++
++	/* Copy as many bytes as will fit */
++	if (n != 0 && --n != 0) {
++		do {
++			if ((*d++ = *s++) == 0)
++				break;
++		} while (--n != 0);
++	}
++
++	/* Not enough room in dst, add NUL and traverse rest of src */
++	if (n == 0) {
++		if (siz != 0)
++			*d = '\0';		/* NUL-terminate dst */
++		while (*s++)
++			;
++	}
++
++	return(s - src - 1);	/* count does not include NUL */
++}
+diff --git a/support/nfs/svc_create.c b/support/nfs/svc_create.c
+index 59ba505..b3f75ed 100644
+--- a/support/nfs/svc_create.c
++++ b/support/nfs/svc_create.c
+@@ -27,6 +27,7 @@
+ #include <memory.h>
+ #include <signal.h>
+ #include <unistd.h>
++#include <errno.h>
+ #include <netdb.h>
+ 
+ #include <netinet/in.h>
+@@ -41,11 +42,68 @@
+ #include "tcpwrapper.h"
+ #endif
+ 
++#include "sockaddr.h"
+ #include "rpcmisc.h"
+ #include "xlog.h"
+ 
+ #ifdef HAVE_LIBTIRPC
+ 
++#define SVC_CREATE_XPRT_CACHE_SIZE	(8)
++static SVCXPRT *svc_create_xprt_cache[SVC_CREATE_XPRT_CACHE_SIZE] = { NULL, };
++
++/*
++ * Cache an SVC xprt, in case there are more programs or versions to
++ * register against it.
++ */
++static void
++svc_create_cache_xprt(SVCXPRT *xprt)
++{
++	unsigned int i;
++
++	/* Check if we've already got this one... */
++	for (i = 0; i < SVC_CREATE_XPRT_CACHE_SIZE; i++)
++		if (svc_create_xprt_cache[i] == xprt)
++			return;
++
++	/* No, we don't.  Cache it. */
++	for (i = 0; i < SVC_CREATE_XPRT_CACHE_SIZE; i++)
++		if (svc_create_xprt_cache[i] == NULL) {
++			svc_create_xprt_cache[i] = xprt;
++			return;
++		}
++
++	xlog(L_ERROR, "%s: Failed to cache an xprt", __func__);
++}
++
++/*
++ * Find a previously cached SVC xprt structure with the given bind address
++ * and transport semantics.
++ *
++ * Returns pointer to a cached SVC xprt.
++ *
++ * If no matching SVC XPRT can be found, NULL is returned.
++ */
++static SVCXPRT *
++svc_create_find_xprt(const struct sockaddr *bindaddr, const struct netconfig *nconf)
++{
++	unsigned int i;
++
++	for (i = 0; i < SVC_CREATE_XPRT_CACHE_SIZE; i++) {
++		SVCXPRT *xprt = svc_create_xprt_cache[i];
++		struct sockaddr *sap;
++
++		if (xprt == NULL)
++			continue;
++		if (strcmp(nconf->nc_netid, xprt->xp_netid) != 0)
++			continue;
++		sap = (struct sockaddr *)xprt->xp_ltaddr.buf;
++		if (!nfs_compare_sockaddr(bindaddr, sap))
++			continue;
++		return xprt;
++	}
++	return NULL;
++}
++
+ /*
+  * Set up an appropriate bind address, given @port and @nconf.
+  *
+@@ -98,17 +156,113 @@ svc_create_bindaddr(struct netconfig *nconf, const uint16_t port)
+ 	return ai;
+ }
+ 
++/*
++ * Create a listener socket on a specific bindaddr, and set
++ * special socket options to allow it to share the same port
++ * as other listeners.
++ *
++ * Returns an open, bound, and possibly listening network
++ * socket on success.
++ *
++ * Otherwise returns -1 if some error occurs.
++ */
++static int
++svc_create_sock(const struct sockaddr *sap, socklen_t salen,
++		struct netconfig *nconf)
++{
++	int fd, type, protocol;
++	int one = 1;
++
++	switch(nconf->nc_semantics) {
++	case NC_TPI_CLTS:
++		type = SOCK_DGRAM;
++		break;
++	case NC_TPI_COTS_ORD:
++		type = SOCK_STREAM;
++		break;
++	default:
++		xlog(D_GENERAL, "%s: Unrecognized bind address semantics: %u",
++			__func__, nconf->nc_semantics);
++		return -1;
++	}
++
++	if (strcmp(nconf->nc_proto, NC_UDP) == 0)
++		protocol = (int)IPPROTO_UDP;
++	else if (strcmp(nconf->nc_proto, NC_TCP) == 0)
++		protocol = (int)IPPROTO_TCP;
++	else {
++		xlog(D_GENERAL, "%s: Unrecognized bind address protocol: %s",
++			__func__, nconf->nc_proto);
++		return -1;
++	}
++
++	fd = socket((int)sap->sa_family, type, protocol);
++	if (fd == -1) {
++		xlog(L_ERROR, "Could not make a socket: (%d) %m",
++			errno);
++		return -1;
++	}
++
++#ifdef IPV6_SUPPORTED
++	if (sap->sa_family == AF_INET6) {
++		if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
++				&one, sizeof(one)) == -1) {
++			xlog(L_ERROR, "Failed to set IPV6_V6ONLY: (%d) %m",
++				errno);
++			(void)close(fd);
++			return -1;
++		}
++	}
++#endif	/* IPV6_SUPPORTED */
++
++	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
++		       &one, sizeof(one)) == -1) {
++		xlog(L_ERROR, "Failed to set SO_REUSEADDR: (%d) %m",
++			errno);
++		(void)close(fd);
++		return -1;
++	}
++
++	if (bind(fd, sap, salen) == -1) {
++		xlog(L_ERROR, "Could not bind socket: (%d) %m",
++			errno);
++		(void)close(fd);
++		return -1;
++	}
++
++	if (nconf->nc_semantics == NC_TPI_COTS_ORD)
++		if (listen(fd, SOMAXCONN) == -1) {
++			xlog(L_ERROR, "Could not listen on socket: (%d) %m",
++				errno);
++			(void)close(fd);
++			return -1;
++		}
++
++	return fd;
++}
++
++/*
++ * The simple case is allowing the TI-RPC library to create a
++ * transport itself, given just the bind address and transport
++ * semantics.
++ *
++ * Our local xprt cache is ignored in this path, since the
++ * caller is not interested in sharing listeners or ports, and
++ * the library automatically avoids ports already in use.
++ *
++ * Returns the count of started listeners (one or zero).
++ */
+ static unsigned int
+-svc_create_nconf(const char *name, const rpcprog_t program,
++svc_create_nconf_rand_port(const char *name, const rpcprog_t program,
+ 		const rpcvers_t version,
+ 		void (*dispatch)(struct svc_req *, SVCXPRT *),
+-		const uint16_t port, struct netconfig *nconf)
++		struct netconfig *nconf)
+ {
+ 	struct t_bind bindaddr;
+ 	struct addrinfo *ai;
+ 	SVCXPRT	*xprt;
+ 
+-	ai = svc_create_bindaddr(nconf, port);
++	ai = svc_create_bindaddr(nconf, 0);
+ 	if (ai == NULL)
+ 		return 0;
+ 
+@@ -119,7 +273,7 @@ svc_create_nconf(const char *name, const rpcprog_t program,
+ 	freeaddrinfo(ai);
+ 	if (xprt == NULL) {
+ 		xlog(D_GENERAL, "Failed to create listener xprt "
+-				"(%s, %u, %s)", name, version, nconf->nc_netid);
++			"(%s, %u, %s)", name, version, nconf->nc_netid);
+ 		return 0;
+ 	}
+ 
+@@ -133,6 +287,93 @@ svc_create_nconf(const char *name, const rpcprog_t program,
+ 	return 1;
+ }
+ 
++/*
++ * If a port is specified on the command line, that port value will be
++ * the same for all listeners created here.  Create each listener
++ * socket in advance and set SO_REUSEADDR, rather than allowing the
++ * RPC library to create the listeners for us on a randomly chosen
++ * port via svc_tli_create(RPC_ANYFD).
++ *
++ * Some callers want to listen for more than one RPC version using the
++ * same port number.  For example, mountd could want to listen for MNT
++ * version 1, 2, and 3 requests.  This means mountd must use the same
++ * set of listener sockets for multiple RPC versions, since, on one
++ * system, you can't have two listener sockets with the exact same
++ * bind address (and port) and transport protocol.
++ *
++ * To accomplish this, this function caches xprts as they are created.
++ * This cache is checked to see if a previously created xprt can be
++ * used, before creating a new xprt for this [program, version].  If
++ * there is a cached xprt with the same bindaddr and transport
++ * semantics, we simply register the new version with that xprt,
++ * rather than creating a fresh xprt for it.
++ *
++ * The xprt cache implemented here is local to a process.  Two
++ * separate RPC daemons can not share a set of listeners.
++ *
++ * Returns the count of started listeners (one or zero).
++ */
++static unsigned int
++svc_create_nconf_fixed_port(const char *name, const rpcprog_t program,
++		const rpcvers_t version,
++		void (*dispatch)(struct svc_req *, SVCXPRT *),
++		const uint16_t port, struct netconfig *nconf)
++{
++	struct addrinfo *ai;
++	SVCXPRT	*xprt;
++
++	ai = svc_create_bindaddr(nconf, port);
++	if (ai == NULL)
++		return 0;
++
++	xprt = svc_create_find_xprt(ai->ai_addr, nconf);
++	if (xprt == NULL) {
++		int fd;
++
++		fd = svc_create_sock(ai->ai_addr, ai->ai_addrlen, nconf);
++		if (fd == -1)
++			goto out_free;
++
++		xprt = svc_tli_create(fd, nconf, NULL, 0, 0);
++		if (xprt == NULL) {
++			xlog(D_GENERAL, "Failed to create listener xprt "
++				"(%s, %u, %s)", name, version, nconf->nc_netid);
++			(void)close(fd);
++			goto out_free;
++		}
++	}
++
++	if (!svc_reg(xprt, program, version, dispatch, nconf)) {
++		/* svc_reg(3) destroys @xprt in this case */
++		xlog(D_GENERAL, "Failed to register (%s, %u, %s)",
++				name, version, nconf->nc_netid);
++		goto out_free;
++	}
++
++	svc_create_cache_xprt(xprt);
++
++	freeaddrinfo(ai);
++	return 1;
++
++out_free:
++	freeaddrinfo(ai);
++	return 0;
++}
++
++static unsigned int
++svc_create_nconf(const char *name, const rpcprog_t program,
++		const rpcvers_t version,
++		void (*dispatch)(struct svc_req *, SVCXPRT *),
++		const uint16_t port, struct netconfig *nconf)
++{
++	if (port != 0)
++		return svc_create_nconf_fixed_port(name, program,
++			version, dispatch, port, nconf);
++
++	return svc_create_nconf_rand_port(name, program,
++			version, dispatch, nconf);
++}
++
+ /**
+  * nfs_svc_create - start up RPC svc listeners
+  * @name: C string containing name of new service
+@@ -145,8 +386,7 @@ svc_create_nconf(const char *name, const rpcprog_t program,
+  * the RPC dispatcher.  Returns the number of started network transports.
+  */
+ unsigned int
+-nfs_svc_create(__attribute__((unused)) char *name,
+-		const rpcprog_t program, const rpcvers_t version,
++nfs_svc_create(char *name, const rpcprog_t program, const rpcvers_t version,
+ 		void (*dispatch)(struct svc_req *, SVCXPRT *),
+ 		const uint16_t port)
+ {
+diff --git a/utils/idmapd/Makefile.am b/utils/idmapd/Makefile.am
+index 4218048..4328e41 100644
+--- a/utils/idmapd/Makefile.am
++++ b/utils/idmapd/Makefile.am
+@@ -11,12 +11,8 @@ EXTRA_DIST = \
+ 	idmapd.conf
+ 
+ idmapd_SOURCES = \
+-	atomicio.c \
+ 	idmapd.c \
+-	strlcat.c \
+-	strlcpy.c \
+ 	\
+-	cfg.h \
+ 	nfs_idmap.h \
+ 	queue.h
+ 
+diff --git a/utils/idmapd/atomicio.c b/utils/idmapd/atomicio.c
+deleted file mode 100644
+index 1fb1ff9..0000000
+--- a/utils/idmapd/atomicio.c
++++ /dev/null
+@@ -1,64 +0,0 @@
+-/*
+- * Copyright (c) 2002 Marius Aamodt Eriksen <marius@monkey.org>
+- * Copyright (c) 1995,1999 Theo de Raadt.  All rights reserved.
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#include <sys/types.h>
+-#include <unistd.h>
+-#include <errno.h>
+-
+-#ifdef HAVE_CONFIG_H
+-#include "config.h"
+-#endif /* HAVE_CONFIG_H */
+-
+-/*
+- * ensure all of data on socket comes through. f==read || f==write
+- */
+-ssize_t
+-atomicio(
+-	ssize_t (*f) (int, void*, size_t),
+-	int fd,
+-	void *_s,
+-	size_t n)
+-{
+-	char *s = _s;
+-	ssize_t res;
+-	size_t pos = 0;
+-
+-	while (n > pos) {
+-		res = (f) (fd, s + pos, n - pos);
+-		switch (res) {
+-		case -1:
+-			if (errno == EINTR || errno == EAGAIN)
+-				continue;
+-		case 0:
+-			if (pos != 0)
+-				return (pos);
+-			return (res);
+-		default:
+-			pos += res;
+-		}
+-	}
+-	return (pos);
+-}
+diff --git a/utils/idmapd/idmapd.c b/utils/idmapd/idmapd.c
+index b76607a..76a56ef 100644
+--- a/utils/idmapd/idmapd.c
++++ b/utils/idmapd/idmapd.c
+@@ -158,10 +158,6 @@ static int nfsdopenone(struct idmap_client *);
+ static void nfsdreopen_one(struct idmap_client *);
+ static void nfsdreopen(void);
+ 
+-size_t  strlcat(char *, const char *, size_t);
+-size_t  strlcpy(char *, const char *, size_t);
+-ssize_t atomicio(ssize_t (*f) (int, void*, size_t),
+-		 int, void *, size_t);
+ void    mydaemon(int, int);
+ void    release_parent(void);
+ 
+diff --git a/utils/idmapd/strlcat.c b/utils/idmapd/strlcat.c
+deleted file mode 100644
+index daedd7a..0000000
+--- a/utils/idmapd/strlcat.c
++++ /dev/null
+@@ -1,76 +0,0 @@
+-/*	$OpenBSD: strlcat.c,v 1.8 2001/05/13 15:40:15 deraadt Exp $	*/
+-
+-/*
+- * Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- * 3. The name of the author may not be used to endorse or promote products
+- *    derived from this software without specific prior written permission.
+- *
+- * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+- * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL
+- * THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#if defined(LIBC_SCCS) && !defined(lint)
+-static char *rcsid = "$OpenBSD: strlcat.c,v 1.8 2001/05/13 15:40:15 deraadt Exp $";
+-#endif /* LIBC_SCCS and not lint */
+-
+-#include <sys/types.h>
+-#include <string.h>
+-
+-#ifdef HAVE_CONFIG_H
+-#include "config.h"
+-#endif /* HAVE_CONFIG_H */
+-
+-/*
+- * Appends src to string dst of size siz (unlike strncat, siz is the
+- * full size of dst, not space left).  At most siz-1 characters
+- * will be copied.  Always NUL terminates (unless siz <= strlen(dst)).
+- * Returns strlen(src) + MIN(siz, strlen(initial dst)).
+- * If retval >= siz, truncation occurred.
+- */
+-size_t
+-strlcat(char *dst,
+-	const char *src,
+-	size_t siz)
+-{
+-	register char *d = dst;
+-	register const char *s = src;
+-	register size_t n = siz;
+-	size_t dlen;
+-
+-	/* Find the end of dst and adjust bytes left but don't go past end */
+-	while (n-- != 0 && *d != '\0')
+-		d++;
+-	dlen = d - dst;
+-	n = siz - dlen;
+-
+-	if (n == 0)
+-		return(dlen + strlen(s));
+-	while (*s != '\0') {
+-		if (n != 1) {
+-			*d++ = *s;
+-			n--;
+-		}
+-		s++;
+-	}
+-	*d = '\0';
+-
+-	return(dlen + (s - src));	/* count does not include NUL */
+-}
+diff --git a/utils/idmapd/strlcpy.c b/utils/idmapd/strlcpy.c
+deleted file mode 100644
+index a2653ee..0000000
+--- a/utils/idmapd/strlcpy.c
++++ /dev/null
+@@ -1,72 +0,0 @@
+-/*	$OpenBSD: strlcpy.c,v 1.5 2001/05/13 15:40:16 deraadt Exp $	*/
+-
+-/*
+- * Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- * 3. The name of the author may not be used to endorse or promote products
+- *    derived from this software without specific prior written permission.
+- *
+- * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+- * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL
+- * THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#if defined(LIBC_SCCS) && !defined(lint)
+-static char *rcsid = "$OpenBSD: strlcpy.c,v 1.5 2001/05/13 15:40:16 deraadt Exp $";
+-#endif /* LIBC_SCCS and not lint */
+-
+-#include <sys/types.h>
+-#include <string.h>
+-
+-#ifdef HAVE_CONFIG_H
+-#include "config.h"
+-#endif /* HAVE_CONFIG_H */
+-
+-/*
+- * Copy src to string dst of size siz.  At most siz-1 characters
+- * will be copied.  Always NUL terminates (unless siz == 0).
+- * Returns strlen(src); if retval >= siz, truncation occurred.
+- */
+-size_t
+-strlcpy(char *dst,
+-	const char *src,
+-	size_t siz)
+-{
+-	register char *d = dst;
+-	register const char *s = src;
+-	register size_t n = siz;
+-
+-	/* Copy as many bytes as will fit */
+-	if (n != 0 && --n != 0) {
+-		do {
+-			if ((*d++ = *s++) == 0)
+-				break;
+-		} while (--n != 0);
+-	}
+-
+-	/* Not enough room in dst, add NUL and traverse rest of src */
+-	if (n == 0) {
+-		if (siz != 0)
+-			*d = '\0';		/* NUL-terminate dst */
+-		while (*s++)
+-			;
+-	}
+-
+-	return(s - src - 1);	/* count does not include NUL */
+-}
+diff --git a/utils/mount/fstab.c b/utils/mount/fstab.c
+index 051fa38..a742e64 100644
+--- a/utils/mount/fstab.c
++++ b/utils/mount/fstab.c
+@@ -364,19 +364,22 @@ lock_mtab (void) {
+ 	/* Repeat until it was us who made the link */
+ 	while (!we_created_lockfile) {
+ 		struct flock flock;
+-		int errsv, j;
++		int j;
+ 
+ 		j = link(linktargetfile, MOUNTED_LOCK);
+-		errsv = errno;
+ 
+-		if (j == 0)
+-			we_created_lockfile = 1;
++		{
++			int errsv = errno;
+ 
+-		if (j < 0 && errsv != EEXIST) {
+-			(void) unlink(linktargetfile);
+-			die (EX_FILEIO, _("can't link lock file %s: %s "
+-			     "(use -n flag to override)"),
+-			     MOUNTED_LOCK, strerror (errsv));
++			if (j == 0)
++				we_created_lockfile = 1;
++
++			if (j < 0 && errsv != EEXIST) {
++				(void) unlink(linktargetfile);
++				die (EX_FILEIO, _("can't link lock file %s: %s "
++				     "(use -n flag to override)"),
++				     MOUNTED_LOCK, strerror (errsv));
++			}
+ 		}
+ 
+ 		lockfile_fd = open (MOUNTED_LOCK, O_WRONLY);
+@@ -414,7 +417,7 @@ lock_mtab (void) {
+ 			}
+ 			(void) unlink(linktargetfile);
+ 		} else {
+-			static int tries = 0;
++			static int retries = 0;
+ 
+ 			/* Someone else made the link. Wait. */
+ 			alarm(LOCK_TIMEOUT);
+@@ -428,10 +431,10 @@ lock_mtab (void) {
+ 			alarm(0);
+ 			/* Limit the number of iterations - maybe there
+ 			   still is some old /etc/mtab~ */
+-			++tries;
+-			if (tries % 200 == 0)
++			++retries;
++			if (retries % 200 == 0)
+ 			   usleep(30);
+-			if (tries > 100000) {
++			if (retries > 100000) {
+ 				(void) unlink(linktargetfile);
+ 				close(lockfile_fd);
+ 				die (EX_FILEIO, _("Cannot create link %s\n"
+diff --git a/utils/mount/mount.c b/utils/mount/mount.c
+index 82b9169..b4da21f 100644
+--- a/utils/mount/mount.c
++++ b/utils/mount/mount.c
+@@ -209,7 +209,7 @@ static char *fix_opts_string(int flags, const char *extra_opts)
+ 	}
+ 	if (flags & MS_USERS)
+ 		new_opts = xstrconcat3(new_opts, ",users", "");
+-	
++
+ 	for (om = opt_map; om->opt != NULL; om++) {
+ 		if (om->skip)
+ 			continue;
+@@ -281,7 +281,7 @@ static int add_mtab(char *spec, char *mount_point, char *fstype,
+ 	ment.mnt_fsname = spec;
+ 	ment.mnt_dir = mount_point;
+ 	ment.mnt_type = fstype;
+-	ment.mnt_opts = fix_opts_string(flags, opts);
++	ment.mnt_opts = fix_opts_string(flags & ~MS_NOMTAB, opts);
+ 	ment.mnt_freq = freq;
+ 	ment.mnt_passno = pass;
+ 
+@@ -321,7 +321,7 @@ static int add_mtab(char *spec, char *mount_point, char *fstype,
+ 	return result;
+ }
+ 
+-void mount_usage(void)
++static void mount_usage(void)
+ {
+ 	printf(_("usage: %s remotetarget dir [-rvVwfnsih] [-o nfsoptions]\n"),
+ 		progname);
+@@ -337,7 +337,7 @@ void mount_usage(void)
+ 	printf(_("\tnfsoptions\tRefer to mount.nfs(8) or nfs(5)\n\n"));
+ }
+ 
+-static void parse_opt(const char *opt, int *mask, char *extra_opts, int len)
++static void parse_opt(const char *opt, int *mask, char *extra_opts, size_t len)
+ {
+ 	const struct opt_map *om;
+ 
+@@ -371,7 +371,7 @@ static void parse_opts(const char *options, int *flags, char **extra_opts)
+ 	if (options != NULL) {
+ 		char *opts = xstrdup(options);
+ 		char *opt, *p;
+-		int len = strlen(opts) + 1;	/* include room for a null */
++		size_t len = strlen(opts) + 1;	/* include room for a null */
+ 		int open_quote = 0;
+ 
+ 		*extra_opts = xmalloc(len);
+diff --git a/utils/mount/mount_config.h b/utils/mount/mount_config.h
+index 3023306..e86b4ba 100644
+--- a/utils/mount/mount_config.h
++++ b/utils/mount/mount_config.h
+@@ -1,7 +1,7 @@
+-#ifndef _LINUX_MOUNT__CONFIG_H
+-#define _LINUX_MOUNT_CONFIG__H
++#ifndef _LINUX_MOUNT_CONFIG_H
++#define _LINUX_MOUNT_CONFIG_H
+ /*
+- * mount_config.h -- mount configuration file routines 
++ * mount_config.h -- mount configuration file routines
+  * Copyright (C) 2008 Red Hat, Inc <nfs@redhat.com>
+  *
+  * This program is free software; you can redistribute it and/or modify
+@@ -16,15 +16,13 @@
+  *
+  */
+ 
+-inline void mount_config_init(char *);
+-
+ #ifdef MOUNT_CONFIG
+ #include "conffile.h"
+ #include "xlog.h"
+ 
+ extern char *conf_get_mntopts(char *, char *, char *);
+ 
+-inline void mount_config_init(char *program)
++static inline void mount_config_init(char *program)
+ {
+ 	xlog_open(program);
+ 	/*
+@@ -32,19 +30,22 @@ inline void mount_config_init(char *program)
+ 	 */
+ 	conf_init();
+ }
+-inline char *mount_config_opts(char *spec, 
++
++static inline char *mount_config_opts(char *spec,
+ 		char *mount_point, char *mount_opts)
+ {
+ 	return conf_get_mntopts(spec, mount_point, mount_opts);
+ }
++
+ #else /* MOUNT_CONFIG */
+ 
+-inline void mount_config_init(char *program) { }
++static inline void mount_config_init(char *program) { }
+ 
+-inline char *mount_config_opts(char *spec, 
++static inline char *mount_config_opts(char *spec,
+ 		char *mount_point, char *mount_opts)
+ {
+ 	return mount_opts;
+ }
+ #endif /* MOUNT_CONFIG */
+-#endif
++
++#endif	/* _LINUX_MOUNT_CONFIG_H */
+diff --git a/utils/mount/mount_constants.h b/utils/mount/mount_constants.h
+index cbfb099..4d050d8 100644
+--- a/utils/mount/mount_constants.h
++++ b/utils/mount/mount_constants.h
+@@ -64,4 +64,8 @@ if we have a stack or plain mount - mount atop of it, forming a stack. */
+ #define MS_MGC_MSK 0xffff0000	/* magic flag number mask */
+ #endif
+ 
++/* Generic options that are prevented from appearing
++ * in the options field in /etc/mtab. */
++#define MS_NOMTAB	(MS_REMOUNT)
++
+ #endif	/* _NFS_UTILS_MOUNT_CONSTANTS_H */
+diff --git a/utils/mount/network.c b/utils/mount/network.c
+index d612427..5b515c3 100644
+--- a/utils/mount/network.c
++++ b/utils/mount/network.c
+@@ -59,6 +59,8 @@
+ #define CONNECT_TIMEOUT	(20)
+ #define MOUNT_TIMEOUT	(30)
+ 
++#define SAFE_SOCKADDR(x)	(struct sockaddr *)(char *)(x)
++
+ extern int nfs_mount_data_version;
+ extern char *progname;
+ extern int verbose;
+@@ -428,12 +430,12 @@ static int get_socket(struct sockaddr_in *saddr, unsigned int p_prot,
+ 		if (bindresvport(so, &laddr) < 0)
+ 			goto err_bindresvport;
+ 	} else {
+-		cc = bind(so, (struct sockaddr *)&laddr, namelen);
++		cc = bind(so, SAFE_SOCKADDR(&laddr), namelen);
+ 		if (cc < 0)
+ 			goto err_bind;
+ 	}
+ 	if (type == SOCK_STREAM || (conn && type == SOCK_DGRAM)) {
+-		cc = connect_to(so, (struct sockaddr *)saddr, namelen,
++		cc = connect_to(so, SAFE_SOCKADDR(saddr), namelen,
+ 				timeout);
+ 		if (cc < 0)
+ 			goto err_connect;
+@@ -756,11 +758,12 @@ int nfs_probe_bothports(const struct sockaddr *mnt_saddr,
+  */
+ int probe_bothports(clnt_addr_t *mnt_server, clnt_addr_t *nfs_server)
+ {
+-	return nfs_probe_bothports((struct sockaddr *)&mnt_server->saddr,
+-					sizeof(mnt_server->saddr),
++	struct sockaddr *mnt_addr = SAFE_SOCKADDR(&mnt_server->saddr);
++	struct sockaddr *nfs_addr = SAFE_SOCKADDR(&nfs_server->saddr);
++
++	return nfs_probe_bothports(mnt_addr, sizeof(mnt_server->saddr),
+ 					&mnt_server->pmap,
+-					(struct sockaddr *)&nfs_server->saddr,
+-					sizeof(nfs_server->saddr),
++					nfs_addr, sizeof(nfs_server->saddr),
+ 					&nfs_server->pmap);
+ }
+ 
+@@ -772,7 +775,7 @@ static int nfs_probe_statd(void)
+ 	};
+ 	rpcprog_t program = nfs_getrpcbyname(NSMPROG, nfs_ns_pgmtbl);
+ 
+-	return nfs_getport_ping((struct sockaddr *)&addr, sizeof(addr),
++	return nfs_getport_ping(SAFE_SOCKADDR(&addr), sizeof(addr),
+ 				program, (rpcvers_t)1, IPPROTO_UDP);
+ }
+ 
+@@ -901,7 +904,7 @@ int nfs_advise_umount(const struct sockaddr *sap, const socklen_t salen,
+  */
+ int nfs_call_umount(clnt_addr_t *mnt_server, dirpath *argp)
+ {
+-	struct sockaddr *sap = (struct sockaddr *)&mnt_server->saddr;
++	struct sockaddr *sap = SAFE_SOCKADDR(&mnt_server->saddr);
+ 	socklen_t salen = sizeof(mnt_server->saddr);
+ 	struct pmap *pmap = &mnt_server->pmap;
+ 	CLIENT *clnt;
+@@ -1011,11 +1014,11 @@ int clnt_ping(struct sockaddr_in *saddr, const unsigned long prog,
+ 		struct sockaddr_in *caddr)
+ {
+ 	CLIENT *clnt = NULL;
+-	int sock, stat;
++	int sock, status;
+ 	static char clnt_res;
+ 	struct sockaddr dissolve;
+ 
+-	rpc_createerr.cf_stat = stat = 0;
++	rpc_createerr.cf_stat = status = 0;
+ 	sock = get_socket(saddr, prot, CONNECT_TIMEOUT, FALSE, TRUE);
+ 	if (sock == RPC_ANYSOCK) {
+ 		if (rpc_createerr.cf_error.re_errno == ETIMEDOUT) {
+@@ -1058,18 +1061,18 @@ int clnt_ping(struct sockaddr_in *saddr, const unsigned long prog,
+ 		return 0;
+ 	}
+ 	memset(&clnt_res, 0, sizeof(clnt_res));
+-	stat = clnt_call(clnt, NULLPROC,
++	status = clnt_call(clnt, NULLPROC,
+ 			 (xdrproc_t)xdr_void, (caddr_t)NULL,
+ 			 (xdrproc_t)xdr_void, (caddr_t)&clnt_res,
+ 			 TIMEOUT);
+-	if (stat) {
++	if (status) {
+ 		clnt_geterr(clnt, &rpc_createerr.cf_error);
+-		rpc_createerr.cf_stat = stat;
++		rpc_createerr.cf_stat = status;
+ 	}
+ 	clnt_destroy(clnt);
+ 	close(sock);
+ 
+-	if (stat == RPC_SUCCESS)
++	if (status == RPC_SUCCESS)
+ 		return 1;
+ 	else
+ 		return 0;
+@@ -1103,13 +1106,13 @@ static int nfs_ca_sockname(const struct sockaddr *sap, const socklen_t salen,
+ 
+ 	switch (sap->sa_family) {
+ 	case AF_INET:
+-		if (bind(sock, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
++		if (bind(sock, SAFE_SOCKADDR(&sin), sizeof(sin)) < 0) {
+ 			close(sock);
+ 			return 0;
+ 		}
+ 		break;
+ 	case AF_INET6:
+-		if (bind(sock, (struct sockaddr *)&sin6, sizeof(sin6)) < 0) {
++		if (bind(sock, SAFE_SOCKADDR(&sin6), sizeof(sin6)) < 0) {
+ 			close(sock);
+ 			return 0;
+ 		}
+@@ -1518,7 +1521,11 @@ nfs_mount_protocol(struct mount_options *options, unsigned long *protocol)
+ 	 * set @protocol to zero.  The pmap protocol value will
+ 	 * be filled in later by an rpcbind query in this case.
+ 	 */
+-	return nfs_nfs_protocol(options, protocol);
++	if (!nfs_nfs_protocol(options, protocol))
++		return 0;
++	if (*protocol == NFSPROTO_RDMA)
++		*protocol = IPPROTO_TCP;
++	return 1;
+ }
+ 
+ /*
+diff --git a/utils/mount/nfs.man b/utils/mount/nfs.man
+index d2a4c5f..01bc712 100644
+--- a/utils/mount/nfs.man
++++ b/utils/mount/nfs.man
+@@ -619,7 +619,7 @@ in such cases.
+ .BI nfsvers= n
+ The NFS protocol version number used to contact the server's NFS service.
+ If the server does not support the requested version, the mount request fails.
+-If this option is not specified, the client negociate a suitable version with
++If this option is not specified, the client negotiates a suitable version with
+ the server, trying version 4 first, version 3 second, and version 2 last.
+ .TP 1.5i
+ .BI vers= n
+diff --git a/utils/mount/nfsumount.c b/utils/mount/nfsumount.c
+index 1514340..02d40ff 100644
+--- a/utils/mount/nfsumount.c
++++ b/utils/mount/nfsumount.c
+@@ -31,12 +31,16 @@
+ #include "nls.h"
+ 
+ #include "mount_constants.h"
++#include "nfs_mount.h"
+ #include "mount.h"
+ #include "error.h"
+ #include "network.h"
+ #include "parse_opt.h"
+ #include "parse_dev.h"
+ 
++#define MOUNTSFILE	"/proc/mounts"
++#define LINELEN		(4096)
++
+ #if !defined(MNT_FORCE)
+ /* dare not try to include <linux/mount.h> -- lots of errors */
+ #define MNT_FORCE 1
+@@ -109,7 +113,7 @@ static int del_mtab(const char *spec, const char *node)
+ 			res = try_remount(spec, node);
+ 			if (res)
+ 				goto writemtab;
+-			return 0;
++			return EX_SUCCESS;
+ 		} else
+ 			umnt_err = errno;
+ 	}
+@@ -127,7 +131,7 @@ static int del_mtab(const char *spec, const char *node)
+ 	}
+ 
+ 	if (res >= 0)
+-		return 0;
++		return EX_SUCCESS;
+ 
+ 	if (umnt_err)
+ 		umount_error(umnt_err, node);
+@@ -241,6 +245,91 @@ static int nfs_umount23(const char *devname, char *string)
+ 	return result;
+ }
+ 
++/*
++ * Detect NFSv4 mounts.
++ *
++ * Consult /proc/mounts to determine if the mount point
++ * is an NFSv4 mount.  The kernel is authoritative about
++ * what type of mount this is.
++ *
++ * Returns 1 if "mc" is an NFSv4 mount, zero if not, and
++ * -1 if some error occurred.
++ */
++static int nfs_umount_is_vers4(const struct mntentchn *mc)
++{
++	char buffer[LINELEN], *next;
++	int retval;
++	FILE *f;
++
++	if ((f = fopen(MOUNTSFILE, "r")) == NULL) {
++		fprintf(stderr, "%s: %s\n",
++			MOUNTSFILE, strerror(errno));
++		return -1;
++	}
++
++	retval = -1;
++	while (fgets(buffer, sizeof(buffer), f) != NULL) {
++		char *device, *mntdir, *type, *flags;
++		struct mount_options *options;
++		char *line = buffer;
++
++		next = strchr(line, '\n');
++		if (next != NULL)
++			*next = '\0';
++
++		device = strtok(line, " \t");
++		if (device == NULL)
++			continue;
++		mntdir = strtok(NULL, " \t");
++		if (mntdir == NULL)
++			continue;
++		if (strcmp(device, mc->m.mnt_fsname) != 0 &&
++		    strcmp(mntdir, mc->m.mnt_dir) != 0)
++			continue;
++
++		type = strtok(NULL, " \t");
++		if (type == NULL)
++			continue;
++		if (strcmp(type, "nfs4") == 0)
++			goto out_nfs4;
++
++		flags = strtok(NULL, " \t");
++		if (flags == NULL)
++			continue;
++		options = po_split(flags);
++		if (options != NULL) {
++			unsigned long version;
++			int rc;
++
++			rc = nfs_nfs_version(options, &version);
++			po_destroy(options);
++			if (rc && version == 4)
++				goto out_nfs4;
++		}
++
++		goto out_nfs;
++	}
++	if (retval == -1)
++		fprintf(stderr, "%s was not found in %s\n",
++			mc->m.mnt_dir, MOUNTSFILE);
++
++out:
++	fclose(f);
++	return retval;
++
++out_nfs4:
++	if (verbose)
++		fprintf(stderr, "NFSv4 mount point detected\n");
++	retval = 1;
++	goto out;
++
++out_nfs:
++	if (verbose)
++		fprintf(stderr, "Legacy NFS mount point detected\n");
++	retval = 0;
++	goto out;
++}
++
+ static struct option umount_longopts[] =
+ {
+   { "force", 0, 0, 'f' },
+@@ -362,16 +451,25 @@ int nfsumount(int argc, char *argv[])
+ 		}
+ 	}
+ 
+-	ret = 0;
++	ret = EX_SUCCESS;
+ 	if (mc) {
+-		if (!lazy && strcmp(mc->m.mnt_type, "nfs4") != 0)
+-			/* We ignore the error from nfs_umount23.
+-			 * If the actual umount succeeds (in del_mtab),
+-			 * we don't want to signal an error, as that
+-			 * could cause /sbin/mount to retry!
+-			 */
+-			nfs_umount23(mc->m.mnt_fsname, mc->m.mnt_opts);
+-		ret = del_mtab(mc->m.mnt_fsname, mc->m.mnt_dir) ?: ret;
++		if (!lazy) {
++			switch (nfs_umount_is_vers4(mc)) {
++			case 0:
++				/* We ignore the error from nfs_umount23.
++				 * If the actual umount succeeds (in del_mtab),
++				 * we don't want to signal an error, as that
++				 * could cause /sbin/mount to retry!
++				 */
++				nfs_umount23(mc->m.mnt_fsname, mc->m.mnt_opts);
++				break;
++			case 1:
++				break;
++			default:
++				return EX_FAIL;
++			}
++		}
++		ret = del_mtab(mc->m.mnt_fsname, mc->m.mnt_dir);
+ 	} else if (*spec != '/') {
+ 		if (!lazy)
+ 			ret = nfs_umount23(spec, "tcp,v3");
+diff --git a/utils/mount/parse_opt.c b/utils/mount/parse_opt.c
+index f0918f7..ab869d9 100644
+--- a/utils/mount/parse_opt.c
++++ b/utils/mount/parse_opt.c
+@@ -508,7 +508,7 @@ po_found_t po_get_numeric(struct mount_options *options, char *keyword, long *va
+ int po_rightmost(struct mount_options *options, const char *keys[])
+ {
+ 	struct mount_option *option;
+-	unsigned int i;
++	int i;
+ 
+ 	if (options) {
+ 		for (option = options->tail; option; option = option->prev) {
+diff --git a/utils/mount/version.h b/utils/mount/version.h
+index 46552a1..af61a6f 100644
+--- a/utils/mount/version.h
++++ b/utils/mount/version.h
+@@ -42,9 +42,9 @@ static inline unsigned int linux_version_code(void)
+ 	if (uname(&my_utsname))
+ 		return 0;
+ 
+-	p = atoi(strtok(my_utsname.release, "."));
+-	q = atoi(strtok(NULL, "."));
+-	r = atoi(strtok(NULL, "."));
++	p = (unsigned int)atoi(strtok(my_utsname.release, "."));
++	q = (unsigned int)atoi(strtok(NULL, "."));
++	r = (unsigned int)atoi(strtok(NULL, "."));
+ 	return MAKE_VERSION(p, q, r);
+ }
+ 

@@ -1,0 +1,95 @@
+diff -up procps-3.2.7/proc/sysinfo.c.vmstat procps-3.2.7/proc/sysinfo.c
+--- procps-3.2.7/proc/sysinfo.c.vmstat	2008-12-04 15:25:50.000000000 +0100
++++ procps-3.2.7/proc/sysinfo.c	2008-12-04 16:54:29.000000000 +0100
+@@ -784,6 +784,18 @@ unsigned int getpartitions_num(struct di
+ }
+ 
+ /////////////////////////////////////////////////////////////////////////////
++static int is_disk(char *dev)
++{
++  char syspath[PATH_MAX];
++  char *slash;
++
++  while ((slash = strchr(dev, '/')))
++    *slash = '!';
++  snprintf(syspath, sizeof(syspath), "/sys/block/%s", dev);
++  return !(access(syspath, F_OK));
++}
++
++/////////////////////////////////////////////////////////////////////////////
+ 
+ unsigned int getdiskstat(struct disk_stat **disks, struct partition_stat **partitions){
+   FILE* fd;
+@@ -791,6 +803,7 @@ unsigned int getdiskstat(struct disk_sta
+   int cPartition = 0;
+   int fields;
+   unsigned dummy;
++  char devname[PATH_MAX];
+ 
+   *disks = NULL;
+   *partitions = NULL;
+@@ -803,10 +816,11 @@ unsigned int getdiskstat(struct disk_sta
+       fclose(fd);
+       break;
+     }
+-    fields = sscanf(buff, " %*d %*d %*s %*u %*u %*u %*u %*u %*u %*u %*u %*u %*u %u", &dummy);
+-    if (fields == 1){
++    fields = sscanf(buff, " %*d %*d %15s %*u %*u %*u %*u %*u %*u %*u %*u %*u %*u %u",
++            &devname, &dummy);
++    if (fields == 2 && is_disk(devname)){
+       (*disks) = realloc(*disks, (cDisk+1)*sizeof(struct disk_stat));
+-      sscanf(buff,  "   %*d    %*d %15s %u %u %llu %u %u %u %llu %u %u %u %u",
++      sscanf(buff,  "   %*d    %*d %15s %lu %lu %llu %lu %lu %lu %llu %lu %lu %lu %lu",
+         //&disk_major,
+         //&disk_minor,
+         (*disks)[cDisk].disk_name,
+@@ -827,7 +841,9 @@ unsigned int getdiskstat(struct disk_sta
+     }else{
+       (*partitions) = realloc(*partitions, (cPartition+1)*sizeof(struct partition_stat));
+       fflush(stdout);
+-      sscanf(buff,  "   %*d    %*d %15s %u %llu %u %u",
++      sscanf(buff,  (fields == 2)
++          ? "   %*d    %*d %15s %u %*u %llu %*u %u %*u %llu %*u %*u %*u %*u"
++          : "   %*d    %*d %15s %u %llu %u %llu",
+         //&part_major,
+         //&part_minor,
+         (*partitions)[cPartition].partition_name,
+diff -up procps-3.2.7/proc/sysinfo.h.vmstat procps-3.2.7/proc/sysinfo.h
+--- procps-3.2.7/proc/sysinfo.h.vmstat	2008-12-04 15:25:41.000000000 +0100
++++ procps-3.2.7/proc/sysinfo.h	2008-12-04 16:54:32.000000000 +0100
+@@ -95,16 +95,16 @@ typedef struct disk_stat{
+ 	unsigned long long reads_sectors;
+ 	unsigned long long written_sectors;
+ 	char               disk_name [16];
+-	unsigned           inprogress_IO;
+-	unsigned           merged_reads;
+-	unsigned           merged_writes;
+-	unsigned           milli_reading;
+-	unsigned           milli_spent_IO;
+-	unsigned           milli_writing;
+-	unsigned           partitions;
+-	unsigned           reads;
+-	unsigned           weighted_milli_spent_IO;
+-	unsigned           writes;
++	unsigned long          inprogress_IO;
++	unsigned long          merged_reads;
++	unsigned long          merged_writes;
++	unsigned long          milli_reading;
++	unsigned long          milli_spent_IO;
++	unsigned long          milli_writing;
++	unsigned long          partitions;
++	unsigned long          reads;
++	unsigned long          weighted_milli_spent_IO;
++	unsigned long          writes;
+ }disk_stat;
+ 
+ typedef struct partition_stat{
+@@ -113,7 +113,7 @@ typedef struct partition_stat{
+ 	unsigned           parent_disk;  // index into a struct disk_stat array
+ 	unsigned           reads;
+ 	unsigned           writes;
+-	unsigned           requested_writes;
++	unsigned long long requested_writes;
+ }partition_stat;
+ 
+ extern unsigned int getpartitions_num(struct disk_stat *disks, int ndisks);

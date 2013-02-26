@@ -1,0 +1,124 @@
+From: Philipp Thomas <pth@suse.de>
+References: bnc#555273
+
+Enable quilt to handle compressed tarballs and patches that were
+compressed with lzma or xz.
+
+Acked-by: Jean Delvare <jdelvare@suse.de>
+---
+ quilt/expand.in              |    2 +-
+ quilt/push.in                |   14 ++++++++++++++
+ quilt/scripts/parse-patch.in |   18 ++++++++++++++++++
+ quilt/scripts/patchfns.in    |   12 ++++++++++--
+ 4 files changed, 43 insertions(+), 3 deletions(-)
+
+--- quilt-0.48.orig/quilt/expand.in
++++ quilt-0.48/quilt/expand.in
+@@ -134,7 +134,7 @@ else
+ fi
+ 
+ combined_series=$(patch_file_name $combined_patch \
+-                  | sed -e 's:\.gz$::' -e 's:\.bz2$::').series
++                  | sed -e 's:\.gz$::' -e 's:\.bz2$::' -e 's:\.xz$::' -e 's:\.lzma$::').series
+ 
+ if ! [ -f "$combined_series" ]
+ then
+--- quilt-0.48.orig/quilt/push.in
++++ quilt-0.48/quilt/push.in
+@@ -123,6 +123,20 @@ apply_patch()
+ 			--backup --prefix="$QUILT_PC/$patch/" \
+ 			$no_reject_files \
+ 			-E $silent $force_apply 2>&1
++	elif [ "${patch_file:(-5)}" = ".lzma" ]
++	then
++		lzma -cd $patch_file \
++		| patch $QUILT_PATCH_OPTS $(push_patch_args $patch) \
++			--backup --prefix="$QUILT_PC/$patch/" \
++			$no_reject_files \
++			-E $silent $force_apply 2>&1
++	elif [ "${patch_file:(-3)}" = ".xz" ]
++	then
++		xz -cd $patch_file \
++		| patch $QUILT_PATCH_OPTS $(push_patch_args $patch) \
++			--backup --prefix="$QUILT_PC/$patch/" \
++			$no_reject_files \
++			-E $silent $force_apply 2>&1
+ 	else
+ 		patch $QUILT_PATCH_OPTS $(push_patch_args $patch) \
+ 		      --backup --prefix="$QUILT_PC/$patch/" \
+--- quilt-0.48.orig/quilt/scripts/parse-patch.in
++++ quilt-0.48/quilt/scripts/parse-patch.in
+@@ -60,6 +60,10 @@ foreach my $arg (@ARGV) {
+ 		$fh = new FileHandle("gzip -cd $arg |");
+ 	} elsif ($arg =~ /\.bz2$/) {
+ 		$fh = new FileHandle("bzip2 -cd $arg |");
++	} elsif ($arg =~ /\.lzma$/) {
++		$fh = new FileHandle("lzma -cd $arg |");
++	} elsif ($arg =~ /\.xz$/ {
++		$fh = new FileHandle("xz -cd $arg |");
+ 	} else {
+ 		$fh = new FileHandle("< $arg");
+ 	}
+@@ -104,6 +108,20 @@ _("File %s disappeared!\n"), $tempname);
+ _("File %s disappeared!\n"), $tempname);
+ 			}
+ 			$fh2 = new FileHandle("| bzip2 -c > $tempname");
++		} elsif ($arg =~ /\.xz$/) {
++			$fh2->close();
++			if (! -e $tempname) {
++				die sprintf(
++_("File %s disappeared!\n"), $tempname);
++			}
++			$fh2 = new FileHandle("| xz -c > $tempname");
++		} elsif ($arg =~ /\.lzma$/) {
++			$fh2->close();
++			if (! -e $tempname) {
++				die sprintf(
++_("File %s disappeared!\n"), $tempname);
++			}
++			$fh2 = new FileHandle("| lzma -c > $tempname");
+ 		}
+ 		unless ($fh2) {
+ 			die "$tempname: $!\n";
+--- quilt-0.48.orig/quilt/scripts/patchfns.in
++++ quilt-0.48/quilt/scripts/patchfns.in
+@@ -518,7 +518,7 @@ find_patch()
+ 	then
+ 		local patch=${1#$SUBDIR_DOWN$QUILT_PATCHES/}
+ 		local bre=$(quote_bre "$patch")
+-		set -- $(sed -e "/^$bre\(\|\.patch\|\.diff\?\)\(\|\.gz\|\.bz2\)\([ "$'\t'"]\|$\)/!d" \
++		set -- $(sed -e "/^$bre\(\|\.patch\|\.diff\?\)\(\|\.gz\|\.bz2\|\.xz\|\.lzma\)\([ "$'\t'"]\|$\)/!d" \
+ 			       -e 's/[ '$'\t''].*//' $SERIES)
+ 		if [ $# -eq 1 ]
+ 		then
+@@ -772,6 +772,10 @@ cat_file()
+ 				gzip -cd "$filename" ;;
+ 			*.bz2)
+ 				bzip2 -cd "$filename" ;;
++			*.lzma)
++				lzma -cd "$filename" ;;
++			*.xz)
++				xz -cd "$filename" ;;
+ 			*)
+ 				cat "$filename" ;;
+ 			esac
+@@ -790,6 +794,10 @@ cat_to_new_file()
+ 		gzip -c ;;
+ 	*.bz2)
+ 		bzip2 -c ;;
++	*.xz)
++		xz -c ;;
++	*.lzma)
++		lzma -c ;;
+ 	*)
+ 		cat ;;
+ 	esac \
+@@ -915,7 +923,7 @@ next_filename()
+ {
+ 	local patch=$1 base num
+         base=$(echo "$patch" \
+-               | sed -r -e 's:(\.gz|\.bz2)$::' -e 's:(\.diff?|\.patch)$::')
++               | sed -r -e 's:(\.gz|\.bz2|\.xz|\.lzma)$::' -e 's:(\.diff?|\.patch)$::')
+         num=$(echo "$base" | sed -nre 's:.*-([0-9]+)$:\1:'p)
+         [ -n "$num" ] || num=1
+         echo "${base%-$num}-$((num+1))${patch#$base}"

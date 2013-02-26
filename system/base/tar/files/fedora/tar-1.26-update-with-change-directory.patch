@@ -1,0 +1,148 @@
+From 207b445ca7018a95f2f96d9514b8d87c80e8e11e Mon Sep 17 00:00:00 2001
+From: Pavel Raiskup <praiskup@redhat.com>
+Date: Wed, 4 Apr 2012 18:04:53 +0200
+Subject: [PATCH] Bad cooperation of -C and -u options
+
+Previously, tar did not update archive with newly created files in archived
+directory --  it failed instead  with "file not found" error (because it looked
+in bad directory in filesystem).
+---
+ src/update.c       |    4 +-
+ tests/Makefile.am  |    3 +-
+ tests/testsuite.at |    3 +-
+ tests/update03.at  |   59 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 65 insertions(+), 4 deletions(-)
+ create mode 100644 tests/update03.at
+
+diff --git a/src/update.c b/src/update.c
+index e3228d4..4739e0d 100644
+--- a/src/update.c
++++ b/src/update.c
+@@ -1,7 +1,7 @@
+ /* Update a tar archive.
+ 
+    Copyright (C) 1988, 1992, 1994, 1996, 1997, 1999, 2000, 2001, 2003,
+-   2004, 2005, 2007, 2010 Free Software Foundation, Inc.
++   2004, 2005, 2007, 2010, 2011, 2012 Free Software Foundation, Inc.
+ 
+    This program is free software; you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by the
+@@ -159,7 +159,7 @@ update_archive (void)
+ 
+ 			    for (p = dirp; *p; p += strlen (p) + 1)
+ 			      addname (namebuf_name (nbuf, p),
+-				       0, false, NULL);
++				       name->change_dir, false, NULL);
+ 
+ 			    namebuf_free (nbuf);
+ 			    free (dirp);
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index ab7d104..119f1f3 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -1,7 +1,7 @@
+ # Makefile for GNU tar regression tests.
+ 
+ # Copyright (C) 1996, 1997, 1999, 2000, 2001, 2003, 2004, 2005,
+-# 2006, 2007, 2009 Free Software Foundation, Inc.
++# 2006, 2007, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ 
+ # François Pinard <pinard@iro.umontreal.ca>, 1988.
+ # Sergey Poznyakoff <gray@mirddin.farlep.net>, 2004.
+@@ -156,6 +156,7 @@ TESTSUITE_AT = \
+  update.at\
+  update01.at\
+  update02.at\
++ update03.at\
+  volsize.at\
+  volume.at\
+  verbose.at\
+diff --git a/tests/testsuite.at b/tests/testsuite.at
+index 8366ef0..13f7506 100644
+--- a/tests/testsuite.at
++++ b/tests/testsuite.at
+@@ -1,7 +1,7 @@
+ # Process this file with autom4te to create testsuite. -*- Autotest -*-
+ 
+ # Test suite for GNU tar.
+-# Copyright (C) 2004, 2005, 2006, 2007, 2008, 2010 Free Software
++# Copyright (C) 2004, 2005, 2006, 2007, 2008, 2010, 2011, 2012 Free Software
+ # Foundation, Inc.
+ 
+ # This program is free software; you can redistribute it and/or modify
+@@ -241,6 +241,7 @@ m4_include([spmvp10.at])
+ m4_include([update.at])
+ m4_include([update01.at])
+ m4_include([update02.at])
++m4_include([update03.at])
+ 
+ m4_include([verify.at])
+ 
+diff --git a/tests/update03.at b/tests/update03.at
+new file mode 100644
+index 0000000..185f9eb
+--- /dev/null
++++ b/tests/update03.at
+@@ -0,0 +1,59 @@
++# Process this file with autom4te to create testsuite. -*- Autotest -*-
++
++# Test suite for GNU tar.
++# Copyright (C) 2012 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify it under
++# the terms of the GNU General Public License as published by the Free Software
++# Foundation; either version 3, or (at your option) any later version.
++
++# This program is distributed in the hope that it will be useful, but WITHOUT
++# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
++# FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
++# details.
++
++# You should have received a copy of the GNU General Public License along with
++# this program; if not, write to the Free Software Foundation, Inc., 51 Franklin
++# Street, Fifth Floor, Boston, MA 02110-1301, USA.
++
++# Description:
++#   Test if the '--update' option works with the '--directory DIR' option
++#   properly.  In version <= 1.26 tar this combination caused problems.
++#
++# References:
++#   https://bugzilla.redhat.com/show_bug.cgi?id=688567
++#
++# Last-Affected-Version:  1.26.90
++
++AT_SETUP([update & change directory (-C)])
++AT_KEYWORDS([update update03])
++
++AT_TAR_CHECK([
++AT_SORT_PREREQ
++
++# prepare filesystem
++mkdir dir
++mkdir dir/subdir
++genfile --file dir/subdir/a
++
++# crate archive of subdir
++tar -C dir -cf file.tar subdir
++
++# update filesystem
++mkdir dir/subdir/b
++genfile --file dir/subdir/b/c
++
++# sync the 'file.tar' archive
++tar -C dir -uf file.tar subdir
++
++# print contents
++tar -tf file.tar | sort || exit 1
++],
++[0],
++[subdir/
++subdir/a
++subdir/b/
++subdir/b/c
++])
++
++AT_CLEANUP
+-- 
+1.7.7.6
+

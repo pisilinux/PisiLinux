@@ -1,0 +1,178 @@
+diff -p -up uClibc/extra/Configs/Config.in.rpmatch~ uClibc/extra/Configs/Config.in
+--- uClibc/extra/Configs/Config.in.rpmatch~	2009-12-03 02:14:29.000000000 -0500
++++ uClibc/extra/Configs/Config.in	2009-12-07 02:18:14.519923129 -0500
+@@ -1822,6 +1822,14 @@ config UCLIBC_HAS_FNMATCH_OLD
+ 	  support, then stick with the old version (and say Y here).
+ 	  Otherwise, you should use the new version (and say N here).
+ 
++config UCLIBC_HAS_RPMATCH
++	bool "rpmatch Support"
++	default n
++	help
++	  Answer Y if you want to include rpmatch() used by various apps.
++
++	  Most people will answer N.
++
+ config UCLIBC_HAS_WORDEXP
+ 	bool "Support the wordexp() interface"
+ 	depends on UCLIBC_HAS_GLOB
+diff -p -up uClibc/libc/misc/Makefile.in.rpmatch~ uClibc/libc/misc/Makefile.in
+--- uClibc/libc/misc/Makefile.in.rpmatch~	2009-12-03 02:14:29.000000000 -0500
++++ uClibc/libc/misc/Makefile.in	2009-12-07 02:18:14.519923129 -0500
+@@ -22,6 +22,7 @@ include $(top_srcdir)libc/misc/internals
+ include $(top_srcdir)libc/misc/locale/Makefile.in
+ include $(top_srcdir)libc/misc/mntent/Makefile.in
+ include $(top_srcdir)libc/misc/regex/Makefile.in
++include $(top_srcdir)libc/misc/rpmatch/Makefile.in
+ include $(top_srcdir)libc/misc/search/Makefile.in
+ include $(top_srcdir)libc/misc/statfs/Makefile.in
+ include $(top_srcdir)libc/misc/syslog/Makefile.in
+diff -p -up uClibc/libc/misc/rpmatch/.indent.pro.rpmatch~ uClibc/libc/misc/rpmatch/.indent.pro
+--- uClibc/libc/misc/rpmatch/.indent.pro.rpmatch~	2009-12-07 02:18:14.520922907 -0500
++++ uClibc/libc/misc/rpmatch/.indent.pro	2009-12-07 02:18:14.520922907 -0500
+@@ -0,0 +1,33 @@
++--blank-lines-after-declarations
++--blank-lines-after-procedures
++--break-before-boolean-operator
++--no-blank-lines-after-commas
++--braces-on-if-line
++--braces-on-struct-decl-line
++--comment-indentation25
++--declaration-comment-column25
++--no-comment-delimiters-on-blank-lines
++--cuddle-else
++--continuation-indentation4
++--case-indentation0
++--else-endif-column33
++--space-after-cast
++--line-comments-indentation0
++--declaration-indentation1
++--dont-format-first-column-comments
++--dont-format-comments
++--honour-newlines
++--indent-level4
++/* changed from 0 to 4 */
++--parameter-indentation4
++--line-length78 /* changed from 75 */
++--continue-at-parentheses
++--no-space-after-function-call-names
++--dont-break-procedure-type
++--dont-star-comments
++--leave-optional-blank-lines
++--dont-space-special-semicolon
++--tab-size4
++/* additions by Mark */
++--case-brace-indentation0
++--leave-preprocessor-space
+diff -p -up uClibc/libc/misc/rpmatch/Makefile.in.rpmatch~ uClibc/libc/misc/rpmatch/Makefile.in
+--- uClibc/libc/misc/rpmatch/Makefile.in.rpmatch~	2009-12-07 02:18:14.520922907 -0500
++++ uClibc/libc/misc/rpmatch/Makefile.in	2009-12-07 02:18:14.520922907 -0500
+@@ -0,0 +1,23 @@
++# Makefile for uClibc
++#
++# Copyright (C) 2000-2008 Erik Andersen <andersen@uclibc.org>
++#
++# Licensed under the LGPL v2.1, see the file COPYING.LIB in this tarball.
++#
++
++subdirs += libc/misc/rpmatch
++
++CSRC := rpmatch.c
++
++MISC_RPMATCH_DIR := $(top_srcdir)libc/misc/rpmatch
++MISC_RPMATCH_OUT := $(top_builddir)libc/misc/rpmatch
++
++MISC_RPMATCH_SRC := $(patsubst %.c,$(MISC_RPMATCH_DIR)/%.c,$(CSRC))
++MISC_RPMATCH_OBJ := $(patsubst %.c,$(MISC_RPMATCH_OUT)/%.o,$(CSRC))
++
++libc-$(UCLIBC_HAS_RPMATCH) += $(MISC_RPMATCH_OBJ)
++
++objclean-y += misc_rpmatch_clean
++
++misc_rpmatch_clean:
++	$(do_rm) $(addprefix $(MISC_RPMATCH_OUT)/*., o os)
+diff -p -up uClibc/libc/misc/rpmatch/Makefile.rpmatch~ uClibc/libc/misc/rpmatch/Makefile
+--- uClibc/libc/misc/rpmatch/Makefile.rpmatch~	2009-12-07 02:18:14.520922907 -0500
++++ uClibc/libc/misc/rpmatch/Makefile	2009-12-07 02:18:14.520922907 -0500
+@@ -0,0 +1,13 @@
++# Makefile for uClibc
++#
++# Copyright (C) 2000-2005 Erik Andersen <andersen@uclibc.org>
++#
++# Licensed under the LGPL v2.1, see the file COPYING.LIB in this tarball.
++#
++
++top_srcdir=../../../
++top_builddir=../../../
++all: objs
++include $(top_builddir)Rules.mak
++include Makefile.in
++include $(top_srcdir)Makerules
+diff -p -up uClibc/libc/misc/rpmatch/rpmatch.c.rpmatch~ uClibc/libc/misc/rpmatch/rpmatch.c
+--- uClibc/libc/misc/rpmatch/rpmatch.c.rpmatch~	2009-12-07 02:18:14.520922907 -0500
++++ uClibc/libc/misc/rpmatch/rpmatch.c	2009-12-07 02:30:25.447053083 -0500
+@@ -0,0 +1,64 @@
++/* Determine whether string value is affirmation or negative response
++   according to current locale's data.
++   This file is part of the GNU C Library.
++   Copyright (C) 1996, 1997, 2000, 2003 Free Software Foundation, Inc.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <langinfo.h>
++#include <stdlib.h>
++#include <regex.h>
++
++
++int
++rpmatch (response)
++     const char *response;
++{
++  /* Match against one of the response patterns, compiling the pattern
++     first if necessary.  */
++  auto int try (const int tag, const int match, const int nomatch,
++		const char **lastp, regex_t *re);
++
++  int try (const int tag, const int match, const int nomatch,
++	   const char **lastp, regex_t *re)
++    {
++      const char *pattern = nl_langinfo (tag);
++      if (pattern != *lastp)
++	{
++	  /* The pattern has changed.  */
++	  if (*lastp)
++	    {
++	      /* Free the old compiled pattern.  */
++	      regfree (re);
++	      *lastp = NULL;
++	    }
++	  /* Compile the pattern and cache it for future runs.  */
++	  if (regcomp (re, pattern, REG_EXTENDED) != 0)
++	    return -1;
++	  *lastp = pattern;
++	}
++
++      /* Try the pattern.  */
++      return regexec (re, response, 0, NULL, 0) == 0 ? match : nomatch;
++    }
++
++  /* We cache the response patterns and compiled regexps here.  */
++  static const char *yesexpr, *noexpr;
++  static regex_t yesre, nore;
++
++  return (try (YESEXPR, 1, 0, &yesexpr, &yesre) ?:
++	  try (NOEXPR, 0, -1, &noexpr, &nore));
++}

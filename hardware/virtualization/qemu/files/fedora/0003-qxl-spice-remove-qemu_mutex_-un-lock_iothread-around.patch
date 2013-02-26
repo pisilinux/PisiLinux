@@ -1,0 +1,148 @@
+>From d413b3c36cbd9820c5b9492b52caa421abccf745 Mon Sep 17 00:00:00 2001
+From: Alon Levy <alevy@redhat.com>
+Date: Wed, 16 Mar 2011 15:46:22 +0100
+Subject: [PATCH 3/4] qxl/spice: remove qemu_mutex_{un,}lock_iothread around dispatcher
+
+with the previous patch making sure get_command no longer needs to lock,
+there is no reason to drop the qemu iothread mutex in qxl.c and in
+ui/spice-display.c
+
+The only location where the lock remains are the cursor related callbacks,
+that path is currently broken. It is only triggered if running spice and sdl,
+which is broken already before that.
+---
+ hw/qxl.c           |    8 --------
+ ui/spice-display.c |   19 +++----------------
+ 2 files changed, 3 insertions(+), 24 deletions(-)
+
+diff --git a/hw/qxl.c b/hw/qxl.c
+index 64580f1..cf3c938 100644
+--- a/hw/qxl.c
++++ b/hw/qxl.c
+@@ -670,10 +670,8 @@ static void qxl_hard_reset(PCIQXLDevice *d, int loadvm)
+     dprint(d, 1, "%s: start%s\n", __FUNCTION__,
+            loadvm ? " (loadvm)" : "");
+ 
+-    qemu_mutex_unlock_iothread();
+     d->ssd.worker->reset_cursor(d->ssd.worker);
+     d->ssd.worker->reset_image_cache(d->ssd.worker);
+-    qemu_mutex_lock_iothread();
+     qxl_reset_surfaces(d);
+     qxl_reset_memslots(d);
+ 
+@@ -803,9 +801,7 @@ static void qxl_reset_surfaces(PCIQXLDevice *d)
+ {
+     dprint(d, 1, "%s:\n", __FUNCTION__);
+     d->mode = QXL_MODE_UNDEFINED;
+-    qemu_mutex_unlock_iothread();
+     d->ssd.worker->destroy_surfaces(d->ssd.worker);
+-    qemu_mutex_lock_iothread();
+     memset(&d->guest_surfaces.cmds, 0, sizeof(d->guest_surfaces.cmds));
+ }
+ 
+@@ -874,9 +870,7 @@ static void qxl_destroy_primary(PCIQXLDevice *d)
+     dprint(d, 1, "%s\n", __FUNCTION__);
+ 
+     d->mode = QXL_MODE_UNDEFINED;
+-    qemu_mutex_unlock_iothread();
+     d->ssd.worker->destroy_primary_surface(d->ssd.worker, 0);
+-    qemu_mutex_lock_iothread();
+ }
+ 
+ static void qxl_set_mode(PCIQXLDevice *d, int modenr, int loadvm)
+@@ -946,10 +940,8 @@ static void ioport_write(void *opaque, uint32_t addr, uint32_t val)
+     case QXL_IO_UPDATE_AREA:
+     {
+         QXLRect update = d->ram->update_area;
+-        qemu_mutex_unlock_iothread();
+         d->ssd.worker->update_area(d->ssd.worker, d->ram->update_surface,
+                                    &update, NULL, 0, 0);
+-        qemu_mutex_lock_iothread();
+         break;
+     }
+     case QXL_IO_NOTIFY_CMD:
+diff --git a/ui/spice-display.c b/ui/spice-display.c
+index bdd14b8..ecb22cc 100644
+--- a/ui/spice-display.c
++++ b/ui/spice-display.c
+@@ -62,13 +62,7 @@ void qemu_spice_rect_union(QXLRect *dest, const QXLRect *r)
+     dest->right = MAX(dest->right, r->right);
+ }
+ 
+-/*
+- * Called from spice server thread context (via interface_get_command).
+- *
+- * We must aquire the global qemu mutex here to make sure the
+- * DisplayState (+DisplaySurface) we are accessing doesn't change
+- * underneath us.
+- */
++/* Called from io-thread context (via pipe_read) */
+ SimpleSpiceUpdate *qemu_spice_create_update(SimpleSpiceDisplay *ssd)
+ {
+     SimpleSpiceUpdate *update;
+@@ -78,9 +72,7 @@ SimpleSpiceUpdate *qemu_spice_create_update(SimpleSpiceDisplay *ssd)
+     uint8_t *src, *dst;
+     int by, bw, bh;
+ 
+-    qemu_mutex_lock_iothread();
+     if (qemu_spice_rect_is_empty(&ssd->dirty)) {
+-        qemu_mutex_unlock_iothread();
+         return NULL;
+     };
+ 
+@@ -141,7 +133,6 @@ SimpleSpiceUpdate *qemu_spice_create_update(SimpleSpiceDisplay *ssd)
+     cmd->data = (intptr_t)drawable;
+ 
+     memset(&ssd->dirty, 0, sizeof(ssd->dirty));
+-    qemu_mutex_unlock_iothread();
+     return update;
+ }
+ 
+@@ -169,6 +160,7 @@ void qemu_spice_create_host_memslot(SimpleSpiceDisplay *ssd)
+     ssd->worker->add_memslot(ssd->worker, &memslot);
+ }
+ 
++/* called from iothread (main) or a vcpu-thread */
+ void qemu_spice_create_host_primary(SimpleSpiceDisplay *ssd)
+ {
+     QXLDevSurfaceCreate surface;
+@@ -186,18 +178,14 @@ void qemu_spice_create_host_primary(SimpleSpiceDisplay *ssd)
+     surface.mem        = (intptr_t)ssd->buf;
+     surface.group_id   = MEMSLOT_GROUP_HOST;
+ 
+-    qemu_mutex_unlock_iothread();
+     ssd->worker->create_primary_surface(ssd->worker, 0, &surface);
+-    qemu_mutex_lock_iothread();
+ }
+ 
+ void qemu_spice_destroy_host_primary(SimpleSpiceDisplay *ssd)
+ {
+     dprint(1, "%s:\n", __FUNCTION__);
+ 
+-    qemu_mutex_unlock_iothread();
+     ssd->worker->destroy_primary_surface(ssd->worker, 0);
+-    qemu_mutex_lock_iothread();
+ }
+ 
+ void qemu_spice_vm_change_state_handler(void *opaque, int running, int reason)
+@@ -207,9 +195,7 @@ void qemu_spice_vm_change_state_handler(void *opaque, int running, int reason)
+     if (running) {
+         ssd->worker->start(ssd->worker);
+     } else {
+-        qemu_mutex_unlock_iothread();
+         ssd->worker->stop(ssd->worker);
+-        qemu_mutex_lock_iothread();
+     }
+     ssd->running = running;
+ }
+@@ -233,6 +219,7 @@ void qemu_spice_display_update(SimpleSpiceDisplay *ssd,
+     qemu_spice_rect_union(&ssd->dirty, &update_area);
+ }
+ 
++/* called only from iothread (main) */
+ void qemu_spice_display_resize(SimpleSpiceDisplay *ssd)
+ {
+     dprint(1, "%s:\n", __FUNCTION__);
+-- 
+1.7.3.2
+

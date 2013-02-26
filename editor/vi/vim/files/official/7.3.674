@@ -1,0 +1,286 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.674
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.674
+Problem:    Can't compile with Lua/dyn on Cygwin.
+Solution:   Adjust configure to use the right library name. (Ken Takata)
+Files:	    src/configure.in, src/auto/configure
+
+
+*** ../vim-7.3.673/src/configure.in	2012-09-21 13:26:44.000000000 +0200
+--- src/configure.in	2012-10-03 14:39:42.000000000 +0200
+***************
+*** 455,485 ****
+  
+    LUA_INC=
+    if test "X$vi_cv_path_lua_pfx" != "X"; then
+      AC_MSG_CHECKING(if lua.h can be found in $vi_cv_path_lua_pfx/include)
+      if test -f $vi_cv_path_lua_pfx/include/lua.h; then
+        AC_MSG_RESULT(yes)
+      else
+        AC_MSG_RESULT(no)
+!       dnl -- try to find Lua executable
+!       AC_PATH_PROG(vi_cv_path_lua, lua)
+!       if test "X$vi_cv_path_lua" != "X"; then
+!         dnl -- find Lua version
+!         AC_CACHE_CHECK(Lua version, vi_cv_version_lua,
+!         [ vi_cv_version_lua=`${vi_cv_path_lua} -e "print(_VERSION)" | sed 's/.* //'` ])
+!         AC_MSG_CHECKING(if lua.h can be found in $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua)
+!         if test -f $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua/lua.h; then
+!           AC_MSG_RESULT(yes)
+!           LUA_INC=/lua$vi_cv_version_lua
+!         else
+!           AC_MSG_RESULT(no)
+!           vi_cv_path_lua_pfx=
+!         fi
+        fi
+      fi
+    fi
+  
+    if test "X$vi_cv_path_lua_pfx" != "X"; then
+!     if test "X$vi_cv_version_lua" != "X"; then
+        dnl Test alternate location using version
+        LUA_LIBS="-L${vi_cv_path_lua_pfx}/lib -llua$vi_cv_version_lua"
+      else
+--- 455,485 ----
+  
+    LUA_INC=
+    if test "X$vi_cv_path_lua_pfx" != "X"; then
++     dnl -- try to find Lua executable
++     AC_PATH_PROG(vi_cv_path_lua, lua)
++     if test "X$vi_cv_path_lua" != "X"; then
++       dnl -- find Lua version
++       AC_CACHE_CHECK(Lua version, vi_cv_version_lua,
++       [ vi_cv_version_lua=`${vi_cv_path_lua} -e "print(_VERSION)" | sed 's/.* //'` ])
++     fi
+      AC_MSG_CHECKING(if lua.h can be found in $vi_cv_path_lua_pfx/include)
+      if test -f $vi_cv_path_lua_pfx/include/lua.h; then
+        AC_MSG_RESULT(yes)
+      else
+        AC_MSG_RESULT(no)
+!       AC_MSG_CHECKING(if lua.h can be found in $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua)
+!       if test -f $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua/lua.h; then
+!         AC_MSG_RESULT(yes)
+!         LUA_INC=/lua$vi_cv_version_lua
+!       else
+!         AC_MSG_RESULT(no)
+!         vi_cv_path_lua_pfx=
+        fi
+      fi
+    fi
+  
+    if test "X$vi_cv_path_lua_pfx" != "X"; then
+!     if test "X$LUA_INC" != "X"; then
+        dnl Test alternate location using version
+        LUA_LIBS="-L${vi_cv_path_lua_pfx}/lib -llua$vi_cv_version_lua"
+      else
+***************
+*** 491,507 ****
+      LUA_PRO="if_lua.pro"
+      AC_DEFINE(FEAT_LUA)
+      if test "$enable_luainterp" = "dynamic"; then
+!       dnl Determine the SONAME for the current version, but fallback to
+!       dnl liblua${vi_cv_version_lua}.so if no SONAME-versioned file is found.
+!       for i in 0 1 2 3 4 5 6 7 8 9; do
+! 	if test -f "${vi_cv_path_lua_pfx}/lib/liblua${vi_cv_version_lua}.so.$i"; then
+! 	  LUA_SONAME=".$i"
+! 	  break
+! 	fi
+!       done
+        AC_DEFINE(DYNAMIC_LUA)
+        LUA_LIBS=""
+!       LUA_CFLAGS="-DDYNAMIC_LUA_DLL=\\\"liblua${vi_cv_version_lua}.so$LUA_SONAME\\\" $LUA_CFLAGS"
+      fi
+    fi
+    if test "$fail_if_missing" = "yes" -a -z "$LUA_SRC"; then
+--- 491,512 ----
+      LUA_PRO="if_lua.pro"
+      AC_DEFINE(FEAT_LUA)
+      if test "$enable_luainterp" = "dynamic"; then
+!       if test -f "${vi_cv_path_lua_pfx}/bin/cyglua-${vi_cv_version_lua}.dll"; then
+! 	vi_cv_dll_name_lua="cyglua-${vi_cv_version_lua}.dll"
+!       else
+! 	dnl Determine the SONAME for the current version, but fallback to
+! 	dnl liblua${vi_cv_version_lua}.so if no SONAME-versioned file is found.
+! 	for i in 0 1 2 3 4 5 6 7 8 9; do
+! 	  if test -f "${vi_cv_path_lua_pfx}/lib/liblua${vi_cv_version_lua}.so.$i"; then
+! 	    LUA_SONAME=".$i"
+! 	    break
+! 	  fi
+! 	done
+! 	vi_cv_dll_name_lua="liblua${vi_cv_version_lua}.so$LUA_SONAME"
+!       fi
+        AC_DEFINE(DYNAMIC_LUA)
+        LUA_LIBS=""
+!       LUA_CFLAGS="-DDYNAMIC_LUA_DLL=\\\"${vi_cv_dll_name_lua}\\\" $LUA_CFLAGS"
+      fi
+    fi
+    if test "$fail_if_missing" = "yes" -a -z "$LUA_SRC"; then
+*** ../vim-7.3.673/src/auto/configure	2012-09-21 13:26:44.000000000 +0200
+--- src/auto/configure	2012-10-03 14:42:13.000000000 +0200
+***************
+*** 4648,4662 ****
+  
+    LUA_INC=
+    if test "X$vi_cv_path_lua_pfx" != "X"; then
+!     { $as_echo "$as_me:${as_lineno-$LINENO}: checking if lua.h can be found in $vi_cv_path_lua_pfx/include" >&5
+! $as_echo_n "checking if lua.h can be found in $vi_cv_path_lua_pfx/include... " >&6; }
+!     if test -f $vi_cv_path_lua_pfx/include/lua.h; then
+!       { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+! $as_echo "yes" >&6; }
+!     else
+!       { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+! $as_echo "no" >&6; }
+!             # Extract the first word of "lua", so it can be a program name with args.
+  set dummy lua; ac_word=$2
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+  $as_echo_n "checking for $ac_word... " >&6; }
+--- 4648,4654 ----
+  
+    LUA_INC=
+    if test "X$vi_cv_path_lua_pfx" != "X"; then
+!         # Extract the first word of "lua", so it can be a program name with args.
+  set dummy lua; ac_word=$2
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+  $as_echo_n "checking for $ac_word... " >&6; }
+***************
+*** 4696,4703 ****
+  fi
+  
+  
+!       if test "X$vi_cv_path_lua" != "X"; then
+!                 { $as_echo "$as_me:${as_lineno-$LINENO}: checking Lua version" >&5
+  $as_echo_n "checking Lua version... " >&6; }
+  if test "${vi_cv_version_lua+set}" = set; then :
+    $as_echo_n "(cached) " >&6
+--- 4688,4695 ----
+  fi
+  
+  
+!     if test "X$vi_cv_path_lua" != "X"; then
+!             { $as_echo "$as_me:${as_lineno-$LINENO}: checking Lua version" >&5
+  $as_echo_n "checking Lua version... " >&6; }
+  if test "${vi_cv_version_lua+set}" = set; then :
+    $as_echo_n "(cached) " >&6
+***************
+*** 4706,4728 ****
+  fi
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $vi_cv_version_lua" >&5
+  $as_echo "$vi_cv_version_lua" >&6; }
+!         { $as_echo "$as_me:${as_lineno-$LINENO}: checking if lua.h can be found in $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua" >&5
+  $as_echo_n "checking if lua.h can be found in $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua... " >&6; }
+!         if test -f $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua/lua.h; then
+!           { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+  $as_echo "yes" >&6; }
+!           LUA_INC=/lua$vi_cv_version_lua
+!         else
+!           { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+  $as_echo "no" >&6; }
+!           vi_cv_path_lua_pfx=
+!         fi
+        fi
+      fi
+    fi
+  
+    if test "X$vi_cv_path_lua_pfx" != "X"; then
+!     if test "X$vi_cv_version_lua" != "X"; then
+              LUA_LIBS="-L${vi_cv_path_lua_pfx}/lib -llua$vi_cv_version_lua"
+      else
+        LUA_LIBS="-L${vi_cv_path_lua_pfx}/lib -llua"
+--- 4698,4728 ----
+  fi
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $vi_cv_version_lua" >&5
+  $as_echo "$vi_cv_version_lua" >&6; }
+!     fi
+!     { $as_echo "$as_me:${as_lineno-$LINENO}: checking if lua.h can be found in $vi_cv_path_lua_pfx/include" >&5
+! $as_echo_n "checking if lua.h can be found in $vi_cv_path_lua_pfx/include... " >&6; }
+!     if test -f $vi_cv_path_lua_pfx/include/lua.h; then
+!       { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+! $as_echo "yes" >&6; }
+!     else
+!       { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+! $as_echo "no" >&6; }
+!       { $as_echo "$as_me:${as_lineno-$LINENO}: checking if lua.h can be found in $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua" >&5
+  $as_echo_n "checking if lua.h can be found in $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua... " >&6; }
+!       if test -f $vi_cv_path_lua_pfx/include/lua$vi_cv_version_lua/lua.h; then
+!         { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+  $as_echo "yes" >&6; }
+!         LUA_INC=/lua$vi_cv_version_lua
+!       else
+!         { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+  $as_echo "no" >&6; }
+!         vi_cv_path_lua_pfx=
+        fi
+      fi
+    fi
+  
+    if test "X$vi_cv_path_lua_pfx" != "X"; then
+!     if test "X$LUA_INC" != "X"; then
+              LUA_LIBS="-L${vi_cv_path_lua_pfx}/lib -llua$vi_cv_version_lua"
+      else
+        LUA_LIBS="-L${vi_cv_path_lua_pfx}/lib -llua"
+***************
+*** 4734,4749 ****
+      $as_echo "#define FEAT_LUA 1" >>confdefs.h
+  
+      if test "$enable_luainterp" = "dynamic"; then
+!                   for i in 0 1 2 3 4 5 6 7 8 9; do
+! 	if test -f "${vi_cv_path_lua_pfx}/lib/liblua${vi_cv_version_lua}.so.$i"; then
+! 	  LUA_SONAME=".$i"
+! 	  break
+! 	fi
+!       done
+        $as_echo "#define DYNAMIC_LUA 1" >>confdefs.h
+  
+        LUA_LIBS=""
+!       LUA_CFLAGS="-DDYNAMIC_LUA_DLL=\\\"liblua${vi_cv_version_lua}.so$LUA_SONAME\\\" $LUA_CFLAGS"
+      fi
+    fi
+    if test "$fail_if_missing" = "yes" -a -z "$LUA_SRC"; then
+--- 4734,4754 ----
+      $as_echo "#define FEAT_LUA 1" >>confdefs.h
+  
+      if test "$enable_luainterp" = "dynamic"; then
+!       if test -f "${vi_cv_path_lua_pfx}/bin/cyglua-${vi_cv_version_lua}.dll"; then
+! 	vi_cv_dll_name_lua="cyglua-${vi_cv_version_lua}.dll"
+!       else
+! 			for i in 0 1 2 3 4 5 6 7 8 9; do
+! 	  if test -f "${vi_cv_path_lua_pfx}/lib/liblua${vi_cv_version_lua}.so.$i"; then
+! 	    LUA_SONAME=".$i"
+! 	    break
+! 	  fi
+! 	done
+! 	vi_cv_dll_name_lua="liblua${vi_cv_version_lua}.so$LUA_SONAME"
+!       fi
+        $as_echo "#define DYNAMIC_LUA 1" >>confdefs.h
+  
+        LUA_LIBS=""
+!       LUA_CFLAGS="-DDYNAMIC_LUA_DLL=\\\"${vi_cv_dll_name_lua}\\\" $LUA_CFLAGS"
+      fi
+    fi
+    if test "$fail_if_missing" = "yes" -a -z "$LUA_SRC"; then
+*** ../vim-7.3.673/src/version.c	2012-10-03 13:35:45.000000000 +0200
+--- src/version.c	2012-10-03 14:44:56.000000000 +0200
+***************
+*** 721,722 ****
+--- 721,724 ----
+  {   /* Add new patch number below this line */
++ /**/
++     674,
+  /**/
+
+-- 
+The Law, in its majestic equality, forbids the rich, as well as the
+poor, to sleep under the bridges, to beg in the streets, and to steal
+bread.                       -- Anatole France
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

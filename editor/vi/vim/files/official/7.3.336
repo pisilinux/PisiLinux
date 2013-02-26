@@ -1,0 +1,1100 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.336
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.336
+Problem:    When a tags file specifies an encoding different from 'enc' it
+	    may hang and using a pattern doesn't work.
+Solution:   Convert the whole line.  Continue reading the header after the
+	    SORT tag.  Add test83. (Yukihiro Nakadaira)
+Files:	    src/tag.c, src/testdir/Make_amiga.mak, src/testdir/Make_dos.mak,
+	    src/testdir/Make_ming.mak, src/testdir/Make_os2.mak,
+	    src/testdir/Make_vms.mms, src/testdir/Makefile,
+	    src/testdir/test83-tags2, src/testdir/test83-tags3,
+	    src/testdir/test83.in, src/testdir/test83.ok
+
+
+*** ../vim-7.3.335/src/tag.c	2011-04-11 21:35:03.000000000 +0200
+--- src/tag.c	2011-10-12 19:51:04.000000000 +0200
+***************
+*** 1277,1282 ****
+--- 1277,1283 ----
+  {
+      FILE       *fp;
+      char_u     *lbuf;			/* line buffer */
++     int		lbuf_size = LSIZE;	/* length of lbuf */
+      char_u     *tag_fname;		/* name of tag file */
+      tagname_T	tn;			/* info for get_tagfname() */
+      int		first_file;		/* trying first tag file */
+***************
+*** 1291,1296 ****
+--- 1292,1298 ----
+      char_u	*s;
+      int		i;
+  #ifdef FEAT_TAG_BINS
++     int		tag_file_sorted = NUL;	/* !_TAG_FILE_SORTED value */
+      struct tag_search_info	/* Binary search file offsets */
+      {
+  	off_t	low_offset;	/* offset for first char of first line that
+***************
+*** 1360,1372 ****
+      char_u	*saved_pat = NULL;		/* copy of pat[] */
+  #endif
+  
+-     /* Use two sets of variables for the pattern: "orgpat" holds the values
+-      * for the original pattern and "convpat" converted from 'encoding' to
+-      * encoding of the tags file.  "pats" point to either one of these. */
+-     pat_T	*pats;
+      pat_T	orgpat;			/* holds unconverted pattern info */
+  #ifdef FEAT_MBYTE
+-     pat_T	convpat;		/* holds converted pattern info */
+      vimconv_T	vimconv;
+  #endif
+  
+--- 1362,1369 ----
+***************
+*** 1390,1396 ****
+  
+      help_save = curbuf->b_help;
+      orgpat.pat = pat;
+-     pats = &orgpat;
+  #ifdef FEAT_MBYTE
+      vimconv.vc_type = CONV_NONE;
+  #endif
+--- 1387,1392 ----
+***************
+*** 1398,1404 ****
+  /*
+   * Allocate memory for the buffers that are used
+   */
+!     lbuf = alloc(LSIZE);
+      tag_fname = alloc(MAXPATHL + 1);
+  #ifdef FEAT_EMACS_TAGS
+      ebuf = alloc(LSIZE);
+--- 1394,1400 ----
+  /*
+   * Allocate memory for the buffers that are used
+   */
+!     lbuf = alloc(lbuf_size);
+      tag_fname = alloc(MAXPATHL + 1);
+  #ifdef FEAT_EMACS_TAGS
+      ebuf = alloc(LSIZE);
+***************
+*** 1424,1453 ****
+      if (help_only)				/* want tags from help file */
+  	curbuf->b_help = TRUE;			/* will be restored later */
+  
+!     pats->len = (int)STRLEN(pat);
+  #ifdef FEAT_MULTI_LANG
+      if (curbuf->b_help)
+      {
+  	/* When "@ab" is specified use only the "ab" language, otherwise
+  	 * search all languages. */
+! 	if (pats->len > 3 && pat[pats->len - 3] == '@'
+! 					  && ASCII_ISALPHA(pat[pats->len - 2])
+! 					 && ASCII_ISALPHA(pat[pats->len - 1]))
+  	{
+! 	    saved_pat = vim_strnsave(pat, pats->len - 3);
+  	    if (saved_pat != NULL)
+  	    {
+! 		help_lang_find = &pat[pats->len - 2];
+! 		pats->pat = saved_pat;
+! 		pats->len -= 3;
+  	    }
+  	}
+      }
+  #endif
+!     if (p_tl != 0 && pats->len > p_tl)		/* adjust for 'taglength' */
+! 	pats->len = p_tl;
+  
+!     prepare_pats(pats, has_re);
+  
+  #ifdef FEAT_TAG_BINS
+      /* This is only to avoid a compiler warning for using search_info
+--- 1420,1449 ----
+      if (help_only)				/* want tags from help file */
+  	curbuf->b_help = TRUE;			/* will be restored later */
+  
+!     orgpat.len = (int)STRLEN(pat);
+  #ifdef FEAT_MULTI_LANG
+      if (curbuf->b_help)
+      {
+  	/* When "@ab" is specified use only the "ab" language, otherwise
+  	 * search all languages. */
+! 	if (orgpat.len > 3 && pat[orgpat.len - 3] == '@'
+! 					  && ASCII_ISALPHA(pat[orgpat.len - 2])
+! 					 && ASCII_ISALPHA(pat[orgpat.len - 1]))
+  	{
+! 	    saved_pat = vim_strnsave(pat, orgpat.len - 3);
+  	    if (saved_pat != NULL)
+  	    {
+! 		help_lang_find = &pat[orgpat.len - 2];
+! 		orgpat.pat = saved_pat;
+! 		orgpat.len -= 3;
+  	    }
+  	}
+      }
+  #endif
+!     if (p_tl != 0 && orgpat.len > p_tl)		/* adjust for 'taglength' */
+! 	orgpat.len = p_tl;
+  
+!     prepare_pats(&orgpat, has_re);
+  
+  #ifdef FEAT_TAG_BINS
+      /* This is only to avoid a compiler warning for using search_info
+***************
+*** 1466,1478 ****
+       * Only ignore case when TAG_NOIC not used or 'ignorecase' set.
+       */
+  #ifdef FEAT_TAG_BINS
+!     pats->regmatch.rm_ic = ((p_ic || !noic)
+! 				&& (findall || pats->headlen == 0 || !p_tbs));
+      for (round = 1; round <= 2; ++round)
+      {
+!       linear = (pats->headlen == 0 || !p_tbs || round == 2);
+  #else
+!       pats->regmatch.rm_ic = (p_ic || !noic);
+  #endif
+  
+        /*
+--- 1462,1474 ----
+       * Only ignore case when TAG_NOIC not used or 'ignorecase' set.
+       */
+  #ifdef FEAT_TAG_BINS
+!     orgpat.regmatch.rm_ic = ((p_ic || !noic)
+! 				&& (findall || orgpat.headlen == 0 || !p_tbs));
+      for (round = 1; round <= 2; ++round)
+      {
+!       linear = (orgpat.headlen == 0 || !p_tbs || round == 2);
+  #else
+!       orgpat.regmatch.rm_ic = (p_ic || !noic);
+  #endif
+  
+        /*
+***************
+*** 1701,1706 ****
+--- 1697,1732 ----
+  	    }
+  line_read_in:
+  
++ #ifdef FEAT_MBYTE
++ 	    if (vimconv.vc_type != CONV_NONE)
++ 	    {
++ 		char_u	*conv_line;
++ 		int	len;
++ 
++ 		/* Convert every line.  Converting the pattern from 'enc' to
++ 		 * the tags file encoding doesn't work, because characters are
++ 		 * not recognized. */
++ 		conv_line = string_convert(&vimconv, lbuf, NULL);
++ 		if (conv_line != NULL)
++ 		{
++ 		    /* Copy or swap lbuf and conv_line. */
++ 		    len = (int)STRLEN(conv_line) + 1;
++ 		    if (len > lbuf_size)
++ 		    {
++ 			vim_free(lbuf);
++ 			lbuf = conv_line;
++ 			lbuf_size = len;
++ 		    }
++ 		    else
++ 		    {
++ 			STRCPY(lbuf, conv_line);
++ 			vim_free(conv_line);
++ 		    }
++ 		}
++ 	    }
++ #endif
++ 
++ 
+  #ifdef FEAT_EMACS_TAGS
+  	    /*
+  	     * Emacs tags line with CTRL-L: New file name on next line.
+***************
+*** 1770,1775 ****
+--- 1796,1828 ----
+  	     */
+  	    if (state == TS_START)
+  	    {
++ 		if (STRNCMP(lbuf, "!_TAG_", 6) <= 0)
++ 		{
++ 		    /*
++ 		     * Read header line.
++ 		     */
++ #ifdef FEAT_TAG_BINS
++ 		    if (STRNCMP(lbuf, "!_TAG_FILE_SORTED\t", 18) == 0)
++ 			tag_file_sorted = lbuf[18];
++ #endif
++ #ifdef FEAT_MBYTE
++ 		    if (STRNCMP(lbuf, "!_TAG_FILE_ENCODING\t", 20) == 0)
++ 		    {
++ 			/* Prepare to convert every line from the specified
++ 			 * encoding to 'encoding'. */
++ 			for (p = lbuf + 20; *p > ' ' && *p < 127; ++p)
++ 			    ;
++ 			*p = NUL;
++ 			convert_setup(&vimconv, lbuf + 20, p_enc);
++ 		    }
++ #endif
++ 
++ 		    /* Read the next line.  Unrecognized flags are ignored. */
++ 		    continue;
++ 		}
++ 
++ 		/* Headers ends. */
++ 
+  #ifdef FEAT_TAG_BINS
+  		/*
+  		 * When there is no tag head, or ignoring case, need to do a
+***************
+*** 1786,1809 ****
+  		if (linear)
+  # endif
+  		    state = TS_LINEAR;
+! 		else if (STRNCMP(lbuf, "!_TAG_", 6) > 0)
+  		    state = TS_BINARY;
+! 		else if (STRNCMP(lbuf, "!_TAG_FILE_SORTED\t", 18) == 0)
+! 		{
+! 		    /* Check sorted flag */
+! 		    if (lbuf[18] == '1')
+  			state = TS_BINARY;
+! 		    else if (lbuf[18] == '2')
+! 		    {
+! 			state = TS_BINARY;
+! 			sortic = TRUE;
+! 			pats->regmatch.rm_ic = (p_ic || !noic);
+! 		    }
+! 		    else
+! 			state = TS_LINEAR;
+  		}
+  
+! 		if (state == TS_BINARY && pats->regmatch.rm_ic && !sortic)
+  		{
+  		    /* binary search won't work for ignoring case, use linear
+  		     * search. */
+--- 1839,1858 ----
+  		if (linear)
+  # endif
+  		    state = TS_LINEAR;
+! 		else if (tag_file_sorted == NUL)
+  		    state = TS_BINARY;
+! 		else if (tag_file_sorted == '1')
+  			state = TS_BINARY;
+! 		else if (tag_file_sorted == '2')
+! 		{
+! 		    state = TS_BINARY;
+! 		    sortic = TRUE;
+! 		    orgpat.regmatch.rm_ic = (p_ic || !noic);
+  		}
++ 		else
++ 		    state = TS_LINEAR;
+  
+! 		if (state == TS_BINARY && orgpat.regmatch.rm_ic && !sortic)
+  		{
+  		    /* binary search won't work for ignoring case, use linear
+  		     * search. */
+***************
+*** 1843,1882 ****
+  #endif
+  	    }
+  
+- #ifdef FEAT_MBYTE
+- 	    if (lbuf[0] == '!' && pats == &orgpat
+- 			   && STRNCMP(lbuf, "!_TAG_FILE_ENCODING\t", 20) == 0)
+- 	    {
+- 		/* Convert the search pattern from 'encoding' to the
+- 		 * specified encoding. */
+- 		for (p = lbuf + 20; *p > ' ' && *p < 127; ++p)
+- 		    ;
+- 		*p = NUL;
+- 		convert_setup(&vimconv, p_enc, lbuf + 20);
+- 		if (vimconv.vc_type != CONV_NONE)
+- 		{
+- 		    convpat.pat = string_convert(&vimconv, pats->pat, NULL);
+- 		    if (convpat.pat != NULL)
+- 		    {
+- 			pats = &convpat;
+- 			pats->len = (int)STRLEN(pats->pat);
+- 			prepare_pats(pats, has_re);
+- 			pats->regmatch.rm_ic = orgpat.regmatch.rm_ic;
+- 		    }
+- 		}
+- 
+- 		/* Prepare for converting a match the other way around. */
+- 		convert_setup(&vimconv, lbuf + 20, p_enc);
+- 		continue;
+- 	    }
+- #endif
+- 
+  	    /*
+  	     * Figure out where the different strings are in this line.
+  	     * For "normal" tags: Do a quick check if the tag matches.
+  	     * This speeds up tag searching a lot!
+  	     */
+! 	    if (pats->headlen
+  #ifdef FEAT_EMACS_TAGS
+  			    && !is_etag
+  #endif
+--- 1892,1903 ----
+  #endif
+  	    }
+  
+  	    /*
+  	     * Figure out where the different strings are in this line.
+  	     * For "normal" tags: Do a quick check if the tag matches.
+  	     * This speeds up tag searching a lot!
+  	     */
+! 	    if (orgpat.headlen
+  #ifdef FEAT_EMACS_TAGS
+  			    && !is_etag
+  #endif
+***************
+*** 1933,1941 ****
+  		cmplen = (int)(tagp.tagname_end - tagp.tagname);
+  		if (p_tl != 0 && cmplen > p_tl)	    /* adjust for 'taglength' */
+  		    cmplen = p_tl;
+! 		if (has_re && pats->headlen < cmplen)
+! 		    cmplen = pats->headlen;
+! 		else if (state == TS_LINEAR && pats->headlen != cmplen)
+  		    continue;
+  
+  #ifdef FEAT_TAG_BINS
+--- 1954,1962 ----
+  		cmplen = (int)(tagp.tagname_end - tagp.tagname);
+  		if (p_tl != 0 && cmplen > p_tl)	    /* adjust for 'taglength' */
+  		    cmplen = p_tl;
+! 		if (has_re && orgpat.headlen < cmplen)
+! 		    cmplen = orgpat.headlen;
+! 		else if (state == TS_LINEAR && orgpat.headlen != cmplen)
+  		    continue;
+  
+  #ifdef FEAT_TAG_BINS
+***************
+*** 1954,1963 ****
+  		     * Compare the current tag with the searched tag.
+  		     */
+  		    if (sortic)
+! 			tagcmp = tag_strnicmp(tagp.tagname, pats->head,
+  							      (size_t)cmplen);
+  		    else
+! 			tagcmp = STRNCMP(tagp.tagname, pats->head, cmplen);
+  
+  		    /*
+  		     * A match with a shorter tag means to search forward.
+--- 1975,1984 ----
+  		     * Compare the current tag with the searched tag.
+  		     */
+  		    if (sortic)
+! 			tagcmp = tag_strnicmp(tagp.tagname, orgpat.head,
+  							      (size_t)cmplen);
+  		    else
+! 			tagcmp = STRNCMP(tagp.tagname, orgpat.head, cmplen);
+  
+  		    /*
+  		     * A match with a shorter tag means to search forward.
+***************
+*** 1965,1973 ****
+  		     */
+  		    if (tagcmp == 0)
+  		    {
+! 			if (cmplen < pats->headlen)
+  			    tagcmp = -1;
+! 			else if (cmplen > pats->headlen)
+  			    tagcmp = 1;
+  		    }
+  
+--- 1986,1994 ----
+  		     */
+  		    if (tagcmp == 0)
+  		    {
+! 			if (cmplen < orgpat.headlen)
+  			    tagcmp = -1;
+! 			else if (cmplen > orgpat.headlen)
+  			    tagcmp = 1;
+  		    }
+  
+***************
+*** 2011,2017 ****
+  		}
+  		else if (state == TS_SKIP_BACK)
+  		{
+! 		    if (MB_STRNICMP(tagp.tagname, pats->head, cmplen) != 0)
+  			state = TS_STEP_FORWARD;
+  		    else
+  			/* Have to skip back more.  Restore the curr_offset
+--- 2032,2038 ----
+  		}
+  		else if (state == TS_SKIP_BACK)
+  		{
+! 		    if (MB_STRNICMP(tagp.tagname, orgpat.head, cmplen) != 0)
+  			state = TS_STEP_FORWARD;
+  		    else
+  			/* Have to skip back more.  Restore the curr_offset
+***************
+*** 2021,2027 ****
+  		}
+  		else if (state == TS_STEP_FORWARD)
+  		{
+! 		    if (MB_STRNICMP(tagp.tagname, pats->head, cmplen) != 0)
+  		    {
+  			if ((off_t)ftell(fp) > search_info.match_offset)
+  			    break;	/* past last match */
+--- 2042,2048 ----
+  		}
+  		else if (state == TS_STEP_FORWARD)
+  		{
+! 		    if (MB_STRNICMP(tagp.tagname, orgpat.head, cmplen) != 0)
+  		    {
+  			if ((off_t)ftell(fp) > search_info.match_offset)
+  			    break;	/* past last match */
+***************
+*** 2032,2038 ****
+  		else
+  #endif
+  		    /* skip this match if it can't match */
+! 		    if (MB_STRNICMP(tagp.tagname, pats->head, cmplen) != 0)
+  		    continue;
+  
+  		/*
+--- 2053,2059 ----
+  		else
+  #endif
+  		    /* skip this match if it can't match */
+! 		    if (MB_STRNICMP(tagp.tagname, orgpat.head, cmplen) != 0)
+  		    continue;
+  
+  		/*
+***************
+*** 2083,2123 ****
+  	    if (p_tl != 0 && cmplen > p_tl)	    /* adjust for 'taglength' */
+  		cmplen = p_tl;
+  	    /* if tag length does not match, don't try comparing */
+! 	    if (pats->len != cmplen)
+  		match = FALSE;
+  	    else
+  	    {
+! 		if (pats->regmatch.rm_ic)
+  		{
+! 		    match = (MB_STRNICMP(tagp.tagname, pats->pat, cmplen) == 0);
+  		    if (match)
+! 			match_no_ic = (STRNCMP(tagp.tagname, pats->pat,
+  								cmplen) == 0);
+  		}
+  		else
+! 		    match = (STRNCMP(tagp.tagname, pats->pat, cmplen) == 0);
+  	    }
+  
+  	    /*
+  	     * Has a regexp: Also find tags matching regexp.
+  	     */
+  	    match_re = FALSE;
+! 	    if (!match && pats->regmatch.regprog != NULL)
+  	    {
+  		int	cc;
+  
+  		cc = *tagp.tagname_end;
+  		*tagp.tagname_end = NUL;
+! 		match = vim_regexec(&pats->regmatch, tagp.tagname, (colnr_T)0);
+  		if (match)
+  		{
+! 		    matchoff = (int)(pats->regmatch.startp[0] - tagp.tagname);
+! 		    if (pats->regmatch.rm_ic)
+  		    {
+! 			pats->regmatch.rm_ic = FALSE;
+! 			match_no_ic = vim_regexec(&pats->regmatch, tagp.tagname,
+  								  (colnr_T)0);
+! 			pats->regmatch.rm_ic = TRUE;
+  		    }
+  		}
+  		*tagp.tagname_end = cc;
+--- 2104,2144 ----
+  	    if (p_tl != 0 && cmplen > p_tl)	    /* adjust for 'taglength' */
+  		cmplen = p_tl;
+  	    /* if tag length does not match, don't try comparing */
+! 	    if (orgpat.len != cmplen)
+  		match = FALSE;
+  	    else
+  	    {
+! 		if (orgpat.regmatch.rm_ic)
+  		{
+! 		    match = (MB_STRNICMP(tagp.tagname, orgpat.pat, cmplen) == 0);
+  		    if (match)
+! 			match_no_ic = (STRNCMP(tagp.tagname, orgpat.pat,
+  								cmplen) == 0);
+  		}
+  		else
+! 		    match = (STRNCMP(tagp.tagname, orgpat.pat, cmplen) == 0);
+  	    }
+  
+  	    /*
+  	     * Has a regexp: Also find tags matching regexp.
+  	     */
+  	    match_re = FALSE;
+! 	    if (!match && orgpat.regmatch.regprog != NULL)
+  	    {
+  		int	cc;
+  
+  		cc = *tagp.tagname_end;
+  		*tagp.tagname_end = NUL;
+! 		match = vim_regexec(&orgpat.regmatch, tagp.tagname, (colnr_T)0);
+  		if (match)
+  		{
+! 		    matchoff = (int)(orgpat.regmatch.startp[0] - tagp.tagname);
+! 		    if (orgpat.regmatch.rm_ic)
+  		    {
+! 			orgpat.regmatch.rm_ic = FALSE;
+! 			match_no_ic = vim_regexec(&orgpat.regmatch, tagp.tagname,
+  								  (colnr_T)0);
+! 			orgpat.regmatch.rm_ic = TRUE;
+  		    }
+  		}
+  		*tagp.tagname_end = cc;
+***************
+*** 2174,2180 ****
+  			else
+  			    mtt = MT_GL_OTH;
+  		    }
+! 		    if (pats->regmatch.rm_ic && !match_no_ic)
+  			mtt += MT_IC_OFF;
+  		    if (match_re)
+  			mtt += MT_RE_OFF;
+--- 2195,2201 ----
+  			else
+  			    mtt = MT_GL_OTH;
+  		    }
+! 		    if (orgpat.regmatch.rm_ic && !match_no_ic)
+  			mtt += MT_IC_OFF;
+  		    if (match_re)
+  			mtt += MT_RE_OFF;
+***************
+*** 2187,2221 ****
+  		 */
+  		if (ga_grow(&ga_match[mtt], 1) == OK)
+  		{
+- #ifdef FEAT_MBYTE
+- 		    char_u	*conv_line = NULL;
+- 		    char_u	*lbuf_line = lbuf;
+- 
+- 		    if (vimconv.vc_type != CONV_NONE)
+- 		    {
+- 			/* Convert the tag line from the encoding of the tags
+- 			 * file to 'encoding'.  Then parse the line again. */
+- 			conv_line = string_convert(&vimconv, lbuf, NULL);
+- 			if (conv_line != NULL)
+- 			{
+- 			    if (parse_tag_line(conv_line,
+- #ifdef FEAT_EMACS_TAGS
+- 					is_etag,
+- #endif
+- 					&tagp) == OK)
+- 				lbuf_line = conv_line;
+- 			    else
+- 				/* doesn't work, go back to unconverted line. */
+- 				(void)parse_tag_line(lbuf,
+- #ifdef FEAT_EMACS_TAGS
+- 						     is_etag,
+- #endif
+- 						     &tagp);
+- 			}
+- 		    }
+- #else
+- # define lbuf_line lbuf
+- #endif
+  		    if (help_only)
+  		    {
+  #ifdef FEAT_MULTI_LANG
+--- 2208,2213 ----
+***************
+*** 2307,2313 ****
+  			 * without Emacs tags: <mtt><tag_fname><NUL><lbuf>
+  			 */
+  			len = (int)STRLEN(tag_fname)
+! 						 + (int)STRLEN(lbuf_line) + 3;
+  #ifdef FEAT_EMACS_TAGS
+  			if (is_etag)
+  			    len += (int)STRLEN(ebuf) + 1;
+--- 2299,2305 ----
+  			 * without Emacs tags: <mtt><tag_fname><NUL><lbuf>
+  			 */
+  			len = (int)STRLEN(tag_fname)
+! 						 + (int)STRLEN(lbuf) + 3;
+  #ifdef FEAT_EMACS_TAGS
+  			if (is_etag)
+  			    len += (int)STRLEN(ebuf) + 1;
+***************
+*** 2337,2343 ****
+  			    else
+  				*s++ = NUL;
+  #endif
+! 			    STRCPY(s, lbuf_line);
+  			}
+  		    }
+  
+--- 2329,2335 ----
+  			    else
+  				*s++ = NUL;
+  #endif
+! 			    STRCPY(s, lbuf);
+  			}
+  		    }
+  
+***************
+*** 2373,2382 ****
+  			else
+  			    vim_free(mfp);
+  		    }
+- #ifdef FEAT_MBYTE
+- 		    /* Note: this makes the values in "tagp" invalid! */
+- 		    vim_free(conv_line);
+- #endif
+  		}
+  		else    /* Out of memory! Just forget about the rest. */
+  		{
+--- 2365,2370 ----
+***************
+*** 2415,2433 ****
+  	}
+  #endif
+  #ifdef FEAT_MBYTE
+- 	if (pats == &convpat)
+- 	{
+- 	    /* Go back from converted pattern to original pattern. */
+- 	    vim_free(pats->pat);
+- 	    vim_free(pats->regmatch.regprog);
+- 	    orgpat.regmatch.rm_ic = pats->regmatch.rm_ic;
+- 	    pats = &orgpat;
+- 	}
+  	if (vimconv.vc_type != CONV_NONE)
+  	    convert_setup(&vimconv, NULL, NULL);
+  #endif
+  
+  #ifdef FEAT_TAG_BINS
+  	if (sort_error)
+  	{
+  	    EMSG2(_("E432: Tags file not sorted: %s"), tag_fname);
+--- 2403,2414 ----
+  	}
+  #endif
+  #ifdef FEAT_MBYTE
+  	if (vimconv.vc_type != CONV_NONE)
+  	    convert_setup(&vimconv, NULL, NULL);
+  #endif
+  
+  #ifdef FEAT_TAG_BINS
++ 	tag_file_sorted = NUL;
+  	if (sort_error)
+  	{
+  	    EMSG2(_("E432: Tags file not sorted: %s"), tag_fname);
+***************
+*** 2461,2473 ****
+  #ifdef FEAT_TAG_BINS
+        /* stop searching when already did a linear search, or when TAG_NOIC
+         * used, and 'ignorecase' not set or already did case-ignore search */
+!       if (stop_searching || linear || (!p_ic && noic) || pats->regmatch.rm_ic)
+  	  break;
+  # ifdef FEAT_CSCOPE
+        if (use_cscope)
+  	  break;
+  # endif
+!       pats->regmatch.rm_ic = TRUE;	/* try another time while ignoring case */
+      }
+  #endif
+  
+--- 2442,2454 ----
+  #ifdef FEAT_TAG_BINS
+        /* stop searching when already did a linear search, or when TAG_NOIC
+         * used, and 'ignorecase' not set or already did case-ignore search */
+!       if (stop_searching || linear || (!p_ic && noic) || orgpat.regmatch.rm_ic)
+  	  break;
+  # ifdef FEAT_CSCOPE
+        if (use_cscope)
+  	  break;
+  # endif
+!       orgpat.regmatch.rm_ic = TRUE;	/* try another time while ignoring case */
+      }
+  #endif
+  
+***************
+*** 2480,2486 ****
+  
+  findtag_end:
+      vim_free(lbuf);
+!     vim_free(pats->regmatch.regprog);
+      vim_free(tag_fname);
+  #ifdef FEAT_EMACS_TAGS
+      vim_free(ebuf);
+--- 2461,2467 ----
+  
+  findtag_end:
+      vim_free(lbuf);
+!     vim_free(orgpat.regmatch.regprog);
+      vim_free(tag_fname);
+  #ifdef FEAT_EMACS_TAGS
+      vim_free(ebuf);
+*** ../vim-7.3.335/src/testdir/Make_amiga.mak	2011-07-15 21:16:54.000000000 +0200
+--- src/testdir/Make_amiga.mak	2011-10-12 19:21:00.000000000 +0200
+***************
+*** 29,35 ****
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out
+  
+  .SUFFIXES: .in .out
+  
+--- 29,35 ----
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out test83.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 131,133 ****
+--- 131,134 ----
+  test80.out: test80.in
+  test81.out: test81.in
+  test82.out: test82.in
++ test83.out: test83.in
+*** ../vim-7.3.335/src/testdir/Make_dos.mak	2011-07-15 21:16:54.000000000 +0200
+--- src/testdir/Make_dos.mak	2011-10-12 17:39:03.000000000 +0200
+***************
+*** 29,35 ****
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 29,35 ----
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out test83.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.335/src/testdir/Make_ming.mak	2011-07-15 21:16:54.000000000 +0200
+--- src/testdir/Make_ming.mak	2011-10-12 17:39:03.000000000 +0200
+***************
+*** 49,55 ****
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 49,55 ----
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out test83.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.335/src/testdir/Make_os2.mak	2011-07-15 21:16:54.000000000 +0200
+--- src/testdir/Make_os2.mak	2011-10-12 17:39:03.000000000 +0200
+***************
+*** 29,35 ****
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out
+  
+  .SUFFIXES: .in .out
+  
+--- 29,35 ----
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out test83.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../vim-7.3.335/src/testdir/Make_vms.mms	2011-07-15 21:16:54.000000000 +0200
+--- src/testdir/Make_vms.mms	2011-10-12 17:39:03.000000000 +0200
+***************
+*** 76,82 ****
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+  	 test77.out test78.out test79.out test80.out test81.out \
+! 	 test82.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+--- 76,82 ----
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+  	 test77.out test78.out test79.out test80.out test81.out \
+! 	 test82.out test83.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+*** ../vim-7.3.335/src/testdir/Makefile	2011-07-15 21:16:54.000000000 +0200
+--- src/testdir/Makefile	2011-10-12 17:39:03.000000000 +0200
+***************
+*** 26,32 ****
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 26,32 ----
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out test83.out
+  
+  SCRIPTS_GUI = test16.out
+  
+***************
+*** 72,78 ****
+  		  fi \
+  		else echo $* NO OUTPUT >>test.log; \
+  		fi"
+! 	-rm -rf X* test.ok viminfo
+  
+  test49.out: test49.vim
+  
+--- 72,78 ----
+  		  fi \
+  		else echo $* NO OUTPUT >>test.log; \
+  		fi"
+! #	-rm -rf X* test.ok viminfo
+  
+  test49.out: test49.vim
+  
+*** ../vim-7.3.335/src/testdir/test83-tags2	2011-10-12 19:49:38.000000000 +0200
+--- src/testdir/test83-tags2	2011-10-12 19:34:15.000000000 +0200
+***************
+*** 0 ****
+--- 1,2 ----
++ !_TAG_FILE_ENCODING	cp932	//
++ ‚`‚a‚b	Xtags2.txt	/‚`‚a‚b
+*** ../vim-7.3.335/src/testdir/test83-tags3	2011-10-12 19:49:38.000000000 +0200
+--- src/testdir/test83-tags3	2011-10-12 19:35:42.000000000 +0200
+***************
+*** 0 ****
+--- 1,102 ----
++ !_TAG_FILE_SORTED	1	//
++ !_TAG_FILE_ENCODING	cp932	//
++ abc1	Xtags3.txt	/‚`‚a‚b
++ abc2	Xtags3.txt	/‚`‚a‚b
++ abc3	Xtags3.txt	/‚`‚a‚b
++ abc4	Xtags3.txt	/‚`‚a‚b
++ abc5	Xtags3.txt	/‚`‚a‚b
++ abc6	Xtags3.txt	/‚`‚a‚b
++ abc7	Xtags3.txt	/‚`‚a‚b
++ abc8	Xtags3.txt	/‚`‚a‚b
++ abc9	Xtags3.txt	/‚`‚a‚b
++ abc10	Xtags3.txt	/‚`‚a‚b
++ abc11	Xtags3.txt	/‚`‚a‚b
++ abc12	Xtags3.txt	/‚`‚a‚b
++ abc13	Xtags3.txt	/‚`‚a‚b
++ abc14	Xtags3.txt	/‚`‚a‚b
++ abc15	Xtags3.txt	/‚`‚a‚b
++ abc16	Xtags3.txt	/‚`‚a‚b
++ abc17	Xtags3.txt	/‚`‚a‚b
++ abc18	Xtags3.txt	/‚`‚a‚b
++ abc19	Xtags3.txt	/‚`‚a‚b
++ abc20	Xtags3.txt	/‚`‚a‚b
++ abc21	Xtags3.txt	/‚`‚a‚b
++ abc22	Xtags3.txt	/‚`‚a‚b
++ abc23	Xtags3.txt	/‚`‚a‚b
++ abc24	Xtags3.txt	/‚`‚a‚b
++ abc25	Xtags3.txt	/‚`‚a‚b
++ abc26	Xtags3.txt	/‚`‚a‚b
++ abc27	Xtags3.txt	/‚`‚a‚b
++ abc28	Xtags3.txt	/‚`‚a‚b
++ abc29	Xtags3.txt	/‚`‚a‚b
++ abc30	Xtags3.txt	/‚`‚a‚b
++ abc31	Xtags3.txt	/‚`‚a‚b
++ abc32	Xtags3.txt	/‚`‚a‚b
++ abc33	Xtags3.txt	/‚`‚a‚b
++ abc34	Xtags3.txt	/‚`‚a‚b
++ abc35	Xtags3.txt	/‚`‚a‚b
++ abc36	Xtags3.txt	/‚`‚a‚b
++ abc37	Xtags3.txt	/‚`‚a‚b
++ abc38	Xtags3.txt	/‚`‚a‚b
++ abc39	Xtags3.txt	/‚`‚a‚b
++ abc40	Xtags3.txt	/‚`‚a‚b
++ abc41	Xtags3.txt	/‚`‚a‚b
++ abc42	Xtags3.txt	/‚`‚a‚b
++ abc43	Xtags3.txt	/‚`‚a‚b
++ abc44	Xtags3.txt	/‚`‚a‚b
++ abc45	Xtags3.txt	/‚`‚a‚b
++ abc46	Xtags3.txt	/‚`‚a‚b
++ abc47	Xtags3.txt	/‚`‚a‚b
++ abc48	Xtags3.txt	/‚`‚a‚b
++ abc49	Xtags3.txt	/‚`‚a‚b
++ abc50	Xtags3.txt	/‚`‚a‚b
++ abc51	Xtags3.txt	/‚`‚a‚b
++ abc52	Xtags3.txt	/‚`‚a‚b
++ abc53	Xtags3.txt	/‚`‚a‚b
++ abc54	Xtags3.txt	/‚`‚a‚b
++ abc55	Xtags3.txt	/‚`‚a‚b
++ abc56	Xtags3.txt	/‚`‚a‚b
++ abc57	Xtags3.txt	/‚`‚a‚b
++ abc58	Xtags3.txt	/‚`‚a‚b
++ abc59	Xtags3.txt	/‚`‚a‚b
++ abc60	Xtags3.txt	/‚`‚a‚b
++ abc61	Xtags3.txt	/‚`‚a‚b
++ abc62	Xtags3.txt	/‚`‚a‚b
++ abc63	Xtags3.txt	/‚`‚a‚b
++ abc64	Xtags3.txt	/‚`‚a‚b
++ abc65	Xtags3.txt	/‚`‚a‚b
++ abc66	Xtags3.txt	/‚`‚a‚b
++ abc67	Xtags3.txt	/‚`‚a‚b
++ abc68	Xtags3.txt	/‚`‚a‚b
++ abc69	Xtags3.txt	/‚`‚a‚b
++ abc70	Xtags3.txt	/‚`‚a‚b
++ abc71	Xtags3.txt	/‚`‚a‚b
++ abc72	Xtags3.txt	/‚`‚a‚b
++ abc73	Xtags3.txt	/‚`‚a‚b
++ abc74	Xtags3.txt	/‚`‚a‚b
++ abc75	Xtags3.txt	/‚`‚a‚b
++ abc76	Xtags3.txt	/‚`‚a‚b
++ abc77	Xtags3.txt	/‚`‚a‚b
++ abc78	Xtags3.txt	/‚`‚a‚b
++ abc79	Xtags3.txt	/‚`‚a‚b
++ abc80	Xtags3.txt	/‚`‚a‚b
++ abc81	Xtags3.txt	/‚`‚a‚b
++ abc82	Xtags3.txt	/‚`‚a‚b
++ abc83	Xtags3.txt	/‚`‚a‚b
++ abc84	Xtags3.txt	/‚`‚a‚b
++ abc85	Xtags3.txt	/‚`‚a‚b
++ abc86	Xtags3.txt	/‚`‚a‚b
++ abc87	Xtags3.txt	/‚`‚a‚b
++ abc88	Xtags3.txt	/‚`‚a‚b
++ abc89	Xtags3.txt	/‚`‚a‚b
++ abc90	Xtags3.txt	/‚`‚a‚b
++ abc91	Xtags3.txt	/‚`‚a‚b
++ abc92	Xtags3.txt	/‚`‚a‚b
++ abc93	Xtags3.txt	/‚`‚a‚b
++ abc94	Xtags3.txt	/‚`‚a‚b
++ abc95	Xtags3.txt	/‚`‚a‚b
++ abc96	Xtags3.txt	/‚`‚a‚b
++ abc97	Xtags3.txt	/‚`‚a‚b
++ abc98	Xtags3.txt	/‚`‚a‚b
++ abc99	Xtags3.txt	/‚`‚a‚b
++ abc100	Xtags3.txt	/‚`‚a‚b
+*** ../vim-7.3.335/src/testdir/test83.in	2011-10-12 19:49:38.000000000 +0200
+--- src/testdir/test83.in	2011-10-12 19:40:47.000000000 +0200
+***************
+*** 0 ****
+--- 1,76 ----
++ Tests for tag search with !_TAG_FILE_ENCODING.
++ 
++ STARTTEST
++ :so mbyte.vim
++ :if !has('iconv')
++ : e! test.ok
++ : w! test.out
++ : qa!
++ :endif
++ :set enc=utf8
++ 
++ :/^text for tags1$/,/^text for tags1$/+1w! Xtags1.txt
++ :/^text for tags2$/,/^text for tags2$/+1w! Xtags2.txt
++ :/^text for tags3$/,/^text for tags3$/+1w! Xtags3.txt
++ :/^tags1$/+1,/^tags1-end$/-1w! Xtags1
++ 
++ ggdG
++ 
++ :call setline('.', 'Results of test83')
++ 
++ :" case1:
++ :new
++ :set tags=Xtags1
++ :let v:errmsg = ''
++ :tag abcdefghijklmnopqrs
++ :if v:errmsg =~ 'E426:' || getline('.') != 'abcdefghijklmnopqrs'
++ : close
++ : put ='case1: failed'
++ :else
++ : close
++ : put ='case1: ok'
++ :endif
++ 
++ :" case2:
++ :new
++ :set tags=test83-tags2
++ :let v:errmsg = ''
++ :tag /.ï¼¢ï¼£
++ :if v:errmsg =~ 'E426:' || getline('.') != 'ï¼¡ï¼¢ï¼£'
++ : close
++ : put ='case2: failed'
++ :else
++ : close
++ : put ='case2: ok'
++ :endif
++ 
++ :" case3:
++ :new
++ :set tags=test83-tags3
++ :let v:errmsg = ''
++ :tag abc50
++ :if v:errmsg =~ 'E426:' || getline('.') != 'ï¼¡ï¼¢ï¼£'
++ : close
++ : put ='case3: failed'
++ :else
++ : close
++ : put ='case3: ok'
++ :endif
++ :close
++ 
++ :wq! test.out
++ ENDTEST
++ 
++ text for tags1
++ abcdefghijklmnopqrs
++ 
++ text for tags2
++ ï¼¡ï¼¢ï¼£
++ 
++ text for tags3
++ ï¼¡ï¼¢ï¼£
++ 
++ tags1
++ !_TAG_FILE_ENCODING	utf-8	//
++ abcdefghijklmnopqrs	Xtags1.txt	/abcdefghijklmnopqrs
++ tags1-end
+*** ../vim-7.3.335/src/testdir/test83.ok	2011-10-12 19:49:38.000000000 +0200
+--- src/testdir/test83.ok	2011-10-12 17:39:03.000000000 +0200
+***************
+*** 0 ****
+--- 1,4 ----
++ Results of test83
++ case1: ok
++ case2: ok
++ case3: ok
+*** ../vim-7.3.335/src/version.c	2011-10-12 16:57:07.000000000 +0200
+--- src/version.c	2011-10-12 19:45:46.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     336,
+  /**/
+
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+62. If your doorbell rings, you think that new mail has arrived.  And then
+    you're disappointed that it's only someone at the door.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

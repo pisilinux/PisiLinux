@@ -1,0 +1,293 @@
+diff -rcp ../binutils-2.22.52.0.4.orig/gold/layout.cc gold/layout.cc
+*** ../binutils-2.22.52.0.4.orig/gold/layout.cc	2012-08-14 09:38:36.359409453 +0100
+--- gold/layout.cc	2012-08-14 09:39:16.393410563 +0100
+*************** Layout::get_output_section(const char* n
+*** 749,754 ****
+--- 749,774 ----
+      }
+  }
+  
++ // Returns TRUE iff NAME (an input section from RELOBJ) will
++ // be mapped to an output section that should be KEPT.
++ 
++ bool
++ Layout::keep_input_section(const Relobj* relobj, const char* name)
++ {
++   if (! this->script_options_->saw_sections_clause())
++     return false;
++ 
++   Script_sections* ss = this->script_options_->script_sections();
++   const char* file_name = relobj == NULL ? NULL : relobj->name().c_str();
++   Output_section** output_section_slot;
++   Script_sections::Section_type script_section_type;
++   bool keep;
++ 
++   name = ss->output_section_name(file_name, name, &output_section_slot,
++ 				 &script_section_type, &keep);
++   return name != NULL && keep;
++ }
++ 
+  // Pick the output section to use for section NAME, in input file
+  // RELOBJ, with type TYPE and flags FLAGS.  RELOBJ may be NULL for a
+  // linker created section.  IS_INPUT_SECTION is true if we are
+*************** Layout::choose_output_section(const Relo
+*** 789,796 ****
+        Output_section** output_section_slot;
+        Script_sections::Section_type script_section_type;
+        const char* orig_name = name;
+        name = ss->output_section_name(file_name, name, &output_section_slot,
+! 				     &script_section_type);
+        if (name == NULL)
+  	{
+  	  gold_debug(DEBUG_SCRIPT, _("Unable to create output section '%s' "
+--- 809,818 ----
+        Output_section** output_section_slot;
+        Script_sections::Section_type script_section_type;
+        const char* orig_name = name;
++       bool keep;
+        name = ss->output_section_name(file_name, name, &output_section_slot,
+! 				     &script_section_type, &keep);
+! 
+        if (name == NULL)
+  	{
+  	  gold_debug(DEBUG_SCRIPT, _("Unable to create output section '%s' "
+diff -rcp ../binutils-2.22.52.0.4.orig/gold/layout.h gold/layout.h
+*** ../binutils-2.22.52.0.4.orig/gold/layout.h	2012-08-14 09:38:52.579409903 +0100
+--- gold/layout.h	2012-08-14 09:39:16.403410563 +0100
+*************** class Layout
+*** 920,925 ****
+--- 920,930 ----
+    section_list() const
+    { return this->section_list_; }
+  
++   // Returns TRUE iff NAME (an input section from RELOBJ) will
++   // be mapped to an output section that should be KEPT.
++   bool
++   keep_input_section(const Relobj*, const char*);
++   
+   private:
+    Layout(const Layout&);
+    Layout& operator=(const Layout&);
+diff -rcp ../binutils-2.22.52.0.4.orig/gold/object.cc gold/object.cc
+*** ../binutils-2.22.52.0.4.orig/gold/object.cc	2012-08-14 09:38:43.151409641 +0100
+--- gold/object.cc	2012-08-14 09:39:16.412410563 +0100
+*************** Sized_relobj_file<size, big_endian>::do_
+*** 1437,1442 ****
+--- 1437,1443 ----
+        if (is_gc_pass_one && parameters->options().gc_sections())
+  	{
+  	  if (this->is_section_name_included(name)
++ 	      || layout->keep_input_section (this, name)
+  	      || shdr.get_sh_type() == elfcpp::SHT_INIT_ARRAY
+  	      || shdr.get_sh_type() == elfcpp::SHT_FINI_ARRAY)
+  	    {
+diff -rcp ../binutils-2.22.52.0.4.orig/gold/script-sections.cc gold/script-sections.cc
+*** ../binutils-2.22.52.0.4.orig/gold/script-sections.cc	2012-08-14 09:38:49.437409815 +0100
+--- gold/script-sections.cc	2012-08-14 09:39:16.413410563 +0100
+*************** class Sections_element
+*** 582,588 ****
+    // Output_section_definition.
+    virtual const char*
+    output_section_name(const char*, const char*, Output_section***,
+! 		      Script_sections::Section_type*)
+    { return NULL; }
+  
+    // Initialize OSP with an output section.
+--- 582,588 ----
+    // Output_section_definition.
+    virtual const char*
+    output_section_name(const char*, const char*, Output_section***,
+! 		      Script_sections::Section_type*, bool*)
+    { return NULL; }
+  
+    // Initialize OSP with an output section.
+*************** class Output_section_element
+*** 800,806 ****
+    // Return whether this element matches FILE_NAME and SECTION_NAME.
+    // The only real implementation is in Output_section_element_input.
+    virtual bool
+!   match_name(const char*, const char*) const
+    { return false; }
+  
+    // Set section addresses.  This includes applying assignments if the
+--- 800,806 ----
+    // Return whether this element matches FILE_NAME and SECTION_NAME.
+    // The only real implementation is in Output_section_element_input.
+    virtual bool
+!   match_name(const char*, const char*, bool *) const
+    { return false; }
+  
+    // Set section addresses.  This includes applying assignments if the
+*************** class Output_section_element_input : pub
+*** 1238,1247 ****
+      *dot_section = this->final_dot_section_;
+    }
+  
+!   // See whether we match FILE_NAME and SECTION_NAME as an input
+!   // section.
+    bool
+!   match_name(const char* file_name, const char* section_name) const;
+  
+    // Set the section address.
+    void
+--- 1238,1247 ----
+      *dot_section = this->final_dot_section_;
+    }
+  
+!   // See whether we match FILE_NAME and SECTION_NAME as an input section.
+!   // If we do then also indicate whether the section should be KEPT.
+    bool
+!   match_name(const char* file_name, const char* section_name, bool* keep) const;
+  
+    // Set the section address.
+    void
+*************** Output_section_element_input::match_file
+*** 1393,1407 ****
+    return true;
+  }
+  
+! // See whether we match FILE_NAME and SECTION_NAME.
+  
+  bool
+  Output_section_element_input::match_name(const char* file_name,
+! 					 const char* section_name) const
+  {
+    if (!this->match_file_name(file_name))
+      return false;
+  
+    // If there are no section name patterns, then we match.
+    if (this->input_section_patterns_.empty())
+      return true;
+--- 1393,1411 ----
+    return true;
+  }
+  
+! // See whether we match FILE_NAME and SECTION_NAME.  If we do then
+! // KEEP indicates whether the section should survive garbage collection.
+  
+  bool
+  Output_section_element_input::match_name(const char* file_name,
+! 					 const char* section_name,
+! 					 bool *keep) const
+  {
+    if (!this->match_file_name(file_name))
+      return false;
+  
++   *keep = this->keep_;
++ 
+    // If there are no section name patterns, then we match.
+    if (this->input_section_patterns_.empty())
+      return true;
+*************** class Output_section_definition : public
+*** 1861,1867 ****
+    // section name.
+    const char*
+    output_section_name(const char* file_name, const char* section_name,
+! 		      Output_section***, Script_sections::Section_type*);
+  
+    // Initialize OSP with an output section.
+    void
+--- 1865,1872 ----
+    // section name.
+    const char*
+    output_section_name(const char* file_name, const char* section_name,
+! 		      Output_section***, Script_sections::Section_type*,
+! 		      bool*);
+  
+    // Initialize OSP with an output section.
+    void
+*************** Output_section_definition::output_sectio
+*** 2146,2159 ****
+      const char* file_name,
+      const char* section_name,
+      Output_section*** slot,
+!     Script_sections::Section_type* psection_type)
+  {
+    // Ask each element whether it matches NAME.
+    for (Output_section_elements::const_iterator p = this->elements_.begin();
+         p != this->elements_.end();
+         ++p)
+      {
+!       if ((*p)->match_name(file_name, section_name))
+  	{
+  	  // We found a match for NAME, which means that it should go
+  	  // into this output section.
+--- 2151,2165 ----
+      const char* file_name,
+      const char* section_name,
+      Output_section*** slot,
+!     Script_sections::Section_type* psection_type,
+!     bool* keep)
+  {
+    // Ask each element whether it matches NAME.
+    for (Output_section_elements::const_iterator p = this->elements_.begin();
+         p != this->elements_.end();
+         ++p)
+      {
+!       if ((*p)->match_name(file_name, section_name, keep))
+  	{
+  	  // We found a match for NAME, which means that it should go
+  	  // into this output section.
+*************** Script_sections::output_section_name(
+*** 3365,3371 ****
+      const char* file_name,
+      const char* section_name,
+      Output_section*** output_section_slot,
+!     Script_sections::Section_type* psection_type)
+  {
+    for (Sections_elements::const_iterator p = this->sections_elements_->begin();
+         p != this->sections_elements_->end();
+--- 3371,3378 ----
+      const char* file_name,
+      const char* section_name,
+      Output_section*** output_section_slot,
+!     Script_sections::Section_type* psection_type,
+!     bool* keep)
+  {
+    for (Sections_elements::const_iterator p = this->sections_elements_->begin();
+         p != this->sections_elements_->end();
+*************** Script_sections::output_section_name(
+*** 3373,3379 ****
+      {
+        const char* ret = (*p)->output_section_name(file_name, section_name,
+  						  output_section_slot,
+! 						  psection_type);
+  
+        if (ret != NULL)
+  	{
+--- 3380,3386 ----
+      {
+        const char* ret = (*p)->output_section_name(file_name, section_name,
+  						  output_section_slot,
+! 						  psection_type, keep);
+  
+        if (ret != NULL)
+  	{
+diff -rcp ../binutils-2.22.52.0.4.orig/gold/script-sections.h gold/script-sections.h
+*** ../binutils-2.22.52.0.4.orig/gold/script-sections.h	2012-08-14 09:38:41.679409601 +0100
+--- gold/script-sections.h	2012-08-14 09:39:16.421410563 +0100
+*************** class Script_sections
+*** 163,172 ****
+    // PSCRIPT_SECTION_TYPE points to a location for returning the section
+    // type specified in script.  This can be SCRIPT_SECTION_TYPE_NONE if
+    // no type is specified.
+    const char*
+    output_section_name(const char* file_name, const char* section_name,
+  		      Output_section*** output_section_slot,
+! 		      Section_type* pscript_section_type);
+  
+    // Place a marker for an orphan output section into the SECTIONS
+    // clause.
+--- 163,174 ----
+    // PSCRIPT_SECTION_TYPE points to a location for returning the section
+    // type specified in script.  This can be SCRIPT_SECTION_TYPE_NONE if
+    // no type is specified.
++   // *KEEP indicates whether the section should survive garbage collection.
+    const char*
+    output_section_name(const char* file_name, const char* section_name,
+  		      Output_section*** output_section_slot,
+! 		      Section_type* pscript_section_type,
+! 		      bool* keep);
+  
+    // Place a marker for an orphan output section into the SECTIONS
+    // clause.

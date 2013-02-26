@@ -1,0 +1,145 @@
+From 5c1d02c4852bccb0415f946f5a8c4e600e216809 Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Wed, 10 Nov 2010 13:24:59 +0100
+Subject: [PATCH 09/12] config/13.per_ip_routing: add CTDB_PER_IP_ROUTING_DEBUG option for debugging
+
+CTDB_DEBUGLEVEL=DEBUG also triggers CTDB_PER_IP_ROUTING_DEBUG=yes.
+
+metze
+---
+ config/ctdb.sysconfig             |    5 ++++
+ config/events.d/13.per_ip_routing |   43 +++++++++++++++++++++++++++++-------
+ 2 files changed, 39 insertions(+), 9 deletions(-)
+
+diff --git a/config/ctdb.sysconfig b/config/ctdb.sysconfig
+index a19dd0e..881cf82 100644
+--- a/config/ctdb.sysconfig
++++ b/config/ctdb.sysconfig
+@@ -222,11 +222,16 @@ CTDB_RECOVERY_LOCK="/some/place/on/shared/storage"
+ # The default value for CTDB_PER_IP_ROUTING_CONF is "",
+ # which means the feature is disabled by default.
+ #
++# CTDB_PER_IP_ROUTING_DEBUG=yes lets the script print out
++# debug information to make troubleshooting easier.
++# CTDB_DEBUGLEVEL=DEBUG implies CTDB_PER_IP_ROUTING_DEBUG=yes.
++#
+ # CTDB_PER_IP_ROUTING_CONF="/etc/ctdb/per_ip_routing.conf"
+ # CTDB_PER_IP_ROUTING_CONF="__auto_link_local__"
+ # CTDB_PER_IP_ROUTING_TABLE_ID_LOW=10
+ # CTDB_PER_IP_ROUTING_TABLE_ID_HIGH=250
+ # CTDB_PER_IP_ROUTING_RULE_PREF=10000
++# CTDB_PER_IP_ROUTING_DEBUG=no
+ 
+ # Make offline interfaces not a reason for being UNHEALTHY.
+ # The CTDB_PARTIALLY_ONLINE_INTERFACES option changes
+diff --git a/config/events.d/13.per_ip_routing b/config/events.d/13.per_ip_routing
+index a3be238..d424eb3 100755
+--- a/config/events.d/13.per_ip_routing
++++ b/config/events.d/13.per_ip_routing
+@@ -43,6 +43,28 @@ test -z "$CTDB_PER_IP_ROUTING_RULE_PREF" && {
+ 	exit 1;
+ }
+ 
++test -z "$CTDB_PER_IP_ROUTING_DEBUG" && {
++	case "$CTDB_DEBUGLEVEL" in
++	DEBUG)
++		CTDB_PER_IP_ROUTING_DEBUG=yes
++		;;
++	*)
++		;;
++	esac
++}
++
++test x"$CTDB_PER_IP_ROUTING_DEBUG" = x"yes" && {
++	b=`basename $0`
++	debug_name="[$b:$$]"
++}
++
++debug_msg() {
++	test x"$CTDB_PER_IP_ROUTING_DEBUG" = x"yes" && {
++		echo "$debug_name $@"
++	}
++	return 0
++}
++
+ runwith_lock() {
+ 	local lockfile="$INTERNAL_CTDB_PER_IP_ROUTING_LOCK_FILE"
+ 	[ ! -d "$CTDB_PER_IP_ROUTING_STATE" ] && {
+@@ -58,10 +80,13 @@ runwith_lock() {
+ 			touch $lockfile
+ 		}
+ 
++		debug_msg "call under $lockfile with $@"
+ 		flock --timeout 30 $lockfile $0 $@
++		ret=$?
++		debug_msg "finished with exit code $ret"
+ 		exit $?
+ 	}
+-	echo "$0: called under $lockfile with $@"
++	debug_msg "called under $lockfile with $@"
+ }
+ 
+ generate_table_id () {
+@@ -71,11 +96,11 @@ generate_table_id () {
+ 
+ 	mkdir -p $_ipdir
+ 
+-	#echo "generate_table_id $_ip"
++	debug_msg "generate_table_id $_ip"
+ 
+ 	local _id=`cat $_ipdir/table_id 2>/dev/null| xargs`
+ 	test -n "$_id" && {
+-		#echo "IP: $_ip => OLD TABLE: $_id"
++		debug_msg "IP: $_ip => OLD TABLE: $_id"
+ 		table_id=$_id
+ 		return 0;
+ 	}
+@@ -87,7 +112,7 @@ generate_table_id () {
+ 	for _id in `seq $_low $_high | xargs`; do
+ 		local _taken=`grep "^$_id$" $_ipsdir/*/table_id 2>/dev/null| wc -l | xargs`
+ 		test x"$_taken" != x"0" && {
+-			#echo "tableid: $_id taken"
++			debug_msg "tableid: $_id taken"
+ 			continue
+ 		}
+ 		_newid=$_id;
+@@ -100,7 +125,7 @@ generate_table_id () {
+ 		exit 1;
+ 	}
+ 
+-	#echo "IP: $_ip => NEW TABLE: $_newid"
++	debug_msg "IP: $_ip => NEW TABLE: $_newid"
+ 	table_id=$_newid
+ 	return 0;
+ }
+@@ -109,15 +134,15 @@ run_release_script_once()
+ {
+ 	local _script=$1
+ 
+-	#echo "run_release_script_once[$_script]"
++	debug_msg "run_release_script_once[$_script]"
+ 
+ 	test -x "$_script" && {
+-		#echo "run it: start"
++		debug_msg "run release script: start"
+ 		$_script || {
+ 			echo "release_script: $_script - failed $?"
+ 			return $?;
+ 		}
+-		#echo "run it: end"
++		debug_msg "run release script: end"
+ 	}
+ 
+ 	echo '#!/bin/sh' > $_script
+@@ -134,7 +159,7 @@ generate_auto_link_local()
+ 	local _ip=$1
+ 	local _maskbits=$2
+ 
+-	#echo "generate_auto_link_local $_ip $_maskbits"
++	debug_msg "generate_auto_link_local $_ip $_maskbits"
+ 
+ 	local _netip=`ipv4_host_addr_to_net_addr $_ip $_maskbits`
+ 
+-- 
+1.7.4
+

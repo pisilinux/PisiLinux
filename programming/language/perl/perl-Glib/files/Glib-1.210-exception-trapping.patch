@@ -1,0 +1,64 @@
+--- ./GClosure.xs.ex	2003-11-17 02:37:26.000000000 +0100
++++ ./GClosure.xs	2004-01-10 00:46:38.000000000 +0100
+@@ -609,6 +609,28 @@ warn_of_ignored_exception (const char * 
+ 	SvREFCNT_dec (saved_defsv);
+ }
+ 
++void (*gtk2_perl_trap_exceptions_handler) (void);
++
++glib_perl_set_execept_handler (void (*exceptions_handler) (void))
++{
++     gtk2_perl_trap_exceptions_handler = exceptions_handler;
++}
++
++SV* gtk2_perl_trap_exceptions_save_errsv   = NULL;
++
++SV*
++glib_perl_get_execept_errsv ()
++{
++     return gtk2_perl_trap_exceptions_save_errsv;
++}
++
++void
++glib_perl_set_execept_errsv (SV* exception)
++{
++     gtk2_perl_trap_exceptions_save_errsv = exception;
++}
++
++
+ =item void gperl_run_exception_handlers (void)
+ 
+ Invoke whatever exception handlers are installed.  You will need this if
+@@ -636,6 +658,14 @@ gperl_run_exception_handlers (void)
+ 
+ 	++in_exception_handler;
+ 
++	if (gtk2_perl_trap_exceptions_handler) {
++			n_run++;
++			--in_exception_handler;
++			G_UNLOCK (exception_handlers);
++			gtk2_perl_trap_exceptions_save_errsv = newSVsv(ERRSV);
++	        (*gtk2_perl_trap_exceptions_handler)();
++			return;
++	} else {
+ 	/* call any registered handlers */
+ 	for (i = exception_handlers ; i != NULL ; /* in loop */) {
+ 		ExceptionHandler * h = (ExceptionHandler *) i->data;
+@@ -663,6 +693,7 @@ gperl_run_exception_handlers (void)
+ 		g_value_unset (&return_value);
+ 		++n_run;
+ 	}
++	}
+ 
+ 	--in_exception_handler;
+ 
+--- ./gperl_marshal.h.tv	2004-01-14 17:17:58.000000000 +0100
++++ ./gperl_marshal.h	2004-01-14 17:19:14.000000000 +0100
+@@ -176,7 +176,6 @@
+ 	SPAGAIN;						\
+ 	if (SvTRUE (ERRSV)) {					\
+ 		gperl_run_exception_handlers ();		\
+-		SvSetSV (ERRSV, save_errsv);			\
+ 		FREETMPS;					\
+ 		LEAVE;						\
+ 		return;						\

@@ -1,0 +1,423 @@
+https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=216711
+
+FIXME: This workaround should be dropped and
+glibc/sysdeps/unix/sysv/linux/x86_64/clone.S should get CFI for the child
+instead.
+
+2006-12-17  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb/amd64-linux-tdep.c (linux_clone_code): New variable.
+	(LINUX_CLONE_LEN): New definition.
+	(amd64_linux_clone_running, amd64_linux_outermost_frame): New function.
+	(amd64_linux_init_abi): Initialize `outermost_frame_p'.
+	* gdb/i386-tdep.c (i386_gdbarch_init): Likewise.
+	* gdb/i386-tdep.h (gdbarch_tdep): Add `outermost_frame_p' member.
+	* gdb/amd64-tdep.c (amd64_frame_this_id): Call `outermost_frame_p'.
+
+2006-12-17  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.threads/bt-clone-stop.exp, gdb.threads/bt-clone-stop.c:
+	New file.
+
+2007-10-16  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Port to GDB-6.7.
+
+Index: gdb-6.8.50.20090802/gdb/amd64-linux-tdep.c
+===================================================================
+--- gdb-6.8.50.20090802.orig/gdb/amd64-linux-tdep.c	2009-07-02 19:25:52.000000000 +0200
++++ gdb-6.8.50.20090802/gdb/amd64-linux-tdep.c	2009-08-03 15:50:08.000000000 +0200
+@@ -238,6 +238,80 @@ amd64_linux_register_reggroup_p (struct 
+ 
+ /* Set the program counter for process PTID to PC.  */
+ 
++/* Detect the outermost frame; during unwind of
++   	#5  0x000000305cec68c3 in clone () from /lib64/tls/libc.so.6
++   avoid the additional bogus frame
++   	#6  0x0000000000000000 in ??
++   We compare if the `linux_clone_code' block is _before_ unwound PC.  */
++
++static const unsigned char linux_clone_code[] =
++{
++/* libc/sysdeps/unix/sysv/linux/x86_64/clone.S */
++/* #ifdef RESET_PID */
++/* ... */
++/* 	mov	$SYS_ify(getpid), %eax */
++/* 0xb8, 0x27, 0x00, 0x00, 0x00 */
++/* OR */
++/* 	mov	$SYS_ify(getpid), %rax */
++/* 0x48, 0xc7, 0xc0, 0x27, 0x00, 0x00, 0x00 */
++/* so just: */
++  0x27, 0x00, 0x00, 0x00,
++/* 	syscall */
++  0x0f, 0x05,
++/* 	movl	%eax, %fs:PID */
++  0x64, 0x89, 0x04, 0x25, 0x94, 0x00, 0x00, 0x00,
++/* 	movl	%eax, %fs:TID */
++  0x64, 0x89, 0x04, 0x25, 0x90, 0x00, 0x00, 0x00,
++/* #endif */
++/* 	|* Set up arguments for the function call.  *| */
++/* 	popq	%rax		|* Function to call.  *| */
++  0x58,
++/* 	popq	%rdi		|* Argument.  *| */
++  0x5f,
++/* 	call	*%rax$   */
++  0xff, 0xd0
++};
++
++#define LINUX_CLONE_LEN (sizeof linux_clone_code)
++
++static int
++amd64_linux_clone_running (struct frame_info *this_frame)
++{
++  CORE_ADDR pc = get_frame_pc (this_frame);
++  unsigned char buf[LINUX_CLONE_LEN];
++
++  if (!safe_frame_unwind_memory (this_frame, pc - LINUX_CLONE_LEN, buf,
++				 LINUX_CLONE_LEN))
++    return 0;
++
++  if (memcmp (buf, linux_clone_code, LINUX_CLONE_LEN) != 0)
++    return 0;
++
++  return 1;
++}
++
++static int
++amd64_linux_outermost_frame (struct frame_info *this_frame)
++{
++  CORE_ADDR pc = get_frame_pc (this_frame);
++  char *name;
++
++  find_pc_partial_function (pc, &name, NULL, NULL);
++
++  /* If we have NAME, we can optimize the search.
++     `clone' NAME still needs to have the code checked as its name may be
++     present in the user code.
++     `__clone' NAME should not be present in the user code but in the initial
++     parts of the `__clone' implementation the unwind still makes sense.
++     More detailed unwinding decision would be too much sensitive to possible
++     subtle changes in specific glibc revisions.  */
++  if (name == NULL || strcmp (name, "clone") == 0
++      || strcmp ("__clone", name) == 0)
++    return (amd64_linux_clone_running (this_frame) != 0);
++
++  return 0;
++}
++
+ static void
+ amd64_linux_write_pc (struct regcache *regcache, CORE_ADDR pc)
+ {
+@@ -276,6 +350,8 @@ amd64_linux_init_abi (struct gdbarch_inf
+   tdep->sc_reg_offset = amd64_linux_sc_reg_offset;
+   tdep->sc_num_regs = ARRAY_SIZE (amd64_linux_sc_reg_offset);
+ 
++  tdep->outermost_frame_p = amd64_linux_outermost_frame;
++
+   /* GNU/Linux uses SVR4-style shared libraries.  */
+   set_solib_svr4_fetch_link_map_offsets
+     (gdbarch, svr4_lp64_fetch_link_map_offsets);
+Index: gdb-6.8.50.20090802/gdb/amd64-tdep.c
+===================================================================
+--- gdb-6.8.50.20090802.orig/gdb/amd64-tdep.c	2009-07-02 19:25:52.000000000 +0200
++++ gdb-6.8.50.20090802/gdb/amd64-tdep.c	2009-08-03 15:50:08.000000000 +0200
+@@ -1736,11 +1736,16 @@ amd64_frame_this_id (struct frame_info *
+ {
+   struct amd64_frame_cache *cache =
+     amd64_frame_cache (this_frame, this_cache);
++  struct gdbarch_tdep *tdep = gdbarch_tdep (get_frame_arch (this_frame));
+ 
+   /* This marks the outermost frame.  */
+   if (cache->base == 0)
+     return;
+ 
++  /* Detect OS dependent outermost frames; such as `clone'.  */
++  if (tdep->outermost_frame_p && tdep->outermost_frame_p (this_frame))
++    return;
++
+   (*this_id) = frame_id_build (cache->base + 16, cache->pc);
+ }
+ 
+--- gdb-6.8.50.20090811/gdb/i386-tdep.c.orig	2009-08-10 05:02:39.000000000 +0200
++++ gdb-6.8.50.20090811/gdb/i386-tdep.c	2009-08-11 16:33:51.000000000 +0200
+@@ -5432,6 +5432,9 @@ i386_gdbarch_init (struct gdbarch_info i
+   tdep->sc_pc_offset = -1;
+   tdep->sc_sp_offset = -1;
+ 
++  /* Unwinding stops on i386 automatically.  */
++  tdep->outermost_frame_p = NULL;
++
+   tdep->record_regmap = i386_record_regmap;
+ 
+   /* The format used for `long double' on almost all i386 targets is
+--- gdb-6.8.50.20090811/gdb/i386-tdep.h.orig	2009-08-10 05:02:39.000000000 +0200
++++ gdb-6.8.50.20090811/gdb/i386-tdep.h	2009-08-11 16:34:08.000000000 +0200
+@@ -120,6 +120,9 @@ struct gdbarch_tdep
+   int (*i386_sysenter_record) (struct regcache *regcache);
+   /* Parse syscall args.  */
+   int (*i386_syscall_record) (struct regcache *regcache);
++
++  /* Detect OS dependent outermost frames; such as `clone'.  */
++  int (*outermost_frame_p) (struct frame_info *this_frame);
+ };
+ 
+ /* Floating-point registers.  */
+--- a/gdb/ia64-tdep.c
++++ b/gdb/ia64-tdep.c
+@@ -2122,6 +2122,138 @@ static const struct frame_unwind ia64_frame_unwind =
+   default_frame_sniffer
+ };
+ 
++/* Detect the outermost frame; during unwind of
++   	#6  0x2000000000347100 in __clone2 () from /lib/libc.so.6.1
++   avoid the additional bogus frame
++   	#7  0x0000000000000000 in ?? ()  */
++
++static char linux_clone2_code[] =
++{
++/* libc/sysdeps/unix/sysv/linux/ia64/clone2.S */
++  0x09, 0x00, 0x20, 0x12, 0x90, 0x11, 0x00, 0x40,
++  0x28, 0x20, 0x23, 0x00, 0x00, 0x00, 0x04, 0x00,
++/*         st4 [r9]=r8 */
++/*         st4 [r10]=r8 */
++/*         ;; */
++/* #endif */
++  0x02, 0x50, 0x21, 0x40, 0x18, 0x14, 0x90, 0x02,
++  0x90, 0x00, 0x42, 0x00, 0x00, 0x00, 0x04, 0x00,
++/* 1:      ld8 out1=[in0],8        |* Retrieve code pointer.       *| */
++/*         mov out0=in4            |* Pass proper argument to fn *| */
++/*         ;; */
++  0x11, 0x08, 0x00, 0x40, 0x18, 0x10, 0x60, 0x50,
++  0x05, 0x80, 0x03, 0x00, 0x68, 0x00, 0x80, 0x12,
++/*         ld8 gp=[in0]            |* Load function gp.            *| */
++/*         mov b6=out1 */
++/*         br.call.dptk.many rp=b6 |* Call fn(arg) in the child    *| */
++/*         ;; */
++  0x10, 0x48, 0x01, 0x10, 0x00, 0x21, 0x10, 0x00,
++  0xa0, 0x00, 0x42, 0x00, 0x98, 0xdf, 0xf7, 0x5b,
++/*         mov out0=r8             |* Argument to _exit            *| */
++/*         mov gp=loc0 */
++/*         .globl HIDDEN_JUMPTARGET(_exit) */
++/*         br.call.dpnt.many rp=HIDDEN_JUMPTARGET(_exit) */
++/*                                 |* call _exit with result from fn.      *| */
++  0x11, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
++  0x00, 0x02, 0x00, 0x80, 0x00, 0x00, 0x84, 0x00
++/*         ret                     |* Not reached.         *| */
++};
++
++#define LINUX_CLONE_PRE_SLOTS 3	/* Number of slots before PC.  */
++#define LINUX_CLONE_LEN (sizeof linux_clone2_code)
++
++static int
++ia64_linux_clone2_running (struct frame_info *this_frame)
++{
++  CORE_ADDR pc = get_frame_pc (this_frame);
++  char buf[LINUX_CLONE_LEN];
++  struct minimal_symbol *minsym;
++  long long instr;
++
++  if (!safe_frame_unwind_memory (this_frame, pc - LINUX_CLONE_PRE_SLOTS * 16,
++				 buf, LINUX_CLONE_LEN))
++    return 0;
++
++  if (memcmp (buf, linux_clone2_code, LINUX_CLONE_PRE_SLOTS * 16) != 0)
++    return 0;
++
++  /* Adjust the expected "_exit" address.  */
++  minsym = lookup_minimal_symbol_text ("_exit", NULL);
++  if (minsym == NULL)
++    return 0;
++
++  instr = slotN_contents (&linux_clone2_code[LINUX_CLONE_PRE_SLOTS * 16], 2);
++  instr &= ~(((1L << 20) - 1) << 13);
++  /* Address is relative to the jump instruction slot, not the next one.  */
++  instr |= (((SYMBOL_VALUE_ADDRESS (minsym) - (pc & ~0xfL)) >> 4)
++	    & ((1L << 20) - 1)) << 13;
++  replace_slotN_contents (&linux_clone2_code[LINUX_CLONE_PRE_SLOTS * 16], instr,
++			  2);
++
++  if (memcmp (&buf[LINUX_CLONE_PRE_SLOTS * 16],
++              &linux_clone2_code[LINUX_CLONE_PRE_SLOTS * 16],
++	      LINUX_CLONE_LEN - (LINUX_CLONE_PRE_SLOTS * 16)) != 0)
++    return 0;
++
++  return 1;
++}
++
++static int
++ia64_outermost_frame (struct frame_info *this_frame)
++{
++  CORE_ADDR pc = get_frame_pc (this_frame);
++  char *name;
++
++  find_pc_partial_function (pc, &name, NULL, NULL);
++
++  /* If we have NAME, we can optimize the search.
++     `clone' NAME still needs to have the code checked as its name may be
++     present in the user code.
++     `__clone' NAME should not be present in the user code but in the initial
++     parts of the `__clone' implementation the unwind still makes sense.
++     More detailed unwinding decision would be too much sensitive to possible
++     subtle changes in specific glibc revisions.  */
++  if (name == NULL || strcmp (name, "clone2") == 0
++      || strcmp ("__clone2", name) == 0)
++    return (ia64_linux_clone2_running (this_frame) != 0);
++
++  return 0;
++}
++
++static void
++ia64_clone2_frame_this_id (struct frame_info *this_frame, void **this_cache,
++			   struct frame_id *this_id)
++{
++  /* Leave the default outermost frame at *THIS_ID.  */
++}
++
++static struct value *
++ia64_clone2_frame_prev_register (struct frame_info *this_frame,
++				 void **this_cache, int regnum)
++{
++  return frame_unwind_got_register (this_frame, regnum, regnum);
++}
++
++static int
++ia64_clone2_frame_sniffer (const struct frame_unwind *self,
++			   struct frame_info *this_frame,
++			   void **this_prologue_cache)
++{
++  if (ia64_outermost_frame (this_frame))
++    return 1;
++
++  return 0;
++}
++
++static const struct frame_unwind ia64_clone2_frame_unwind =
++{
++  NORMAL_FRAME,
++  &ia64_clone2_frame_this_id,
++  &ia64_clone2_frame_prev_register,
++  NULL,
++  &ia64_clone2_frame_sniffer
++};
++
+ /* Signal trampolines.  */
+ 
+ static void
+@@ -3824,6 +3955,7 @@ ia64_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
+   set_gdbarch_dummy_id (gdbarch, ia64_dummy_id);
+ 
+   set_gdbarch_unwind_pc (gdbarch, ia64_unwind_pc);
++  frame_unwind_append_unwinder (gdbarch, &ia64_clone2_frame_unwind);
+ #ifdef HAVE_LIBUNWIND_IA64_H
+   frame_unwind_append_unwinder (gdbarch,
+                                 &ia64_libunwind_sigtramp_frame_unwind);
+Index: gdb-6.8.50.20090802/gdb/testsuite/gdb.threads/bt-clone-stop.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20090802/gdb/testsuite/gdb.threads/bt-clone-stop.c	2009-08-03 15:50:08.000000000 +0200
+@@ -0,0 +1,39 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2006 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++ 
++   You should have received a copy of the GNU General Public License
++   along with this program; if not, write to the Free Software
++   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
++   MA 02110-1301, USA.  */
++
++
++#include <pthread.h>
++#include <unistd.h>
++#include <assert.h>
++
++
++void *threader (void *arg)
++{
++	assert (0);
++	return NULL;
++}
++
++int main (void)
++{
++	pthread_t t1;
++
++	pthread_create (&t1, NULL, threader, (void *) NULL);
++	for (;;)
++		pause();
++}
+Index: gdb-6.8.50.20090802/gdb/testsuite/gdb.threads/bt-clone-stop.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20090802/gdb/testsuite/gdb.threads/bt-clone-stop.exp	2009-08-03 15:50:08.000000000 +0200
+@@ -0,0 +1,61 @@
++# Copyright 2006 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# Backtraced `clone' must not have `PC == 0' as its previous frame.
++
++if $tracelevel then {
++    strace $tracelevel
++}
++
++set testfile bt-clone-stop
++set srcfile ${testfile}.c
++set binfile ${objdir}/${subdir}/${testfile}
++if  { [gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
++    untested "Couldn't compile test program"
++    return -1
++}
++
++# Get things started.
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++# threader: threader.c:8: threader: Assertion `0' failed.
++# Program received signal SIGABRT, Aborted.
++
++gdb_test "run" \
++     "Program received signal SIGABRT.*" \
++     "run"
++
++# Former gdb unwind (the first function is `clone'):
++# #5  0x0000003421ecd62d in ?? () from /lib64/libc.so.6
++# #6  0x0000000000000000 in ?? ()
++# (gdb)
++# Tested `amd64_linux_outermost_frame' functionality should omit the line `#6'.
++# 
++# Two `-re' cases below must be in this order (1st is a subset of the 2nd one).
++# Unhandled case below should not happen and it is fortunately handled by
++# `amd64_linux_outermost_frame' as FAIL (and result `0x0 entry output invalid').
++gdb_test_multiple "bt" "0x0 entry output invalid" {
++    -re "in threader \\(.*\n#\[0-9\]* *0x0* in .*$gdb_prompt $" {
++    	fail "0x0 entry found"
++    }
++    -re "in threader \\(.*$gdb_prompt $" {
++    	pass "0x0 entry not found"
++    }
++}

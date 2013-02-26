@@ -1,0 +1,224 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.397
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.397
+Problem:    ":helpgrep" does not work properly when 'encoding' is not utf-8 or
+	    latin1.
+Solution:   Convert non-ascii lines to 'encoding'. (Yasuhiro Matsumoto)
+Files:	    src/quickfix.c, src/spell.c, src/misc2.c, src/proto/misc2.pro
+
+
+*** ../vim-7.3.396/src/quickfix.c	2011-12-30 15:01:55.000000000 +0100
+--- src/quickfix.c	2012-01-10 16:18:51.000000000 +0100
+***************
+*** 3914,3919 ****
+--- 3914,3929 ----
+      regmatch.rm_ic = FALSE;
+      if (regmatch.regprog != NULL)
+      {
++ #ifdef FEAT_MBYTE
++ 	vimconv_T vc;
++ 
++ 	/* Help files are in utf-8 or latin1, convert lines when 'encoding'
++ 	 * differs. */
++ 	vc.vc_type = CONV_NONE;
++ 	if (!enc_utf8)
++ 	    convert_setup(&vc, (char_u *)"utf-8", p_enc);
++ #endif
++ 
+  	/* create a new quickfix list */
+  	qf_new_list(qi, *eap->cmdlinep);
+  
+***************
+*** 3948,3968 ****
+  			lnum = 1;
+  			while (!vim_fgets(IObuff, IOSIZE, fd) && !got_int)
+  			{
+! 			    if (vim_regexec(&regmatch, IObuff, (colnr_T)0))
+  			    {
+! 				int	l = (int)STRLEN(IObuff);
+  
+  				/* remove trailing CR, LF, spaces, etc. */
+! 				while (l > 0 && IObuff[l - 1] <= ' ')
+! 				     IObuff[--l] = NUL;
+  
+  				if (qf_add_entry(qi, &prevp,
+  					    NULL,	/* dir */
+  					    fnames[fi],
+  					    0,
+! 					    IObuff,
+  					    lnum,
+! 					    (int)(regmatch.startp[0] - IObuff)
+  								+ 1, /* col */
+  					    FALSE,	/* vis_col */
+  					    NULL,	/* search pattern */
+--- 3958,3990 ----
+  			lnum = 1;
+  			while (!vim_fgets(IObuff, IOSIZE, fd) && !got_int)
+  			{
+! 			    char_u    *line = IObuff;
+! #ifdef FEAT_MBYTE
+! 			    /* Convert a line if 'encoding' is not utf-8 and
+! 			     * the line contains a non-ASCII character. */
+! 			    if (vc.vc_type != CONV_NONE
+! 						   && has_non_ascii(IObuff)) {
+! 				line = string_convert(&vc, IObuff, NULL);
+! 				if (line == NULL)
+! 				    line = IObuff;
+! 			    }
+! #endif
+! 
+! 			    if (vim_regexec(&regmatch, line, (colnr_T)0))
+  			    {
+! 				int	l = (int)STRLEN(line);
+  
+  				/* remove trailing CR, LF, spaces, etc. */
+! 				while (l > 0 && line[l - 1] <= ' ')
+! 				     line[--l] = NUL;
+  
+  				if (qf_add_entry(qi, &prevp,
+  					    NULL,	/* dir */
+  					    fnames[fi],
+  					    0,
+! 					    line,
+  					    lnum,
+! 					    (int)(regmatch.startp[0] - line)
+  								+ 1, /* col */
+  					    FALSE,	/* vis_col */
+  					    NULL,	/* search pattern */
+***************
+*** 3972,3980 ****
+--- 3994,4010 ----
+  					    ) == FAIL)
+  				{
+  				    got_int = TRUE;
++ #ifdef FEAT_MBYTE
++ 				    if (line != IObuff)
++ 					vim_free(line);
++ #endif
+  				    break;
+  				}
+  			    }
++ #ifdef FEAT_MBYTE
++ 			    if (line != IObuff)
++ 				vim_free(line);
++ #endif
+  			    ++lnum;
+  			    line_breakcheck();
+  			}
+***************
+*** 3984,3990 ****
+--- 4014,4025 ----
+  		FreeWild(fcount, fnames);
+  	    }
+  	}
++ 
+  	vim_free(regmatch.regprog);
++ #ifdef FEAT_MBYTE
++ 	if (vc.vc_type != CONV_NONE)
++ 	    convert_setup(&vc, NULL, NULL);
++ #endif
+  
+  	qi->qf_lists[qi->qf_curlist].qf_nonevalid = FALSE;
+  	qi->qf_lists[qi->qf_curlist].qf_ptr =
+*** ../vim-7.3.396/src/spell.c	2011-09-02 14:18:14.000000000 +0200
+--- src/spell.c	2012-01-10 16:19:33.000000000 +0100
+***************
+*** 5020,5026 ****
+  static int str_equal __ARGS((char_u *s1, char_u	*s2));
+  static void add_fromto __ARGS((spellinfo_T *spin, garray_T *gap, char_u	*from, char_u *to));
+  static int sal_to_bool __ARGS((char_u *s));
+- static int has_non_ascii __ARGS((char_u *s));
+  static void spell_free_aff __ARGS((afffile_T *aff));
+  static int spell_read_dic __ARGS((spellinfo_T *spin, char_u *fname, afffile_T *affile));
+  static int get_affix_flags __ARGS((afffile_T *affile, char_u *afflist));
+--- 5020,5025 ----
+***************
+*** 6485,6507 ****
+  }
+  
+  /*
+-  * Return TRUE if string "s" contains a non-ASCII character (128 or higher).
+-  * When "s" is NULL FALSE is returned.
+-  */
+-     static int
+- has_non_ascii(s)
+-     char_u	*s;
+- {
+-     char_u	*p;
+- 
+-     if (s != NULL)
+- 	for (p = s; *p != NUL; ++p)
+- 	    if (*p >= 128)
+- 		return TRUE;
+-     return FALSE;
+- }
+- 
+- /*
+   * Free the structure filled by spell_read_aff().
+   */
+      static void
+--- 6484,6489 ----
+*** ../vim-7.3.396/src/misc2.c	2011-12-08 17:49:31.000000000 +0100
+--- src/misc2.c	2012-01-10 16:25:53.000000000 +0100
+***************
+*** 6541,6543 ****
+--- 6541,6563 ----
+  #endif
+  
+  #endif
++ 
++ #if (defined(FEAT_MBYTE) && defined(FEAT_QUICKFIX)) \
++ 	|| defined(FEAT_SPELL) || defined(PROTO)
++ /*
++  * Return TRUE if string "s" contains a non-ASCII character (128 or higher).
++  * When "s" is NULL FALSE is returned.
++  */
++     int
++ has_non_ascii(s)
++     char_u	*s;
++ {
++     char_u	*p;
++ 
++     if (s != NULL)
++ 	for (p = s; *p != NUL; ++p)
++ 	    if (*p >= 128)
++ 		return TRUE;
++     return FALSE;
++ }
++ #endif
+*** ../vim-7.3.396/src/proto/misc2.pro	2011-07-07 16:20:45.000000000 +0200
+--- src/proto/misc2.pro	2012-01-10 16:20:03.000000000 +0100
+***************
+*** 116,119 ****
+--- 116,120 ----
+  char_u *read_string __ARGS((FILE *fd, int cnt));
+  int put_bytes __ARGS((FILE *fd, long_u nr, int len));
+  void put_time __ARGS((FILE *fd, time_t the_time));
++ int has_non_ascii __ARGS((char_u *s));
+  /* vim: set ft=c : */
+*** ../vim-7.3.396/src/version.c	2012-01-10 13:46:18.000000000 +0100
+--- src/version.c	2012-01-10 16:26:32.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     397,
+  /**/
+
+-- 
+Biting someone with your natural teeth is "simple assault," while biting
+someone with your false teeth is "aggravated assault."
+		[real standing law in Louisana, United States of America]
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

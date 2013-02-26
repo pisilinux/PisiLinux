@@ -1,0 +1,72 @@
+We may abort the process of detaching threads with multiple SIGINTs - which are
+being sent during a testcase terminating its child GDB.
+
+Some of the threads may not be properly PTRACE_DETACHed which hurts if they
+should have been detached with SIGSTOP (as they are accidentally left running
+on the debugger termination).
+
+Index: gdb-6.8.50.20081128/gdb/defs.h
+===================================================================
+--- gdb-6.8.50.20081128.orig/gdb/defs.h	2008-11-27 10:23:01.000000000 +0100
++++ gdb-6.8.50.20081128/gdb/defs.h	2008-12-06 21:49:32.000000000 +0100
+@@ -155,6 +155,7 @@ extern char *gdb_sysroot;
+ extern char *debug_file_directory;
+ 
+ extern int quit_flag;
++extern int quit_flag_cleanup;
+ extern int immediate_quit;
+ extern int sevenbit_strings;
+ 
+@@ -168,7 +169,7 @@ extern void quit (void);
+    needed. */
+ 
+ #define QUIT { \
+-  if (quit_flag) quit (); \
++  if (quit_flag && !quit_flag_cleanup) quit (); \
+   if (deprecated_interactive_hook) deprecated_interactive_hook (); \
+ }
+ 
+Index: gdb-6.8.50.20081128/gdb/event-top.c
+===================================================================
+--- gdb-6.8.50.20081128.orig/gdb/event-top.c	2008-12-04 10:34:31.000000000 +0100
++++ gdb-6.8.50.20081128/gdb/event-top.c	2008-12-06 21:49:07.000000000 +0100
+@@ -939,7 +939,7 @@ async_request_quit (gdb_client_data arg)
+      is no reason to call quit again here, unless immediate_quit is
+      set.*/
+ 
+-  if (quit_flag || immediate_quit)
++  if ((quit_flag || immediate_quit) && !quit_flag_cleanup)
+     quit ();
+ }
+ 
+Index: gdb-6.8.50.20081128/gdb/top.c
+===================================================================
+--- gdb-6.8.50.20081128.orig/gdb/top.c	2008-12-04 10:23:12.000000000 +0100
++++ gdb-6.8.50.20081128/gdb/top.c	2008-12-06 21:49:07.000000000 +0100
+@@ -1299,7 +1299,9 @@ quit_force (char *args, int from_tty)
+   qt.args = args;
+   qt.from_tty = from_tty;
+ 
+-  /* We want to handle any quit errors and exit regardless.  */
++  /* We want to handle any quit errors and exit regardless but we should never
++     get user-interrupted to properly detach the inferior.  */
++  quit_flag_cleanup = 1;
+   catch_errors (quit_target, &qt,
+ 	        "Quitting: ", RETURN_MASK_ALL);
+ 
+Index: gdb-6.8.50.20081128/gdb/utils.c
+===================================================================
+--- gdb-6.8.50.20081128.orig/gdb/utils.c	2008-12-04 10:31:00.000000000 +0100
++++ gdb-6.8.50.20081128/gdb/utils.c	2008-12-06 21:49:07.000000000 +0100
+@@ -114,6 +114,11 @@ int job_control;
+ 
+ int quit_flag;
+ 
++/* Nonzero means we are already processing the quitting cleanups and we should
++   no longer get aborted.  */
++
++int quit_flag_cleanup;
++
+ /* Nonzero means quit immediately if Control-C is typed now, rather
+    than waiting until QUIT is executed.  Be careful in setting this;
+    code which executes with immediate_quit set has to be very careful

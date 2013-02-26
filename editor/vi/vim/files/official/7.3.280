@@ -1,0 +1,181 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.280
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.280
+Problem:    ":lmake" does not update the quickfix window title.
+Solution:   Update the title. (Lech Lorens)
+Files:	    src/quickfix.c, src/testdir/test10.in, src/testdir/test10.ok
+
+
+*** ../vim-7.3.279/src/quickfix.c	2011-08-10 13:21:30.000000000 +0200
+--- src/quickfix.c	2011-08-10 18:09:19.000000000 +0200
+***************
+*** 126,131 ****
+--- 126,132 ----
+  static win_T	*qf_find_win __ARGS((qf_info_T *qi));
+  static buf_T	*qf_find_buf __ARGS((qf_info_T *qi));
+  static void	qf_update_buffer __ARGS((qf_info_T *qi));
++ static void	qf_set_title __ARGS((qf_info_T *qi));
+  static void	qf_fill_buffer __ARGS((qf_info_T *qi));
+  #endif
+  static char_u	*get_mef_name __ARGS((void));
+***************
+*** 2388,2395 ****
+      qf_fill_buffer(qi);
+  
+      if (qi->qf_lists[qi->qf_curlist].qf_title != NULL)
+! 	set_internal_string_var((char_u *)"w:quickfix_title",
+! 				       qi->qf_lists[qi->qf_curlist].qf_title);
+  
+      curwin->w_cursor.lnum = qi->qf_lists[qi->qf_curlist].qf_index;
+      curwin->w_cursor.col = 0;
+--- 2389,2395 ----
+      qf_fill_buffer(qi);
+  
+      if (qi->qf_lists[qi->qf_curlist].qf_title != NULL)
+! 	qf_set_title(qi);
+  
+      curwin->w_cursor.lnum = qi->qf_lists[qi->qf_curlist].qf_index;
+      curwin->w_cursor.col = 0;
+***************
+*** 2526,2531 ****
+--- 2526,2533 ----
+      qf_info_T	*qi;
+  {
+      buf_T	*buf;
++     win_T	*win;
++     win_T	*curwin_save;
+      aco_save_T	aco;
+  
+      /* Check if a buffer for the quickfix list exists.  Update it. */
+***************
+*** 2537,2542 ****
+--- 2539,2554 ----
+  
+  	qf_fill_buffer(qi);
+  
++ 	if (qi->qf_lists[qi->qf_curlist].qf_title != NULL
++ 	    && (win = qf_find_win(qi)) != NULL)
++ 	{
++ 	    curwin_save = curwin;
++ 	    curwin = win;
++ 	    qf_set_title(qi);
++ 	    curwin = curwin_save;
++ 
++ 	}
++ 
+  	/* restore curwin/curbuf and a few other things */
+  	aucmd_restbuf(&aco);
+  
+***************
+*** 2544,2549 ****
+--- 2556,2569 ----
+      }
+  }
+  
++     static void
++ qf_set_title(qi)
++     qf_info_T	*qi;
++ {
++     set_internal_string_var((char_u *)"w:quickfix_title",
++ 				    qi->qf_lists[qi->qf_curlist].qf_title);
++ }
++ 
+  /*
+   * Fill current buffer with quickfix errors, replacing any previous contents.
+   * curbuf must be the quickfix buffer!
+*** ../vim-7.3.279/src/testdir/test10.in	2011-08-10 13:21:30.000000000 +0200
+--- src/testdir/test10.in	2011-08-10 18:28:31.000000000 +0200
+***************
+*** 5,13 ****
+  :" Also test a BOM is ignored.
+  :so mbyte.vim
+  :set encoding=utf-8
+! :/start of errorfile/,/end of errorfile/w! Xerrorfile
+  :/start of testfile/,/end of testfile/w! Xtestfile
+! :cf Xerrorfile
+  rA
+  :cn
+  rB
+--- 5,20 ----
+  :" Also test a BOM is ignored.
+  :so mbyte.vim
+  :set encoding=utf-8
+! :7/start of errorfile/,/end of errorfile/w! Xerrorfile1
+! :7/start of errorfile/,/end of errorfile/-1w! Xerrorfile2
+  :/start of testfile/,/end of testfile/w! Xtestfile
+! :cf Xerrorfile2
+! :clast
+! :copen
+! :let a=w:quickfix_title
+! :wincmd p
+! gR=a
+! :cf Xerrorfile1
+  rA
+  :cn
+  rB
+***************
+*** 17,22 ****
+--- 24,34 ----
+  rD
+  :cn
+  rE
++ :cn
++ :wincmd w
++ :let a=w:quickfix_title
++ :wincmd p
++ gR=a
+  :w! test.out             " Write contents of this file
+  :qa!
+  ENDTEST
+***************
+*** 33,38 ****
+--- 45,52 ----
+  "Xtestfile", linenr 19: yet another problem
+  
+  Does anyone know what is the problem and how to correction it?
++ "Xtestfile", line 21 col 9: What is the title of the quickfix window?
++ "Xtestfile", line 22 col 9: What is the title of the quickfix window?
+  end of errorfile
+  
+  start of testfile
+*** ../vim-7.3.279/src/testdir/test10.ok	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test10.ok	2011-08-10 18:03:53.000000000 +0200
+***************
+*** 18,23 ****
+  line 18 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  Eine 19 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  line 20 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+! line 21 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+! line 22 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  end of testfile
+--- 18,23 ----
+  line 18 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  Eine 19 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  line 20 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+! line 21 :cf Xerrorfile1xxxxxxxxxxxxxxx
+! line 22 :cf Xerrorfile2xxxxxxxxxxxxxxx
+  end of testfile
+*** ../vim-7.3.279/src/version.c	2011-08-10 17:44:41.000000000 +0200
+--- src/version.c	2011-08-10 18:35:52.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     280,
+  /**/
+
+-- 
+"When I die, I want a tombstone that says "GAME OVER" - Ton Richters
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

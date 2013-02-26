@@ -1,0 +1,370 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.603
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.603
+Problem:    It is possible to add replace builtin functions by calling
+	    extend() on g:.
+Solution:   Add a flag to a dict to indicate it is a scope.  Check for
+	    existing functions. (ZyX)
+Files:	    src/buffer.c, src/eval.c, src/proto/eval.pro, src/structs.h,
+	    src/testdir/test34.in, src/testdir/test34.ok, src/window.c
+
+
+*** ../vim-7.3.602/src/buffer.c	2012-07-10 15:18:18.000000000 +0200
+--- src/buffer.c	2012-07-16 16:52:58.000000000 +0200
+***************
+*** 1747,1753 ****
+      buf->b_wininfo->wi_win = curwin;
+  
+  #ifdef FEAT_EVAL
+!     init_var_dict(&buf->b_vars, &buf->b_bufvar);    /* init b: variables */
+  #endif
+  #ifdef FEAT_SYN_HL
+      hash_init(&buf->b_s.b_keywtab);
+--- 1747,1754 ----
+      buf->b_wininfo->wi_win = curwin;
+  
+  #ifdef FEAT_EVAL
+!     /* init b: variables */
+!     init_var_dict(&buf->b_vars, &buf->b_bufvar, VAR_SCOPE);
+  #endif
+  #ifdef FEAT_SYN_HL
+      hash_init(&buf->b_s.b_keywtab);
+*** ../vim-7.3.602/src/eval.c	2012-07-10 13:41:09.000000000 +0200
+--- src/eval.c	2012-07-16 17:18:11.000000000 +0200
+***************
+*** 850,857 ****
+      int		    i;
+      struct vimvar   *p;
+  
+!     init_var_dict(&globvardict, &globvars_var);
+!     init_var_dict(&vimvardict, &vimvars_var);
+      vimvardict.dv_lock = VAR_FIXED;
+      hash_init(&compat_hashtab);
+      hash_init(&func_hashtab);
+--- 850,857 ----
+      int		    i;
+      struct vimvar   *p;
+  
+!     init_var_dict(&globvardict, &globvars_var, VAR_DEF_SCOPE);
+!     init_var_dict(&vimvardict, &vimvars_var, VAR_SCOPE);
+      vimvardict.dv_lock = VAR_FIXED;
+      hash_init(&compat_hashtab);
+      hash_init(&func_hashtab);
+***************
+*** 2725,2738 ****
+  	    lp->ll_dict = lp->ll_tv->vval.v_dict;
+  	    lp->ll_di = dict_find(lp->ll_dict, key, len);
+  
+! 	    /* When assigning to g: check that a function and variable name is
+! 	     * valid. */
+! 	    if (rettv != NULL && lp->ll_dict == &globvardict)
+  	    {
+! 		if (rettv->v_type == VAR_FUNC
+  			       && var_check_func_name(key, lp->ll_di == NULL))
+! 		    return NULL;
+! 		if (!valid_varname(key))
+  		    return NULL;
+  	    }
+  
+--- 2725,2750 ----
+  	    lp->ll_dict = lp->ll_tv->vval.v_dict;
+  	    lp->ll_di = dict_find(lp->ll_dict, key, len);
+  
+! 	    /* When assigning to a scope dictionary check that a function and
+! 	     * variable name is valid (only variable name unless it is l: or
+! 	     * g: dictionary). Disallow overwriting a builtin function. */
+! 	    if (rettv != NULL && lp->ll_dict->dv_scope != 0)
+  	    {
+! 		int prevval;
+! 		int wrong;
+! 
+! 		if (len != -1)
+! 		{
+! 		    prevval = key[len];
+! 		    key[len] = NUL;
+! 		}
+! 		wrong = (lp->ll_dict->dv_scope == VAR_DEF_SCOPE
+! 			       && rettv->v_type == VAR_FUNC
+  			       && var_check_func_name(key, lp->ll_di == NULL))
+! 			|| !valid_varname(key);
+! 		if (len != -1)
+! 		    key[len] = prevval;
+! 		if (wrong)
+  		    return NULL;
+  	    }
+  
+***************
+*** 6951,6957 ****
+      d = (dict_T *)alloc(sizeof(dict_T));
+      if (d != NULL)
+      {
+! 	/* Add the list to the list of dicts for garbage collection. */
+  	if (first_dict != NULL)
+  	    first_dict->dv_used_prev = d;
+  	d->dv_used_next = first_dict;
+--- 6963,6969 ----
+      d = (dict_T *)alloc(sizeof(dict_T));
+      if (d != NULL)
+      {
+! 	/* Add the dict to the list of dicts for garbage collection. */
+  	if (first_dict != NULL)
+  	    first_dict->dv_used_prev = d;
+  	d->dv_used_next = first_dict;
+***************
+*** 6960,6965 ****
+--- 6972,6978 ----
+  
+  	hash_init(&d->dv_hashtab);
+  	d->dv_lock = 0;
++ 	d->dv_scope = 0;
+  	d->dv_refcount = 0;
+  	d->dv_copyID = 0;
+      }
+***************
+*** 10203,10208 ****
+--- 10216,10234 ----
+  		{
+  		    --todo;
+  		    di1 = dict_find(d1, hi2->hi_key, -1);
++ 		    if (d1->dv_scope != 0)
++ 		    {
++ 			/* Disallow replacing a builtin function in l: and g:.
++ 			 * Check the key to be valid when adding to any
++ 			 * scope. */
++ 		        if (d1->dv_scope == VAR_DEF_SCOPE
++ 				&& HI2DI(hi2)->di_tv.v_type == VAR_FUNC
++ 				&& var_check_func_name(hi2->hi_key,
++ 								 di1 == NULL))
++ 			    break;
++ 			if (!valid_varname(hi2->hi_key))
++ 			    break;
++ 		    }
+  		    if (di1 == NULL)
+  		    {
+  			di1 = dictitem_copy(HI2DI(hi2));
+***************
+*** 20027,20033 ****
+  	{
+  	    sv = SCRIPT_SV(ga_scripts.ga_len + 1) =
+  		(scriptvar_T *)alloc_clear(sizeof(scriptvar_T));
+! 	    init_var_dict(&sv->sv_dict, &sv->sv_var);
+  	    ++ga_scripts.ga_len;
+  	}
+      }
+--- 20053,20059 ----
+  	{
+  	    sv = SCRIPT_SV(ga_scripts.ga_len + 1) =
+  		(scriptvar_T *)alloc_clear(sizeof(scriptvar_T));
+! 	    init_var_dict(&sv->sv_dict, &sv->sv_var, VAR_SCOPE);
+  	    ++ga_scripts.ga_len;
+  	}
+      }
+***************
+*** 20038,20049 ****
+   * point to it.
+   */
+      void
+! init_var_dict(dict, dict_var)
+      dict_T	*dict;
+      dictitem_T	*dict_var;
+  {
+      hash_init(&dict->dv_hashtab);
+      dict->dv_lock = 0;
+      dict->dv_refcount = DO_NOT_FREE_CNT;
+      dict->dv_copyID = 0;
+      dict_var->di_tv.vval.v_dict = dict;
+--- 20064,20077 ----
+   * point to it.
+   */
+      void
+! init_var_dict(dict, dict_var, scope)
+      dict_T	*dict;
+      dictitem_T	*dict_var;
++     int		scope;
+  {
+      hash_init(&dict->dv_hashtab);
+      dict->dv_lock = 0;
++     dict->dv_scope = scope;
+      dict->dv_refcount = DO_NOT_FREE_CNT;
+      dict->dv_copyID = 0;
+      dict_var->di_tv.vval.v_dict = dict;
+***************
+*** 22304,22310 ****
+      /*
+       * Init l: variables.
+       */
+!     init_var_dict(&fc->l_vars, &fc->l_vars_var);
+      if (selfdict != NULL)
+      {
+  	/* Set l:self to "selfdict".  Use "name" to avoid a warning from
+--- 22332,22338 ----
+      /*
+       * Init l: variables.
+       */
+!     init_var_dict(&fc->l_vars, &fc->l_vars_var, VAR_DEF_SCOPE);
+      if (selfdict != NULL)
+      {
+  	/* Set l:self to "selfdict".  Use "name" to avoid a warning from
+***************
+*** 22325,22331 ****
+       * Set a:0 to "argcount".
+       * Set a:000 to a list with room for the "..." arguments.
+       */
+!     init_var_dict(&fc->l_avars, &fc->l_avars_var);
+      add_nr_var(&fc->l_avars, &fc->fixvar[fixvar_idx++].var, "0",
+  				(varnumber_T)(argcount - fp->uf_args.ga_len));
+      /* Use "name" to avoid a warning from some compiler that checks the
+--- 22353,22359 ----
+       * Set a:0 to "argcount".
+       * Set a:000 to a list with room for the "..." arguments.
+       */
+!     init_var_dict(&fc->l_avars, &fc->l_avars_var, VAR_SCOPE);
+      add_nr_var(&fc->l_avars, &fc->fixvar[fixvar_idx++].var, "0",
+  				(varnumber_T)(argcount - fp->uf_args.ga_len));
+      /* Use "name" to avoid a warning from some compiler that checks the
+*** ../vim-7.3.602/src/proto/eval.pro	2012-06-29 12:54:32.000000000 +0200
+--- src/proto/eval.pro	2012-07-16 16:55:16.000000000 +0200
+***************
+*** 93,99 ****
+  char_u *get_tv_string_chk __ARGS((typval_T *varp));
+  char_u *get_var_value __ARGS((char_u *name));
+  void new_script_vars __ARGS((scid_T id));
+! void init_var_dict __ARGS((dict_T *dict, dictitem_T *dict_var));
+  void vars_clear __ARGS((hashtab_T *ht));
+  void copy_tv __ARGS((typval_T *from, typval_T *to));
+  void ex_echo __ARGS((exarg_T *eap));
+--- 93,99 ----
+  char_u *get_tv_string_chk __ARGS((typval_T *varp));
+  char_u *get_var_value __ARGS((char_u *name));
+  void new_script_vars __ARGS((scid_T id));
+! void init_var_dict __ARGS((dict_T *dict, dictitem_T *dict_var, int scope));
+  void vars_clear __ARGS((hashtab_T *ht));
+  void copy_tv __ARGS((typval_T *from, typval_T *to));
+  void ex_echo __ARGS((exarg_T *eap));
+*** ../vim-7.3.602/src/structs.h	2012-06-06 19:02:40.000000000 +0200
+--- src/structs.h	2012-07-16 16:56:43.000000000 +0200
+***************
+*** 1106,1111 ****
+--- 1106,1116 ----
+  #define VAR_DICT    5	/* "v_dict" is used */
+  #define VAR_FLOAT   6	/* "v_float" is used */
+  
++ /* Values for "dv_scope". */
++ #define VAR_SCOPE     1	/* a:, v:, s:, etc. scope dictionaries */
++ #define VAR_DEF_SCOPE 2	/* l:, g: scope dictionaries: here funcrefs are not
++ 			   allowed to mask existing functions */
++ 
+  /* Values for "v_lock". */
+  #define VAR_LOCKED  1	/* locked with lock(), can use unlock() */
+  #define VAR_FIXED   2	/* locked forever */
+***************
+*** 1181,1186 ****
+--- 1186,1192 ----
+      int		dv_copyID;	/* ID used by deepcopy() */
+      dict_T	*dv_copydict;	/* copied dict used by deepcopy() */
+      char	dv_lock;	/* zero, VAR_LOCKED, VAR_FIXED */
++     char	dv_scope;	/* zero, VAR_SCOPE, VAR_DEF_SCOPE */
+      dict_T	*dv_used_next;	/* next dict in used dicts list */
+      dict_T	*dv_used_prev;	/* previous dict in used dicts list */
+  };
+*** ../vim-7.3.602/src/testdir/test34.in	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test34.in	2012-07-16 16:51:29.000000000 +0200
+***************
+*** 1,5 ****
+--- 1,6 ----
+  Test for user functions.
+  Also test an <expr> mapping calling a function.
++ Also test that a builtin function cannot be replaced.
+  
+  STARTTEST
+  :so small.vim
+***************
+*** 58,64 ****
+  ---*---
+  (one
+  (two
+! [(one again:$-5,$w! test.out
+  :delfunc Table
+  :delfunc Compute
+  :delfunc Expr1
+--- 59,68 ----
+  ---*---
+  (one
+  (two
+! [(one again:call append(line('$'), max([1, 2, 3]))
+! :call extend(g:, {'max': function('min')})
+! :call append(line('$'), max([1, 2, 3]))
+! :$-7,$w! test.out
+  :delfunc Table
+  :delfunc Compute
+  :delfunc Expr1
+*** ../vim-7.3.602/src/testdir/test34.ok	2011-10-12 22:02:07.000000000 +0200
+--- src/testdir/test34.ok	2012-07-16 16:43:15.000000000 +0200
+***************
+*** 4,6 ****
+--- 4,8 ----
+  1. one
+  2. two
+  1. one again
++ 3
++ 3
+*** ../vim-7.3.602/src/window.c	2012-07-06 18:27:34.000000000 +0200
+--- src/window.c	2012-07-16 16:53:45.000000000 +0200
+***************
+*** 3468,3474 ****
+  # endif
+  #ifdef FEAT_EVAL
+  	/* init t: variables */
+! 	init_var_dict(&tp->tp_vars, &tp->tp_winvar);
+  #endif
+  	tp->tp_ch_used = p_ch;
+      }
+--- 3468,3474 ----
+  # endif
+  #ifdef FEAT_EVAL
+  	/* init t: variables */
+! 	init_var_dict(&tp->tp_vars, &tp->tp_winvar, VAR_SCOPE);
+  #endif
+  	tp->tp_ch_used = p_ch;
+      }
+***************
+*** 4410,4416 ****
+  #endif
+  #ifdef FEAT_EVAL
+  	/* init w: variables */
+! 	init_var_dict(&new_wp->w_vars, &new_wp->w_winvar);
+  #endif
+  #ifdef FEAT_FOLDING
+  	foldInitWin(new_wp);
+--- 4410,4416 ----
+  #endif
+  #ifdef FEAT_EVAL
+  	/* init w: variables */
+! 	init_var_dict(&new_wp->w_vars, &new_wp->w_winvar, VAR_SCOPE);
+  #endif
+  #ifdef FEAT_FOLDING
+  	foldInitWin(new_wp);
+*** ../vim-7.3.602/src/version.c	2012-07-16 17:27:57.000000000 +0200
+--- src/version.c	2012-07-16 17:29:06.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     603,
+  /**/
+
+-- 
+Birthdays are healthy.  The more you have them, the longer you live.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

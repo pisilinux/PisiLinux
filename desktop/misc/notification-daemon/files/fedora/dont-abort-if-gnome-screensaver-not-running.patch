@@ -1,0 +1,66 @@
+--- notification-daemon-0.4.1/src/daemon/daemon.c	2009-10-15 17:21:49.127672315 -0400
++++ hacked/src/daemon/daemon.c	2009-10-15 17:21:34.683409674 -0400
+@@ -883,33 +883,38 @@
+ static gboolean
+ screensaver_active(GtkWidget *nw)
+ {
+-	GdkDisplay *display = gdk_drawable_get_display(GDK_DRAWABLE(nw->window));
+-	Atom type;
+-	int format;
+-	unsigned long nitems, bytes_after;
+-	unsigned char *temp_data;
+-	gboolean active = FALSE;
+-	Atom XA_BLANK = gdk_x11_get_xatom_by_name_for_display(display, "BLANK");
+-	Atom XA_LOCK = gdk_x11_get_xatom_by_name_for_display(display, "LOCK");
+-
+-	/* Check for a screensaver first. */
+-	if (XGetWindowProperty(
+-		GDK_DISPLAY_XDISPLAY(display),
+-		GDK_ROOT_WINDOW(),
+-		gdk_x11_get_xatom_by_name_for_display(display, "_SCREENSAVER_STATUS"),
+-		0, G_MAXLONG, False, XA_INTEGER, &type, &format, &nitems,
+-		&bytes_after, &temp_data) == Success &&
+-		type && temp_data != NULL)
+-	{
+-		CARD32 *data = (CARD32 *)temp_data;
+-
+-		active = (type == XA_INTEGER && nitems >= 3 &&
+-				  (time_t)data[1] > (time_t)666000000L &&
+-				  (data[0] == XA_BLANK || data[0] == XA_LOCK));
++	DBusGConnection *connection;
++	DBusGProxy *gs_proxy;
++        GError *error;
++	gboolean active;
++
++	active = FALSE;
++
++	error = NULL;
++	connection = dbus_g_bus_get(DBUS_BUS_SESSION, &error);
++	if (connection == NULL)
++	{
++		g_warning ("Failed to get dbus connection: %s", error->message);
++		g_error_free(error);
++		goto out;
++
+ 	}
++	gs_proxy = dbus_g_proxy_new_for_name(connection,
++  					     "org.gnome.ScreenSaver",
++				  	     "/",
++					     "org.gnome.ScreenSaver");
++
++	if (!dbus_g_proxy_call(gs_proxy, "GetActive", &error,
++			       G_TYPE_INVALID,
++			       G_TYPE_BOOLEAN, &active,
++			       G_TYPE_INVALID))
++	{
++		g_warning("Failed to call gnome-screensaver: %s", error->message);
++		g_error_free(error);
++	}
++       g_object_unref (gs_proxy);
++out:
+ 
+-	if (temp_data != NULL)
+-		XFree(temp_data);
+ 	return active;
+ }
+ 

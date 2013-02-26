@@ -1,0 +1,140 @@
+#!/usr/bin/ruby
+
+if ARGV.size < 2
+	$stderr.puts "Usage: #{$0} <old kernel> <new kernel>\nA kernel can be a rpm, a modules.alias file or a version if the kernel is installed."
+	exit 1
+end
+
+kfiles = { "old" => ARGV[0], "new" => ARGV[1] }
+kver = {}
+
+begin
+	Dir.mkdir("tmp")
+rescue
+end
+Dir.chdir("tmp")
+begin
+	Dir.mkdir("old")
+	Dir.mkdir("new")
+rescue
+end
+
+kfiles.each_pair{ |k, v|
+  kver[k]=v
+  if File.readable?(v)
+	  kfiles[k] = Dir.pwd + "/" + v if v[0] != '/'[0]
+	  if kfiles[k] =~ /\.rpm$/
+		  `rm -rf lib/modules/ && \
+		  rpm2cpio #{kfiles[k]} | cpio -d -i '.*/modules.alias' 2>/dev/null && \
+		  mv lib/modules/*/modules.alias #{k}-modules.alias` 
+		  kfiles[k]=Dir.pwd + "/" + "#{k}-modules.alias"
+	  end
+	  next
+  end
+  v = "/lib/modules/#{v}/modules.alias"
+  raise "Can't read #{v}" unless File.readable?(v) 
+  kfiles[k]=v
+}
+
+kfiles.each_pair{ |k, v|
+  `grep : #{v} | tr '[A-Z]' '[a-z]' | sort -u > alias.#{k}`
+}
+
+`diff -U0 alias.old alias.new | grep ^.alias > diff`
+
+old = {}
+File.open("diff", "r") { |f|
+	f.each_line{|l|
+		next unless l =~ /^-alias ([^ ]*) ([^ ]*)\n/
+		old[$1] = $2
+	}
+}
+
+oldmodules = {};
+File.open("alias.old", "r") { |f|
+	f.each_line{|l|
+		next unless l =~ /^alias ([^ ]*) ([^ ]*)\n/
+		al = $1
+		mod = $2
+		oldmodules[mod] = true;
+	}
+}
+
+new = {}
+modules = {};
+added = {};
+File.open("alias.new", "r") { |f|
+	f.each_line{|l|
+		next unless l =~ /^alias ([^ ]*) ([^ ]*)\n/
+		al = $1
+		mod = $2
+		new[al] = mod
+		added[mod] = true unless oldmodules[mod];
+		modules[mod] = true;
+	}
+}
+
+moved = {}
+lost = {}
+old.each_key{|al|
+	if new[al]
+		moved[old[al]] ||= {}
+		moved[old[al]][new[al]] ||= []
+		moved[old[al]][new[al]] << al
+		added.delete(new[al])
+	else
+		lost[old[al]] ||= []
+		lost[old[al]] << al
+	end
+}
+
+puts "Device support change between #{kver["old"]} and #{kver["new"]}"
+
+puts "\n== Renamed or merged modules =="
+moved.sort.each{|a|
+	# If no alias was lost, and there is only one new module -> Rename
+	if ! modules[a[0]] && ! lost[a[0]] && a[1].keys.size == 1
+		puts "* #{a[0]} -> #{a[1].keys[0]}"
+	end
+}
+
+puts "\n== Added modules =="
+added.keys.sort.each{|a|
+	puts "* #{a}"
+}
+
+puts "\n== Removed modules =="
+oldmodules.sort.each{|a|
+	mod = a[0]
+	next if modules[mod]
+	next unless moved[mod] || lost[mod]
+	next if ! lost[mod] && moved[mod].keys.size == 1
+	puts "* #{mod}"
+	if moved[mod]
+		moved[mod].sort.each{|b|
+			print "  -> #{b[0]}\n     "
+			puts b[1].join("\n     ")
+		}
+	end
+	if lost[mod]
+		print "  -> UNSUPPORTED\n     "
+		puts lost[mod].join("\n     ")
+	end
+}
+
+puts "\n== Drivers which lost some hardware support =="
+modules.sort.each{|a|
+	mod = a[0]
+	next unless moved[mod] || lost[mod]
+	puts "* #{mod}"
+	if moved[mod]
+		moved[mod].sort.each{|b|
+			print "  -> #{b[0]}\n     "
+			puts b[1].join("\n     ")
+		}
+	end
+	if lost[mod]
+		print "  -> UNSUPPORTED\n     "
+		puts lost[mod].join("\n     ")
+	end
+}

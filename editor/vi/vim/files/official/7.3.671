@@ -1,0 +1,311 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.671
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.671
+Problem:    More Python code can be shared between Python 2 and 3.
+Solution:   Move code to if_py_both.h. (ZyX)
+Files:	    src/if_py_both.h, src/if_python.c, src/if_python3.c
+
+
+*** ../vim-7.3.670/src/if_py_both.h	2012-09-21 13:43:09.000000000 +0200
+--- src/if_py_both.h	2012-09-21 13:45:02.000000000 +0200
+***************
+*** 71,76 ****
+--- 71,101 ----
+  /* Output buffer management
+   */
+  
++     static int
++ OutputSetattr(PyObject *self, char *name, PyObject *val)
++ {
++     if (val == NULL)
++     {
++ 	PyErr_SetString(PyExc_AttributeError, _("can't delete OutputObject attributes"));
++ 	return -1;
++     }
++ 
++     if (strcmp(name, "softspace") == 0)
++     {
++ 	if (!PyInt_Check(val))
++ 	{
++ 	    PyErr_SetString(PyExc_TypeError, _("softspace must be an integer"));
++ 	    return -1;
++ 	}
++ 
++ 	((OutputObject *)(self))->softspace = PyInt_AsLong(val);
++ 	return 0;
++     }
++ 
++     PyErr_SetString(PyExc_AttributeError, _("invalid attribute"));
++     return -1;
++ }
++ 
+      static PyObject *
+  OutputWrite(PyObject *self, PyObject *args)
+  {
+*** ../vim-7.3.670/src/if_python.c	2012-09-12 20:21:38.000000000 +0200
+--- src/if_python.c	2012-09-21 13:45:02.000000000 +0200
+***************
+*** 951,981 ****
+      return Py_FindMethod(OutputMethods, self, name);
+  }
+  
+-     static int
+- OutputSetattr(PyObject *self, char *name, PyObject *val)
+- {
+-     if (val == NULL)
+-     {
+- 	PyErr_SetString(PyExc_AttributeError, _("can't delete OutputObject attributes"));
+- 	return -1;
+-     }
+- 
+-     if (strcmp(name, "softspace") == 0)
+-     {
+- 	if (!PyInt_Check(val))
+- 	{
+- 	    PyErr_SetString(PyExc_TypeError, _("softspace must be an integer"));
+- 	    return -1;
+- 	}
+- 
+- 	((OutputObject *)(self))->softspace = PyInt_AsLong(val);
+- 	return 0;
+-     }
+- 
+-     PyErr_SetString(PyExc_AttributeError, _("invalid attribute"));
+-     return -1;
+- }
+- 
+  /***************/
+  
+      static int
+--- 951,956 ----
+*** ../vim-7.3.670/src/if_python3.c	2012-09-12 20:21:38.000000000 +0200
+--- src/if_python3.c	2012-09-21 13:45:02.000000000 +0200
+***************
+*** 88,93 ****
+--- 88,96 ----
+  #define PyString_Size(obj) PyBytes_GET_SIZE(bytes)
+  #define PyString_FromString(repr) PyUnicode_FromString(repr)
+  #define PyString_AsStringAndSize(obj, buffer, len) PyBytes_AsStringAndSize(obj, buffer, len)
++ #define PyInt_Check(obj) PyLong_Check(obj)
++ #define PyInt_FromLong(i) PyLong_FromLong(i)
++ #define PyInt_AsLong(obj) PyLong_AsLong(obj)
+  
+  #if defined(DYNAMIC_PYTHON3) || defined(PROTO)
+  
+***************
+*** 586,591 ****
+--- 589,599 ----
+   */
+  #include "if_py_both.h"
+  
++ #define GET_ATTR_STRING(name, nameobj) \
++     char	*name = ""; \
++     if(PyUnicode_Check(nameobj)) \
++         name = _PyUnicode_AsString(nameobj)
++ 
+  #define PY3OBJ_DELETED(obj) (obj->ob_base.ob_refcnt<=0)
+  
+      static void
+***************
+*** 923,931 ****
+      static PyObject *
+  OutputGetattro(PyObject *self, PyObject *nameobj)
+  {
+!     char *name = "";
+!     if (PyUnicode_Check(nameobj))
+! 	name = _PyUnicode_AsString(nameobj);
+  
+      if (strcmp(name, "softspace") == 0)
+  	return PyLong_FromLong(((OutputObject *)(self))->softspace);
+--- 931,937 ----
+      static PyObject *
+  OutputGetattro(PyObject *self, PyObject *nameobj)
+  {
+!     GET_ATTR_STRING(name, nameobj);
+  
+      if (strcmp(name, "softspace") == 0)
+  	return PyLong_FromLong(((OutputObject *)(self))->softspace);
+***************
+*** 936,965 ****
+      static int
+  OutputSetattro(PyObject *self, PyObject *nameobj, PyObject *val)
+  {
+!     char *name = "";
+!     if (PyUnicode_Check(nameobj))
+! 	name = _PyUnicode_AsString(nameobj);
+! 
+!     if (val == NULL)
+!     {
+! 	PyErr_SetString(PyExc_AttributeError, _("can't delete OutputObject attributes"));
+! 	return -1;
+!     }
+  
+!     if (strcmp(name, "softspace") == 0)
+!     {
+! 	if (!PyLong_Check(val))
+! 	{
+! 	    PyErr_SetString(PyExc_TypeError, _("softspace must be an integer"));
+! 	    return -1;
+! 	}
+! 
+! 	((OutputObject *)(self))->softspace = PyLong_AsLong(val);
+! 	return 0;
+!     }
+! 
+!     PyErr_SetString(PyExc_AttributeError, _("invalid attribute"));
+!     return -1;
+  }
+  
+  /***************/
+--- 942,950 ----
+      static int
+  OutputSetattro(PyObject *self, PyObject *nameobj, PyObject *val)
+  {
+!     GET_ATTR_STRING(name, nameobj);
+  
+!     return OutputSetattr(self, name, val);
+  }
+  
+  /***************/
+***************
+*** 1091,1099 ****
+  {
+      BufferObject *this = (BufferObject *)(self);
+  
+!     char *name = "";
+!     if (PyUnicode_Check(nameobj))
+! 	name = _PyUnicode_AsString(nameobj);
+  
+      if (CheckBuffer(this))
+  	return NULL;
+--- 1076,1082 ----
+  {
+      BufferObject *this = (BufferObject *)(self);
+  
+!     GET_ATTR_STRING(name, nameobj);
+  
+      if (CheckBuffer(this))
+  	return NULL;
+***************
+*** 1257,1265 ****
+      static PyObject *
+  RangeGetattro(PyObject *self, PyObject *nameobj)
+  {
+!     char *name = "";
+!     if (PyUnicode_Check(nameobj))
+! 	name = _PyUnicode_AsString(nameobj);
+  
+      if (strcmp(name, "start") == 0)
+  	return Py_BuildValue("n", ((RangeObject *)(self))->start - 1);
+--- 1240,1246 ----
+      static PyObject *
+  RangeGetattro(PyObject *self, PyObject *nameobj)
+  {
+!     GET_ATTR_STRING(name, nameobj);
+  
+      if (strcmp(name, "start") == 0)
+  	return Py_BuildValue("n", ((RangeObject *)(self))->start - 1);
+***************
+*** 1430,1439 ****
+  {
+      WindowObject *this = (WindowObject *)(self);
+  
+!     char *name = "";
+!     if (PyUnicode_Check(nameobj))
+! 	name = _PyUnicode_AsString(nameobj);
+! 
+  
+      if (CheckWindow(this))
+  	return NULL;
+--- 1411,1417 ----
+  {
+      WindowObject *this = (WindowObject *)(self);
+  
+!     GET_ATTR_STRING(name, nameobj);
+  
+      if (CheckWindow(this))
+  	return NULL;
+***************
+*** 1461,1470 ****
+      static int
+  WindowSetattro(PyObject *self, PyObject *nameobj, PyObject *val)
+  {
+!     char *name = "";
+! 
+!     if (PyUnicode_Check(nameobj))
+! 	name = _PyUnicode_AsString(nameobj);
+  
+      return WindowSetattr(self, name, val);
+  }
+--- 1439,1445 ----
+      static int
+  WindowSetattro(PyObject *self, PyObject *nameobj, PyObject *val)
+  {
+!     GET_ATTR_STRING(name, nameobj);
+  
+      return WindowSetattr(self, name, val);
+  }
+***************
+*** 1508,1516 ****
+      static PyObject *
+  CurrentGetattro(PyObject *self UNUSED, PyObject *nameobj)
+  {
+!     char *name = "";
+!     if (PyUnicode_Check(nameobj))
+! 	name = _PyUnicode_AsString(nameobj);
+  
+      if (strcmp(name, "buffer") == 0)
+  	return (PyObject *)BufferNew(curbuf);
+--- 1483,1489 ----
+      static PyObject *
+  CurrentGetattro(PyObject *self UNUSED, PyObject *nameobj)
+  {
+!     GET_ATTR_STRING(name, nameobj);
+  
+      if (strcmp(name, "buffer") == 0)
+  	return (PyObject *)BufferNew(curbuf);
+***************
+*** 1681,1689 ****
+  FunctionGetattro(PyObject *self, PyObject *nameobj)
+  {
+      FunctionObject	*this = (FunctionObject *)(self);
+!     char	*name = "";
+!     if (PyUnicode_Check(nameobj))
+! 	name = _PyUnicode_AsString(nameobj);
+  
+      if (strcmp(name, "name") == 0)
+  	return PyUnicode_FromString((char *)(this->name));
+--- 1654,1661 ----
+  FunctionGetattro(PyObject *self, PyObject *nameobj)
+  {
+      FunctionObject	*this = (FunctionObject *)(self);
+! 
+!     GET_ATTR_STRING(name, nameobj);
+  
+      if (strcmp(name, "name") == 0)
+  	return PyUnicode_FromString((char *)(this->name));
+*** ../vim-7.3.670/src/version.c	2012-09-21 13:43:09.000000000 +0200
+--- src/version.c	2012-09-21 13:45:28.000000000 +0200
+***************
+*** 721,722 ****
+--- 721,724 ----
+  {   /* Add new patch number below this line */
++ /**/
++     671,
+  /**/
+
+-- 
+The war between Emacs and Vi is over.  Vi has won with 3 to 1.
+			http://www.ssc.com/lg/issue30/raymond.html
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,110 @@
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.base/attach-see-vdso.c	6 Jul 2007 14:14:44 -0000
+@@ -0,0 +1,25 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2007 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++ 
++   You should have received a copy of the GNU General Public License
++   along with this program; if not, write to the Free Software
++   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. */
++
++#include <unistd.h>
++
++int main ()
++{
++  pause ();
++  return 1;
++}
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.base/attach-see-vdso.exp	6 Jul 2007 14:14:44 -0000
+@@ -0,0 +1,79 @@
++# Copyright 2007
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++
++# This file was created by Jan Kratochvil <jan.kratochvil@redhat.com>.
++
++if $tracelevel then {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++# This test only works on Linux
++if { ![istarget "*-*-linux-gnu*"] } {
++    return 0
++}
++
++set testfile "attach-see-vdso"
++set srcfile  ${testfile}.c
++set binfile  ${objdir}/${subdir}/${testfile}
++set escapedbinfile  [string_to_regexp ${objdir}/${subdir}/${testfile}]
++
++# The kernel VDSO is used for the syscalls returns only on i386 (not x86_64).
++#
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug additional_flags=-m32}] != "" } {
++    gdb_suppress_entire_file "Testcase nonthraded compile failed, so all tests in this file will automatically fail."
++}
++
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++# Start the program running and then wait for a bit, to be sure
++# that it can be attached to.
++
++set testpid [eval exec $binfile &]
++
++# Avoid some race:
++sleep 2
++
++# Start with clean gdb
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++# Never call: gdb_load ${binfile}
++# as the former problem would not reproduce otherwise.
++
++set test "attach"
++gdb_test_multiple "attach $testpid" "$test" {
++    -re "Attaching to process $testpid\r?\n.*$gdb_prompt $" {
++	pass "$test"
++    }
++}
++
++gdb_test "bt" "#0 *0x\[0-9a-f\]* in \[^?\].*" "backtrace decodes VDSO"
++
++# Exit and detach the process.
++   
++gdb_exit
++
++# Make sure we don't leave a process around to confuse
++# the next test run (and prevent the compile by keeping
++# the text file busy), in case the "set should_exit" didn't
++# work.
++   
++remote_exec build "kill -9 ${testpid}"

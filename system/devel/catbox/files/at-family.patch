@@ -1,0 +1,226 @@
+diff -ur catbox-1.2.orig/src/syscall.c catbox-1.2/src/syscall.c
+--- catbox-1.2.orig/src/syscall.c	2009-12-04 15:43:28.000000000 +0200
++++ catbox-1.2/src/syscall.c	2010-07-05 00:47:46.816932569 +0300
+@@ -15,14 +15,20 @@
+ #include <fcntl.h>
+ 
+ // System call dispatch flags
+-#define CHECK_PATH    1  // First argument should be a valid path
+-#define CHECK_PATH2   2  // Second argument should be a valid path
+-#define DONT_FOLLOW   4  // Don't follow last symlink in the path while checking
+-#define OPEN_MODE     8  // Check the Write mode of open flags
+-#define LOG_OWNER    16  // Don't do the chown operation but log the new owner
+-#define LOG_MODE     32  // Don't do the chmod operation but log the new mode
+-#define FAKE_ID      64  // Fake builder identity as root
+-#define NET_CALL    128  // System call depends on network allowed flag
++#define CHECK_PATH    1 << 0  // First argument should be a valid path
++#define CHECK_PATH2   1 << 1  // Second argument should be a valid path
++#define DONT_FOLLOW   1 << 2  // Don't follow last symlink in the path while checking
++#define OPEN_MODE     1 << 3  // Check the Write mode of open flags
++#define LOG_OWNER     1 << 4  // Don't do the chown operation but log the new owner
++#define LOG_MODE      1 << 5  // Don't do the chmod operation but log the new mode
++#define FAKE_ID       1 << 6  // Fake builder identity as root
++#define NET_CALL      1 << 7  // System call depends on network allowed flag
++#define AT_FAMILY_12  1 << 8  // First argument is a file-descriptor and second argument is a path
++#define AT_FAMILY_23  1 << 9  // Second argument is a file-descriptor and third argument is a path
++#define AT_FAMILY_34  1 << 10 // Third argument is a file-descriptor and fourth argument is a path
++#define AT_NOFLW_ARG4 1 << 11 // Check fourth argument that contains AT_SYMLINK_NOFOLLOW flag or not
++#define AT_FLW_ARG5   1 << 12 // Check fifth argument that contains AT_SYMLINK_FOLLOW flag or not
++#define AT_NOFLW_ARG5 1 << 13 // Check fitth argument that contains AT_SYMLINK_NOFOLLOW flag or not
+ 
+ // System call dispatch table
+ static struct syscall_def {
+@@ -72,6 +78,17 @@
+ #else
+ 	{ __NR_socketcall, "socketcall", NET_CALL },
+ #endif
++	{ __NR_unlinkat,   "unlinkat",   AT_FAMILY_12 | DONT_FOLLOW},
++	{ __NR_mknodat,    "mknodat",    AT_FAMILY_12},
++	{ __NR_renameat,   "renameat",   AT_FAMILY_12 | AT_FAMILY_34},
++	{ __NR_openat,     "openat",     AT_FAMILY_12 | OPEN_MODE},
++	{ __NR_linkat,     "linkat",     AT_FAMILY_12 | AT_FAMILY_34 | AT_FLW_ARG5},
++	{ __NR_utimensat,  "utimensat",  AT_FAMILY_12 | AT_NOFLW_ARG4},
++	{ __NR_mkdirat,    "mkdirat",    AT_FAMILY_12 },
++	{ __NR_symlinkat,  "symlinkat",  AT_FAMILY_23 | DONT_FOLLOW},
++	{ __NR_fchmodat,   "fchmodat",   AT_FAMILY_12 | AT_NOFLW_ARG4 | LOG_MODE},
++	{ __NR_fchownat,   "fchownat",   AT_FAMILY_12 | AT_NOFLW_ARG5 | LOG_OWNER},
++
+ 	{ 0, NULL, 0 }
+ };
+ 
+@@ -80,36 +97,58 @@
+ // x64
+ #define REG_ARG1 112
+ #define REG_ARG2 104
++#define REG_ARG3 96
++#define REG_ARG4 88
++#define REG_ARG5 80
+ #define REG_CALL orig_rax
+ #define REG_ERROR rax
+ #else
+ // i386
+ #define REG_ARG1 0
+ #define REG_ARG2 4
++#define REG_ARG3 8  //edx
++#define REG_ARG4 12 //esi
++#define REG_ARG5 16 //edi
+ #define REG_CALL orig_eax
+ #define REG_ERROR eax
+ #endif
+ 
+ static char *
+-get_str(pid_t pid, unsigned long ptr)
++get_str(pid_t pid, unsigned long peekregister)
+ {
+-	// FIXME: lame function
+-	char buf1[512];
+-	static char buf2[5120];
++	static char ret[PATH_MAX];
+ 	int i = 0;
+-	int f;
+-
+-	sprintf(buf1, "/proc/%d/mem", pid);
+-	f = open(buf1, O_RDONLY);
+-	lseek(f, ptr, 0);
+-	while (1) {
+-		read(f, buf2+i, 1);
+-		if (buf2[i] == '\0')
+-			break;
+-		i++;
++	char ch;
++	if(peekregister == 0)
++		ret[0] = '\0';
++	else {
++		do {
++			ch = (char) ptrace(PTRACE_PEEKDATA, pid, peekregister + i, NULL);
++			ret[i] = ch;
++			++i;
++		} while(ch);
++		ret[i] = '\0';
+ 	}
+-	close(f);
+-	return buf2;
++
++	return ret;
++}
++
++static char *
++get_pid_fd_path(pid_t pid, int fd)
++{
++	static char ret[PATH_MAX];
++	ssize_t len;
++	char procpath[128];
++
++	if(fd == AT_FDCWD)
++		sprintf(procpath, "/proc/%i/cwd", pid);
++	else
++		sprintf(procpath, "/proc/%i/fd/%i", pid, fd);
++
++	len = readlink(procpath, ret, PATH_MAX);
++	ret[len] = '\0';
++
++	return ret;
+ }
+ 
+ static int
+@@ -161,8 +200,14 @@
+ 	unsigned long arg;
+ 	char *path;
+ 	unsigned int flags;
++	unsigned int oflags;
+ 	const char *name;
+ 
++	char at_path[PATH_MAX];
++	int at_nofollow;
++	int fd;
++	char *fdpath;
++
+ 	for (i = 0; system_calls[i].name; i++) {
+ 		if (system_calls[i].no == syscall)
+ 			goto found;
+@@ -176,8 +221,8 @@
+ 		arg = ptrace(PTRACE_PEEKUSER, pid, REG_ARG1, 0);
+ 		path = get_str(pid, arg);
+ 		if (flags & OPEN_MODE) {
+-			flags = ptrace(PTRACE_PEEKUSER, pid, REG_ARG2, 0);
+-			if (!(flags & O_WRONLY || flags & O_RDWR)) return 0;
++			oflags = ptrace(PTRACE_PEEKUSER, pid, REG_ARG2, 0);
++			if (!(oflags & O_WRONLY || oflags & O_RDWR)) return 0;
+ 		}
+ 		ret = path_arg_writable(ctx, pid, path, name, flags & DONT_FOLLOW);
+ 		if (ret) return ret;
+@@ -190,6 +235,74 @@
+ 		if (ret) return ret;
+ 	}
+ 
++	if (flags & AT_FAMILY_12) {
++		arg = ptrace(PTRACE_PEEKUSER, pid, REG_ARG2, 0);
++		path = get_str(pid, arg);
++
++		if(flags & AT_FLW_ARG5) //for linkat() call
++			at_nofollow = (ptrace(PTRACE_PEEKUSER, pid, REG_ARG5, 0) & AT_SYMLINK_FOLLOW) ? 0 : 1;
++		else if (flags & AT_FLW_ARG5) //for fchownat() and fchmodat() calls
++			at_nofollow = (ptrace(PTRACE_PEEKUSER, pid, REG_ARG5, 0) & AT_SYMLINK_NOFOLLOW) ? 1 : 0;
++		else if(flags & AT_NOFLW_ARG4) //for utimensat() call
++			at_nofollow = (ptrace(PTRACE_PEEKUSER, pid, REG_ARG4, 0) & AT_SYMLINK_NOFOLLOW) ? 1 : 0;
++		else
++			at_nofollow = flags & DONT_FOLLOW;
++
++		if (flags & OPEN_MODE) {
++			oflags = ptrace(PTRACE_PEEKUSER, pid, REG_ARG3, 0);
++			if (!(oflags & O_WRONLY || oflags & O_RDWR)) return 0;
++		}
++
++		if(path[0] != '/' && *path != 0) {
++			fd = ptrace(PTRACE_PEEKUSER, pid, REG_ARG1, 0);
++			fdpath = get_pid_fd_path(pid, fd);
++			sprintf(at_path, "%s/%s", fdpath, path);
++			ret = path_arg_writable(ctx, pid, at_path, name, at_nofollow);
++		} else if (path[0] != '/' && *path == 0) {
++			fd = ptrace(PTRACE_PEEKUSER, pid, REG_ARG1, 0);
++			fdpath = get_pid_fd_path(pid, fd);
++			ret = path_arg_writable(ctx, pid, fdpath, name, at_nofollow);
++		} else
++			ret = path_arg_writable(ctx, pid, path, name, at_nofollow);
++
++		if (ret) return ret;
++	}
++
++	if (flags & AT_FAMILY_23) {
++		arg = ptrace(PTRACE_PEEKUSER, pid, REG_ARG3, 0);
++		path = get_str(pid, arg);
++
++		if(path[0] != '/' && *path != 0) {
++			fd = ptrace(PTRACE_PEEKUSER, pid, REG_ARG2, 0);
++			fdpath = get_pid_fd_path(pid, fd);
++			sprintf(at_path, "%s/%s", fdpath, path);
++			ret = path_arg_writable(ctx, pid, at_path, name, flags & DONT_FOLLOW);
++		} else if (path[0] != '/' && *path == 0) {
++			fd = ptrace(PTRACE_PEEKUSER, pid, REG_ARG2, 0);
++			fdpath = get_pid_fd_path(pid, fd);
++			ret = path_arg_writable(ctx, pid, fdpath, name, flags & DONT_FOLLOW);
++		} else
++			ret = path_arg_writable(ctx, pid, path, name, flags & DONT_FOLLOW);
++		if (ret) return ret;
++	} else if (flags & AT_FAMILY_34) {
++		arg = ptrace(PTRACE_PEEKUSER, pid, REG_ARG4, 0);
++		path = get_str(pid, arg);
++
++		if(path[0] != '/' && *path != 0) {
++			fd = ptrace(PTRACE_PEEKUSER, pid, REG_ARG3, 0);
++			fdpath = get_pid_fd_path(pid, fd);
++			sprintf(at_path, "%s/%s", fdpath, path);
++			ret = path_arg_writable(ctx, pid, at_path, name, flags & DONT_FOLLOW);
++		} else if (path[0] != '/' && *path == 0) {
++			fd = ptrace(PTRACE_PEEKUSER, pid, REG_ARG3, 0);
++			fdpath = get_pid_fd_path(pid, fd);
++			ret = path_arg_writable(ctx, pid, fdpath, name, flags & DONT_FOLLOW);
++		} else
++			ret = path_arg_writable(ctx, pid, path, name, flags & DONT_FOLLOW);
++
++		if (ret) return ret;
++	}
++
+ 	if (flags & NET_CALL && !ctx->network_allowed) {
+ 		catbox_retval_add_violation(ctx, name, "", "");
+ 		return -EACCES;

@@ -1,0 +1,56 @@
+diff -up procps-3.2.7/sysctl.c.p9 procps-3.2.7/sysctl.c
+--- procps-3.2.7/sysctl.c.p9	2006-06-25 02:51:51.000000000 +0200
++++ procps-3.2.7/sysctl.c	2008-09-01 11:31:58.000000000 +0200
+@@ -127,7 +127,8 @@ static int ReadSetting(const char *restr
+    char *restrict tmpname;
+    char *restrict outname;
+    char inbuf[1025];
+-   FILE *restrict fp;
++   FILE *restrict fp = NULL;
++   struct stat st;
+ 
+    if (!name || !*name) {
+       fprintf(stderr, ERR_INVALID_KEY, name);
+@@ -144,7 +145,13 @@ static int ReadSetting(const char *restr
+    outname = strdup(name);
+    slashdot(outname,'/','.'); /* change / to . */
+ 
+-   fp = fopen(tmpname, "r");
++   if (stat(tmpname, &st)==0) {
++	if (st.st_mode & (S_IRUSR|S_IROTH|S_IRGRP))	   
++	   	fp = fopen(tmpname, "r");
++	else
++		/* ignore write-only files  */
++		return -1;
++   }
+ 
+    if (!fp) {
+       switch(errno) {
+@@ -158,12 +165,16 @@ static int ReadSetting(const char *restr
+          fprintf(stderr, ERR_PERMISSION_DENIED, outname);
+          rc = -1;
+          break;
++      case EINVAL:  /* fopen()/stat() invalid argument */
++      case ENOTTY:  /* inappropriate ioctl for device */
++	 break;
+       default:
+          fprintf(stderr, ERR_UNKNOWN_READING, strerror(errno), outname);
+          rc = -1;
+          break;
+       }
+    } else {
++      errno=0;
+       if(fgets(inbuf, sizeof inbuf - 1, fp)) {
+          // this loop is required, see
+          // /sbin/sysctl -a | egrep -6 dev.cdrom.info
+@@ -183,7 +194,9 @@ static int ReadSetting(const char *restr
+                }
+             }
+          } while(fgets(inbuf, sizeof inbuf - 1, fp));
+-      } else {
++
++      /* fgets() returns NULL and errno without change if the file is empty */
++      } else if (errno) {
+          switch(errno) {
+          case EACCES:
+             fprintf(stderr, ERR_PERMISSION_DENIED, outname);

@@ -1,0 +1,49 @@
+--- a/source3/smbd/notify_inotify.c	2007-03-09 12:07:58 +0000
++++ b/source3/smbd/notify_inotify.c	2007-04-10 16:27:47 +0000
+@@ -66,6 +66,7 @@
+ 	struct sys_notify_context *ctx;
+ 	int fd;
+ 	struct inotify_watch_context *watches;
++	bool broken_inotify;	/* Late stop for broken system */
+ };
+ 
+ struct inotify_watch_context {
+@@ -229,8 +230,16 @@
+ 	  filenames, and thus can't know how much to allocate
+ 	  otherwise
+ 	*/
+-	if (ioctl(in->fd, FIONREAD, &bufsize) != 0 || 
+-	    bufsize == 0) {
++
++	if ((ioctl(in->fd, FIONREAD, &bufsize) != 0) && (errno == EACCES)) {
++		/*
++		 * Workaround for broken system (SELinux policy bug fixed since long but it is always better not to loop on EACCES)
++		 */
++		TALLOC_FREE(fde);
++		in->broken_inotify = True;
++		return;
++	}
++	if (bufsize == 0) {
+ 		DEBUG(0,("No data on inotify fd?!\n"));
+ 		return;
+ 	}
+@@ -281,6 +290,7 @@
+ 	}
+ 	in->ctx = ctx;
+ 	in->watches = NULL;
++	in->broken_inotify = False;
+ 
+ 	ctx->private_data = in;
+ 	talloc_set_destructor(in, inotify_destructor);
+@@ -375,6 +385,10 @@
+ 
+ 	in = talloc_get_type(ctx->private_data, struct inotify_private);
+ 
++	if (in->broken_inotify) {
++		return NT_STATUS_OK;
++	}
++
+ 	mask = inotify_map(e);
+ 	if (mask == 0) {
+ 		/* this filter can't be handled by inotify */
+

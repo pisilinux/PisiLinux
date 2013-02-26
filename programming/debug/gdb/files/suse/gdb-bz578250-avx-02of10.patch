@@ -1,0 +1,751 @@
+[ Backported.  ]
+
+commit cb928c67c90cfb5bbb0636d91855b95e51ad275d
+Author: Daniel Jacobowitz <dan@debian.org>
+Date:   Mon Mar 1 17:19:21 2010 +0000
+
+    	* gdbtypes.c (append_composite_type_field_raw): New.
+    	(append_composite_type_field_aligned): Use the new function.
+    	* gdbtypes.h (append_composite_type_field_raw): Declare.
+    	* target-descriptions.c (struct tdesc_type_field): Add start and end.
+    	(struct tdesc_type_flag): New type.
+    	(struct tdesc_type): Add TDESC_TYPE_STRUCT and TDESC_TYPE_FLAGS to
+    	kind.  Add size to u.u.  Add u.f for flags.
+    	(tdesc_gdb_type): Handle TDESC_TYPE_STRUCT and TDESC_TYPE_FLAGS.
+    	(tdesc_free_type): Likewise.
+    	(tdesc_create_struct, tdesc_set_struct_size, tdesc_create_flags): New.
+    	(tdesc_add_field): Handle TDESC_TYPE_STRUCT.
+    	(tdesc_add_bitfield, tdesc_add_flag): New.
+    	* target-descriptions.h (tdesc_create_struct, tdesc_set_struct_size)
+    	(tdesc_create_flags, tdesc_add_bitfield, tdesc_add_flag): Declare.
+    	* xml-tdesc.c (struct tdesc_parsing_data): Rename current_union to
+    	current_type.  Add current_type_size and current_type_is_flags.
+    	(tdesc_start_union): Clear the new fields.
+    	(tdesc_start_struct, tdesc_start_flags): New.
+    	(tdesc_start_field): Handle struct fields, including bitfields.
+    	(field_attributes): Make type optional.  Add start and end.
+    	(union_children): Rename to struct_union_children.
+    	(union_attributes): Rename to struct_union_attributes.  Add optional
+    	size.
+    	(flags_attributes): New.
+    	(feature_children): Add struct and flags.
+    	* features/gdb-target.dtd: Add flags and struct to features.
+    	Make field type optional.  Add field start and end.
+    
+    	doc/
+    	* gdb.texinfo (Types): Describe <struct> and <flags>.
+    
+    	testsuite/
+    	* gdb.xml/extra-regs.xml: Add struct1, struct2, and flags
+    	types.  Add structreg, bitfields, and flags registers.
+    	* gdb.xml/tdesc-regs.exp: Test structreg and bitfields
+    	registers.
+
+--- gdb-7.1-p0/gdb/doc/gdb.texinfo	2010-04-03 20:24:51.000000000 +0200
++++ gdb-7.1/gdb/doc/gdb.texinfo	2010-04-03 21:04:13.000000000 +0200
+@@ -33115,6 +33115,47 @@ each of which has a @var{name} and a @va
+ </union>
+ @end smallexample
+ 
++@cindex <struct>
++If a register's value is composed from several separate values, define
++it with a structure type.  There are two forms of the @samp{<struct>}
++element; a @samp{<struct>} element must either contain only bitfields
++or contain no bitfields.  If the structure contains only bitfields,
++its total size in bytes must be specified, each bitfield must have an
++explicit start and end, and bitfields are automatically assigned an
++integer type.  The field's @var{start} should be less than or
++equal to its @var{end}, and zero represents the least significant bit.
++
++@smallexample
++<struct id="@var{id}" size="@var{size}">
++  <field name="@var{name}" start="@var{start}" end="@var{end}"/>
++  @dots{}
++</struct>
++@end smallexample
++
++If the structure contains no bitfields, then each field has an
++explicit type, and no implicit padding is added.
++
++@smallexample
++<struct id="@var{id}">
++  <field name="@var{name}" type="@var{type}"/>
++  @dots{}
++</struct>
++@end smallexample
++
++@cindex <flags>
++If a register's value is a series of single-bit flags, define it with
++a flags type.  The @samp{<flags>} element has an explicit @var{size}
++and contains one or more @samp{<field>} elements.  Each field has a
++@var{name}, a @var{start}, and an @var{end}.  Only single-bit flags
++are supported.
++
++@smallexample
++<flags id="@var{id}" size="@var{size}">
++  <field name="@var{name}" start="@var{start}" end="@var{end}"/>
++  @dots{}
++</flags>
++@end smallexample
++
+ @subsection Registers
+ @cindex <reg>
+ 
+--- gdb-7.1-p0/gdb/features/gdb-target.dtd	2010-01-01 08:31:48.000000000 +0100
++++ gdb-7.1/gdb/features/gdb-target.dtd	2010-04-03 21:04:13.000000000 +0200
+@@ -19,7 +19,8 @@
+ 
+ <!ELEMENT compatible	(#PCDATA)>
+ 
+-<!ELEMENT feature	((vector | union)*, reg*)>
++<!ELEMENT feature
++	((vector | flags | struct | union )*, reg*)>
+ <!ATTLIST feature
+ 	name		ID	#REQUIRED>
+ 
+@@ -39,6 +40,16 @@
+ 	type		CDATA	#REQUIRED
+ 	count		CDATA	#REQUIRED>
+ 
++<!ELEMENT flags		(field+)>
++<!ATTLIST flags
++	id		CDATA	#REQUIRED
++	size		CDATA	#REQUIRED>
++
++<!ELEMENT struct	(field+)>
++<!ATTLIST struct
++	id		CDATA	#REQUIRED
++	size		CDATA	#IMPLIED>
++
+ <!ELEMENT union		(field+)>
+ <!ATTLIST union
+ 	id		CDATA	#REQUIRED>
+@@ -46,7 +57,9 @@
+ <!ELEMENT field		EMPTY>
+ <!ATTLIST field
+ 	name		CDATA	#REQUIRED
+-	type		CDATA	#REQUIRED>
++	type		CDATA	#IMPLIED
++	start		CDATA	#IMPLIED
++	end		CDATA	#IMPLIED>
+ 
+ <!ENTITY % xinclude SYSTEM "xinclude.dtd">
+ %xinclude;
+--- gdb-7.1-p0/gdb/gdbtypes.c	2010-04-03 20:24:51.000000000 +0200
++++ gdb-7.1/gdb/gdbtypes.c	2010-04-03 21:04:13.000000000 +0200
+@@ -3798,10 +3798,11 @@ arch_composite_type (struct gdbarch *gdb
+ }
+ 
+ /* Add new field with name NAME and type FIELD to composite type T.
+-   ALIGNMENT (if non-zero) specifies the minimum field alignment.  */
+-void
+-append_composite_type_field_aligned (struct type *t, char *name,
+-				     struct type *field, int alignment)
++   Do not set the field's position or adjust the type's length;
++   the caller should do so.  Return the new field.  */
++struct field *
++append_composite_type_field_raw (struct type *t, char *name,
++				 struct type *field)
+ {
+   struct field *f;
+   TYPE_NFIELDS (t) = TYPE_NFIELDS (t) + 1;
+@@ -3811,6 +3812,16 @@ append_composite_type_field_aligned (str
+   memset (f, 0, sizeof f[0]);
+   FIELD_TYPE (f[0]) = field;
+   FIELD_NAME (f[0]) = name;
++  return f;
++}
++
++/* Add new field with name NAME and type FIELD to composite type T.
++   ALIGNMENT (if non-zero) specifies the minimum field alignment.  */
++void
++append_composite_type_field_aligned (struct type *t, char *name,
++				     struct type *field, int alignment)
++{
++  struct field *f = append_composite_type_field_raw (t, name, field);
+   if (TYPE_CODE (t) == TYPE_CODE_UNION)
+     {
+       if (TYPE_LENGTH (t) < TYPE_LENGTH (field))
+--- gdb-7.1-p0/gdb/gdbtypes.h	2010-04-03 20:24:51.000000000 +0200
++++ gdb-7.1/gdb/gdbtypes.h	2010-04-03 21:04:13.000000000 +0200
+@@ -1395,6 +1395,8 @@ extern void append_composite_type_field_
+ 						 char *name,
+ 						 struct type *field,
+ 						 int alignment);
++struct field *append_composite_type_field_raw (struct type *t, char *name,
++					       struct type *field);
+ 
+ /* Helper functions to construct a bit flags type.  An initially empty
+    type is created using arch_flag_type().  Flags are then added using
+--- gdb-7.1-p0/gdb/target-descriptions.c	2010-02-10 19:45:02.000000000 +0100
++++ gdb-7.1/gdb/target-descriptions.c	2010-04-03 21:04:13.000000000 +0200
+@@ -90,9 +90,17 @@ typedef struct tdesc_type_field
+ {
+   char *name;
+   struct tdesc_type *type;
++  int start, end;
+ } tdesc_type_field;
+ DEF_VEC_O(tdesc_type_field);
+ 
++typedef struct tdesc_type_flag
++{
++  char *name;
++  int start;
++} tdesc_type_flag;
++DEF_VEC_O(tdesc_type_flag);
++
+ typedef struct tdesc_type
+ {
+   /* The name of this type.  */
+@@ -123,7 +131,9 @@ typedef struct tdesc_type
+ 
+     /* Types defined by a target feature.  */
+     TDESC_TYPE_VECTOR,
+-    TDESC_TYPE_UNION
++    TDESC_TYPE_STRUCT,
++    TDESC_TYPE_UNION,
++    TDESC_TYPE_FLAGS
+   } kind;
+ 
+   /* Kind-specific data.  */
+@@ -136,11 +146,19 @@ typedef struct tdesc_type
+       int count;
+     } v;
+ 
+-    /* Union type.  */
++    /* Struct or union type.  */
+     struct
+     {
+       VEC(tdesc_type_field) *fields;
++      LONGEST size;
+     } u;
++
++    /* Flags type.  */
++    struct
++    {
++      VEC(tdesc_type_flag) *flags;
++      LONGEST size;
++    } f;
+   } u;
+ } *tdesc_type_p;
+ DEF_VEC_P(tdesc_type_p);
+@@ -652,6 +670,66 @@ tdesc_gdb_type (struct gdbarch *gdbarch,
+ 	return type;
+       }
+ 
++    case TDESC_TYPE_STRUCT:
++      {
++	struct type *type, *field_type;
++	struct tdesc_type_field *f;
++	int ix;
++
++	type = arch_composite_type (gdbarch, NULL, TYPE_CODE_STRUCT);
++	TYPE_NAME (type) = xstrdup (tdesc_type->name);
++	TYPE_TAG_NAME (type) = TYPE_NAME (type);
++
++	for (ix = 0;
++	     VEC_iterate (tdesc_type_field, tdesc_type->u.u.fields, ix, f);
++	     ix++)
++	  {
++	    if (f->type == NULL)
++	      {
++		/* Bitfield.  */
++		struct field *fld;
++		struct type *field_type;
++		int bitsize, total_size;
++
++		/* This invariant should be preserved while creating
++		   types.  */
++		gdb_assert (tdesc_type->u.u.size != 0);
++		if (tdesc_type->u.u.size > 4)
++		  field_type = builtin_type (gdbarch)->builtin_uint64;
++		else
++		  field_type = builtin_type (gdbarch)->builtin_uint32;
++
++		fld = append_composite_type_field_raw (type, xstrdup (f->name),
++						       field_type);
++
++		/* For little-endian, BITPOS counts from the LSB of
++		   the structure and marks the LSB of the field.  For
++		   big-endian, BITPOS counts from the MSB of the
++		   structure and marks the MSB of the field.  Either
++		   way, it is the number of bits to the "left" of the
++		   field.  To calculate this in big-endian, we need
++		   the total size of the structure.  */
++		bitsize = f->end - f->start + 1;
++		total_size = tdesc_type->u.u.size * TARGET_CHAR_BIT;
++		if (gdbarch_bits_big_endian (gdbarch))
++		  FIELD_BITPOS (fld[0]) = total_size - f->start - bitsize;
++		else
++		  FIELD_BITPOS (fld[0]) = f->start;
++		FIELD_BITSIZE (fld[0]) = bitsize;
++	      }
++	    else
++	      {
++		field_type = tdesc_gdb_type (gdbarch, f->type);
++		append_composite_type_field (type, xstrdup (f->name),
++					     field_type);
++	      }
++	  }
++
++	if (tdesc_type->u.u.size != 0)
++	  TYPE_LENGTH (type) = tdesc_type->u.u.size;
++	return type;
++      }
++
+     case TDESC_TYPE_UNION:
+       {
+ 	struct type *type, *field_type;
+@@ -668,12 +746,30 @@ tdesc_gdb_type (struct gdbarch *gdbarch,
+ 	    field_type = tdesc_gdb_type (gdbarch, f->type);
+ 	    append_composite_type_field (type, xstrdup (f->name), field_type);
+ 
+-	    /* If any of the children of this union are vectors, flag the
++	    /* If any of the children of a union are vectors, flag the
+ 	       union as a vector also.  This allows e.g. a union of two
+ 	       vector types to show up automatically in "info vector".  */
+ 	    if (TYPE_VECTOR (field_type))
+ 	      TYPE_VECTOR (type) = 1;
+ 	  }
++	return type;
++      }
++
++    case TDESC_TYPE_FLAGS:
++      {
++	struct type *type, *field_type;
++	struct tdesc_type_flag *f;
++	int ix;
++
++	type = arch_flags_type (gdbarch, xstrdup (tdesc_type->name),
++				tdesc_type->u.f.size);
++	for (ix = 0;
++	     VEC_iterate (tdesc_type_flag, tdesc_type->u.f.flags, ix, f);
++	     ix++)
++	  /* Note that contrary to the function name, this call will
++	     just set the properties of an already-allocated
++	     field.  */
++	  append_flags_type_flag (type, f->start, f->name);
+ 
+ 	return type;
+       }
+@@ -1161,6 +1257,7 @@ tdesc_free_type (struct tdesc_type *type
+ 
+   switch (type->kind)
+     {
++    case TDESC_TYPE_STRUCT:
+     case TDESC_TYPE_UNION:
+       {
+ 	struct tdesc_type_field *f;
+@@ -1175,6 +1272,20 @@ tdesc_free_type (struct tdesc_type *type
+       }
+       break;
+ 
++    case TDESC_TYPE_FLAGS:
++      {
++	struct tdesc_type_flag *f;
++	int ix;
++
++	for (ix = 0;
++	     VEC_iterate (tdesc_type_flag, type->u.f.flags, ix, f);
++	     ix++)
++	  xfree (f->name);
++
++	VEC_free (tdesc_type_flag, type->u.f.flags);
++      }
++      break;
++
+     default:
+       break;
+     }
+@@ -1199,6 +1310,29 @@ tdesc_create_vector (struct tdesc_featur
+ }
+ 
+ struct tdesc_type *
++tdesc_create_struct (struct tdesc_feature *feature, const char *name)
++{
++  struct tdesc_type *type = XZALLOC (struct tdesc_type);
++
++  type->name = xstrdup (name);
++  type->kind = TDESC_TYPE_STRUCT;
++
++  VEC_safe_push (tdesc_type_p, feature->types, type);
++  return type;
++}
++
++/* Set the total length of TYPE.  Structs which contain bitfields may
++   omit the reserved bits, so the end of the last field may not
++   suffice.  */
++
++void
++tdesc_set_struct_size (struct tdesc_type *type, LONGEST size)
++{
++  gdb_assert (type->kind == TDESC_TYPE_STRUCT);
++  type->u.u.size = size;
++}
++
++struct tdesc_type *
+ tdesc_create_union (struct tdesc_feature *feature, const char *name)
+ {
+   struct tdesc_type *type = XZALLOC (struct tdesc_type);
+@@ -1210,13 +1344,32 @@ tdesc_create_union (struct tdesc_feature
+   return type;
+ }
+ 
++struct tdesc_type *
++tdesc_create_flags (struct tdesc_feature *feature, const char *name,
++		    LONGEST size)
++{
++  struct tdesc_type *type = XZALLOC (struct tdesc_type);
++
++  type->name = xstrdup (name);
++  type->kind = TDESC_TYPE_FLAGS;
++  type->u.f.size = size;
++
++  VEC_safe_push (tdesc_type_p, feature->types, type);
++  return type;
++}
++
++/* Add a new field.  Return a temporary pointer to the field, which
++   is only valid until the next call to tdesc_add_field (the vector
++   might be reallocated).  */
++
+ void
+ tdesc_add_field (struct tdesc_type *type, const char *field_name,
+ 		 struct tdesc_type *field_type)
+ {
+   struct tdesc_type_field f = { 0 };
+ 
+-  gdb_assert (type->kind == TDESC_TYPE_UNION);
++  gdb_assert (type->kind == TDESC_TYPE_UNION
++	      || type->kind == TDESC_TYPE_STRUCT);
+ 
+   f.name = xstrdup (field_name);
+   f.type = field_type;
+@@ -1224,6 +1377,37 @@ tdesc_add_field (struct tdesc_type *type
+   VEC_safe_push (tdesc_type_field, type->u.u.fields, &f);
+ }
+ 
++/* Add a new bitfield.  */
++
++void
++tdesc_add_bitfield (struct tdesc_type *type, const char *field_name,
++		    int start, int end)
++{
++  struct tdesc_type_field f = { 0 };
++
++  gdb_assert (type->kind == TDESC_TYPE_STRUCT);
++
++  f.name = xstrdup (field_name);
++  f.start = start;
++  f.end = end;
++
++  VEC_safe_push (tdesc_type_field, type->u.u.fields, &f);
++}
++
++void
++tdesc_add_flag (struct tdesc_type *type, int start,
++		const char *flag_name)
++{
++  struct tdesc_type_flag f = { 0 };
++
++  gdb_assert (type->kind == TDESC_TYPE_FLAGS);
++
++  f.name = xstrdup (flag_name);
++  f.start = start;
++
++  VEC_safe_push (tdesc_type_flag, type->u.f.flags, &f);
++}
++
+ static void
+ tdesc_free_feature (struct tdesc_feature *feature)
+ {
+--- gdb-7.1-p0/gdb/target-descriptions.h	2010-02-10 19:45:03.000000000 +0100
++++ gdb-7.1/gdb/target-descriptions.h	2010-04-03 21:04:13.000000000 +0200
+@@ -205,10 +205,20 @@ struct tdesc_type *tdesc_create_vector (
+ 					const char *name,
+ 					struct tdesc_type *field_type,
+ 					int count);
++struct tdesc_type *tdesc_create_struct (struct tdesc_feature *feature,
++					const char *name);
++void tdesc_set_struct_size (struct tdesc_type *type, LONGEST size);
+ struct tdesc_type *tdesc_create_union (struct tdesc_feature *feature,
+ 				       const char *name);
++struct tdesc_type *tdesc_create_flags (struct tdesc_feature *feature,
++				       const char *name,
++				       LONGEST size);
+ void tdesc_add_field (struct tdesc_type *type, const char *field_name,
+ 		      struct tdesc_type *field_type);
++void tdesc_add_bitfield (struct tdesc_type *type, const char *field_name,
++			 int start, int end);
++void tdesc_add_flag (struct tdesc_type *type, int start,
++		     const char *flag_name);
+ void tdesc_create_reg (struct tdesc_feature *feature, const char *name,
+ 		       int regnum, int save_restore, const char *group,
+ 		       int bitsize, const char *type);
+--- gdb-7.1-p0/gdb/testsuite/gdb.xml/extra-regs.xml	2007-02-08 22:00:36.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.xml/extra-regs.xml	2010-04-03 21:04:13.000000000 +0200
+@@ -8,9 +8,27 @@
+       <field name="v2" type="v2int16"/>
+     </union>
+ 
++    <struct id="struct1">
++      <field name="v4" type="v4int8"/>
++      <field name="v2" type="v2int16"/>
++    </struct>
++
++    <struct id="struct2" size="8">
++      <field name="f1" start="0" end="34"/>
++      <field name="f2" start="63" end="63"/>
++    </struct>
++
++    <flags id="flags" size="4">
++      <field name="X" start="0" end="0"/>
++      <field name="Y" start="2" end="2"/>
++    </flags>
++
+     <reg name="extrareg" bitsize="32"/>
+     <reg name="uintreg" bitsize="32" type="uint32"/>
+     <reg name="vecreg" bitsize="32" type="v4int8"/>
+     <reg name="unionreg" bitsize="32" type="vecint"/>
++    <reg name="structreg" bitsize="64" type="struct1"/>
++    <reg name="bitfields" bitsize="64" type="struct2"/>
++    <reg name="flags" bitsize="32" type="flags"/>
+   </feature>
+ </target>
+--- gdb-7.1-p0/gdb/testsuite/gdb.xml/tdesc-regs.exp	2010-04-03 20:59:52.000000000 +0200
++++ gdb-7.1/gdb/testsuite/gdb.xml/tdesc-regs.exp	2010-04-03 21:04:13.000000000 +0200
+@@ -141,6 +141,11 @@ gdb_test "ptype \$vecreg" "type = int8_t
+ gdb_test "ptype \$unionreg" \
+     "type = union {\r\n *v4int8 v4;\r\n *v2int16 v2;\r\n}"
+ gdb_test "ptype \$unionreg.v4" "type = int8_t \\\[4\\\]"
++gdb_test "ptype \$structreg" \
++    "type = struct struct1 {\r\n *v4int8 v4;\r\n *v2int16 v2;\r\n}"
++gdb_test "ptype \$structreg.v4" "type = int8_t \\\[4\\\]"
++gdb_test "ptype \$bitfields" \
++    "type = struct struct2 {\r\n *uint64_t f1 : 35;\r\n *uint64_t f2 : 1;\r\n}"
+ 
+ load_description "core-only.xml" ""
+ # The extra register from the previous description should be gone.
+--- gdb-7.1-p0/gdb/xml-tdesc.c	2010-01-01 08:31:46.000000000 +0100
++++ gdb-7.1/gdb/xml-tdesc.c	2010-04-03 21:04:13.000000000 +0200
+@@ -85,8 +85,15 @@ struct tdesc_parsing_data
+      it does not have its own.  This starts at zero.  */
+   int next_regnum;
+ 
+-  /* The union we are currently parsing, or last parsed.  */
+-  struct tdesc_type *current_union;
++  /* The struct or union we are currently parsing, or last parsed.  */
++  struct tdesc_type *current_type;
++
++  /* The byte size of the current struct type, if specified.  Zero
++     if not specified.  */
++  int current_type_size;
++
++  /* Whether the current type is a flags type.  */
++  int current_type_is_flags;
+ };
+ 
+ /* Handle the end of an <architecture> element and its value.  */
+@@ -229,11 +236,57 @@ tdesc_start_union (struct gdb_xml_parser
+   struct tdesc_parsing_data *data = user_data;
+   char *id = VEC_index (gdb_xml_value_s, attributes, 0)->value;
+ 
+-  data->current_union = tdesc_create_union (data->current_feature, id);
++  data->current_type = tdesc_create_union (data->current_feature, id);
++  data->current_type_size = 0;
++  data->current_type_is_flags = 0;
++}
++
++/* Handle the start of a <struct> element.  Initialize the type and
++   record it with the current feature.  */
++
++static void
++tdesc_start_struct (struct gdb_xml_parser *parser,
++		   const struct gdb_xml_element *element,
++		   void *user_data, VEC(gdb_xml_value_s) *attributes)
++{
++  struct tdesc_parsing_data *data = user_data;
++  char *id = VEC_index (gdb_xml_value_s, attributes, 0)->value;
++  struct tdesc_type *type;
++
++  type = tdesc_create_struct (data->current_feature, id);
++  data->current_type = type;
++  data->current_type_size = 0;
++  data->current_type_is_flags = 0;
++
++  if (VEC_length (gdb_xml_value_s, attributes) > 1)
++    {
++      int size = (int) * (ULONGEST *)
++	VEC_index (gdb_xml_value_s, attributes, 1)->value;
++      tdesc_set_struct_size (type, size);
++      data->current_type_size = size;
++    }
++}
++
++static void
++tdesc_start_flags (struct gdb_xml_parser *parser,
++		   const struct gdb_xml_element *element,
++		   void *user_data, VEC(gdb_xml_value_s) *attributes)
++{
++  struct tdesc_parsing_data *data = user_data;
++  char *id = VEC_index (gdb_xml_value_s, attributes, 0)->value;
++  int length = (int) * (ULONGEST *)
++    VEC_index (gdb_xml_value_s, attributes, 1)->value;
++  struct tdesc_type *type;
++
++  type = tdesc_create_flags (data->current_feature, id, length);
++
++  data->current_type = type;
++  data->current_type_size = 0;
++  data->current_type_is_flags = 1;
+ }
+ 
+ /* Handle the start of a <field> element.  Attach the field to the
+-   current union.  */
++   current struct or union.  */
+ 
+ static void
+ tdesc_start_field (struct gdb_xml_parser *parser,
+@@ -241,20 +294,84 @@ tdesc_start_field (struct gdb_xml_parser
+ 		   void *user_data, VEC(gdb_xml_value_s) *attributes)
+ {
+   struct tdesc_parsing_data *data = user_data;
++  int ix = 0, length;
+   struct gdb_xml_value *attrs = VEC_address (gdb_xml_value_s, attributes);
+   struct tdesc_type *field_type;
+   char *field_name, *field_type_id;
++  int start, end;
+ 
+-  field_name = attrs[0].value;
+-  field_type_id = attrs[1].value;
++  length = VEC_length (gdb_xml_value_s, attributes);
+ 
+-  field_type = tdesc_named_type (data->current_feature, field_type_id);
+-  if (field_type == NULL)
+-    gdb_xml_error (parser, _("Union field \"%s\" references undefined "
+-			     "type \"%s\""),
+-		   field_name, field_type_id);
++  field_name = attrs[ix++].value;
++
++  if (ix < length && strcmp (attrs[ix].name, "type") == 0)
++    field_type_id = attrs[ix++].value;
++  else
++    field_type_id = NULL;
++
++  if (ix < length && strcmp (attrs[ix].name, "start") == 0)
++    start = * (ULONGEST *) attrs[ix++].value;
++  else
++    start = -1;
++
++  if (ix < length && strcmp (attrs[ix].name, "end") == 0)
++    end = * (ULONGEST *) attrs[ix++].value;
++  else
++    end = -1;
++
++  if (field_type_id != NULL)
++    {
++      if (data->current_type_is_flags)
++	gdb_xml_error (parser, _("Cannot add typed field \"%s\" to flags"), 
++		       field_name);
++      if (data->current_type_size != 0)
++	gdb_xml_error (parser,
++		       _("Explicitly sized type can not contain non-bitfield \"%s\""), 
++		       field_name);
++
++      field_type = tdesc_named_type (data->current_feature, field_type_id);
++      if (field_type == NULL)
++	gdb_xml_error (parser, _("Field \"%s\" references undefined "
++				 "type \"%s\""),
++		       field_name, field_type_id);
++
++      tdesc_add_field (data->current_type, field_name, field_type);
++    }
++  else if (start != -1 && end != -1)
++    {
++      struct tdesc_type *t = data->current_type;
++
++      if (data->current_type_is_flags)
++	tdesc_add_flag (t, start, field_name);
++      else
++	{
++	  if (data->current_type_size == 0)
++	    gdb_xml_error (parser,
++			   _("Implicitly sized type can not contain bitfield \"%s\""), 
++			   field_name);
++
++	  if (end >= 64)
++	    gdb_xml_error (parser,
++			   _("Bitfield \"%s\" goes past 64 bits (unsupported)"),
++			   field_name);
++
++	  /* Assume that the bit numbering in XML is "lsb-zero".  Most
++	     architectures other than PowerPC use this ordering.  In
++	     the future, we can add an XML tag to indicate "msb-zero"
++	     numbering.  */
++	  if (start > end)
++	    gdb_xml_error (parser, _("Bitfield \"%s\" has start after end"),
++			   field_name);
+ 
+-  tdesc_add_field (data->current_union, field_name, field_type);
++	  if (end >= data->current_type_size * TARGET_CHAR_BIT)
++	    gdb_xml_error (parser, _("Bitfield \"%s\" does not fit in struct"));
++
++	  tdesc_add_bitfield (t, field_name, start, end);
++	}
++    }
++  else
++    gdb_xml_error (parser, _("Field \"%s\" has neither type nor bit position"),
++		   field_name);
+ }
+ 
+ /* Handle the start of a <vector> element.  Initialize the type and
+@@ -287,11 +404,13 @@ tdesc_start_vector (struct gdb_xml_parse
+ 
+ static const struct gdb_xml_attribute field_attributes[] = {
+   { "name", GDB_XML_AF_NONE, NULL, NULL },
+-  { "type", GDB_XML_AF_NONE, NULL, NULL },
++  { "type", GDB_XML_AF_OPTIONAL, NULL, NULL },
++  { "start", GDB_XML_AF_OPTIONAL, gdb_xml_parse_attr_ulongest, NULL },
++  { "end", GDB_XML_AF_OPTIONAL, gdb_xml_parse_attr_ulongest, NULL },
+   { NULL, GDB_XML_AF_NONE, NULL, NULL }
+ };
+ 
+-static const struct gdb_xml_element union_children[] = {
++static const struct gdb_xml_element struct_union_children[] = {
+   { "field", field_attributes, NULL, GDB_XML_EF_REPEATABLE,
+     tdesc_start_field, NULL },
+   { NULL, NULL, NULL, GDB_XML_EF_NONE, NULL, NULL }
+@@ -308,8 +427,15 @@ static const struct gdb_xml_attribute re
+   { NULL, GDB_XML_AF_NONE, NULL, NULL }
+ };
+ 
+-static const struct gdb_xml_attribute union_attributes[] = {
++static const struct gdb_xml_attribute struct_union_attributes[] = {
+   { "id", GDB_XML_AF_NONE, NULL, NULL },
++  { "size", GDB_XML_AF_OPTIONAL, gdb_xml_parse_attr_ulongest, NULL},
++  { NULL, GDB_XML_AF_NONE, NULL, NULL }
++};
++
++static const struct gdb_xml_attribute flags_attributes[] = {
++  { "id", GDB_XML_AF_NONE, NULL, NULL },
++  { "size", GDB_XML_AF_NONE, gdb_xml_parse_attr_ulongest, NULL},
+   { NULL, GDB_XML_AF_NONE, NULL, NULL }
+ };
+ 
+@@ -329,9 +455,15 @@ static const struct gdb_xml_element feat
+   { "reg", reg_attributes, NULL,
+     GDB_XML_EF_OPTIONAL | GDB_XML_EF_REPEATABLE,
+     tdesc_start_reg, NULL },
+-  { "union", union_attributes, union_children,
++  { "struct", struct_union_attributes, struct_union_children,
++    GDB_XML_EF_OPTIONAL | GDB_XML_EF_REPEATABLE,
++    tdesc_start_struct, NULL },
++  { "union", struct_union_attributes, struct_union_children,
+     GDB_XML_EF_OPTIONAL | GDB_XML_EF_REPEATABLE,
+     tdesc_start_union, NULL },
++  { "flags", flags_attributes, struct_union_children,
++    GDB_XML_EF_OPTIONAL | GDB_XML_EF_REPEATABLE,
++    tdesc_start_flags, NULL },    
+   { "vector", vector_attributes, NULL,
+     GDB_XML_EF_OPTIONAL | GDB_XML_EF_REPEATABLE,
+     tdesc_start_vector, NULL },

@@ -1,0 +1,63 @@
+diff -up vpnc-0.5.1/vpnc.c.dpd vpnc-0.5.1/vpnc.c
+--- vpnc-0.5.1/vpnc.c.dpd	2007-09-20 11:01:35.000000000 +0200
++++ vpnc-0.5.1/vpnc.c	2007-11-12 23:11:05.000000000 +0100
+@@ -681,13 +681,13 @@ void dpd_ike(struct sa_block *s)
+ 		send_dpd(s, 0, s->ike.dpd_seqno);
+ 	} else {
+ 		/* Our last dpd request has not yet been acked.  If it's been
+-		** less than 5 seconds since we sent it do nothing.  Otherwise
++		** less than 1/10th of idle timeout since we sent it do nothing.  Otherwise
+ 		** decrement dpd_attempts.  If dpd_attempts is 0 dpd fails and we
+ 		** terminate otherwise we send it again with the same sequence
+ 		** number and record current time.
+ 		*/
+ 		time_t now = time(NULL);
+-		if (now < s->ike.dpd_sent + 5)
++		if (now < s->ike.dpd_sent + s->ike.dpd_idle/10)
+ 			return;
+ 		if (--s->ike.dpd_attempts == 0) {
+ 			DEBUG(2, printf("dead peer detected, terminating\n"));
+@@ -695,6 +695,8 @@ void dpd_ike(struct sa_block *s)
+ 			return;
+ 		}
+ 		s->ike.dpd_sent = now;
++		if (s->ike.dpd_attempts == 3)
++		    ++s->ike.dpd_seqno; /* maybe just the dpd reply got lost let's try new seq no */
+ 		send_dpd(s, 0, s->ike.dpd_seqno);
+ 	}
+ }
+diff -up vpnc-0.5.1/tunip.c.dpd vpnc-0.5.1/tunip.c
+--- vpnc-0.5.1/tunip.c.dpd	2007-09-06 22:05:14.000000000 +0200
++++ vpnc-0.5.1/tunip.c	2007-11-12 22:42:17.000000000 +0100
+@@ -865,7 +865,7 @@ static void vpnc_main_loop(struct sa_blo
+ 					time_t now = time(NULL);
+ 					if (s->ike.dpd_seqno != s->ike.dpd_seqno_ack) {
+ 						/* Wake up more often for dpd attempts */
+-						select_timeout.tv_sec = 5;
++						select_timeout.tv_sec = s->ike.dpd_idle/10;
+ 						select_timeout.tv_usec = 0;
+ 						dpd_ike(s);
+ 						next_ike_dpd = now + s->ike.dpd_idle;
+@@ -925,8 +925,8 @@ static void vpnc_main_loop(struct sa_blo
+ 				if (s->ike.dpd_seqno != s->ike.dpd_seqno_ack) {
+ 					dpd_ike(s);
+ 					next_ike_dpd = now + s->ike.dpd_idle;
+-					if (now + 5 < next_up)
+-						next_up = now + 5;
++					if (now + s->ike.dpd_idle/10 < next_up)
++						next_up = now + s->ike.dpd_idle/10;
+ 				}
+ 				else if (now >= next_ike_dpd) {
+ 					dpd_ike(s);
+diff -up vpnc-0.5.1/config.c.dpd vpnc-0.5.1/config.c
+--- vpnc-0.5.1/config.c.dpd	2007-11-12 22:40:01.000000000 +0100
++++ vpnc-0.5.1/config.c	2007-11-12 23:17:39.000000000 +0100
+@@ -242,7 +242,7 @@ static const char *config_def_udp_port(v
+ 
+ static const char *config_def_dpd_idle(void)
+ {
+-	return "300";
++	return "600";
+ }
+ 
+ static const char *config_ca_dir(void)

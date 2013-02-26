@@ -1,0 +1,116 @@
+diff -uNr Python-2.6.orig/Lib/distutils/ccompiler.py Python-2.6/Lib/distutils/ccompiler.py
+--- Python-2.6.orig/Lib/distutils/ccompiler.py	2008-02-21 13:48:37.000000000 -0430
++++ Python-2.6/Lib/distutils/ccompiler.py	2008-11-16 12:19:23.000000000 -0430
+@@ -74,12 +74,13 @@
+     shared_lib_format = None            # prob. same as static_lib_format
+     exe_extension = None                # string
+ 
+-    # Default language settings. language_map is used to detect a source
+-    # file or Extension target language, checking source filenames.
+-    # language_order is used to detect the language precedence, when deciding
+-    # what language to use when mixing source types. For example, if some
+-    # extension has two files with ".c" extension, and one with ".cpp", it
+-    # is still linked as c++.
++    # Default language settings. Language is the current language used.
++    #language_map is used to detect a source file or Extension target language, 
++    #checking source filenames. language_order is used to detect the language 
++    #precedence, when deciding what language to use when mixing source types. 
++    #For example, if some extension has two files with ".c" extension, and one 
++    #with ".cpp", it is still linked as c++.
++    language = "c"
+     language_map = {".c"   : "c",
+                     ".cc"  : "c++",
+                     ".cpp" : "c++",
+@@ -689,6 +690,9 @@
+                                     depends, extra_postargs)
+         cc_args = self._get_cc_args(pp_opts, debug, extra_preargs)
+ 
++        # Use a class variable, so overriding _compile works as expected.
++        self.language = self.detect_language(sources)
++
+         for obj in objects:
+             try:
+                 src, ext = build[obj]
+diff -uNr Python-2.6.orig/Lib/distutils/sysconfig.py Python-2.6/Lib/distutils/sysconfig.py
+--- Python-2.6.orig/Lib/distutils/sysconfig.py	2008-06-05 08:28:24.000000000 -0430
++++ Python-2.6/Lib/distutils/sysconfig.py	2008-11-16 17:32:48.000000000 -0430
+@@ -162,9 +162,9 @@
+     varies across Unices and is stored in Python's Makefile.
+     """
+     if compiler.compiler_type == "unix":
+-        (cc, cxx, opt, cflags, ccshared, ldshared, so_ext) = \
++        (cc, cxx, opt, cflags, ccshared, cxxflags, ldshared, so_ext) = \
+             get_config_vars('CC', 'CXX', 'OPT', 'CFLAGS',
+-                            'CCSHARED', 'LDSHARED', 'SO')
++                            'CCSHARED','CXXFLAGS', 'LDSHARED', 'SO')
+ 
+         if 'CC' in os.environ:
+             cc = os.environ['CC']
+@@ -185,13 +185,21 @@
+             cpp = cpp + ' ' + os.environ['CPPFLAGS']
+             cflags = cflags + ' ' + os.environ['CPPFLAGS']
+             ldshared = ldshared + ' ' + os.environ['CPPFLAGS']
++		  
++        if os.environ.has_key('CXXFLAGS'):
++            cxxflags = opt + ' ' + os.environ['CXXFLAGS']
+ 
+         cc_cmd = cc + ' ' + cflags
++        cxx_cmd = cxx
++        if cxxflags is not None:
++            cxx_cmd = cxx_cmd + ' ' + cxxflags
++
+         compiler.set_executables(
+             preprocessor=cpp,
+             compiler=cc_cmd,
+             compiler_so=cc_cmd + ' ' + ccshared,
+-            compiler_cxx=cxx,
++            compiler_cxx = cxx_cmd,
++            compiler_cxx_so = cxx_cmd + ' ' + ccshared,
+             linker_so=ldshared,
+             linker_exe=cc)
+ 
+@@ -533,7 +541,7 @@
+                 for key in ('LDFLAGS', 'BASECFLAGS',
+                         # a number of derived variables. These need to be
+                         # patched up as well.
+-                        'CFLAGS', 'PY_CFLAGS', 'BLDSHARED'):
++                        'CFLAGS', 'CXXFLAGS', 'PY_CFLAGS', 'BLDSHARED'):
+                     flags = _config_vars[key]
+                     flags = re.sub('-arch\s+\w+\s', ' ', flags)
+                     flags = re.sub('-isysroot [^ \t]*', ' ', flags)
+@@ -552,7 +560,7 @@
+                     for key in ('LDFLAGS', 'BASECFLAGS',
+                         # a number of derived variables. These need to be
+                         # patched up as well.
+-                        'CFLAGS', 'PY_CFLAGS', 'BLDSHARED'):
++                        'CFLAGS', 'CXXFLAGS', 'PY_CFLAGS', 'BLDSHARED'):
+ 
+                         flags = _config_vars[key]
+                         flags = re.sub('-arch\s+\w+\s', ' ', flags)
+diff -uNr Python-2.6.orig/Lib/distutils/unixccompiler.py Python-2.6/Lib/distutils/unixccompiler.py
+--- Python-2.6.orig/Lib/distutils/unixccompiler.py	2008-07-16 08:54:06.000000000 -0430
++++ Python-2.6/Lib/distutils/unixccompiler.py	2008-11-16 22:33:14.000000000 -0430
+@@ -118,6 +118,7 @@
+                    'compiler'     : ["cc"],
+                    'compiler_so'  : ["cc"],
+                    'compiler_cxx' : ["cc"],
++                   'compiler_cxx_so' : ["cc"],
+                    'linker_so'    : ["cc", "-shared"],
+                    'linker_exe'   : ["cc"],
+                    'archiver'     : ["ar", "-cr"],
+@@ -171,9 +172,15 @@
+ 
+     def _compile(self, obj, src, ext, cc_args, extra_postargs, pp_opts):
+         compiler_so = self.compiler_so
++        compiler_cxx_so = self.compiler_cxx_so
+         if sys.platform == 'darwin':
+             compiler_so = _darwin_compiler_fixup(compiler_so, cc_args + extra_postargs)
+         try:
++            if self.language == "c++":
++                cc = compiler_cxx_so + cc_args
++            else:
++                cc = compiler_so + cc_args
++
+             self.spawn(compiler_so + cc_args + [src, '-o', obj] +
+                        extra_postargs)
+         except DistutilsExecError, msg:

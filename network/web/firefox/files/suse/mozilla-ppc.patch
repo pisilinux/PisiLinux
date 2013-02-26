@@ -1,0 +1,114 @@
+# HG changeset patch
+# Parent 58ae98c85e39def96a90cb21c90e871f41a03a71
+# User Wolfgang Rosenauer <wr@rosenauer.org>
+Bug 746112 - RegExp hang on ppc64 in execute.
+Bug 750620 - Make double-conversion portable to exotic architectures. TM: mozilla15
+
+diff --git a/js/src/yarr/YarrInterpreter.h b/js/src/yarr/YarrInterpreter.h
+--- a/js/src/yarr/YarrInterpreter.h
++++ b/js/src/yarr/YarrInterpreter.h
+@@ -162,17 +162,17 @@ struct ByteTerm {
+         , m_invert(invert)
+     {
+         atom.characterClass = characterClass;
+         atom.quantityType = QuantifierFixedCount;
+         atom.quantityCount = 1;
+         inputPosition = inputPos;
+     }
+ 
+-    ByteTerm(Type type, unsigned subpatternId, ByteDisjunction* parenthesesInfo, bool capture, int inputPos)
++    ByteTerm(Type type, unsigned subpatternId, ByteDisjunction* parenthesesInfo, bool capture, int inputPos) __attribute__((noinline))
+         : type(type)
+         , m_capture(capture)
+         , m_invert(false)
+     {
+         atom.subpatternId = subpatternId;
+         atom.parenthesesDisjunction = parenthesesInfo;
+         atom.quantityType = QuantifierFixedCount;
+         atom.quantityCount = 1;
+@@ -183,17 +183,17 @@ struct ByteTerm {
+         : type(type)
+         , m_capture(false)
+         , m_invert(invert)
+     {
+         atom.quantityType = QuantifierFixedCount;
+         atom.quantityCount = 1;
+     }
+ 
+-    ByteTerm(Type type, unsigned subpatternId, bool capture, bool invert, int inputPos)
++    ByteTerm(Type type, unsigned subpatternId, bool capture, bool invert, int inputPos) __attribute__((noinline))
+         : type(type)
+         , m_capture(capture)
+         , m_invert(invert)
+     {
+         atom.subpatternId = subpatternId;
+         atom.quantityType = QuantifierFixedCount;
+         atom.quantityCount = 1;
+         inputPosition = inputPos;
+diff --git a/js/src/yarr/YarrPattern.h b/js/src/yarr/YarrPattern.h
+--- a/js/src/yarr/YarrPattern.h
++++ b/js/src/yarr/YarrPattern.h
+@@ -166,17 +166,17 @@ struct PatternTerm {
+         , m_capture(false)
+         , m_invert(invert)
+     {
+         characterClass = charClass;
+         quantityType = QuantifierFixedCount;
+         quantityCount = 1;
+     }
+ 
+-    PatternTerm(Type type, unsigned subpatternId, PatternDisjunction* disjunction, bool capture = false, bool invert = false)
++    PatternTerm(Type type, unsigned subpatternId, PatternDisjunction* disjunction, bool capture = false, bool invert = false) __attribute__((noinline))
+         : type(type)
+         , m_capture(capture)
+         , m_invert(invert)
+     {
+         parentheses.disjunction = disjunction;
+         parentheses.subpatternId = subpatternId;
+         parentheses.isCopy = false;
+         parentheses.isTerminal = false;
+diff --git a/memory/mozjemalloc/jemalloc.c b/memory/mozjemalloc/jemalloc.c
+--- a/memory/mozjemalloc/jemalloc.c
++++ b/memory/mozjemalloc/jemalloc.c
+@@ -1086,17 +1086,19 @@ struct arena_s {
+ static unsigned		ncpus;
+ #endif
+ 
+ /*
+  * When MALLOC_STATIC_SIZES is defined most of the parameters
+  * controlling the malloc behavior are defined as compile-time constants
+  * for best performance and cannot be altered at runtime.
+  */
++#if !(defined(__powerpc__))
+ #define MALLOC_STATIC_SIZES 1
++#endif
+ 
+ #ifdef MALLOC_STATIC_SIZES
+ 
+ /*
+  * VM page size. It must divide the runtime CPU page size or the code
+  * will abort.
+  */
+ #define pagesize_2pow			((size_t) 12)
+diff --git a/mfbt/double-conversion/utils.h b/mfbt/double-conversion/utils.h
+--- a/mfbt/double-conversion/utils.h
++++ b/mfbt/double-conversion/utils.h
+@@ -50,17 +50,17 @@
+ // the result is equal to 89255e-22.
+ // The best way to test this, is to create a division-function and to compare
+ // the output of the division with the expected result. (Inlining must be
+ // disabled.)
+ // On Linux,x86 89255e-22 != Div_double(89255.0/1e22)
+ #if defined(_M_X64) || defined(__x86_64__) || \
+     defined(__ARMEL__) || defined(__avr32__) || \
+     defined(__hppa__) || defined(__ia64__) || \
+-    defined(__mips__) || defined(__powerpc__) || \
++    defined(__mips__) || defined(__powerpc__) || defined(__powerpc64__) || \
+     defined(__sparc__) || defined(__sparc) || defined(__s390__) || \
+     defined(__SH4__) || defined(__alpha__) || \
+     defined(_MIPS_ARCH_MIPS32R2)
+ #define DOUBLE_CONVERSION_CORRECT_DOUBLE_OPERATIONS 1
+ #elif defined(_M_IX86) || defined(__i386__) || defined(__i386)
+ #if defined(_WIN32)
+ // Windows uses a 64bit wide floating point stack.
+ #define DOUBLE_CONVERSION_CORRECT_DOUBLE_OPERATIONS 1

@@ -1,0 +1,102 @@
+Index: s2ram-x86.c
+===================================================================
+--- s2ram-x86.c.orig
++++ s2ram-x86.c
+@@ -321,6 +321,7 @@ int s2ram_do(void)
+ 
+ void s2ram_resume(void)
+ {
++	int i = 0;
+ 	if (flags & PCI_SAVE) {
+ 		printf("restoring PCI config of device %02x:%02x.%d\n",
+ 			vga_dev.bus, vga_dev.dev, vga_dev.func);
+@@ -330,19 +331,36 @@ void s2ram_resume(void)
+ 	}
+ 	// FIXME: can we call vbetool_init() multiple times without cleaning up?
+ 	if (flags & VBE_POST) {
+-		vbetool_init();
+-		printf("Calling do_post\n");
+-		do_post();
++		while (i++ < 5) {
++			vbetool_init();
++			printf("Calling do_post\n");
++			if (!do_post())
++				break;
++			printf("do_post failed, sleeping 100ms and retrying...\n");
++			usleep(100000);
++		}
++		i = 0;
+ 	}
+ 	if (vbe_buffer) {
+-		vbetool_init();
+-		printf("Calling restore_state_from\n");
+-		restore_state_from(vbe_buffer);
++		while (i++ < 5) {
++			vbetool_init();
++			printf("Calling restore_state_from\n");
++			if (!restore_state_from(vbe_buffer))
++				break;
++			printf("restore_state_from failed, sleeping 100ms and retrying...\n");
++			usleep(100000);
++		}
++		i = 0;
+ 	}
+ 	if (vbe_mode >= 0) {
+-		vbetool_init();
+-		printf("Calling set_vbe_mode\n");
+-		do_set_mode(vbe_mode, 0);
++		while (i++ < 5) {
++			vbetool_init();
++			printf("Calling set_vbe_mode\n");
++			if (!do_set_mode(vbe_mode, 0))
++				break;
++			printf("set_vbe_mode failed, sleeping 100ms and retrying...\n");
++			usleep(100000);
++		}
+ 	}
+ 	if (!fb_nosuspend)
+ 		resume_fbcon();
+Index: vbetool/vbetool.c
+===================================================================
+--- vbetool/vbetool.c.orig
++++ vbetool/vbetool.c
+@@ -231,9 +231,10 @@ int do_post(void)
+ 	return 0;
+ }
+ 
+-void restore_state_from(char *data)
++int restore_state_from(char *data)
+ {
+ 	struct LRMI_regs r;
++	int ret = 1;
+ 
+ 	/* VGA BIOS mode 3 is text mode */
+ 	do_set_mode(3,1);
+@@ -252,12 +253,16 @@ void restore_state_from(char *data)
+ 			"Can't restore video state (vm86 failure)\n");
+ 	} else if ((r.eax & 0xffff) != 0x4f) {
+ 		fprintf(stderr, "Restore video state failed\n");
++	} else {
++		/* everything ok */
++		ret = 0;
+ 	}
+ 
+ 	LRMI_free_real(data);
+ 
+ 	ioctl(0, KDSETMODE, KD_TEXT);
+ 
++	return ret;
+ }
+ 
+ #ifndef S2RAM
+Index: vbetool/vbetool.h
+===================================================================
+--- vbetool/vbetool.h.orig
++++ vbetool/vbetool.h
+@@ -18,5 +18,5 @@ int disable_vga(void);
+ int do_get_panel_id();
+ void vbetool_init(void);
+ char *__save_state(int *);
+-void restore_state_from(char *);
++int restore_state_from(char *);
+ int __get_mode(void);

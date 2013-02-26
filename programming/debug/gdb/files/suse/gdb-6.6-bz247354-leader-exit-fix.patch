@@ -1,0 +1,142 @@
+2007-07-08  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* linux-nat.c (linux_lwp_is_zombie): New function.
+	(wait_lwp): Fix lockup on exit of the thread group leader.
+	(linux_xfer_partial): Renamed to ...
+	(linux_xfer_partial_lwp): ... here.
+	(linux_xfer_partial): New function wrapping LINUX_XFER_PARTIAL_LWP.
+
+2008-02-24  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Port to GDB-6.8pre.
+
+Index: gdb-6.8.50.20081209/gdb/linux-nat.c
+===================================================================
+--- gdb-6.8.50.20081209.orig/gdb/linux-nat.c	2008-12-10 01:27:34.000000000 +0100
++++ gdb-6.8.50.20081209/gdb/linux-nat.c	2008-12-10 01:28:14.000000000 +0100
+@@ -1981,6 +1981,31 @@ linux_handle_extended_wait (struct lwp_i
+ 		  _("unknown ptrace event %d"), event);
+ }
+ 
++static int
++linux_lwp_is_zombie (long lwp)
++{
++  char buffer[MAXPATHLEN];
++  FILE *procfile;
++  int retval = 0;
++
++  sprintf (buffer, "/proc/%ld/status", lwp);
++  procfile = fopen (buffer, "r");
++  if (procfile == NULL)
++    {
++      warning (_("unable to open /proc file '%s'"), buffer);
++      return 0;
++    }
++  while (fgets (buffer, sizeof (buffer), procfile) != NULL)
++    if (strcmp (buffer, "State:\tZ (zombie)\n") == 0)
++      {
++	retval = 1;
++	break;
++      }
++  fclose (procfile);
++
++  return retval;
++}
++
+ /* Wait for LP to stop.  Returns the wait status, or 0 if the LWP has
+    exited.  */
+ 
+@@ -1988,16 +2013,31 @@ static int
+ wait_lwp (struct lwp_info *lp)
+ {
+   pid_t pid;
+-  int status;
++  int status = 0;
+   int thread_dead = 0;
+ 
+   gdb_assert (!lp->stopped);
+   gdb_assert (lp->status == 0);
+ 
+-  pid = my_waitpid (GET_LWP (lp->ptid), &status, 0);
+-  if (pid == -1 && errno == ECHILD)
++  /* Thread group leader may have exited but we would lock up by WAITPID as it
++     waits on all its threads; __WCLONE is not applicable for the leader.
++     The thread leader restrictions is only a performance optimization here.
++     LINUX_NAT_THREAD_ALIVE cannot be used here as it requires a STOPPED
++     process; it gets ESRCH both for the zombie and for running processes.  */
++  if (is_lwp (lp->ptid) && GET_PID (lp->ptid) == GET_LWP (lp->ptid)
++      && linux_lwp_is_zombie (GET_LWP (lp->ptid)))
++    {
++      thread_dead = 1;
++      if (debug_linux_nat)
++	fprintf_unfiltered (gdb_stdlog, "WL: Threads leader %s vanished.\n",
++			    target_pid_to_str (lp->ptid));
++    }
++
++  if (!thread_dead)
+     {
+-      pid = my_waitpid (GET_LWP (lp->ptid), &status, __WCLONE);
++      pid = my_waitpid (GET_LWP (lp->ptid), &status, 0);
++      if (pid == -1 && errno == ECHILD)
++	pid = my_waitpid (GET_LWP (lp->ptid), &status, __WCLONE);
+       if (pid == -1 && errno == ECHILD)
+ 	{
+ 	  /* The thread has previously exited.  We need to delete it
+@@ -4153,8 +4193,10 @@ linux_nat_xfer_osdata (struct target_ops
+   return len;
+ }
+ 
++/* Transfer from the specific LWP currently set by PID of INFERIOR_PTID.  */
++
+ static LONGEST
+-linux_xfer_partial (struct target_ops *ops, enum target_object object,
++linux_xfer_partial_lwp (struct target_ops *ops, enum target_object object,
+                     const char *annex, gdb_byte *readbuf,
+ 		    const gdb_byte *writebuf, ULONGEST offset, LONGEST len)
+ {
+@@ -4201,6 +4243,45 @@ linux_xfer_partial (struct target_ops *o
+ 			     offset, len);
+ }
+ 
++/* nptl_db expects being able to transfer memory just by specifying PID.
++   After the thread group leader exists the Linux kernel turns the task
++   into zombie no longer permitting accesses to its memory.
++   Transfer the memory from an arbitrary LWP_LIST entry in such case.  */
++
++static LONGEST
++linux_xfer_partial (struct target_ops *ops, enum target_object object,
++                    const char *annex, gdb_byte *readbuf,
++		    const gdb_byte *writebuf, ULONGEST offset, LONGEST len)
++{
++  LONGEST xfer;
++  struct lwp_info *lp;
++  /* Not using SAVE_INFERIOR_PTID already here for better performance.  */
++  struct cleanup *old_chain = NULL;
++  ptid_t inferior_ptid_orig = inferior_ptid;
++
++  errno = 0;
++  xfer = linux_xfer_partial_lwp (ops, object, annex, readbuf, writebuf,
++				 offset, len);
++
++  for (lp = lwp_list; xfer == 0 && (errno == EACCES || errno == ESRCH)
++		      && lp != NULL; lp = lp->next)
++    {
++      if (!is_lwp (lp->ptid) || ptid_equal (lp->ptid, inferior_ptid_orig))
++        continue;
++      
++      if (old_chain == NULL)
++	old_chain = save_inferior_ptid ();
++      inferior_ptid = BUILD_LWP (GET_LWP (lp->ptid), GET_LWP (lp->ptid));
++      errno = 0;
++      xfer = linux_xfer_partial_lwp (ops, object, annex, readbuf, writebuf,
++				     offset, len);
++    }
++
++  if (old_chain != NULL)
++    do_cleanups (old_chain);
++  return xfer;
++}
++
+ /* Create a prototype generic GNU/Linux target.  The client can override
+    it with local methods.  */
+ 

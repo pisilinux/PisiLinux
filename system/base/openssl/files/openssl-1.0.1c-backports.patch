@@ -1,0 +1,106 @@
+diff -up openssl-1.0.1c/crypto/asn1/x_pubkey.c.backports openssl-1.0.1c/crypto/asn1/x_pubkey.c
+--- openssl-1.0.1c/crypto/asn1/x_pubkey.c.backports	2012-02-28 15:47:16.000000000 +0100
++++ openssl-1.0.1c/crypto/asn1/x_pubkey.c	2012-05-15 17:44:14.584128501 +0200
+@@ -175,12 +175,15 @@ EVP_PKEY *X509_PUBKEY_get(X509_PUBKEY *k
+ 	CRYPTO_w_lock(CRYPTO_LOCK_EVP_PKEY);
+ 	if (key->pkey)
+ 		{
++		CRYPTO_w_unlock(CRYPTO_LOCK_EVP_PKEY);
+ 		EVP_PKEY_free(ret);
+ 		ret = key->pkey;
+ 		}
+ 	else
++		{
+ 		key->pkey = ret;
+-	CRYPTO_w_unlock(CRYPTO_LOCK_EVP_PKEY);
++		CRYPTO_w_unlock(CRYPTO_LOCK_EVP_PKEY);
++		}
+ 	CRYPTO_add(&ret->references, 1, CRYPTO_LOCK_EVP_PKEY);
+ 
+ 	return ret;
+diff -up openssl-1.0.1c/ssl/s3_lib.c.backports openssl-1.0.1c/ssl/s3_lib.c
+--- openssl-1.0.1c/ssl/s3_lib.c.backports	2012-04-17 17:20:17.000000000 +0200
++++ openssl-1.0.1c/ssl/s3_lib.c	2012-05-15 17:42:43.880139566 +0200
+@@ -1125,7 +1125,7 @@ OPENSSL_GLOBAL SSL_CIPHER ssl3_ciphers[]
+ 	0, /* not implemented (non-ephemeral DH) */
+ 	TLS1_TXT_DH_DSS_WITH_AES_128_SHA256,
+ 	TLS1_CK_DH_DSS_WITH_AES_128_SHA256,
+-	SSL_kDHr,
++	SSL_kDHd,
+ 	SSL_aDH,
+ 	SSL_AES128,
+ 	SSL_SHA256,
+@@ -1407,7 +1407,7 @@ OPENSSL_GLOBAL SSL_CIPHER ssl3_ciphers[]
+ 	0, /* not implemented (non-ephemeral DH) */
+ 	TLS1_TXT_DH_DSS_WITH_AES_256_SHA256,
+ 	TLS1_CK_DH_DSS_WITH_AES_256_SHA256,
+-	SSL_kDHr,
++	SSL_kDHd,
+ 	SSL_aDH,
+ 	SSL_AES256,
+ 	SSL_SHA256,
+@@ -1958,7 +1958,7 @@ OPENSSL_GLOBAL SSL_CIPHER ssl3_ciphers[]
+ 	0,
+ 	TLS1_TXT_DH_DSS_WITH_AES_128_GCM_SHA256,
+ 	TLS1_CK_DH_DSS_WITH_AES_128_GCM_SHA256,
+-	SSL_kDHr,
++	SSL_kDHd,
+ 	SSL_aDH,
+ 	SSL_AES128GCM,
+ 	SSL_AEAD,
+@@ -1974,7 +1974,7 @@ OPENSSL_GLOBAL SSL_CIPHER ssl3_ciphers[]
+ 	0,
+ 	TLS1_TXT_DH_DSS_WITH_AES_256_GCM_SHA384,
+ 	TLS1_CK_DH_DSS_WITH_AES_256_GCM_SHA384,
+-	SSL_kDHr,
++	SSL_kDHd,
+ 	SSL_aDH,
+ 	SSL_AES256GCM,
+ 	SSL_AEAD,
+@@ -2669,7 +2669,7 @@ OPENSSL_GLOBAL SSL_CIPHER ssl3_ciphers[]
+ 	1,
+ 	TLS1_TXT_ECDH_RSA_WITH_AES_128_SHA256,
+ 	TLS1_CK_ECDH_RSA_WITH_AES_128_SHA256,
+-	SSL_kECDHe,
++	SSL_kECDHr,
+ 	SSL_aECDH,
+ 	SSL_AES128,
+ 	SSL_SHA256,
+@@ -2685,7 +2685,7 @@ OPENSSL_GLOBAL SSL_CIPHER ssl3_ciphers[]
+ 	1,
+ 	TLS1_TXT_ECDH_RSA_WITH_AES_256_SHA384,
+ 	TLS1_CK_ECDH_RSA_WITH_AES_256_SHA384,
+-	SSL_kECDHe,
++	SSL_kECDHr,
+ 	SSL_aECDH,
+ 	SSL_AES256,
+ 	SSL_SHA384,
+@@ -2799,7 +2799,7 @@ OPENSSL_GLOBAL SSL_CIPHER ssl3_ciphers[]
+ 	1,
+ 	TLS1_TXT_ECDH_RSA_WITH_AES_128_GCM_SHA256,
+ 	TLS1_CK_ECDH_RSA_WITH_AES_128_GCM_SHA256,
+-	SSL_kECDHe,
++	SSL_kECDHr,
+ 	SSL_aECDH,
+ 	SSL_AES128GCM,
+ 	SSL_AEAD,
+@@ -2815,7 +2815,7 @@ OPENSSL_GLOBAL SSL_CIPHER ssl3_ciphers[]
+ 	1,
+ 	TLS1_TXT_ECDH_RSA_WITH_AES_256_GCM_SHA384,
+ 	TLS1_CK_ECDH_RSA_WITH_AES_256_GCM_SHA384,
+-	SSL_kECDHe,
++	SSL_kECDHr,
+ 	SSL_aECDH,
+ 	SSL_AES256GCM,
+ 	SSL_AEAD,
+diff -up openssl-1.0.1c/ssl/s3_pkt.c.backports openssl-1.0.1c/ssl/s3_pkt.c
+--- openssl-1.0.1c/ssl/s3_pkt.c.backports	2012-04-17 15:20:19.000000000 +0200
++++ openssl-1.0.1c/ssl/s3_pkt.c	2012-05-15 17:43:48.470555889 +0200
+@@ -744,6 +744,7 @@ static int do_ssl3_write(SSL *s, int typ
+ 	 * bytes and record version number > TLS 1.0
+ 	 */
+ 	if (s->state == SSL3_ST_CW_CLNT_HELLO_B
++				&& !s->renegotiate
+ 				&& TLS1_get_version(s) > TLS1_VERSION)
+ 		*(p++) = 0x1;
+ 	else

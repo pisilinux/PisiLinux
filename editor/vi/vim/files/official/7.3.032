@@ -1,0 +1,704 @@
+To: vim-dev@vim.org
+Subject: Patch 7.3.032
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.032
+Problem:    maparg() doesn't return the flags, such as <buffer>, <script>,
+	    <silent>.  These are needed to save and restore a mapping.
+Solution:   Improve maparg(). (also by Christian Brabandt)
+Files:	    runtime/doc/eval.txt, src/eval.c, src/getchar.c, src/gui_w48.c, src/message.c, src/proto/getchar.pro, src/proto/message.pro, src/structs.h src/testdir/test75.in, src/testdir/test75.ok
+
+
+*** ../vim-7.3.031/runtime/doc/eval.txt	2010-10-20 19:17:43.000000000 +0200
+--- runtime/doc/eval.txt	2010-10-20 19:44:41.000000000 +0200
+***************
+*** 1827,1833 ****
+  log( {expr})			Float	natural logarithm (base e) of {expr}
+  log10( {expr})			Float	logarithm of Float {expr} to base 10
+  map( {expr}, {string})		List/Dict  change each item in {expr} to {expr}
+! maparg( {name}[, {mode} [, {abbr}]])
+  				String	rhs of mapping {name} in mode {mode}
+  mapcheck( {name}[, {mode} [, {abbr}]])
+  				String	check for mappings matching {name}
+--- 1827,1833 ----
+  log( {expr})			Float	natural logarithm (base e) of {expr}
+  log10( {expr})			Float	logarithm of Float {expr} to base 10
+  map( {expr}, {string})		List/Dict  change each item in {expr} to {expr}
+! maparg( {name}[, {mode} [, {abbr} [, {dict}]]])
+  				String	rhs of mapping {name} in mode {mode}
+  mapcheck( {name}[, {mode} [, {abbr}]])
+  				String	check for mappings matching {name}
+***************
+*** 3971,3993 ****
+  		further items in {expr} are processed.
+  
+  
+! maparg({name}[, {mode} [, {abbr}]])			*maparg()*
+! 		Return the rhs of mapping {name} in mode {mode}.  When there
+! 		is no mapping for {name}, an empty String is returned.
+  		{mode} can be one of these strings:
+  			"n"	Normal
+! 			"v"	Visual
+  			"o"	Operator-pending
+  			"i"	Insert
+  			"c"	Cmd-line
+  			"l"	langmap |language-mapping|
+  			""	Normal, Visual and Operator-pending
+  		When {mode} is omitted, the modes for "" are used.
+  		When {abbr} is there and it is non-zero use abbreviations
+  		instead of mappings.
+! 		The {name} can have special key names, like in the ":map"
+! 		command.  The returned String has special characters
+! 		translated like in the output of the ":map" command listing.
+  		The mappings local to the current buffer are checked first,
+  		then the global mappings.
+  		This function can be used to map a key even when it's already
+--- 3972,4022 ----
+  		further items in {expr} are processed.
+  
+  
+! maparg({name}[, {mode} [, {abbr} [, {dict}]]])			*maparg()*
+! 		When {dict} is omitted or zero: Return the rhs of mapping
+! 		{name} in mode {mode}.  The returned String has special
+! 		characters translated like in the output of the ":map" command
+! 		listing.
+! 		
+! 		When there is no mapping for {name}, an empty String is
+! 		returned.
+! 
+! 		The {name} can have special key names, like in the ":map"
+! 		command.
+! 
+  		{mode} can be one of these strings:
+  			"n"	Normal
+! 			"v"	Visual (including Select)
+  			"o"	Operator-pending
+  			"i"	Insert
+  			"c"	Cmd-line
++ 			"s"	Select
++ 			"x"	Visual
+  			"l"	langmap |language-mapping|
+  			""	Normal, Visual and Operator-pending
+  		When {mode} is omitted, the modes for "" are used.
++ 
+  		When {abbr} is there and it is non-zero use abbreviations
+  		instead of mappings.
+! 
+! 		When {dict} is there and it is non-zero return a dictionary
+! 		containing all the information of the mapping with the
+! 		following items:
+! 		  "lhs"	     The {lhs} of the mapping.
+! 		  "rhs"	     The {rhs} of the mapping as typed.
+! 		  "silent"   1 for a |:map-silent| mapping, else 0.
+! 		  "noremap"  1 if the {rhs} of the mapping is remappable.
+! 		  "expr"     1 for an expression mapping (|:map-<expr>|).
+! 		  "buffer"   1 for a buffer local mapping (|:map-local|).
+! 		  "mode"     Modes for which the mapping is defined. In
+! 			     addition to the modes mentioned above, these
+! 			     characters will be used:
+! 			     " "     Normal, Visual and Operator-pending
+! 			     "!"     Insert and Commandline mode
+! 				     (|mapmpde-ic|)
+! 		  "sid"	     the Script local ID, used for <sid> mappings
+! 			     (|<SID>|)
+! 
+  		The mappings local to the current buffer are checked first,
+  		then the global mappings.
+  		This function can be used to map a key even when it's already
+*** ../vim-7.3.031/src/eval.c	2010-10-20 19:17:43.000000000 +0200
+--- src/eval.c	2010-10-20 21:15:55.000000000 +0200
+***************
+*** 7804,7810 ****
+      {"log10",		1, 1, f_log10},
+  #endif
+      {"map",		2, 2, f_map},
+!     {"maparg",		1, 3, f_maparg},
+      {"mapcheck",	1, 3, f_mapcheck},
+      {"match",		2, 4, f_match},
+      {"matchadd",	2, 4, f_matchadd},
+--- 7804,7810 ----
+      {"log10",		1, 1, f_log10},
+  #endif
+      {"map",		2, 2, f_map},
+!     {"maparg",		1, 4, f_maparg},
+      {"mapcheck",	1, 3, f_mapcheck},
+      {"match",		2, 4, f_match},
+      {"matchadd",	2, 4, f_matchadd},
+***************
+*** 13292,13299 ****
+      char_u	*keys_buf = NULL;
+      char_u	*rhs;
+      int		mode;
+-     garray_T	ga;
+      int		abbr = FALSE;
+  
+      /* return empty string for failure */
+      rettv->v_type = VAR_STRING;
+--- 13292,13301 ----
+      char_u	*keys_buf = NULL;
+      char_u	*rhs;
+      int		mode;
+      int		abbr = FALSE;
++     int         get_dict = FALSE;
++     mapblock_T	*mp;
++     int		buffer_local;
+  
+      /* return empty string for failure */
+      rettv->v_type = VAR_STRING;
+***************
+*** 13307,13313 ****
+--- 13309,13319 ----
+      {
+  	which = get_tv_string_buf_chk(&argvars[1], buf);
+  	if (argvars[2].v_type != VAR_UNKNOWN)
++ 	{
+  	    abbr = get_tv_number(&argvars[2]);
++ 	    if (argvars[3].v_type != VAR_UNKNOWN)
++ 		get_dict = get_tv_number(&argvars[3]);
++ 	}
+      }
+      else
+  	which = (char_u *)"";
+***************
+*** 13317,13335 ****
+      mode = get_map_mode(&which, 0);
+  
+      keys = replace_termcodes(keys, &keys_buf, TRUE, TRUE, FALSE);
+!     rhs = check_map(keys, mode, exact, FALSE, abbr);
+      vim_free(keys_buf);
+-     if (rhs != NULL)
+-     {
+- 	ga_init(&ga);
+- 	ga.ga_itemsize = 1;
+- 	ga.ga_growsize = 40;
+  
+! 	while (*rhs != NUL)
+! 	    ga_concat(&ga, str2special(&rhs, FALSE));
+  
+! 	ga_append(&ga, NUL);
+! 	rettv->vval.v_string = (char_u *)ga.ga_data;
+      }
+  }
+  
+--- 13323,13356 ----
+      mode = get_map_mode(&which, 0);
+  
+      keys = replace_termcodes(keys, &keys_buf, TRUE, TRUE, FALSE);
+!     rhs = check_map(keys, mode, exact, FALSE, abbr, &mp, &buffer_local);
+      vim_free(keys_buf);
+  
+!     if (!get_dict)
+!     {
+! 	/* Return a string. */
+! 	if (rhs != NULL)
+! 	    rettv->vval.v_string = str2special_save(rhs, FALSE);
+! 
+!     }
+!     else if (rettv_dict_alloc(rettv) != FAIL && rhs != NULL)
+!     {
+! 	/* Return a dictionary. */
+! 	char_u	    *lhs = str2special_save(mp->m_keys, TRUE);
+! 	char_u	    *mapmode = map_mode_to_chars(mp->m_mode);
+! 	dict_T	    *dict = rettv->vval.v_dict;
+! 
+! 	dict_add_nr_str(dict, "lhs",	 0L, lhs);
+! 	dict_add_nr_str(dict, "rhs",     0L, mp->m_orig_str);
+! 	dict_add_nr_str(dict, "noremap", mp->m_noremap ? 1L : 0L , NULL);
+! 	dict_add_nr_str(dict, "expr",    mp->m_expr    ? 1L : 0L, NULL);
+! 	dict_add_nr_str(dict, "silent",  mp->m_silent  ? 1L : 0L, NULL);
+! 	dict_add_nr_str(dict, "sid",     (long)mp->m_script_ID, NULL);
+! 	dict_add_nr_str(dict, "buffer",  (long)buffer_local, NULL);
+! 	dict_add_nr_str(dict, "mode",    0L, mapmode);
+  
+! 	vim_free(lhs);
+! 	vim_free(mapmode);
+      }
+  }
+  
+*** ../vim-7.3.031/src/getchar.c	2010-08-15 21:57:25.000000000 +0200
+--- src/getchar.c	2010-10-20 21:16:24.000000000 +0200
+***************
+*** 3168,3173 ****
+--- 3168,3174 ----
+      int		expr = FALSE;
+  #endif
+      int		noremap;
++     char_u      *orig_rhs;
+  
+      keys = arg;
+      map_table = maphash;
+***************
+*** 3266,3271 ****
+--- 3267,3273 ----
+      }
+      if (*p != NUL)
+  	*p++ = NUL;
++ 
+      p = skipwhite(p);
+      rhs = p;
+      hasarg = (*rhs != NUL);
+***************
+*** 3290,3295 ****
+--- 3292,3298 ----
+  	keys = replace_termcodes(keys, &keys_buf, TRUE, TRUE, special);
+      if (hasarg)
+      {
++ 	orig_rhs = rhs;
+  	if (STRICMP(rhs, "<nop>") == 0)	    /* "<Nop>" means nothing */
+  	    rhs = (char_u *)"";
+  	else
+***************
+*** 3298,3304 ****
+  
+  #ifdef FEAT_FKMAP
+      /*
+!      * when in right-to-left mode and alternate keymap option set,
+       * reverse the character flow in the rhs in Farsi.
+       */
+      if (p_altkeymap && curwin->w_p_rl)
+--- 3301,3307 ----
+  
+  #ifdef FEAT_FKMAP
+      /*
+!      * When in right-to-left mode and alternate keymap option set,
+       * reverse the character flow in the rhs in Farsi.
+       */
+      if (p_altkeymap && curwin->w_p_rl)
+***************
+*** 3556,3561 ****
+--- 3559,3566 ----
+  				}
+  				vim_free(mp->m_str);
+  				mp->m_str = newstr;
++ 				vim_free(mp->m_orig_str);
++ 				mp->m_orig_str = vim_strsave(orig_rhs);
+  				mp->m_noremap = noremap;
+  				mp->m_silent = silent;
+  				mp->m_mode = mode;
+***************
+*** 3633,3642 ****
+--- 3638,3649 ----
+  
+      mp->m_keys = vim_strsave(keys);
+      mp->m_str = vim_strsave(rhs);
++     mp->m_orig_str = vim_strsave(orig_rhs);
+      if (mp->m_keys == NULL || mp->m_str == NULL)
+      {
+  	vim_free(mp->m_keys);
+  	vim_free(mp->m_str);
++ 	vim_free(mp->m_orig_str);
+  	vim_free(mp);
+  	retval = 4;	/* no mem */
+  	goto theend;
+***************
+*** 3682,3687 ****
+--- 3689,3695 ----
+      mp = *mpp;
+      vim_free(mp->m_keys);
+      vim_free(mp->m_str);
++     vim_free(mp->m_orig_str);
+      *mpp = mp->m_next;
+      vim_free(mp);
+  }
+***************
+*** 3851,3862 ****
+      }
+  }
+  
+      static void
+  showmap(mp, local)
+      mapblock_T	*mp;
+      int		local;	    /* TRUE for buffer-local map */
+  {
+!     int len = 1;
+  
+      if (msg_didout || msg_silent != 0)
+      {
+--- 3859,3915 ----
+      }
+  }
+  
++ /*
++  * Return characters to represent the map mode in an allocated string.
++  * Returns NULL when out of memory.
++  */
++     char_u *
++ map_mode_to_chars(mode)
++     int mode;
++ {
++     garray_T    mapmode;
++ 
++     ga_init2(&mapmode, 1, 7);
++ 
++     if ((mode & (INSERT + CMDLINE)) == INSERT + CMDLINE)
++ 	ga_append(&mapmode, '!');			/* :map! */
++     else if (mode & INSERT)
++ 	ga_append(&mapmode, 'i');			/* :imap */
++     else if (mode & LANGMAP)
++ 	ga_append(&mapmode, 'l');			/* :lmap */
++     else if (mode & CMDLINE)
++ 	ga_append(&mapmode, 'c');			/* :cmap */
++     else if ((mode & (NORMAL + VISUAL + SELECTMODE + OP_PENDING))
++ 				 == NORMAL + VISUAL + SELECTMODE + OP_PENDING)
++ 	ga_append(&mapmode, ' ');			/* :map */
++     else
++     {
++ 	if (mode & NORMAL)
++ 	    ga_append(&mapmode, 'n');			/* :nmap */
++ 	if (mode & OP_PENDING)
++ 	    ga_append(&mapmode, 'o');			/* :omap */
++ 	if ((mode & (VISUAL + SELECTMODE)) == VISUAL + SELECTMODE)
++ 	    ga_append(&mapmode, 'v');			/* :vmap */
++ 	else
++ 	{
++ 	    if (mode & VISUAL)
++ 		ga_append(&mapmode, 'x');		/* :xmap */
++ 	    if (mode & SELECTMODE)
++ 		ga_append(&mapmode, 's');		/* :smap */
++ 	}
++     }
++ 
++     ga_append(&mapmode, NUL);
++     return (char_u *)mapmode.ga_data;
++ }
++ 
+      static void
+  showmap(mp, local)
+      mapblock_T	*mp;
+      int		local;	    /* TRUE for buffer-local map */
+  {
+!     int		len = 1;
+!     char_u	*mapchars;
+  
+      if (msg_didout || msg_silent != 0)
+      {
+***************
+*** 3864,3912 ****
+  	if (got_int)	    /* 'q' typed at MORE prompt */
+  	    return;
+      }
+!     if ((mp->m_mode & (INSERT + CMDLINE)) == INSERT + CMDLINE)
+! 	msg_putchar('!');			/* :map! */
+!     else if (mp->m_mode & INSERT)
+! 	msg_putchar('i');			/* :imap */
+!     else if (mp->m_mode & LANGMAP)
+! 	msg_putchar('l');			/* :lmap */
+!     else if (mp->m_mode & CMDLINE)
+! 	msg_putchar('c');			/* :cmap */
+!     else if ((mp->m_mode & (NORMAL + VISUAL + SELECTMODE + OP_PENDING))
+! 				 == NORMAL + VISUAL + SELECTMODE + OP_PENDING)
+! 	msg_putchar(' ');			/* :map */
+!     else
+      {
+! 	len = 0;
+! 	if (mp->m_mode & NORMAL)
+! 	{
+! 	    msg_putchar('n');		/* :nmap */
+! 	    ++len;
+! 	}
+! 	if (mp->m_mode & OP_PENDING)
+! 	{
+! 	    msg_putchar('o');		/* :omap */
+! 	    ++len;
+! 	}
+! 	if ((mp->m_mode & (VISUAL + SELECTMODE)) == VISUAL + SELECTMODE)
+! 	{
+! 	    msg_putchar('v');		/* :vmap */
+! 	    ++len;
+! 	}
+! 	else
+! 	{
+! 	    if (mp->m_mode & VISUAL)
+! 	    {
+! 		msg_putchar('x');		/* :xmap */
+! 		++len;
+! 	    }
+! 	    if (mp->m_mode & SELECTMODE)
+! 	    {
+! 		msg_putchar('s');		/* :smap */
+! 		++len;
+! 	    }
+! 	}
+      }
+      while (++len <= 3)
+  	msg_putchar(' ');
+  
+--- 3917,3931 ----
+  	if (got_int)	    /* 'q' typed at MORE prompt */
+  	    return;
+      }
+! 
+!     mapchars = map_mode_to_chars(mp->m_mode);
+!     if (mapchars != NULL)
+      {
+! 	msg_puts(mapchars);
+! 	len = STRLEN(mapchars);
+! 	vim_free(mapchars);
+      }
++ 
+      while (++len <= 3)
+  	msg_putchar(' ');
+  
+***************
+*** 3931,3938 ****
+  	msg_putchar(' ');
+  
+      /* Use FALSE below if we only want things like <Up> to show up as such on
+!      * the rhs, and not M-x etc, TRUE gets both -- webb
+!      */
+      if (*mp->m_str == NUL)
+  	msg_puts_attr((char_u *)"<Nop>", hl_attr(HLF_8));
+      else
+--- 3950,3956 ----
+  	msg_putchar(' ');
+  
+      /* Use FALSE below if we only want things like <Up> to show up as such on
+!      * the rhs, and not M-x etc, TRUE gets both -- webb */
+      if (*mp->m_str == NUL)
+  	msg_puts_attr((char_u *)"<Nop>", hl_attr(HLF_8));
+      else
+***************
+*** 4995,5013 ****
+      sourcing_name = save_name;
+  }
+  
+! #ifdef FEAT_EVAL
+  /*
+!  * Check the string "keys" against the lhs of all mappings
+!  * Return pointer to rhs of mapping (mapblock->m_str)
+!  * NULL otherwise
+   */
+      char_u *
+! check_map(keys, mode, exact, ign_mod, abbr)
+      char_u	*keys;
+      int		mode;
+      int		exact;		/* require exact match */
+      int		ign_mod;	/* ignore preceding modifier */
+      int		abbr;		/* do abbreviations */
+  {
+      int		hash;
+      int		len, minlen;
+--- 5013,5033 ----
+      sourcing_name = save_name;
+  }
+  
+! #if defined(FEAT_EVAL) || defined(PROTO)
+  /*
+!  * Check the string "keys" against the lhs of all mappings.
+!  * Return pointer to rhs of mapping (mapblock->m_str).
+!  * NULL when no mapping found.
+   */
+      char_u *
+! check_map(keys, mode, exact, ign_mod, abbr, mp_ptr, local_ptr)
+      char_u	*keys;
+      int		mode;
+      int		exact;		/* require exact match */
+      int		ign_mod;	/* ignore preceding modifier */
+      int		abbr;		/* do abbreviations */
++     mapblock_T	**mp_ptr;	/* return: pointer to mapblock or NULL */
++     int		*local_ptr;	/* return: buffer-local mapping or NULL */
+  {
+      int		hash;
+      int		len, minlen;
+***************
+*** 5062,5068 ****
+--- 5082,5094 ----
+  			    minlen = mp->m_keylen - 3;
+  		    }
+  		    if (STRNCMP(s, keys, minlen) == 0)
++ 		    {
++ 			if (mp_ptr != NULL)
++ 			    *mp_ptr = mp;
++ 			if (local_ptr != NULL)
++ 			    *local_ptr = local;
+  			return mp->m_str;
++ 		    }
+  		}
+  	    }
+  	}
+*** ../vim-7.3.031/src/gui_w48.c	2010-08-15 21:57:29.000000000 +0200
+--- src/gui_w48.c	2010-10-20 20:29:20.000000000 +0200
+***************
+*** 1810,1816 ****
+  		 * mapped we want to use the mapping instead. */
+  		if (vk == VK_F10
+  			&& gui.menu_is_active
+! 			&& check_map(k10, State, FALSE, TRUE, FALSE) == NULL)
+  		    break;
+  #endif
+  		if (GetKeyState(VK_SHIFT) & 0x8000)
+--- 1810,1817 ----
+  		 * mapped we want to use the mapping instead. */
+  		if (vk == VK_F10
+  			&& gui.menu_is_active
+! 			&& check_map(k10, State, FALSE, TRUE, FALSE,
+! 							  NULL, NULL) == NULL)
+  		    break;
+  #endif
+  		if (GetKeyState(VK_SHIFT) & 0x8000)
+***************
+*** 1924,1930 ****
+      /* Check for <F10>: Default effect is to select the menu.  When <F10> is
+       * mapped we need to stop it here to avoid strange effects (e.g., for the
+       * key-up event) */
+!     if (vk != VK_F10 || check_map(k10, State, FALSE, TRUE, FALSE) == NULL)
+  #endif
+  	DispatchMessage(&msg);
+  }
+--- 1925,1932 ----
+      /* Check for <F10>: Default effect is to select the menu.  When <F10> is
+       * mapped we need to stop it here to avoid strange effects (e.g., for the
+       * key-up event) */
+!     if (vk != VK_F10 || check_map(k10, State, FALSE, TRUE, FALSE,
+! 							  NULL, NULL) == NULL)
+  #endif
+  	DispatchMessage(&msg);
+  }
+*** ../vim-7.3.031/src/message.c	2010-08-15 21:57:29.000000000 +0200
+--- src/message.c	2010-10-20 20:31:33.000000000 +0200
+***************
+*** 1477,1482 ****
+--- 1477,1503 ----
+      return retval;
+  }
+  
++ #if defined(FEAT_EVAL) || defined(PROTO)
++ /*
++  * Return the lhs or rhs of a mapping, with the key codes turned into printable
++  * strings, in an allocated string.
++  */
++     char_u *
++ str2special_save(str, is_lhs)
++     char_u  *str;
++     int	    is_lhs;  /* TRUE for lhs, FALSE for rhs */
++ {
++     garray_T	ga;
++     char_u	*p = str;
++ 
++     ga_init2(&ga, 1, 40);
++     while (*p != NUL)
++ 	ga_concat(&ga, str2special(&p, is_lhs));
++     ga_append(&ga, NUL);
++     return (char_u *)ga.ga_data;
++ }
++ #endif
++ 
+  /*
+   * Return the printable string for the key codes at "*sp".
+   * Used for translating the lhs or rhs of a mapping to printable chars.
+*** ../vim-7.3.031/src/proto/getchar.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/getchar.pro	2010-10-20 21:06:01.000000000 +0200
+***************
+*** 51,56 ****
+--- 51,57 ----
+  int get_map_mode __ARGS((char_u **cmdp, int forceit));
+  void map_clear __ARGS((char_u *cmdp, char_u *arg, int forceit, int abbr));
+  void map_clear_int __ARGS((buf_T *buf, int mode, int local, int abbr));
++ char_u *map_mode_to_chars __ARGS((int mode));
+  int map_to_exists __ARGS((char_u *str, char_u *modechars, int abbr));
+  int map_to_exists_mode __ARGS((char_u *rhs, int mode, int abbr));
+  char_u *set_context_in_map_cmd __ARGS((expand_T *xp, char_u *cmd, char_u *arg, int forceit, int isabbrev, int isunmap, cmdidx_T cmdidx));
+***************
+*** 61,67 ****
+  int makemap __ARGS((FILE *fd, buf_T *buf));
+  int put_escstr __ARGS((FILE *fd, char_u *strstart, int what));
+  void check_map_keycodes __ARGS((void));
+! char_u *check_map __ARGS((char_u *keys, int mode, int exact, int ign_mod, int abbr));
+  void init_mappings __ARGS((void));
+  void add_map __ARGS((char_u *map, int mode));
+  /* vim: set ft=c : */
+--- 62,68 ----
+  int makemap __ARGS((FILE *fd, buf_T *buf));
+  int put_escstr __ARGS((FILE *fd, char_u *strstart, int what));
+  void check_map_keycodes __ARGS((void));
+! char_u *check_map __ARGS((char_u *keys, int mode, int exact, int ign_mod, int abbr, mapblock_T **mp_ptr, int *local_ptr));
+  void init_mappings __ARGS((void));
+  void add_map __ARGS((char_u *map, int mode));
+  /* vim: set ft=c : */
+*** ../vim-7.3.031/src/proto/message.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/message.pro	2010-10-20 20:31:25.000000000 +0200
+***************
+*** 33,38 ****
+--- 33,39 ----
+  int msg_outtrans_len_attr __ARGS((char_u *msgstr, int len, int attr));
+  void msg_make __ARGS((char_u *arg));
+  int msg_outtrans_special __ARGS((char_u *strstart, int from));
++ char_u *str2special_save __ARGS((char_u *str, int is_lhs));
+  char_u *str2special __ARGS((char_u **sp, int from));
+  void str2specialbuf __ARGS((char_u *sp, char_u *buf, int len));
+  void msg_prt_line __ARGS((char_u *s, int list));
+*** ../vim-7.3.031/src/structs.h	2010-08-15 21:57:28.000000000 +0200
+--- src/structs.h	2010-10-20 20:23:38.000000000 +0200
+***************
+*** 979,987 ****
+  struct mapblock
+  {
+      mapblock_T	*m_next;	/* next mapblock in list */
+!     char_u	*m_keys;	/* mapped from */
+      int		m_keylen;	/* strlen(m_keys) */
+!     char_u	*m_str;		/* mapped to */
+      int		m_mode;		/* valid mode */
+      int		m_noremap;	/* if non-zero no re-mapping for m_str */
+      char	m_silent;	/* <silent> used, don't echo commands */
+--- 979,988 ----
+  struct mapblock
+  {
+      mapblock_T	*m_next;	/* next mapblock in list */
+!     char_u	*m_keys;	/* mapped from, lhs */
+      int		m_keylen;	/* strlen(m_keys) */
+!     char_u	*m_str;		/* mapped to, rhs */
+!     char_u	*m_orig_str;	/* rhs as entered by the user */
+      int		m_mode;		/* valid mode */
+      int		m_noremap;	/* if non-zero no re-mapping for m_str */
+      char	m_silent;	/* <silent> used, don't echo commands */
+*** ../vim-7.3.031/src/testdir/test75.in	2010-10-20 21:13:30.000000000 +0200
+--- src/testdir/test75.in	2010-10-20 20:54:04.000000000 +0200
+***************
+*** 0 ****
+--- 1,16 ----
++ " Tests for functions.
++ 
++ STARTTEST
++ :so small.vim
++ :" Test maparg() with a string result
++ :map foo<C-V> is<F4>foo
++ :vnoremap <script> <buffer> <expr> <silent> bar isbar
++ :call append('$', maparg('foo<C-V>'))
++ :call append('$', string(maparg('foo<C-V>', '', 0, 1)))
++ :call append('$', string(maparg('bar', '', 0, 1)))
++ :"
++ :/^eof/+1,$w! test.out
++ :qa!
++ ENDTEST
++ 
++ eof
+*** ../vim-7.3.031/src/testdir/test75.ok	2010-10-20 21:13:30.000000000 +0200
+--- src/testdir/test75.ok	2010-10-20 20:54:08.000000000 +0200
+***************
+*** 0 ****
+--- 1,3 ----
++ is<F4>foo
++ {'silent': 0, 'noremap': 0, 'lhs': 'foo<C-V>', 'mode': ' ', 'expr': 0, 'sid': 0, 'rhs': 'is<F4>foo', 'buffer': 0}
++ {'silent': 1, 'noremap': 1, 'lhs': 'bar', 'mode': 'v', 'expr': 1, 'sid': 0, 'rhs': 'isbar', 'buffer': 1}
+*** ../vim-7.3.031/src/version.c	2010-10-20 19:17:43.000000000 +0200
+--- src/version.c	2010-10-20 21:13:18.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     32,
+  /**/
+
+-- 
+Not too long ago, compress was something you did to garbage...
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\        download, build and distribute -- http://www.A-A-P.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

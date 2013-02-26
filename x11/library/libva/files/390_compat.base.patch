@@ -1,0 +1,166 @@
+commit 3ca875bac9fe7a9cecad4f2a05eba0391986b0e8
+Author: Gwenole Beauchesne <gbeauchesne@splitted-desktop.com>
+Date:   Wed Jun 24 11:40:56 2009 +0000
+
+    Add compatibility layer with original VA-API 0.29, 0.30 and 0.32.
+
+diff --git a/va/Makefile.am b/va/Makefile.am
+index ca87354..5dcbae2 100644
+--- a/va/Makefile.am
++++ b/va/Makefile.am
+@@ -27,7 +27,14 @@ INCLUDES = \
+ LDADD = \
+ 	$(LIBVA_LT_LDFLAGS)
+ 
+-libva_la_SOURCES = va.c va_trace.c va_fool.c va_fool_getframe.c va_crystalhd.c
++libva_la_SOURCES = \
++	va.c			\
++	va_compat.c		\
++	va_crystalhd.c		\
++	va_fool.c		\
++	va_fool_getframe.c	\
++	va_trace.c		\
++	$(NULL)
+ libva_ladir = $(libdir)
+ libva_la_LDFLAGS = $(LDADD) -no-undefined
+ libva_la_LIBADD = $(LIBVA_LIBS) -ldl
+@@ -100,4 +107,8 @@ DISTCLEANFILES = \
+ 
+ EXTRA_DIST = \
+ 	va_version.h.in \
+-	va_crystalhd.h
++	va_crystalhd.h \
++	va_compat.h \
++	va_compat_template.h
++
++va_compat.c: va_compat_template.h
+diff --git a/va/va.c b/va/va.c
+index ac991b7..8bbe8ab 100644
+--- a/va/va.c
++++ b/va/va.c
+@@ -29,6 +29,7 @@
+ #include "va_trace.h"
+ #include "va_fool.h"
+ #include "va_crystalhd.h"
++#include "va_compat.h"
+ 
+ #include <assert.h>
+ #include <stdarg.h>
+@@ -38,6 +39,8 @@
+ #include <dlfcn.h>
+ #include <unistd.h>
+ 
++#define DRIVER_INIT_FUNC_0_29	"__vaDriverInit_0_29"
++#define DRIVER_INIT_FUNC_0_30	"__vaDriverInit_0_30"
+ #define DRIVER_INIT_FUNC_0_32	"__vaDriverInit_0_32"
+ #define DRIVER_EXTENSION	"_drv_video.so"
+ 
+@@ -222,10 +225,24 @@ static VAStatus va_openDriver(VADisplay dpy, char *driver_name)
+         else
+         {
+             VADriverInit init_func;
++            int compat_version = 0;
++            /* Try with SDS extensions (VDPAU and XvBA backends) */
+             init_func = (VADriverInit) dlsym(handle, VA_DRIVER_INIT_FUNC_S);
++            /* Otherwise, we need the compatibility layer for some buffers */
++            if (!init_func)
++            {
++                init_func = (VADriverInit) dlsym(handle, DRIVER_INIT_FUNC_0_29);
++                compat_version = 29;
++            }
++            if (!init_func)
++            {
++                init_func = (VADriverInit) dlsym(handle, DRIVER_INIT_FUNC_0_30);
++                compat_version = 30;
++            }
+             if (!init_func)
+             {
+                 init_func = (VADriverInit) dlsym(handle, DRIVER_INIT_FUNC_0_32);
++                compat_version = 32;
+             }
+             if (!init_func)
+             {
+@@ -235,6 +252,10 @@ static VAStatus va_openDriver(VADisplay dpy, char *driver_name)
+             else
+             {
+                 struct VADriverVTable *vtable = ctx->vtable;
++                struct VADriverContext_0_29 ctx_0_29;
++                struct VADriverContext_0_30 ctx_0_30;
++                struct VADriverContext_0_32 ctx_0_32;
++                void *compat_ctx = NULL;
+ 
+                 vaStatus = VA_STATUS_SUCCESS;
+                 if (!vtable) {
+@@ -247,8 +268,38 @@ static VAStatus va_openDriver(VADisplay dpy, char *driver_name)
+                 ctx->version_major = VA_MAJOR_VERSION;
+                 ctx->version_minor = VA_MINOR_VERSION;
+ 
++                switch (compat_version) {
++                case 0:
++                    /* no compatibility needed */
++                    break;
++                case 29:
++                    compat_ctx           = &ctx_0_29;
++                    ctx_0_29.pDriverData = NULL;
++                    ctx_0_29.x11_dpy     = ctx->native_dpy;
++                    ctx_0_29.x11_screen  = ctx->x11_screen;
++                    break;
++                case 30:
++                    compat_ctx           = &ctx_0_30;
++                    ctx_0_30.pDriverData = NULL;
++                    ctx_0_30.x11_dpy     = ctx->native_dpy;
++                    ctx_0_30.x11_screen  = ctx->x11_screen;
++                    break;
++                case 32:
++                    compat_ctx           = &ctx_0_32;
++                    ctx_0_32.pDriverData = NULL;
++                    ctx_0_32.native_dpy  = ctx->native_dpy;
++                    ctx_0_32.x11_screen  = ctx->x11_screen;
++                    break;
++                default:
++                    vaStatus = VA_STATUS_ERROR_UNKNOWN;
++                    break;
++                }
++
+                 if (VA_STATUS_SUCCESS == vaStatus)
+-                    vaStatus = (*init_func)(ctx);
++                    vaStatus = (*init_func)(compat_ctx ? compat_ctx : ctx);
++
++                if (VA_STATUS_SUCCESS == vaStatus)
++                    vaStatus = va_compat_init(dpy, compat_version, compat_ctx);
+ 
+                 if (VA_STATUS_SUCCESS == vaStatus)
+                 {
+@@ -474,6 +525,8 @@ VAStatus vaTerminate (
+   free(old_ctx->vtable);
+   old_ctx->vtable = NULL;
+ 
++  va_compat_fini(dpy);
++
+   if (VA_STATUS_SUCCESS == vaStatus)
+       pDisplayContext->vaDestroy(pDisplayContext);
+ 
+diff --git a/va/va_backend.h b/va/va_backend.h
+index 736c680..d577f8c 100644
+--- a/va/va_backend.h
++++ b/va/va_backend.h
+@@ -434,8 +434,8 @@ struct VADriverContext
+     
+     void *dri_state;
+     void *glx;				/* opaque for GLX code */
+-    
+-    unsigned long reserved[45];         /* reserve for future add-ins, decrease the subscript accordingly */
++    void *compat;			/* opaque for compat code */
++    unsigned long reserved[44];         /* reserve for future add-ins, decrease the subscript accordingly */
+ };
+ 
+ #define VA_DISPLAY_MAGIC 0x56414430 /* VAD0 */
+diff --git a/va/va_compat.c b/va/va_compat.c
+new file mode 100644
+index 0000000..0a73de1
+diff --git a/va/va_compat.h b/va/va_compat.h
+new file mode 100644
+index 0000000..ddc3c25
+diff --git a/va/va_compat_template.h b/va/va_compat_template.h
+new file mode 100644
+index 0000000..ec6140a

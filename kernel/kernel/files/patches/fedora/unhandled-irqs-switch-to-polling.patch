@@ -1,0 +1,245 @@
+From f9b32cd97783f2be14386f1347439e86109050b9 Mon Sep 17 00:00:00 2001
+From: Jeroen Van den Keybus <jeroen.vandenkeybus@gmail.com>
+Date: Mon, 30 Jan 2012 22:37:28 +0100
+Subject: [PATCH] Unhandled IRQs on AMD E-450: temporarily switch to
+ low-performance polling IRQ mode
+
+It seems that some motherboard designs using the ASM1083 PCI/PCIe
+bridge (PCI device ID 1b21:1080, Rev. 01) suffer from stuck IRQ lines
+on the PCI bus (causing the kernel to emit 'IRQxx: nobody cared' and
+disable the IRQ). The following patch is an attempt to mitigate the
+serious impact of permanently disabling an IRQ in that case and
+actually make PCI devices better usable on this platform.
+
+It seems that the bridge fails to issue a IRQ deassertion message on
+the PCIe bus, when the relevant driver causes the interrupting PCI
+device to deassert its IRQ line. To solve this issue, it was tried to
+re-issue an IRQ on a PCI device being able to do so (e1000 in this
+case), but we suspect that the attempt to re-assert/deassert may have
+occurred too soon after the initial IRQ for the ASM1083. Anyway, it
+didn't work but if, after some delay, a new IRQ occurred, the related
+IRQ deassertion message eventually did clear the IOAPIC IRQ. It would
+be useful to re-enable the IRQ here.
+
+Therefore the patch below to poll_spurious_irqs() in spurious.c is
+proposed, It does the following:
+
+1. lets the kernel decide that an IRQ is unhandled after only 10
+positives (instead of 100,000);
+2. briefly (a few seconds or so, currently 1 s) switches to polling
+IRQ at a higher rate than usual (100..1,000Hz instead of 10Hz,
+currently 100Hz), but not too high to avoid excessive CPU load. Any
+device drivers 'see' their interrupts handled with a higher latency
+than usual, but they will still operate properly;
+3. afterwards, simply reenable the IRQ.
+
+If proper operation of the PCIe legacy IRQ line emulation is restored
+after 3, the system operates again at normal performance. If the IRQ
+is still stuck after this procedure, the sequence repeats.
+
+If a genuinely stuck IRQ is used with this solution, the system would
+simply sustain short bursts of 10 unhandled IRQs per second, and use
+polling mode indefinitely at a moderate 100Hz rate. It seemed a good
+alternative to the default irqpoll behaviour to me, which is why I
+left it in poll_spurious_irqs() (instead of creating a new kernel
+option). Additionally, if any device happens to share an IRQ with a
+faulty one, that device is no longer banned forever.
+
+Debugging output is still present and may be removed. Bad IRQ
+reporting is also commented out now.
+
+I have now tried it for about 2 months and I can conclude the following:
+
+1. The patch works and, judging from my Firewire card interrupt on
+IRQ16, which repeats every 64 secs, I can confirm that the IRQ usually
+gets reset when a new IRQ arrives (polling mode runs for 64 seconds
+every time).
+2. When testing a SiL-3114 SATA PCI card behind the ASM1083, I could
+keep this running at fairly high speeds (50..70MB/s) for an hour or
+so, but eventually the SiL driver crashed. In such conditions the PCI
+system had to deal with a few hundred IRQs per second / polling mode
+kicking in every 5..10 seconds).
+
+I would like to thank Clemens Ladisch for his invaluable help in
+finding a solution (and providing a patch to avoid my SATA going down
+every time during debugging).
+
+Signed-off-by: Jeroen Van den Keybus <jeroen.vandenkeybus@gmail.com>
+
+Make it less chatty.  Only kick it in if we detect an ASM1083 PCI bridge.
+Fix logic error due to lack of braces
+
+Josh Boyer <jwboyer@redhat.com>
+======
+---
+ drivers/pci/quirks.c  |   16 +++++++++++
+ kernel/irq/spurious.c |   73 +++++++++++++++++++++++++++++++++++++++---------
+ 2 files changed, 75 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
+index 78fda9c..6ba5dbf 100644
+--- a/drivers/pci/quirks.c
++++ b/drivers/pci/quirks.c
+@@ -1677,6 +1677,22 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL,	0x2609, quirk_intel_pcie_pm);
+ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL,	0x260a, quirk_intel_pcie_pm);
+ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL,	0x260b, quirk_intel_pcie_pm);
+ 
++/* ASM108x transparent PCI bridges apparently have broken IRQ deassert
++ * handling.  This causes interrupts to get "stuck" and eventually disabled.
++ * However, the interrupts are often shared and disabling them is fairly bad.
++ * It's been somewhat successful to switch to polling mode and retry after
++ * a bit, so let's do that.
++ */
++extern int irq_poll_and_retry;
++static void quirk_asm108x_poll_interrupts(struct pci_dev *dev)
++{
++	dev_info(&dev->dev, "Buggy bridge found [%04x:%04x]\n",
++		dev->vendor, dev->device);
++	dev_info(&dev->dev, "Stuck interrupts will be polled and retried\n");
++	irq_poll_and_retry = 1;
++}
++DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_ASMEDIA,	0x1080,	quirk_asm108x_poll_interrupts);
++
+ #ifdef CONFIG_X86_IO_APIC
+ /*
+  * Boot interrupts on some chipsets cannot be turned off. For these chipsets,
+diff --git a/kernel/irq/spurious.c b/kernel/irq/spurious.c
+index 611cd60..f722eb6 100644
+--- a/kernel/irq/spurious.c
++++ b/kernel/irq/spurious.c
+@@ -18,6 +18,8 @@
+ 
+ static int irqfixup __read_mostly;
+ 
++int irq_poll_and_retry = 0;
++
+ #define POLL_SPURIOUS_IRQ_INTERVAL (HZ/10)
+ static void poll_spurious_irqs(unsigned long dummy);
+ static DEFINE_TIMER(poll_spurious_irq_timer, poll_spurious_irqs, 0, 0);
+@@ -141,12 +143,13 @@ out:
+ static void poll_spurious_irqs(unsigned long dummy)
+ {
+ 	struct irq_desc *desc;
+-	int i;
++	int i, poll_again;
+ 
+ 	if (atomic_inc_return(&irq_poll_active) != 1)
+ 		goto out;
+ 	irq_poll_cpu = smp_processor_id();
+ 
++	poll_again = 0; /* Will stay false as long as no polling candidate is found */
+ 	for_each_irq_desc(i, desc) {
+ 		unsigned int state;
+ 
+@@ -159,14 +162,33 @@ static void poll_spurious_irqs(unsigned long dummy)
+ 		if (!(state & IRQS_SPURIOUS_DISABLED))
+ 			continue;
+ 
+-		local_irq_disable();
+-		try_one_irq(i, desc, true);
+-		local_irq_enable();
++		/* We end up here with a disabled spurious interrupt.
++		   desc->irqs_unhandled now tracks the number of times
++		   the interrupt has been polled */
++		if (irq_poll_and_retry) {
++			if (desc->irqs_unhandled < 100) { /* 1 second delay with poll frequency 100 Hz */
++				local_irq_disable();
++				try_one_irq(i, desc, true);
++				local_irq_enable();
++				desc->irqs_unhandled++;
++				poll_again = 1;
++			} else {
++				irq_enable(desc); /* Reenable the interrupt line */
++				desc->depth--;
++				desc->istate &= (~IRQS_SPURIOUS_DISABLED);
++				desc->irqs_unhandled = 0;
++			}
++		} else {
++			local_irq_disable();
++			try_one_irq(i, desc, true);
++			local_irq_enable();
++		}
+ 	}
++	if (poll_again)
++		mod_timer(&poll_spurious_irq_timer,
++			  jiffies + POLL_SPURIOUS_IRQ_INTERVAL);
+ out:
+ 	atomic_dec(&irq_poll_active);
+-	mod_timer(&poll_spurious_irq_timer,
+-		  jiffies + POLL_SPURIOUS_IRQ_INTERVAL);
+ }
+ 
+ static inline int bad_action_ret(irqreturn_t action_ret)
+@@ -177,11 +199,19 @@ static inline int bad_action_ret(irqreturn_t action_ret)
+ }
+ 
+ /*
+- * If 99,900 of the previous 100,000 interrupts have not been handled
++ * If 9 of the previous 10 interrupts have not been handled
+  * then assume that the IRQ is stuck in some manner. Drop a diagnostic
+  * and try to turn the IRQ off.
+  *
+- * (The other 100-of-100,000 interrupts may have been a correctly
++ * Although this may cause early deactivation of a sporadically
++ * malfunctioning IRQ line, the poll system will:
++ * a) Poll it for 100 cycles at a 100 Hz rate
++ * b) Reenable it afterwards
++ *
++ * In worst case, with current settings,  this will cause short bursts
++ * of 10 interrupts every second.
++ *
++ * (The other single interrupt may have been a correctly
+  *  functioning device sharing an IRQ with the failing one)
+  */
+ static void
+@@ -269,6 +299,8 @@ try_misrouted_irq(unsigned int irq, struct irq_desc *desc,
+ void note_interrupt(unsigned int irq, struct irq_desc *desc,
+ 		    irqreturn_t action_ret)
+ {
++	int unhandled_thresh = 999000;
++
+ 	if (desc->istate & IRQS_POLL_INPROGRESS)
+ 		return;
+ 
+@@ -302,19 +334,32 @@ void note_interrupt(unsigned int irq, struct irq_desc *desc,
+ 	}
+ 
+ 	desc->irq_count++;
+-	if (likely(desc->irq_count < 100000))
+-		return;
++	if (!irq_poll_and_retry) {
++		if (likely(desc->irq_count < 100000))
++			return;
++	} else {
++		if (likely(desc->irq_count < 10))
++			return;
++	}
+ 
+ 	desc->irq_count = 0;
+-	if (unlikely(desc->irqs_unhandled > 99900)) {
++	if (irq_poll_and_retry)
++		unhandled_thresh = 9;
++
++	if (unlikely(desc->irqs_unhandled >= unhandled_thresh)) {
+ 		/*
+-		 * The interrupt is stuck
++		 * The interrupt might be stuck
+ 		 */
+-		__report_bad_irq(irq, desc, action_ret);
++		if (!irq_poll_and_retry) {
++			__report_bad_irq(irq, desc, action_ret);
++			printk(KERN_EMERG "Disabling IRQ %d\n", irq);
++		} else {
++			printk(KERN_INFO "IRQ %d might be stuck.  Polling\n",
++				irq);
++		}
+ 		/*
+ 		 * Now kill the IRQ
+ 		 */
+-		printk(KERN_EMERG "Disabling IRQ #%d\n", irq);
+ 		desc->istate |= IRQS_SPURIOUS_DISABLED;
+ 		desc->depth++;
+ 		irq_disable(desc);
+-- 
+1.7.7.6
+

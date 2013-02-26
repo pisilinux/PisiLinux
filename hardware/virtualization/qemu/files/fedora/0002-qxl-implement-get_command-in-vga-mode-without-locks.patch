@@ -1,0 +1,312 @@
+>From 97e291086fef45762e0278e85ab1d231a9902bbb Mon Sep 17 00:00:00 2001
+From: Uri Lublin <uril@redhat.com>
+Date: Wed, 16 Mar 2011 15:43:45 +0100
+Subject: [PATCH 2/4] qxl: implement get_command in vga mode without locks
+
+This patch and the next drop the requirement to lose the global qemu
+mutex during dispatcher calls. This patch enables it, the next drops
+the unlock/lock pairs around dispatcher calls.
+
+The current solution of dropping the locks is buggy:
+ * it allows multiple dispatcher calls from two vcpu threads, the
+ dispatcher doesn't handle that by design (single fd, not locked, can't
+ handle writes from two threads)
+ * it requires us to keep track of cpu_single_env, which is magic.
+
+The solution implemented in this patch and the next (the next just
+drops the locks, this patch allows that to work):
+ * the only operation that needed locking was qemu_create_simple_update,
+ * it required locking because it was called from the spice-server thread.
+ * do it in the iothread by reusing the existing pipe used for set_irq.
+
+The current flow implemented is now:
+spice-server thread:
+ qxl.c:interface_get_command (called either by polling or from wakeup)
+  if update!=NULL:
+   waiting_for_update=0
+   update=NULL
+   return update
+  else:
+   if not waiting_for_update:
+    waiting_for_update=1
+    write to pipe, which is read by iothread (main thread)
+
+iothread:
+ wakeup from select,
+ qxl.c:pipe_read
+  update=qemu_create_simple_update()
+  wakeup spice-server thread by calling d.worker->wakeup(d.worker)
+---
+ hw/qxl.c           |   81 +++++++++++++++++++++++++++++++++++++++------------
+ ui/spice-display.c |   75 +++++++++++++++++++++++++++++++++++++++++++----
+ ui/spice-display.h |   16 ++++++++++
+ 3 files changed, 146 insertions(+), 26 deletions(-)
+
+diff --git a/hw/qxl.c b/hw/qxl.c
+index 201698f..64580f1 100644
+--- a/hw/qxl.c
++++ b/hw/qxl.c
+@@ -340,7 +340,6 @@ static void interface_get_init_info(QXLInstance *sin, QXLDevInitInfo *info)
+ static int interface_get_command(QXLInstance *sin, struct QXLCommandExt *ext)
+ {
+     PCIQXLDevice *qxl = container_of(sin, PCIQXLDevice, ssd.qxl);
+-    SimpleSpiceUpdate *update;
+     QXLCommandRing *ring;
+     QXLCommand *cmd;
+     int notify;
+@@ -348,16 +347,25 @@ static int interface_get_command(QXLInstance *sin, struct QXLCommandExt *ext)
+     switch (qxl->mode) {
+     case QXL_MODE_VGA:
+         dprint(qxl, 2, "%s: vga\n", __FUNCTION__);
+-        update = qemu_spice_create_update(&qxl->ssd);
+-        if (update == NULL) {
+-            return false;
++        if (qxl_vga_mode_get_command(&qxl->ssd, ext)) {
++            qxl_log_command(qxl, "vga", ext);
++            return true;
+         }
+-        *ext = update->ext;
+-        qxl_log_command(qxl, "vga", ext);
+-        return true;
++        return false;
+     case QXL_MODE_COMPAT:
+     case QXL_MODE_NATIVE:
+     case QXL_MODE_UNDEFINED:
++        /* flush any existing updates that we didn't send to the guest.
++         * since update != NULL it means the server didn't get it, and
++         * because we changed mode to != QXL_MODE_VGA, it won't. */
++        if (qxl->ssd.update != NULL) {
++            if (qxl->ssd.update != QXL_EMPTY_UPDATE) {
++                qemu_spice_destroy_update(&qxl->ssd, qxl->ssd.update);
++            }
++            qxl->ssd.update = NULL;
++            qxl->ssd.waiting_for_update = 0;
++        }
++        /* */
+         dprint(qxl, 2, "%s: %s\n", __FUNCTION__,
+                qxl->cmdflags ? "compat" : "native");
+         ring = &qxl->ram->cmd_ring;
+@@ -1057,17 +1065,50 @@ static void qxl_map(PCIDevice *pci, int region_num,
+ 
+ static void pipe_read(void *opaque)
+ {
+-    PCIQXLDevice *d = opaque;
+-    char dummy;
+-    int len;
+-
+-    do {
+-        len = read(d->ssd.pipe[0], &dummy, sizeof(dummy));
+-    } while (len == sizeof(dummy));
+-    qxl_set_irq(d);
++    SimpleSpiceDisplay *ssd = opaque;
++    unsigned char cmd;
++    int len, set_irq = 0;
++    int create_update = 0;
++
++    while (1) {
++        cmd = 0;
++        len = read(ssd->pipe[0], &cmd, sizeof(cmd));
++        if (len < 0) {
++            if (errno == EINTR) {
++                continue;
++            }
++            if (errno == EAGAIN) {
++                break;
++            }
++            perror("qxl: pipe_read: read failed");
++            break;
++        }
++        switch (cmd) {
++        case QXL_SERVER_SET_IRQ:
++            set_irq = 1;
++            break;
++        case QXL_SERVER_CREATE_UPDATE:
++            create_update = 1;
++            break;
++        default:
++            fprintf(stderr, "%s: unknown cmd %u\n", __FUNCTION__, cmd);
++            abort();
++        }
++    }
++    /* no need to do either operation more than once */
++    if (create_update) {
++        assert(ssd->update == NULL);
++        ssd->update = qemu_spice_create_update(ssd);
++        if (ssd->update == NULL) {
++            ssd->update = QXL_EMPTY_UPDATE;
++        }
++        ssd->worker->wakeup(ssd->worker);
++    }
++    if (set_irq) {
++        qxl_set_irq(container_of(ssd, PCIQXLDevice, ssd));
++    }
+ }
+ 
+-/* called from spice server thread context only */
+ static void qxl_send_events(PCIQXLDevice *d, uint32_t events)
+ {
+     uint32_t old_pending;
+@@ -1082,9 +1123,11 @@ static void qxl_send_events(PCIQXLDevice *d, uint32_t events)
+         /* running in io_thread thread */
+         qxl_set_irq(d);
+     } else {
+-        if (write(d->ssd.pipe[1], d, 1) != 1) {
+-            dprint(d, 1, "%s: write to pipe failed\n", __FUNCTION__);
+-        }
++        /* called from spice-server thread */
++        int ret;
++        unsigned char ack = QXL_SERVER_SET_IRQ;
++        ret = write(d->ssd.pipe[1], &ack, 1);
++        assert(ret == 1);
+     }
+ }
+ 
+diff --git a/ui/spice-display.c b/ui/spice-display.c
+index ec6e0cb..bdd14b8 100644
+--- a/ui/spice-display.c
++++ b/ui/spice-display.c
+@@ -294,18 +294,39 @@ static void interface_get_init_info(QXLInstance *sin, QXLDevInitInfo *info)
+     info->n_surfaces = NUM_SURFACES;
+ }
+ 
++/* Called from spice server thread context (via interface_get_command) */
++int qxl_vga_mode_get_command(
++    SimpleSpiceDisplay *ssd, struct QXLCommandExt *ext)
++{
++    SimpleSpiceUpdate *update;
++    unsigned char req;
++    int r;
++
++    update = ssd->update;
++    if (update != NULL) {
++        ssd->waiting_for_update = 0;
++        ssd->update = NULL;
++        if (update != QXL_EMPTY_UPDATE) {
++            *ext = update->ext;
++            return true;
++        }
++    } else {
++        if (!ssd->waiting_for_update) {
++            ssd->waiting_for_update = 1;
++            req = QXL_SERVER_CREATE_UPDATE;
++            r = write(ssd->pipe[1], &req , 1);
++            assert(r == 1);
++        }
++    }
++    return false;
++}
++
+ static int interface_get_command(QXLInstance *sin, struct QXLCommandExt *ext)
+ {
+     SimpleSpiceDisplay *ssd = container_of(sin, SimpleSpiceDisplay, qxl);
+-    SimpleSpiceUpdate *update;
+ 
+     dprint(3, "%s:\n", __FUNCTION__);
+-    update = qemu_spice_create_update(ssd);
+-    if (update == NULL) {
+-        return false;
+-    }
+-    *ext = update->ext;
+-    return true;
++    return qxl_vga_mode_get_command(ssd, ext);
+ }
+ 
+ static int interface_req_cmd_notification(QXLInstance *sin)
+@@ -394,6 +415,45 @@ static DisplayChangeListener display_listener = {
+     .dpy_refresh = display_refresh,
+ };
+ 
++static void pipe_read(void *opaque)
++{
++    SimpleSpiceDisplay *ssd = opaque;
++    unsigned char cmd;
++    int len, create_update = 0;
++
++    while (1) {
++        cmd = 0;
++        len = read(ssd->pipe[0], &cmd, sizeof(cmd));
++        if (len < 0) {
++            if (errno == EINTR) {
++                continue;
++            }
++            if (errno == EAGAIN) {
++                break;
++            }
++            perror("qxl: pipe_read: read failed");
++            break;
++        }
++        switch (cmd) {
++        case QXL_SERVER_CREATE_UPDATE:
++            create_update = 1;
++            break;
++        default:
++            fprintf(stderr, "%s: unknown cmd %u\n", __FUNCTION__, cmd);
++            abort();
++        }
++    }
++    /* no need to do this more than once */
++    if (create_update) {
++        assert(ssd->update == NULL);
++        ssd->update = qemu_spice_create_update(ssd);
++        if (ssd->update == NULL) {
++            ssd->update = QXL_EMPTY_UPDATE;
++        }
++        ssd->worker->wakeup(ssd->worker);
++    }
++}
++
+ void qxl_create_server_to_iothread_pipe(SimpleSpiceDisplay *ssd,
+     IOHandler *pipe_read)
+ {
+@@ -427,6 +487,7 @@ void qemu_spice_display_init(DisplayState *ds)
+     qemu_spice_add_interface(&sdpy.qxl.base);
+     assert(sdpy.worker);
+ 
++    qxl_create_server_to_iothread_pipe(&sdpy, pipe_read);
+     qemu_add_vm_change_state_handler(qemu_spice_vm_change_state_handler, &sdpy);
+     qemu_spice_create_host_memslot(&sdpy);
+     qemu_spice_create_host_primary(&sdpy);
+diff --git a/ui/spice-display.h b/ui/spice-display.h
+index 3e6cf7c..2be6a34 100644
+--- a/ui/spice-display.h
++++ b/ui/spice-display.h
+@@ -31,6 +31,15 @@
+ 
+ #define NUM_SURFACES 1024
+ 
++/* For commands/requests from server thread to iothread */
++#define QXL_EMPTY_UPDATE ((void *)-1)
++enum {
++    QXL_SERVER_SET_IRQ = 1,
++    QXL_SERVER_CREATE_UPDATE,
++};
++
++struct SimpleSpiceUpdate;
++
+ typedef struct SimpleSpiceDisplay {
+     DisplayState *ds;
+     void *buf;
+@@ -48,6 +57,10 @@ typedef struct SimpleSpiceDisplay {
+      * and in native mode) and without qxl */
+     pthread_t          main;
+     int                pipe[2];     /* to iothread */
++
++    /* ssd updates (one request/command at a time) */
++    struct SimpleSpiceUpdate *update;
++    int waiting_for_update;
+ } SimpleSpiceDisplay;
+ 
+ typedef struct SimpleSpiceUpdate {
+@@ -71,6 +84,9 @@ void qemu_spice_display_update(SimpleSpiceDisplay *ssd,
+                                int x, int y, int w, int h);
+ void qemu_spice_display_resize(SimpleSpiceDisplay *ssd);
+ void qemu_spice_display_refresh(SimpleSpiceDisplay *ssd);
++/* shared with qxl.c in vga mode and ui/spice-display (no qxl mode) */
++int qxl_vga_mode_get_command(
++    SimpleSpiceDisplay *ssd, struct QXLCommandExt *ext);
+ /* used by both qxl and spice-display */
+ void qxl_create_server_to_iothread_pipe(SimpleSpiceDisplay *ssd,
+     IOHandler *pipe_read);
+-- 
+1.7.3.2
+

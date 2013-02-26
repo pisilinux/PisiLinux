@@ -1,0 +1,92 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.623
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.623
+Problem:    Perl 5.14 commands crash Vim on MS-Windows.
+Solution:   Use perl_get_sv() instead of GvSV(). (Raymond Ko)
+Files:	    src/if_perl.xs
+
+
+*** ../vim-7.3.622/src/if_perl.xs	2012-03-16 19:34:43.000000000 +0100
+--- src/if_perl.xs	2012-08-08 13:15:29.000000000 +0200
+***************
+*** 76,81 ****
+--- 76,87 ----
+  # define EXTERN_C
+  #endif
+  
++ #if (PERL_REVISION == 5) && (PERL_VERSION >= 14) && defined(_MSC_VER)
++ /* Using PL_errgv to get the error message after perl_eval_sv() causes a crash
++  * with MSVC and Perl version 5.14. */
++ # define AVOID_PL_ERRGV
++ #endif
++ 
+  /* Compatibility hacks over */
+  
+  static PerlInterpreter *perl_interp = NULL;
+***************
+*** 796,802 ****
+--- 802,812 ----
+  
+      SvREFCNT_dec(sv);
+  
++ #ifdef AVOID_PL_ERRGV
++     err = SvPV(perl_get_sv("@", GV_ADD), length);
++ #else
+      err = SvPV(GvSV(PL_errgv), length);
++ #endif
+  
+      FREETMPS;
+      LEAVE;
+***************
+*** 866,872 ****
+--- 876,886 ----
+      sv_catpvn(sv, "}", 1);
+      perl_eval_sv(sv, G_DISCARD | G_NOARGS);
+      SvREFCNT_dec(sv);
++ #ifdef AVOID_PL_ERRGV
++     str = SvPV(perl_get_sv("@", GV_ADD), length);
++ #else
+      str = SvPV(GvSV(PL_errgv), length);
++ #endif
+      if (length)
+  	goto err;
+  
+***************
+*** 880,886 ****
+--- 894,904 ----
+  	sv_setpv(GvSV(PL_defgv), (char *)ml_get(i));
+  	PUSHMARK(sp);
+  	perl_call_pv("VIM::perldo", G_SCALAR | G_EVAL);
++ #ifdef AVOID_PL_ERRGV
++ 	str = SvPV(perl_get_sv("@", GV_ADD), length);
++ #else
+  	str = SvPV(GvSV(PL_errgv), length);
++ #endif
+  	if (length)
+  	    break;
+  	SPAGAIN;
+*** ../vim-7.3.622/src/version.c	2012-08-02 21:48:20.000000000 +0200
+--- src/version.c	2012-08-08 13:08:10.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     623,
+  /**/
+
+-- 
+Don't be humble ... you're not that great.
+                      -- Golda Meir
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

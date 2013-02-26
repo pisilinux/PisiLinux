@@ -1,0 +1,251 @@
+We can get stuck if a write is going to block because both ends are writing and
+neither end is reading.  This is a port of a patch which aims to solve that
+problem, but for now it's incomplete because we don't handle partial writes.  A
+proper non-blocking implementation would require a bit more work.
+
+diff -up krb5-1.7/src/appl/bsd/defines.h krb5-1.7/src/appl/bsd/defines.h
+--- krb5-1.7/src/appl/bsd/defines.h	2008-12-15 15:29:01.000000000 -0500
++++ krb5-1.7/src/appl/bsd/defines.h	2009-06-04 14:18:48.000000000 -0400
+@@ -34,6 +34,7 @@ extern int kcmd (int *sock, char **ahost
+ 		 enum kcmd_proto *protonum /* input and output */
+ 		 );
+ 
++extern int rcmd_stream_has_unsent_data (void);
+ extern int rcmd_stream_read (int fd, char *buf, size_t len, int secondary);
+ extern int rcmd_stream_write (int fd, char *buf, size_t len, int secondary);
+ extern int getport (int * /* portnum */, int * /* addrfamily */);
+diff -up krb5-1.7/src/appl/bsd/kcmd.c krb5-1.7/src/appl/bsd/kcmd.c
+--- krb5-1.7/src/appl/bsd/kcmd.c	2009-04-15 16:07:15.000000000 -0400
++++ krb5-1.7/src/appl/bsd/kcmd.c	2009-06-04 14:18:48.000000000 -0400
+@@ -686,6 +686,11 @@ void rcmd_stream_init_normal()
+     output = twrite;
+ }
+ 
++int rcmd_stream_has_unsent_data (void)
++{
++    return (nstored > 0);
++}
++
+ void rcmd_stream_init_krb5(in_keyblock, encrypt_flag, lencheck, am_client,
+ 			   protonum)
+      krb5_keyblock *in_keyblock;
+@@ -846,7 +851,8 @@ static int v5_des_read(fd, buf, len, sec
+ 	cc = krb5_net_read(bsd_context, fd, &c, 1);
+ 	/* we should check for non-blocking here, but we'd have
+ 	   to make it save partial reads as well. */
+-	if (cc <= 0) return cc; /* read error */
++	if (cc == 0) return nreturned; /* EOF */
++	if (cc < 0) return cc; /* read error */
+ 	if (cc == 1) {
+ 	    if (c == 0 || !do_lencheck) break;
+ 	}
+diff -up krb5-1.7/src/appl/bsd/krsh.c krb5-1.7/src/appl/bsd/krsh.c
+--- krb5-1.7/src/appl/bsd/krsh.c	2009-06-04 14:18:47.000000000 -0400
++++ krb5-1.7/src/appl/bsd/krsh.c	2009-06-04 14:18:48.000000000 -0400
+@@ -115,10 +115,11 @@ main(argc, argv0)
+      char **argv0;
+ {
+     int rem, pid = 0;
+-    char *host=0, **ap, buf[RCMD_BUFSIZ], *args, **argv = argv0, *user = 0;
++    char *host=0, **ap, buf[PIPE_BUF], *args, **argv = argv0, *user = 0;
+     register int cc;
+     struct passwd *pwd;
+     fd_set readfrom, ready;
++    fd_set writeto, ready_wr;
+     int one = 1;
+     struct servent *sp;
+     struct servent defaultservent;
+@@ -508,9 +509,14 @@ main(argc, argv0)
+     FD_ZERO(&readfrom);
+     FD_SET(rfd2, &readfrom);
+     FD_SET(rem, &readfrom);
++    FD_ZERO(&writeto);
+     do {
++	int max_fd;
++	max_fd = (rfd2 > rem) ? rfd2 : rem;
++	max_fd = (max_fd > 2) ? max_fd : 2;
+ 	ready = readfrom;
+-	if (select(((rfd2 > rem) ? rfd2 : rem) + 1, &ready, 0, 0, 0) < 0) {
++	ready_wr = writeto;
++	if (select(max_fd + 1, &ready, &ready_wr, 0, 0) < 0) {
+ 	    if (errno != EINTR) {
+ 		perror("select");
+ 		exit(1);
+@@ -518,22 +524,38 @@ main(argc, argv0)
+ 	    continue;
+ 	}
+ 	if (FD_ISSET(rfd2, &ready)) {
+-	    errno = 0;
+-	    cc = rcmd_stream_read(rfd2, buf, sizeof buf, 1);
+-	    if (cc <= 0) {
+-		if ((errno != EWOULDBLOCK) && (errno != EAGAIN))
+-		    FD_CLR(rfd2, &readfrom);
+-	    } else
+-	      (void) write(2, buf, (unsigned) cc);
++            FD_SET(2, &writeto);
++	}
++	if (FD_ISSET(2, &ready_wr)) {
++	    do {
++		errno = 0;
++		cc = rcmd_stream_read(rfd2, buf, sizeof buf, 1);
++		if (cc <= 0) {
++		    if ((errno != EWOULDBLOCK) && (errno != EAGAIN)) {
++			FD_CLR(rfd2, &readfrom);
++			break;
++		    }
++		} else
++		  (void) write(2, buf, (unsigned) cc);
++	    } while (rcmd_stream_has_unsent_data());
++	    FD_CLR(2, &writeto);
+ 	}
+ 	if (FD_ISSET(rem, &ready)) {
+-	    errno = 0;
+-	    cc = rcmd_stream_read(rem, buf, sizeof buf, 0);
+-	    if (cc <= 0) {
+-		if ((errno != EWOULDBLOCK) && (errno != EAGAIN))
+-		    FD_CLR(rem, &readfrom);
+-	    } else
+-	      (void) write(1, buf, (unsigned) cc);
++	    FD_SET(1, &writeto);
++	}
++	if (FD_ISSET(1, &ready_wr)) {
++	    do {
++		errno = 0;
++		cc = rcmd_stream_read(rem, buf, sizeof buf, 0);
++		if (cc <= 0) {
++		    if ((errno != EWOULDBLOCK) && (errno != EAGAIN)) {
++			FD_CLR(rem, &readfrom);
++			break;
++		    }
++		} else
++		  (void) write(1, buf, (unsigned) cc);
++	    } while (rcmd_stream_has_unsent_data());
++	    FD_CLR(1, &writeto);
+ 	}
+     } while (FD_ISSET(rem, &readfrom) || FD_ISSET(rfd2, &readfrom));
+     if (nflag == 0)
+diff -up krb5-1.7/src/appl/bsd/krshd.c krb5-1.7/src/appl/bsd/krshd.c
+--- krb5-1.7/src/appl/bsd/krshd.c	2009-06-04 14:18:47.000000000 -0400
++++ krb5-1.7/src/appl/bsd/krshd.c	2009-06-04 14:18:48.000000000 -0400
+@@ -583,7 +583,8 @@ void doit(f, fromp)
+     short port;
+     int pv[2], pw[2], px[2], cc;
+     fd_set ready, readfrom;
+-    char buf[RCMD_BUFSIZ], sig;
++    fd_set ready_wr, writeto;
++    char buf[PIPE_BUF], sig;
+     struct sockaddr_storage localaddr;
+ #ifdef POSIX_SIGNALS
+     struct sigaction sa;
+@@ -1214,6 +1215,10 @@ void doit(f, fromp)
+ 	    if (pw[0] > maxfd)
+ 		maxfd = pw[0];
+ 	    
++	    if (px[1] > maxfd)
++		maxfd = px[1];
++	    FD_ZERO(&writeto);
++
+ 	    /* read from f, write to px[1] -- child stdin */
+ 	    /* read from s, signal child */
+ 	    /* read from pv[0], write to s -- child stderr */
+@@ -1221,36 +1226,47 @@ void doit(f, fromp)
+ 
+ 	    do {
+ 		ready = readfrom;
+-		if (select(maxfd + 1, &ready, (fd_set *)0,
++		ready_wr = writeto;
++		if (select(maxfd + 1, &ready, &ready_wr,
+ 			   (fd_set *)0, (struct timeval *)0) < 0) {
+ 		    if (errno == EINTR) {
+ 			continue;
+ 		    } else {
+ 			break;
+-		}
++		    }
+ 		}
+ 
+ 		if (port&&FD_ISSET(pv[0], &ready)) {
++		    FD_SET(s, &writeto);
++		    FD_CLR(pv[0], &readfrom);
++		}
++		if (port&&FD_ISSET(s, &ready_wr)) {
+ 		    /* read from the child stderr, write to the net */
+ 		    errno = 0;
+ 		    cc = read(pv[0], buf, sizeof (buf));
+-		    if (cc <= 0) {
++		    if ((cc <= 0) ||
++			(rcmd_stream_write(s, buf, (unsigned) cc, 1) != cc)) {
+ 			shutdown(s, 1+1);
+-			FD_CLR(pv[0], &readfrom);
+ 		    } else {
+-			(void) rcmd_stream_write(s, buf, (unsigned) cc, 1);
++			FD_SET(pv[0], &readfrom);
+ 		    }
++		    FD_CLR(s, &writeto);
+ 		}
+ 		if (FD_ISSET(pw[0], &ready)) {
++		    FD_SET(f, &writeto);
++		    FD_CLR(pw[0], &readfrom);
++		}
++		if (FD_ISSET(f, &ready_wr)) {
+ 		    /* read from the child stdout, write to the net */
+ 		    errno = 0;
+ 		    cc = read(pw[0], buf, sizeof (buf));
+-		    if (cc <= 0) {
++		    if ((cc <= 0) ||
++			(rcmd_stream_write(f, buf, (unsigned) cc, 0) != cc)) {
+ 			shutdown(f, 1+1);
+-			FD_CLR(pw[0], &readfrom);
+ 		    } else {
+-			(void) rcmd_stream_write(f, buf, (unsigned) cc, 0);
++			FD_SET(pw[0], &readfrom);
+ 		    }
++		    FD_CLR(f, &writeto);
+ 		}
+ 		if (port&&FD_ISSET(s, &ready)) {
+ 		    /* read from the alternate channel, signal the child */
+@@ -1268,12 +1284,15 @@ void doit(f, fromp)
+ 		    }
+ 		}
+ 		if (FD_ISSET(f, &ready)) {
++		    FD_SET(px[1], &writeto);
++		    FD_CLR(f, &readfrom);
++		}
++		if (FD_ISSET(px[1], &ready_wr)) {
+ 		    /* read from the net, write to child stdin */
+ 		    errno = 0;
+ 		    cc = rcmd_stream_read(f, buf, sizeof(buf), 0);
+ 		    if (cc <= 0) {
+ 			(void) close(px[1]);
+-			FD_CLR(f, &readfrom);
+ 		    } else {
+ 		        int wcc;
+ 		        wcc = write(px[1], buf, (unsigned) cc);
+@@ -1281,17 +1300,22 @@ void doit(f, fromp)
+ 			  /* pipe closed, don't read any more */
+ 			  /* might check for EPIPE */
+ 			  (void) close(px[1]);
+-			  FD_CLR(f, &readfrom);
+-			} else if (wcc != cc) {
+-			  syslog(LOG_INFO, "only wrote %d/%d to child", 
+-				 wcc, cc);
++			} else {
++			    if (wcc != cc)
++				syslog(LOG_INFO, "only wrote %d/%d to child", 
++				       wcc, cc);
++			    FD_SET(f, &readfrom);
+ 			}
+ 		    }
++		    FD_CLR(px[1], &writeto);
+ 		}
+ 	    } while ((port&&FD_ISSET(s, &readfrom)) ||
+ 		     FD_ISSET(f, &readfrom) ||
+ 		     (port&&FD_ISSET(pv[0], &readfrom) )||
+-		     FD_ISSET(pw[0], &readfrom));
++		     FD_ISSET(pw[0], &readfrom) ||
++		     (port&&FD_ISSET(s, &writeto)) ||
++		     FD_ISSET(f, &writeto) ||
++		     FD_ISSET(px[1], &writeto));
+ 	    ignore_signals();
+ #ifdef KERBEROS
+ 	    syslog(LOG_INFO ,

@@ -1,0 +1,121 @@
+commit 78f51945418696073fe877f5f6f5faf19443b8a6
+Author: Colin Guthrie <cguthrie@mandriva.org>
+Date:   Sat Oct 17 15:59:29 2009 +0100
+
+    Allow for the sink input peak detect to survive across sink moves.
+
+diff --git a/src/mainwindow.cc b/src/mainwindow.cc
+index 5aa509e..99b9530 100644
+--- a/src/mainwindow.cc
++++ b/src/mainwindow.cc
+@@ -317,8 +317,7 @@ void MainWindow::createMonitorStreamForSource(uint32_t source_idx) {
+     }
+ }
+ 
+-void MainWindow::createMonitorStreamForSinkInput(uint32_t sink_input_idx, uint32_t sink_idx) {
+-    pa_stream *s;
++void MainWindow::createMonitorStreamForSinkInput(SinkInputWidget* w, uint32_t sink_idx) {
+     char t[16];
+     pa_buffer_attr attr;
+     pa_sample_spec ss;
+@@ -331,6 +330,11 @@ void MainWindow::createMonitorStreamForSinkInput(uint32_t sink_input_idx, uint32
+     if (!sinkWidgets.count(sink_idx))
+         return;
+ 
++    if (w->peak) {
++        pa_stream_disconnect(w->peak);
++        w->peak = NULL;
++    }
++
+     monitor_source_idx = sinkWidgets[sink_idx]->monitor_index;
+ 
+     memset(&attr, 0, sizeof(attr));
+@@ -339,18 +343,19 @@ void MainWindow::createMonitorStreamForSinkInput(uint32_t sink_input_idx, uint32
+ 
+     snprintf(t, sizeof(t), "%u", monitor_source_idx);
+ 
+-    if (!(s = pa_stream_new(get_context(), _("Peak detect"), &ss, NULL))) {
++    if (!(w->peak = pa_stream_new(get_context(), _("Peak detect"), &ss, NULL))) {
+         show_error(_("Failed to create monitoring stream"));
+         return;
+     }
+ 
+-    pa_stream_set_monitor_stream(s, sink_input_idx);
+-    pa_stream_set_read_callback(s, read_callback, this);
+-    pa_stream_set_suspended_callback(s, suspended_callback, this);
++    pa_stream_set_monitor_stream(w->peak, w->index);
++    pa_stream_set_read_callback(w->peak, read_callback, this);
++    pa_stream_set_suspended_callback(w->peak, suspended_callback, this);
+ 
+-    if (pa_stream_connect_record(s, t, &attr, (pa_stream_flags_t) (PA_STREAM_DONT_MOVE|PA_STREAM_PEAK_DETECT|PA_STREAM_ADJUST_LATENCY)) < 0) {
++    if (pa_stream_connect_record(w->peak, t, &attr, (pa_stream_flags_t) (PA_STREAM_DONT_MOVE|PA_STREAM_PEAK_DETECT|PA_STREAM_ADJUST_LATENCY)) < 0) {
+         show_error(_("Failed to connect monitoring stream"));
+-        pa_stream_unref(s);
++        pa_stream_unref(w->peak);
++        w->peak = NULL;
+         return;
+     }
+ }
+@@ -469,9 +474,12 @@ void MainWindow::updateSinkInput(const pa_sink_input_info &info) {
+         }
+     }
+ 
+-    if (sinkInputWidgets.count(info.index))
++    if (sinkInputWidgets.count(info.index)) {
+         w = sinkInputWidgets[info.index];
+-    else {
++        if (pa_context_get_server_protocol_version(get_context()) >= 13)
++            if (w->sinkIndex() != info.sink)
++                createMonitorStreamForSinkInput(w, info.sink);
++    } else {
+         sinkInputWidgets[info.index] = w = SinkInputWidget::create(this);
+         w->setChannelMap(info.channel_map, true);
+         streamsVBox->pack_start(*w, false, false, 0);
+@@ -480,7 +488,7 @@ void MainWindow::updateSinkInput(const pa_sink_input_info &info) {
+         is_new = true;
+ 
+         if (pa_context_get_server_protocol_version(get_context()) >= 13)
+-            createMonitorStreamForSinkInput(info.index, info.sink);
++            createMonitorStreamForSinkInput(w, info.sink);
+     }
+ 
+     w->updating = true;
+diff --git a/src/mainwindow.h b/src/mainwindow.h
+index 3c72ef3..0ee84b5 100644
+--- a/src/mainwindow.h
++++ b/src/mainwindow.h
+@@ -80,7 +80,7 @@ public:
+     void updateDeviceVisibility();
+     void reallyUpdateDeviceVisibility();
+     void createMonitorStreamForSource(uint32_t source_idx);
+-    void createMonitorStreamForSinkInput(uint32_t sink_input_idx, uint32_t sink_idx);
++    void createMonitorStreamForSinkInput(SinkInputWidget* w, uint32_t sink_idx);
+ 
+     void setIconFromProplist(Gtk::Image *icon, pa_proplist *l, const char *name);
+ 
+diff --git a/src/streamwidget.cc b/src/streamwidget.cc
+index 2ab5c12..12c7d6d 100644
+--- a/src/streamwidget.cc
++++ b/src/streamwidget.cc
+@@ -31,7 +31,8 @@
+ /*** StreamWidget ***/
+ StreamWidget::StreamWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Glade::Xml>& x) :
+     MinimalStreamWidget(cobject, x),
+-    mpMainWindow(NULL) {
++    mpMainWindow(NULL),
++    peak(NULL) {
+ 
+     x->get_widget("lockToggleButton", lockToggleButton);
+     x->get_widget("muteToggleButton", muteToggleButton);
+diff --git a/src/streamwidget.h b/src/streamwidget.h
+index 215e332..28a2a47 100644
+--- a/src/streamwidget.h
++++ b/src/streamwidget.h
+@@ -43,6 +43,7 @@ public:
+ 
+     pa_channel_map channelMap;
+     pa_cvolume volume;
++    pa_stream *peak;
+ 
+     ChannelWidget *channelWidgets[PA_CHANNELS_MAX];
+ 

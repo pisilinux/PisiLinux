@@ -1,0 +1,95 @@
+? patch
+? lib/isc/lex.c.rh490837
+Index: lib/isc/lex.c
+===================================================================
+RCS file: /var/snap/bind9/lib/isc/lex.c,v
+retrieving revision 1.86
+diff -p -u -r1.86 lex.c
+--- lib/isc/lex.c	17 Sep 2007 09:56:29 -0000	1.86
++++ lib/isc/lex.c	6 Apr 2009 13:24:15 -0000
+@@ -425,17 +425,14 @@ isc_lex_gettoken(isc_lex_t *lex, unsigne
+ 			if (source->is_file) {
+ 				stream = source->input;
+ 
+-#if defined(HAVE_FLOCKFILE) && defined(HAVE_GETCUNLOCKED)
+-				c = getc_unlocked(stream);
+-#else
+-				c = getc(stream);
+-#endif
+-				if (c == EOF) {
+-					if (ferror(stream)) {
+-						source->result = ISC_R_IOERROR;
+-						result = source->result;
++				result = isc_stdio_fgetc(stream, &c);
++
++				if (result != ISC_R_SUCCESS) {
++					if (result != ISC_R_EOF) {
++						source->result = result;
+ 						goto done;
+ 					}
++
+ 					source->at_eof = ISC_TRUE;
+ 				}
+ 			} else {
+Index: lib/isc/include/isc/stdio.h
+===================================================================
+RCS file: /var/snap/bind9/lib/isc/include/isc/stdio.h,v
+retrieving revision 1.13
+diff -p -u -r1.13 stdio.h
+--- lib/isc/include/isc/stdio.h	19 Jun 2007 23:47:18 -0000	1.13
++++ lib/isc/include/isc/stdio.h	6 Apr 2009 13:24:15 -0000
+@@ -72,6 +72,9 @@ isc_stdio_sync(FILE *f);
+  * direct counterpart in the stdio library.
+  */
+ 
++isc_result_t
++isc_stdio_fgetc(FILE *f, int *ret);
++
+ ISC_LANG_ENDDECLS
+ 
+ #endif /* ISC_STDIO_H */
+Index: lib/isc/unix/errno2result.c
+===================================================================
+RCS file: /var/snap/bind9/lib/isc/unix/errno2result.c,v
+retrieving revision 1.17
+diff -p -u -r1.17 errno2result.c
+--- lib/isc/unix/errno2result.c	19 Jun 2007 23:47:18 -0000	1.17
++++ lib/isc/unix/errno2result.c	6 Apr 2009 13:24:15 -0000
+@@ -43,6 +43,7 @@ isc__errno2result(int posixerrno) {
+ 	case EINVAL:		/* XXX sometimes this is not for files */
+ 	case ENAMETOOLONG:
+ 	case EBADF:
++	case EISDIR:
+ 		return (ISC_R_INVALIDFILE);
+ 	case ENOENT:
+ 		return (ISC_R_FILENOTFOUND);
+Index: lib/isc/unix/stdio.c
+===================================================================
+RCS file: /var/snap/bind9/lib/isc/unix/stdio.c,v
+retrieving revision 1.8
+diff -p -u -r1.8 stdio.c
+--- lib/isc/unix/stdio.c	19 Jun 2007 23:47:18 -0000	1.8
++++ lib/isc/unix/stdio.c	6 Apr 2009 13:24:15 -0000
+@@ -115,3 +115,22 @@ isc_stdio_sync(FILE *f) {
+ 		return (isc__errno2result(errno));
+ }
+ 
++isc_result_t
++isc_stdio_fgetc(FILE *f, int *ret) {
++	int r;
++	isc_result_t result = ISC_R_SUCCESS;
++
++#if defined(HAVE_FLOCKFILE) && defined(HAVE_GETCUNLOCKED)
++	r = fgetc_unlocked(f);
++#else
++	r = fgets(f);
++#endif
++
++	if (r == EOF)
++		result = ferror(f) ? isc__errno2result(errno) : ISC_R_EOF;
++
++	*ret = r;
++
++	return result;
++}
++

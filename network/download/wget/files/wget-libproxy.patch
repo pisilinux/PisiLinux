@@ -1,0 +1,96 @@
+Index: configure.ac
+===================================================================
+--- configure.ac.orig
++++ configure.ac
+@@ -338,6 +338,22 @@ else
+   fi
+ fi
+ 
++dnl
++dnl libproxy support
++dnl
++AC_ARG_ENABLE(libproxy,
++  [  --enable-libproxy       libproxy support for system wide proxy configuration])
++if test "${enable_libproxy}" != "no"
++then
++  PKG_CHECK_MODULES([libproxy], [libproxy-1.0], [enable_libproxy=yes], [enable_libproxy=no])
++fi
++if test "${enable_libproxy}" = "yes"
++then
++  AC_SUBST(libproxy_CFLAGS)
++  AC_SUBST(libproxy_LIBS)
++  AC_DEFINE([HAVE_LIBPROXY], 1, [Define when using libproxy])
++fi
++
+ dnl **********************************************************************
+ dnl Checks for IPv6
+ dnl **********************************************************************
+Index: src/Makefile.am
+===================================================================
+--- src/Makefile.am.orig
++++ src/Makefile.am
+@@ -37,7 +37,7 @@ endif
+ 
+ # The following line is losing on some versions of make!
+ DEFS     = @DEFS@ -DSYSTEM_WGETRC=\"$(sysconfdir)/wgetrc\" -DLOCALEDIR=\"$(localedir)\"
+-LIBS     = @LIBICONV@ @LIBINTL@ @LIBS@ $(LIB_CLOCK_GETTIME)
++LIBS     = @LIBICONV@ @LIBINTL@ @libproxy_LIBS@ @LIBS@ $(LIB_CLOCK_GETTIME)
+ 
+ EXTRA_DIST = css.l css.c css_.c build_info.c.in
+ 
+Index: src/retr.c
+===================================================================
+--- src/retr.c.orig
++++ src/retr.c
+@@ -54,6 +54,10 @@ as that of the covered work.  */
+ #include "html-url.h"
+ #include "iri.h"
+ 
++#ifdef HAVE_LIBPROXY
++#include "proxy.h"
++#endif
++
+ /* Total size of downloaded files.  Used to enforce quota.  */
+ SUM_SIZE_INT total_downloaded_bytes;
+ 
+@@ -1182,7 +1186,40 @@ getproxy (struct url *u)
+       break;
+     }
+   if (!proxy || !*proxy)
++#ifdef HAVE_LIBPROXY
++  {
++	pxProxyFactory *pf = px_proxy_factory_new();
++        if (!pf)
++        {
++		debug_logprintf (_("Allocating memory for libproxy failed"));
++               return NULL;
++        }
++	int i; 
++	char direct[] = "direct://";
++
++	debug_logprintf (_("asking libproxy about url '%s'\n"), u->url);
++	char **proxies = px_proxy_factory_get_proxies(pf, u->url);
++	if (proxies[0])
++	{
++          char *check = NULL;
++          asprintf(&check , "%s", proxies[0]);
++	    debug_logprintf (_("libproxy suggest to use '%s'\n"), check);
++  	    if(strcmp(check ,direct) != 0)
++	    {
++		asprintf(&proxy , "%s", proxies[0]);
++  	        debug_logprintf (_("case 2: libproxy setting to use '%s'\n"), proxy);
++	    }
++	}
++	for(i=0;proxies[i];i++) free(proxies[i]);
++	free(proxies);
++	free(pf);
++        
++        if (!proxy || !*proxy)
++	    return NULL;
++  }
++#else
+     return NULL;
++#endif
+ 
+   /* Handle shorthands.  `rewritten_storage' is a kludge to allow
+      getproxy() to return static storage. */

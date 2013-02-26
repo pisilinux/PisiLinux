@@ -1,0 +1,1366 @@
+[ Backported.  ]
+
+commit 9d625812f24608f99fd99e8591ef3c80d729f9b5
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Tue Mar 2 13:14:28 2010 +0000
+
+    Support x86 pseudo byte, word and dword registers.
+    
+    gdb/
+    
+    2010-03-02  H.J. Lu  <hongjiu.lu@intel.com>
+    
+    	* amd64-tdep.c (amd64_byte_names): New.
+    	(amd64_word_names): Likewise.
+    	(amd64_dword_names): Likewise.
+    	(amd64_pseudo_register_name): Likewise.
+    	(amd64_pseudo_register_read): Likewise.
+    	(amd64_pseudo_register_write): Likewise.
+    	(amd64_init_abi): Set num_byte_regs, num_word_regs, num_dword_regs
+    	and num_mmx_regs.  Call set_gdbarch_pseudo_register_read,
+    	set_gdbarch_pseudo_register_write and
+    	set_tdesc_pseudo_register_name.  Don't call
+    	set_gdbarch_num_pseudo_regs.  Don't set mm0_regnum.
+    
+    	* i386-tdep.c (i386_num_mmx_regs): Removed.
+    	(i386_num_pseudo_regs): Likewise.
+    	(i386_byte_names): New.
+    	(i386_word_names): Likewise.
+    	(i386_byte_regnum_p): Likewise.
+    	(i386_word_regnum_p): Likewise.
+    	(i386_mmx_regnum_p): Updated.
+    	(i386_pseudo_register_name): Make it global.  Handle byte and
+    	word pseudo-registers.
+    	(i386_pseudo_register_read): Likewise.
+    	(i386_pseudo_register_write): Likewise.
+    	(i386_pseudo_register_type): Handle byte, word and dword
+    	pseudo-registers
+    	(i386_register_reggroup_p): Don't include pseudo
+    	registers, except for MXX, in any register groups.  Don't
+    	include pseudo byte, word, dword registers in general_reggroup.
+    	(i386_gdbarch_init): Set num_byte_regs, num_word_regs,
+    	num_dword_regs, al_regnum, ax_regnum and eax_regnum.  Put MMX
+    	pseudo-registers after word pseudo-registers.  Call
+    	set_gdbarch_num_pseudo_regs after calling gdbarch_init_osabi.
+    
+    	* i386-tdep.h (gdbarch_tdep): Add num_mmx_regs, num_byte_regs,
+    	al_regnum, num_word_regs, ax_regnum, num_dword_regs and
+    	eax_regnum.
+    	(i386_byte_regnum_p): New.
+    	(i386_word_regnum_p): Likewise.
+    	(i386_dword_regnum_p): Likewise.
+    	(i386_pseudo_register_name): Likewise.
+    	(i386_pseudo_register_read): Likewise.
+    	(i386_pseudo_register_write): Likewise.
+    
+    gdb/testsuite/
+    
+    2010-03-02  H.J. Lu  <hongjiu.lu@intel.com>
+    
+    	* gdb.arch/amd64-byte.exp: New.
+    	* gdb.arch/amd64-dword.exp: Likewise.
+    	* gdb.arch/amd64-pseudo.c: Likewise.
+    	* gdb.arch/amd64-word.exp: Likewise.
+    	* gdb.arch/i386-byte.exp: Likewise.
+    	* gdb.arch/i386-pseudo.c: Likewise.
+    	* gdb.arch/i386-word.exp: Likewise.
+
+--- gdb-7.1-p2/gdb/amd64-tdep.c	2010-04-03 20:59:52.000000000 +0200
++++ gdb-7.1/gdb/amd64-tdep.c	2010-04-03 21:06:52.000000000 +0200
+@@ -210,6 +210,107 @@ amd64_arch_reg_to_regnum (int reg)
+   return amd64_arch_regmap[reg];
+ }
+ 
++/* Register names for byte pseudo-registers.  */
++
++static const char *amd64_byte_names[] =
++{
++  "al", "bl", "cl", "dl", "sil", "dil", "bpl", "spl",
++  "r8l", "r9l", "r10l", "r11l", "r12l", "r13l", "r14l", "r15l"
++};
++
++/* Register names for word pseudo-registers.  */
++
++static const char *amd64_word_names[] =
++{
++  "ax", "bx", "cx", "dx", "si", "di", "bp", "sp", 
++  "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"
++};
++
++/* Register names for dword pseudo-registers.  */
++
++static const char *amd64_dword_names[] =
++{
++  "eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp", 
++  "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"
++};
++
++/* Return the name of register REGNUM.  */
++
++static const char *
++amd64_pseudo_register_name (struct gdbarch *gdbarch, int regnum)
++{
++  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++  if (i386_byte_regnum_p (gdbarch, regnum))
++    return amd64_byte_names[regnum - tdep->al_regnum];
++  else if (i386_word_regnum_p (gdbarch, regnum))
++    return amd64_word_names[regnum - tdep->ax_regnum];
++  else if (i386_dword_regnum_p (gdbarch, regnum))
++    return amd64_dword_names[regnum - tdep->eax_regnum];
++  else
++    return i386_pseudo_register_name (gdbarch, regnum);
++}
++
++static void
++amd64_pseudo_register_read (struct gdbarch *gdbarch,
++			    struct regcache *regcache,
++			    int regnum, gdb_byte *buf)
++{
++  gdb_byte raw_buf[MAX_REGISTER_SIZE];
++  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++
++  if (i386_byte_regnum_p (gdbarch, regnum))
++    {
++      int gpnum = regnum - tdep->al_regnum;
++
++      /* Extract (always little endian).  */
++      regcache_raw_read (regcache, gpnum, raw_buf);
++      memcpy (buf, raw_buf, 1);
++    }
++  else if (i386_dword_regnum_p (gdbarch, regnum))
++    {
++      int gpnum = regnum - tdep->eax_regnum;
++      /* Extract (always little endian).  */
++      regcache_raw_read (regcache, gpnum, raw_buf);
++      memcpy (buf, raw_buf, 4);
++    }
++  else
++    i386_pseudo_register_read (gdbarch, regcache, regnum, buf);
++}
++
++static void
++amd64_pseudo_register_write (struct gdbarch *gdbarch,
++			     struct regcache *regcache,
++			     int regnum, const gdb_byte *buf)
++{
++  gdb_byte raw_buf[MAX_REGISTER_SIZE];
++  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++
++  if (i386_byte_regnum_p (gdbarch, regnum))
++    {
++      int gpnum = regnum - tdep->al_regnum;
++
++      /* Read ...  */
++      regcache_raw_read (regcache, gpnum, raw_buf);
++      /* ... Modify ... (always little endian).  */
++      memcpy (raw_buf, buf, 1);
++      /* ... Write.  */
++      regcache_raw_write (regcache, gpnum, raw_buf);
++    }
++  else if (i386_dword_regnum_p (gdbarch, regnum))
++    {
++      int gpnum = regnum - tdep->eax_regnum;
++
++      /* Read ...  */
++      regcache_raw_read (regcache, gpnum, raw_buf);
++      /* ... Modify ... (always little endian).  */
++      memcpy (raw_buf, buf, 4);
++      /* ... Write.  */
++      regcache_raw_write (regcache, gpnum, raw_buf);
++    }
++  else
++    i386_pseudo_register_write (gdbarch, regcache, regnum, buf);
++}
++
+ 
+ 
+ /* Return the union class of CLASS1 and CLASS2.  See the psABI for
+@@ -2132,6 +2233,19 @@ amd64_init_abi (struct gdbarch_info info
+   tdep->num_core_regs = AMD64_NUM_GREGS + I387_NUM_REGS;
+   tdep->register_names = amd64_register_names;
+ 
++  tdep->num_byte_regs = 16;
++  tdep->num_word_regs = 16;
++  tdep->num_dword_regs = 16;
++  /* Avoid wiring in the MMX registers for now.  */
++  tdep->num_mmx_regs = 0;
++
++  set_gdbarch_pseudo_register_read (gdbarch,
++				    amd64_pseudo_register_read);
++  set_gdbarch_pseudo_register_write (gdbarch,
++				     amd64_pseudo_register_write);
++
++  set_tdesc_pseudo_register_name (gdbarch, amd64_pseudo_register_name);
++
+   /* AMD64 has an FPU and 16 SSE registers.  */
+   tdep->st0_regnum = AMD64_ST0_REGNUM;
+   tdep->num_xmm_regs = 16;
+@@ -2183,10 +2297,6 @@ amd64_init_abi (struct gdbarch_info info
+ 
+   set_gdbarch_skip_prologue (gdbarch, amd64_skip_prologue);
+ 
+-  /* Avoid wiring in the MMX registers for now.  */
+-  set_gdbarch_num_pseudo_regs (gdbarch, 0);
+-  tdep->mm0_regnum = -1;
+-
+   tdep->record_regmap = amd64_record_regmap;
+ 
+   set_gdbarch_dummy_id (gdbarch, amd64_dummy_id);
+--- gdb-7.1-p2/gdb/i386-tdep.c	2010-04-03 20:59:52.000000000 +0200
++++ gdb-7.1/gdb/i386-tdep.c	2010-04-03 21:06:52.000000000 +0200
+@@ -81,17 +81,72 @@ static const char *i386_mmx_names[] =
+   "mm4", "mm5", "mm6", "mm7"
+ };
+ 
+-static const int i386_num_mmx_regs = ARRAY_SIZE (i386_mmx_names);
++/* Register names for byte pseudo-registers.  */
++
++static const char *i386_byte_names[] =
++{
++  "al", "cl", "dl", "bl", 
++  "ah", "ch", "dh", "bh"
++};
++
++/* Register names for word pseudo-registers.  */
++
++static const char *i386_word_names[] =
++{
++  "ax", "cx", "dx", "bx",
++  "sp", "bp", "si", "di"
++};
++
++/* MMX register?  */
+ 
+ static int
+ i386_mmx_regnum_p (struct gdbarch *gdbarch, int regnum)
+ {
+-  int mm0_regnum = gdbarch_tdep (gdbarch)->mm0_regnum;
++  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++  int mm0_regnum = tdep->mm0_regnum;
+ 
+   if (mm0_regnum < 0)
+     return 0;
+ 
+-  return (regnum >= mm0_regnum && regnum < mm0_regnum + i386_num_mmx_regs);
++  regnum -= mm0_regnum;
++  return regnum >= 0 && regnum < tdep->num_mmx_regs;
++}
++
++/* Byte register?  */
++
++int
++i386_byte_regnum_p (struct gdbarch *gdbarch, int regnum)
++{
++  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++
++  regnum -= tdep->al_regnum;
++  return regnum >= 0 && regnum < tdep->num_byte_regs;
++}
++
++/* Word register?  */
++
++int
++i386_word_regnum_p (struct gdbarch *gdbarch, int regnum)
++{
++  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++
++  regnum -= tdep->ax_regnum;
++  return regnum >= 0 && regnum < tdep->num_word_regs;
++}
++
++/* Dword register?  */
++
++int
++i386_dword_regnum_p (struct gdbarch *gdbarch, int regnum)
++{
++  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++  int eax_regnum = tdep->eax_regnum;
++
++  if (eax_regnum < 0)
++    return 0;
++
++  regnum -= eax_regnum;
++  return regnum >= 0 && regnum < tdep->num_dword_regs;
+ }
+ 
+ /* SSE register?  */
+@@ -147,11 +202,18 @@ i386_fpc_regnum_p (struct gdbarch *gdbar
+ 
+ /* Return the name of register REGNUM.  */
+ 
+-static const char *
++const char *
+ i386_pseudo_register_name (struct gdbarch *gdbarch, int regnum)
+ {
+-  gdb_assert (i386_mmx_regnum_p (gdbarch, regnum));
+-  return i386_mmx_names[regnum - I387_MM0_REGNUM (gdbarch_tdep (gdbarch))];
++  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++  if (i386_mmx_regnum_p (gdbarch, regnum))
++    return i386_mmx_names[regnum - I387_MM0_REGNUM (tdep)];
++  else if (i386_byte_regnum_p (gdbarch, regnum))
++    return i386_byte_names[regnum - tdep->al_regnum];
++  else if (i386_word_regnum_p (gdbarch, regnum))
++    return i386_word_names[regnum - tdep->ax_regnum];
++
++  internal_error (__FILE__, __LINE__, _("invalid regnum"));
+ }
+ 
+ /* Convert a dbx register number REG to the appropriate register
+@@ -2169,8 +2231,20 @@ i386_mmx_type (struct gdbarch *gdbarch)
+ static struct type *
+ i386_pseudo_register_type (struct gdbarch *gdbarch, int regnum)
+ {
+-  gdb_assert (i386_mmx_regnum_p (gdbarch, regnum));
+-  return i386_mmx_type (gdbarch);
++  if (i386_mmx_regnum_p (gdbarch, regnum))
++    return i386_mmx_type (gdbarch);
++  else
++    {
++      const struct builtin_type *bt = builtin_type (gdbarch);
++      if (i386_byte_regnum_p (gdbarch, regnum))
++	return bt->builtin_int8;
++      else if (i386_word_regnum_p (gdbarch, regnum))
++	return bt->builtin_int16;
++      else if (i386_dword_regnum_p (gdbarch, regnum))
++	return bt->builtin_int32;
++    }
++
++  internal_error (__FILE__, __LINE__, _("invalid regnum"));
+ }
+ 
+ /* Map a cooked register onto a raw register or memory.  For the i386,
+@@ -2192,41 +2266,104 @@ i386_mmx_regnum_to_fp_regnum (struct reg
+   return (I387_ST0_REGNUM (tdep) + fpreg);
+ }
+ 
+-static void
++void
+ i386_pseudo_register_read (struct gdbarch *gdbarch, struct regcache *regcache,
+ 			   int regnum, gdb_byte *buf)
+ {
++  gdb_byte raw_buf[MAX_REGISTER_SIZE];
++
+   if (i386_mmx_regnum_p (gdbarch, regnum))
+     {
+-      gdb_byte mmx_buf[MAX_REGISTER_SIZE];
+       int fpnum = i386_mmx_regnum_to_fp_regnum (regcache, regnum);
+ 
+       /* Extract (always little endian).  */
+-      regcache_raw_read (regcache, fpnum, mmx_buf);
+-      memcpy (buf, mmx_buf, register_size (gdbarch, regnum));
++      regcache_raw_read (regcache, fpnum, raw_buf);
++      memcpy (buf, raw_buf, register_size (gdbarch, regnum));
+     }
+   else
+-    regcache_raw_read (regcache, regnum, buf);
++    {
++      struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++
++      if (i386_word_regnum_p (gdbarch, regnum))
++	{
++	  int gpnum = regnum - tdep->ax_regnum;
++
++	  /* Extract (always little endian).  */
++	  regcache_raw_read (regcache, gpnum, raw_buf);
++	  memcpy (buf, raw_buf, 2);
++	}
++      else if (i386_byte_regnum_p (gdbarch, regnum))
++	{
++	  /* Check byte pseudo registers last since this function will
++	     be called from amd64_pseudo_register_read, which handles
++	     byte pseudo registers differently.  */
++	  int gpnum = regnum - tdep->al_regnum;
++
++	  /* Extract (always little endian).  We read both lower and
++	     upper registers.  */
++	  regcache_raw_read (regcache, gpnum % 4, raw_buf);
++	  if (gpnum >= 4)
++	    memcpy (buf, raw_buf + 1, 1);
++	  else
++	    memcpy (buf, raw_buf, 1);
++	}
++      else
++	internal_error (__FILE__, __LINE__, _("invalid regnum"));
++    }
+ }
+ 
+-static void
++void
+ i386_pseudo_register_write (struct gdbarch *gdbarch, struct regcache *regcache,
+ 			    int regnum, const gdb_byte *buf)
+ {
++  gdb_byte raw_buf[MAX_REGISTER_SIZE];
++
+   if (i386_mmx_regnum_p (gdbarch, regnum))
+     {
+-      gdb_byte mmx_buf[MAX_REGISTER_SIZE];
+       int fpnum = i386_mmx_regnum_to_fp_regnum (regcache, regnum);
+ 
+       /* Read ...  */
+-      regcache_raw_read (regcache, fpnum, mmx_buf);
++      regcache_raw_read (regcache, fpnum, raw_buf);
+       /* ... Modify ... (always little endian).  */
+-      memcpy (mmx_buf, buf, register_size (gdbarch, regnum));
++      memcpy (raw_buf, buf, register_size (gdbarch, regnum));
+       /* ... Write.  */
+-      regcache_raw_write (regcache, fpnum, mmx_buf);
++      regcache_raw_write (regcache, fpnum, raw_buf);
+     }
+   else
+-    regcache_raw_write (regcache, regnum, buf);
++    {
++      struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
++
++      if (i386_word_regnum_p (gdbarch, regnum))
++	{
++	  int gpnum = regnum - tdep->ax_regnum;
++
++	  /* Read ...  */
++	  regcache_raw_read (regcache, gpnum, raw_buf);
++	  /* ... Modify ... (always little endian).  */
++	  memcpy (raw_buf, buf, 2);
++	  /* ... Write.  */
++	  regcache_raw_write (regcache, gpnum, raw_buf);
++	}
++      else if (i386_byte_regnum_p (gdbarch, regnum))
++	{
++	  /* Check byte pseudo registers last since this function will
++	     be called from amd64_pseudo_register_read, which handles
++	     byte pseudo registers differently.  */
++	  int gpnum = regnum - tdep->al_regnum;
++
++	  /* Read ...  We read both lower and upper registers.  */
++	  regcache_raw_read (regcache, gpnum % 4, raw_buf);
++	  /* ... Modify ... (always little endian).  */
++	  if (gpnum >= 4)
++	    memcpy (raw_buf + 1, buf, 1);
++	  else
++	    memcpy (raw_buf, buf, 1);
++	  /* ... Write.  */
++	  regcache_raw_write (regcache, gpnum % 4, raw_buf);
++	}
++      else
++	internal_error (__FILE__, __LINE__, _("invalid regnum"));
++    }
+ }
+ 
+ 
+@@ -2663,22 +2800,46 @@ int
+ i386_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
+ 			  struct reggroup *group)
+ {
+-  int sse_regnum_p = (i386_sse_regnum_p (gdbarch, regnum)
+-		      || i386_mxcsr_regnum_p (gdbarch, regnum));
+-  int fp_regnum_p = (i386_fp_regnum_p (gdbarch, regnum)
+-		     || i386_fpc_regnum_p (gdbarch, regnum));
+-  int mmx_regnum_p = (i386_mmx_regnum_p (gdbarch, regnum));
++  int sse_regnum_p, fp_regnum_p, mmx_regnum_p, byte_regnum_p,
++      word_regnum_p, dword_regnum_p;
++
++  /* Don't include pseudo registers, except for MMX, in any register
++     groups.  */
++  byte_regnum_p = i386_byte_regnum_p (gdbarch, regnum);
++  if (byte_regnum_p)
++    return 0;
+ 
++  word_regnum_p = i386_word_regnum_p (gdbarch, regnum);
++  if (word_regnum_p)
++    return 0;
++
++  dword_regnum_p = i386_dword_regnum_p (gdbarch, regnum);
++  if (dword_regnum_p)
++    return 0;
++
++  mmx_regnum_p = i386_mmx_regnum_p (gdbarch, regnum);
+   if (group == i386_mmx_reggroup)
+     return mmx_regnum_p;
++
++  sse_regnum_p = (i386_sse_regnum_p (gdbarch, regnum)
++		  || i386_mxcsr_regnum_p (gdbarch, regnum));
+   if (group == i386_sse_reggroup)
+     return sse_regnum_p;
+   if (group == vector_reggroup)
+-    return (mmx_regnum_p || sse_regnum_p);
++    return mmx_regnum_p || sse_regnum_p;
++
++  fp_regnum_p = (i386_fp_regnum_p (gdbarch, regnum)
++		 || i386_fpc_regnum_p (gdbarch, regnum));
+   if (group == float_reggroup)
+     return fp_regnum_p;
++
+   if (group == general_reggroup)
+-    return (!fp_regnum_p && !mmx_regnum_p && !sse_regnum_p);
++    return (!fp_regnum_p
++	    && !mmx_regnum_p
++	    && !sse_regnum_p
++	    && !byte_regnum_p
++	    && !word_regnum_p
++	    && !dword_regnum_p);
+ 
+   return default_register_reggroup_p (gdbarch, regnum, group);
+ }
+@@ -5527,6 +5688,7 @@ i386_gdbarch_init (struct gdbarch_info i
+   struct gdbarch *gdbarch;
+   struct tdesc_arch_data *tdesc_data;
+   const struct target_desc *tdesc;
++  int mm0_regnum;
+ 
+   /* If there is already a candidate, use it.  */
+   arches = gdbarch_list_lookup_by_info (arches, &info);
+@@ -5563,11 +5725,6 @@ i386_gdbarch_init (struct gdbarch_info i
+ 
+   tdep->st0_regnum = I386_ST0_REGNUM;
+ 
+-  /* The MMX registers are implemented as pseudo-registers.  Put off
+-     calculating the register number for %mm0 until we know the number
+-     of raw registers.  */
+-  tdep->mm0_regnum = 0;
+-
+   /* I386_NUM_XREGS includes %mxcsr, so substract one.  */
+   tdep->num_xmm_regs = I386_NUM_XREGS - 1;
+ 
+@@ -5693,8 +5850,7 @@ i386_gdbarch_init (struct gdbarch_info i
+ 
+   frame_base_set_default (gdbarch, &i386_frame_base);
+ 
+-  /* Wire in the MMX registers.  */
+-  set_gdbarch_num_pseudo_regs (gdbarch, i386_num_mmx_regs);
++  /* Pseudo registers may be changed by amd64_init_abi.  */
+   set_gdbarch_pseudo_register_read (gdbarch, i386_pseudo_register_read);
+   set_gdbarch_pseudo_register_write (gdbarch, i386_pseudo_register_write);
+ 
+@@ -5714,12 +5870,24 @@ i386_gdbarch_init (struct gdbarch_info i
+   tdep->num_core_regs = I386_NUM_GREGS + I387_NUM_REGS;
+   tdep->register_names = i386_register_names;
+ 
++  tdep->num_byte_regs = 8;
++  tdep->num_word_regs = 8;
++  tdep->num_dword_regs = 0;
++  tdep->num_mmx_regs = 8;
++
+   tdesc_data = tdesc_data_alloc ();
+ 
+   /* Hook in ABI-specific overrides, if they have been registered.  */
+   info.tdep_info = (void *) tdesc_data;
+   gdbarch_init_osabi (info, gdbarch);
+ 
++  /* Wire in pseudo registers.  Number of pseudo registers may be
++     changed.  */
++  set_gdbarch_num_pseudo_regs (gdbarch, (tdep->num_byte_regs
++					 + tdep->num_word_regs
++					 + tdep->num_dword_regs
++					 + tdep->num_mmx_regs));
++
+   /* Target description may be changed.  */
+   tdesc = tdep->tdesc;
+ 
+@@ -5736,6 +5904,28 @@ i386_gdbarch_init (struct gdbarch_info i
+   /* Override gdbarch_register_reggroup_p set in tdesc_use_registers.  */
+   set_gdbarch_register_reggroup_p (gdbarch, tdep->register_reggroup_p);
+ 
++  /* Make %al the first pseudo-register.  */
++  tdep->al_regnum = gdbarch_num_regs (gdbarch);
++  tdep->ax_regnum = tdep->al_regnum + tdep->num_byte_regs;
++
++  mm0_regnum = tdep->ax_regnum + tdep->num_word_regs;
++  if (tdep->num_dword_regs)
++    {
++      /* Support dword pseudo-registesr if it hasn't been disabled,  */
++      tdep->eax_regnum = mm0_regnum;
++      mm0_regnum = tdep->eax_regnum + tdep->num_dword_regs;
++    }
++  else
++    tdep->eax_regnum = -1;
++
++  if (tdep->num_mmx_regs != 0)
++    {
++      /* Support MMX pseudo-registesr if MMX hasn't been disabled,  */
++      tdep->mm0_regnum = mm0_regnum;
++    }
++  else
++    tdep->mm0_regnum = -1;
++
+   /* Hook in the legacy prologue-based unwinders last (fallback).  */
+   frame_unwind_append_unwinder (gdbarch, &i386_sigtramp_frame_unwind);
+   frame_unwind_append_unwinder (gdbarch, &i386_frame_unwind);
+@@ -5747,11 +5937,6 @@ i386_gdbarch_init (struct gdbarch_info i
+     set_gdbarch_regset_from_core_section (gdbarch,
+ 					  i386_regset_from_core_section);
+ 
+-  /* Unless support for MMX has been disabled, make %mm0 the first
+-     pseudo-register.  */
+-  if (tdep->mm0_regnum == 0)
+-    tdep->mm0_regnum = gdbarch_num_regs (gdbarch);
+-
+   set_gdbarch_skip_permanent_breakpoint (gdbarch,
+ 					 i386_skip_permanent_breakpoint);
+ 
+--- gdb-7.1-p2/gdb/i386-tdep.h	2010-04-03 20:59:52.000000000 +0200
++++ gdb-7.1/gdb/i386-tdep.h	2010-04-03 21:06:52.000000000 +0200
+@@ -114,10 +114,32 @@ struct gdbarch_tdep
+      absence of an FPU.  */
+   int st0_regnum;
+ 
++  /* Number of MMX registers.  */
++  int num_mmx_regs;
++
+   /* Register number for %mm0.  Set this to -1 to indicate the absence
+      of MMX support.  */
+   int mm0_regnum;
+ 
++  /* Number of byte registers.  */
++  int num_byte_regs;
++
++  /* Register pseudo number for %al.  */
++  int al_regnum;
++
++  /* Number of pseudo word registers.  */
++  int num_word_regs;
++
++  /* Register number for %ax.  */
++  int ax_regnum;
++
++  /* Number of pseudo dword registers.  */
++  int num_dword_regs;
++
++  /* Register number for %eax.  Set this to -1 to indicate the absence
++     of pseudo dword register support.  */
++  int eax_regnum;
++
+   /* Number of core registers.  */
+   int num_core_regs;
+ 
+@@ -253,6 +275,21 @@ enum record_i386_regnum
+ /* Types for i386-specific registers.  */
+ extern struct type *i387_ext_type (struct gdbarch *gdbarch);
+ 
++/* Checks of different pseudo-registers.  */
++extern int i386_byte_regnum_p (struct gdbarch *gdbarch, int regnum);
++extern int i386_word_regnum_p (struct gdbarch *gdbarch, int regnum);
++extern int i386_dword_regnum_p (struct gdbarch *gdbarch, int regnum);
++
++extern const char *i386_pseudo_register_name (struct gdbarch *gdbarch,
++					      int regnum);
++
++extern void i386_pseudo_register_read (struct gdbarch *gdbarch,
++				       struct regcache *regcache,
++				       int regnum, gdb_byte *buf);
++extern void i386_pseudo_register_write (struct gdbarch *gdbarch,
++					struct regcache *regcache,
++					int regnum, const gdb_byte *buf);
++
+ /* Segment selectors.  */
+ #define I386_SEL_RPL	0x0003  /* Requester's Privilege Level mask.  */
+ #define I386_SEL_UPL	0x0003	/* User Privilige Level. */
+--- gdb-7.1-p2/gdb/testsuite/gdb.arch/amd64-byte.exp	1970-01-01 01:00:00.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.arch/amd64-byte.exp	2010-04-03 21:06:52.000000000 +0200
+@@ -0,0 +1,121 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# Please email any bugs, comments, and/or additions to this file to:
++# bug-gdb@gnu.org
++
++# This file is part of the gdb testsuite.
++
++if $tracelevel {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++if { ![istarget x86_64-*-* ] } {
++    verbose "Skipping amd64 byte register tests."
++    return
++}
++
++set testfile "amd64-byte"
++set srcfile amd64-pseudo.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug]] != "" } {
++    untested ${testfile}
++    return
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++if ![runto_main] then {
++    gdb_suppress_tests
++}
++
++set nr_regs 14
++set byte_regs(1) al
++set byte_regs(2) bl
++set byte_regs(3) cl
++set byte_regs(4) dl
++set byte_regs(5) sil
++set byte_regs(6) dil
++set byte_regs(7) r8l
++set byte_regs(8) r9l
++set byte_regs(9) r10l
++set byte_regs(10) r11l
++set byte_regs(11) r12l
++set byte_regs(12) r13l
++set byte_regs(13) r14l
++set byte_regs(14) r15l
++
++gdb_test "break [gdb_get_line_number "first breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set first breakpoint in main"
++gdb_continue_to_breakpoint "continue to first breakpoint in main"
++
++for { set r 1 } { $r <= 6  } { incr r } {
++    gdb_test "print/x \$$byte_regs($r)" \
++        ".. = 0x[format %x $r]1" \
++        "check contents of %$byte_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "second breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set second breakpoint in main"
++gdb_continue_to_breakpoint "continue to second breakpoint in main"
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++    gdb_test "print/x \$$byte_regs($r)" \
++        ".. = 0x[format %x $r]1" \
++        "check contents of %$byte_regs($r)"
++}
++
++for { set r 1 } { $r <= 6  } { incr r } {
++  gdb_test "set var \$$byte_regs($r) = $r" "" "set %$byte_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "third breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set third breakpoint in main"
++gdb_continue_to_breakpoint "continue to third breakpoint in main"
++
++for { set r 1 } { $r <= 6  } { incr r } {
++    gdb_test "print \$$byte_regs($r)" \
++        ".. = $r" \
++        "check contents of %$byte_regs($r)"
++}
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++  gdb_test "set var \$$byte_regs($r) = $r" "" "set %$byte_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "forth breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set forth breakpoint in main"
++gdb_continue_to_breakpoint "continue to forth breakpoint in main"
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++    gdb_test "print \$$byte_regs($r)" \
++        ".. = $r" \
++        "check contents of %$byte_regs($r)"
++}
+--- gdb-7.1-p2/gdb/testsuite/gdb.arch/amd64-dword.exp	1970-01-01 01:00:00.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.arch/amd64-dword.exp	2010-04-03 21:06:52.000000000 +0200
+@@ -0,0 +1,123 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# Please email any bugs, comments, and/or additions to this file to:
++# bug-gdb@gnu.org
++
++# This file is part of the gdb testsuite.
++
++if $tracelevel {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++if { ![istarget x86_64-*-* ] } {
++    verbose "Skipping amd64 dword register tests."
++    return
++}
++
++set testfile "amd64-dword"
++set srcfile amd64-pseudo.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug]] != "" } {
++    untested ${testfile}
++    return
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++if ![runto_main] then {
++    gdb_suppress_tests
++}
++
++set nr_regs 14
++set dword_regs(1) eax
++set dword_regs(2) ebx
++set dword_regs(3) ecx
++set dword_regs(4) edx
++set dword_regs(5) esi
++set dword_regs(6) edi
++set dword_regs(7) r8d
++set dword_regs(8) r9d
++set dword_regs(9) r10d
++set dword_regs(10) r11d
++set dword_regs(11) r12d
++set dword_regs(12) r13d
++set dword_regs(13) r14d
++set dword_regs(14) r15d
++
++gdb_test "break [gdb_get_line_number "first breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set first breakpoint in main"
++gdb_continue_to_breakpoint "continue to first breakpoint in main"
++
++for { set r 1 } { $r <= 6  } { incr r } {
++    set hex [format %x $r]
++    gdb_test "print/x \$$dword_regs($r)" \
++	".. = 0x${hex}4${hex}3${hex}2${hex}1" \
++        "check contents of %$dword_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "second breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set second breakpoint in main"
++gdb_continue_to_breakpoint "continue to second breakpoint in main"
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++    set hex [format %x $r]
++    gdb_test "print/x \$$dword_regs($r)" \
++	".. = 0x${hex}4${hex}3${hex}2${hex}1" \
++        "check contents of %$dword_regs($r)"
++}
++
++for { set r 1 } { $r <= 6  } { incr r } {
++  gdb_test "set var \$$dword_regs($r) = $r" "" "set %$dword_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "third breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set third breakpoint in main"
++gdb_continue_to_breakpoint "continue to third breakpoint in main"
++
++for { set r 1 } { $r <= 6  } { incr r } {
++    gdb_test "print \$$dword_regs($r)" \
++        ".. = $r" \
++        "check contents of %$dword_regs($r)"
++}
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++  gdb_test "set var \$$dword_regs($r) = $r" "" "set %$dword_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "forth breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set forth breakpoint in main"
++gdb_continue_to_breakpoint "continue to forth breakpoint in main"
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++    gdb_test "print \$$dword_regs($r)" \
++        ".. = $r" \
++        "check contents of %$dword_regs($r)"
++}
+--- gdb-7.1-p2/gdb/testsuite/gdb.arch/amd64-pseudo.c	1970-01-01 01:00:00.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.arch/amd64-pseudo.c	2010-04-03 21:06:52.000000000 +0200
+@@ -0,0 +1,91 @@
++/* Test program for byte registers.
++
++   Copyright 2010 Free Software Foundation, Inc.
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#include <stdio.h>
++
++int data[] = {
++  0x14131211,
++  0x24232221,
++  0x34333231,
++  0x44434241,
++  0x54535251,
++  0x64636261,
++  0x74737271,
++  0x84838281,
++  0x94939291,
++  0xa4a3a2a1,
++  0xb4b3b2b1,
++  0xc4c3c2c1,
++  0xd4d3d2d1,
++  0xe4e3e2e1,
++};
++
++int
++main (int argc, char **argv)
++{
++  asm ("mov 0(%0), %%eax\n\t"
++       "mov 4(%0), %%ebx\n\t"
++       "mov 8(%0), %%ecx\n\t"
++       "mov 12(%0), %%edx\n\t"
++       "mov 16(%0), %%esi\n\t"
++       "mov 20(%0), %%edi\n\t"
++       : /* no output operands */
++       : "r" (data) 
++       : "eax", "ebx", "ecx", "edx", "esi", "edi");
++  asm ("nop"); /* first breakpoint here */
++
++  asm ("mov 24(%0), %%r8d\n\t"
++       "mov 28(%0), %%r9d\n\t"
++       "mov 32(%0), %%r10d\n\t"
++       "mov 36(%0), %%r11\n\t"
++       "mov 40(%0), %%r12d\n\t"
++       "mov 44(%0), %%r13d\n\t"
++       "mov 48(%0), %%r14d\n\t"
++       "mov 52(%0), %%r15d\n\t"
++       : /* no output operands */
++       : "r" (data) 
++       : "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15");
++  asm ("nop"); /* second breakpoint here */
++
++  asm ("mov %%eax, 0(%0)\n\t"
++       "mov %%ebx, 4(%0)\n\t"
++       "mov %%ecx, 8(%0)\n\t"
++       "mov %%edx, 12(%0)\n\t"
++       "mov %%esi, 16(%0)\n\t"
++       "mov %%edi, 20(%0)\n\t"
++       : /* no output operands */
++       : "r" (data) 
++       : "eax", "ebx", "ecx", "edx", "esi", "edi");
++  asm ("nop"); /* third breakpoint here */
++
++  asm ("mov %%r8d, 24(%0)\n\t"
++       "mov %%r9d, 28(%0)\n\t"
++       "mov %%r10d, 32(%0)\n\t"
++       "mov %%r11d, 36(%0)\n\t"
++       "mov %%r12d, 40(%0)\n\t"
++       "mov %%r13d, 44(%0)\n\t"
++       "mov %%r14d, 48(%0)\n\t"
++       "mov %%r15d, 52(%0)\n\t"
++       : /* no output operands */
++       : "r" (data) 
++       : "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15");
++  puts ("Bye!"); /* forth breakpoint here */
++
++  return 0;
++}
+--- gdb-7.1-p2/gdb/testsuite/gdb.arch/amd64-word.exp	1970-01-01 01:00:00.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.arch/amd64-word.exp	2010-04-03 21:06:52.000000000 +0200
+@@ -0,0 +1,123 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# Please email any bugs, comments, and/or additions to this file to:
++# bug-gdb@gnu.org
++
++# This file is part of the gdb testsuite.
++
++if $tracelevel {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++if { ![istarget x86_64-*-* ] } {
++    verbose "Skipping amd64 word register tests."
++    return
++}
++
++set testfile "amd64-word"
++set srcfile amd64-pseudo.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug]] != "" } {
++    untested ${testfile}
++    return
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++if ![runto_main] then {
++    gdb_suppress_tests
++}
++
++set nr_regs 14
++set word_regs(1) ax
++set word_regs(2) bx
++set word_regs(3) cx
++set word_regs(4) dx
++set word_regs(5) si
++set word_regs(6) di
++set word_regs(7) r8w
++set word_regs(8) r9w
++set word_regs(9) r10w
++set word_regs(10) r11w
++set word_regs(11) r12w
++set word_regs(12) r13w
++set word_regs(13) r14w
++set word_regs(14) r15w
++
++gdb_test "break [gdb_get_line_number "first breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set first breakpoint in main"
++gdb_continue_to_breakpoint "continue to first breakpoint in main"
++
++for { set r 1 } { $r <= 6  } { incr r } {
++    set hex [format %x $r]
++    gdb_test "print/x \$$word_regs($r)" \
++        ".. = 0x${hex}2${hex}1" \
++        "check contents of %$word_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "second breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set second breakpoint in main"
++gdb_continue_to_breakpoint "continue to second breakpoint in main"
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++    set hex [format %x $r]
++    gdb_test "print/x \$$word_regs($r)" \
++        ".. = 0x${hex}2${hex}1" \
++        "check contents of %$word_regs($r)"
++}
++
++for { set r 1 } { $r <= 6  } { incr r } {
++  gdb_test "set var \$$word_regs($r) = $r" "" "set %$word_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "third breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set third breakpoint in main"
++gdb_continue_to_breakpoint "continue to third breakpoint in main"
++
++for { set r 1 } { $r <= 6  } { incr r } {
++    gdb_test "print \$$word_regs($r)" \
++        ".. = $r" \
++        "check contents of %$word_regs($r)"
++}
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++  gdb_test "set var \$$word_regs($r) = $r" "" "set %$word_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "forth breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set forth breakpoint in main"
++gdb_continue_to_breakpoint "continue to forth breakpoint in main"
++
++for { set r 7 } { $r <= $nr_regs  } { incr r } {
++    gdb_test "print \$$word_regs($r)" \
++        ".. = $r" \
++        "check contents of %$word_regs($r)"
++}
+--- gdb-7.1-p2/gdb/testsuite/gdb.arch/i386-byte.exp	1970-01-01 01:00:00.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.arch/i386-byte.exp	2010-04-03 21:06:52.000000000 +0200
+@@ -0,0 +1,98 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# Please email any bugs, comments, and/or additions to this file to:
++# bug-gdb@gnu.org
++
++# This file is part of the gdb testsuite.
++
++if $tracelevel {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++if { ![istarget i?86-*-*] } {
++    verbose "Skipping i386 byte register tests."
++    return
++}
++
++set testfile "i386-byte"
++set srcfile i386-pseudo.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug]] != "" } {
++    untested ${testfile}
++    return
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++if ![runto_main] then {
++    gdb_suppress_tests
++}
++
++set byte_regs(1) al
++set byte_regs(2) bl
++set byte_regs(3) cl
++set byte_regs(4) dl
++set byte_regs(5) ah
++set byte_regs(6) bh
++set byte_regs(7) ch
++set byte_regs(8) dh
++
++gdb_test "break [gdb_get_line_number "first breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set first breakpoint in main"
++gdb_continue_to_breakpoint "continue to first breakpoint in main"
++
++for { set r 1 } { $r <= 4  } { incr r } {
++    gdb_test "print/x \$$byte_regs($r)" \
++        ".. = 0x[format %x $r]1" \
++        "check contents of %$byte_regs($r)"
++    set h [expr $r + 4]
++    gdb_test "print/x \$$byte_regs($h)" \
++        ".. = 0x[format %x $r]2" \
++        "check contents of %$byte_regs($h)"
++}
++
++for { set r 1 } { $r <= 4  } { incr r } {
++  gdb_test "set var \$$byte_regs($r) = $r" "" "set %$byte_regs($r)"
++  set h [expr $r + 4]
++  gdb_test "set var \$$byte_regs($h) = $h" "" "set %$byte_regs($h)"
++}
++
++gdb_test "break [gdb_get_line_number "second breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set second breakpoint in main"
++gdb_continue_to_breakpoint "continue to second breakpoint in main"
++
++for { set r 1 } { $r <= 4  } { incr r } {
++    gdb_test "print \$$byte_regs($r)" \
++        ".. = $r" \
++        "check contents of %$byte_regs($r)"
++    set h [expr $r + 4]
++    gdb_test "print \$$byte_regs($h)" \
++        ".. = $h" \
++        "check contents of %$byte_regs($h)"
++}
+--- gdb-7.1-p2/gdb/testsuite/gdb.arch/i386-pseudo.c	1970-01-01 01:00:00.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.arch/i386-pseudo.c	2010-04-03 21:06:52.000000000 +0200
+@@ -0,0 +1,51 @@
++/* Test program for byte registers.
++
++   Copyright 2010 Free Software Foundation, Inc.
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#include <stdio.h>
++
++int data[] = {
++  0x14131211,
++  0x24232221,
++  0x34333231,
++  0x44434241,
++};
++
++int
++main (int argc, char **argv)
++{
++  asm ("mov 0(%0), %%eax\n\t"
++       "mov 4(%0), %%ebx\n\t"
++       "mov 8(%0), %%ecx\n\t"
++       "mov 12(%0), %%edx\n\t"
++       : /* no output operands */
++       : "r" (data) 
++       : "eax", "ebx", "ecx", "edx");
++  asm ("nop"); /* first breakpoint here */
++
++  asm ("mov %%eax, 0(%0)\n\t"
++       "mov %%ebx, 4(%0)\n\t"
++       "mov %%ecx, 8(%0)\n\t"
++       "mov %%edx, 12(%0)\n\t"
++       : /* no output operands */
++       : "r" (data) 
++       : "eax", "ebx", "ecx", "edx");
++  puts ("Bye!"); /* second breakpoint here */
++
++  return 0;
++}
+--- gdb-7.1-p2/gdb/testsuite/gdb.arch/i386-word.exp	1970-01-01 01:00:00.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.arch/i386-word.exp	2010-04-03 21:06:52.000000000 +0200
+@@ -0,0 +1,84 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# Please email any bugs, comments, and/or additions to this file to:
++# bug-gdb@gnu.org
++
++# This file is part of the gdb testsuite.
++
++if $tracelevel {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++if { ![istarget i?86-*-*] } {
++    verbose "Skipping i386 word register tests."
++    return
++}
++
++set testfile "i386-word"
++set srcfile i386-pseudo.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug]] != "" } {
++    untested ${testfile}
++    return
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++if ![runto_main] then {
++    gdb_suppress_tests
++}
++
++set word_regs(1) ax
++set word_regs(2) bx
++set word_regs(3) cx
++set word_regs(4) dx
++
++gdb_test "break [gdb_get_line_number "first breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set first breakpoint in main"
++gdb_continue_to_breakpoint "continue to first breakpoint in main"
++
++for { set r 1 } { $r <= 4  } { incr r } {
++    gdb_test "print/x \$$word_regs($r)" \
++        ".. = 0x[format %x $r]2[format %x $r]1" \
++        "check contents of %$word_regs($r)"
++}
++
++for { set r 1 } { $r <= 4  } { incr r } {
++  gdb_test "set var \$$word_regs($r) = $r" "" "set %$word_regs($r)"
++}
++
++gdb_test "break [gdb_get_line_number "second breakpoint here"]" \
++         "Breakpoint .* at .*${srcfile}.*" \
++         "set second breakpoint in main"
++gdb_continue_to_breakpoint "continue to second breakpoint in main"
++
++for { set r 1 } { $r <= 4  } { incr r } {
++    gdb_test "print \$$word_regs($r)" \
++        ".. = $r" \
++        "check contents of %$word_regs($r)"
++}

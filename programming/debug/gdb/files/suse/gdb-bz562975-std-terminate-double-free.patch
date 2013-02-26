@@ -1,0 +1,159 @@
+http://sourceware.org/ml/gdb-patches/2010-02/msg00625.html
+Subject: RFC: fix bug with std::terminate handler
+
+I would appreciate comments on this patch.
+
+This comes from an automatically-reported bug in the Red Hat bugzilla:
+
+    https://bugzilla.redhat.com/show_bug.cgi?id=562975
+
+call_function_by_hand installs a momentary breakpoint on std::terminate,
+and then deletes it later.  However, this can cause a double deletion of
+the breakpoint.  In the bug, the called function is dlopen, which causes
+gdb to enter solib_add, which calls breakpoint_re_set, deleting the
+momentary breakpoint.
+
+This fix works by creating the momentary breakpoint with an internal
+breakpoint number, and then trying to delete the breakpoint by number.
+
+This bug does not always manifest in a crash.  In fact, I couldn't make
+it crash here, but I could observe the problem under valgrind.
+
+Built and regtested on x86-64 (compile farm).  I also manually verified
+it using valgrind.
+
+I think this patch is mildly ugly, due to the introduction of
+set_momentary_breakpoint_at_pc_with_number.  However, in the absence of
+comments, I plan to check it in after a reasonable waiting period.
+
+Tom
+
+2010-02-25  Tom Tromey  <tromey@redhat.com>
+
+	* infcall.c (do_delete_breakpoint_by_number): New function.
+	(call_function_by_hand): Refer to momentary breakpoint by number.
+	* breakpoint.h (set_momentary_breakpoint_at_pc_with_number):
+	Declare.
+	* breakpoint.c (set_momentary_breakpoint_at_pc_with_number): New
+	function.
+
+Index: gdb-7.0.90.20100312/gdb/breakpoint.c
+===================================================================
+--- gdb-7.0.90.20100312.orig/gdb/breakpoint.c	2010-03-12 14:54:26.000000000 +0100
++++ gdb-7.0.90.20100312/gdb/breakpoint.c	2010-03-12 14:54:53.000000000 +0100
+@@ -6115,6 +6115,20 @@ set_momentary_breakpoint_at_pc (struct g
+ 
+   return set_momentary_breakpoint (gdbarch, sal, null_frame_id, type);
+ }
++
++/* Like set_momentary_breakpoint_at_pc, but ensure that the new
++   breakpoint has a number.  */
++
++struct breakpoint *
++set_momentary_breakpoint_at_pc_with_number (struct gdbarch *gdbarch,
++					    CORE_ADDR pc,
++					    enum bptype type)
++{
++  struct breakpoint *result = set_momentary_breakpoint_at_pc (gdbarch, pc,
++							      type);
++  result->number = internal_breakpoint_number--;
++  return result;
++}
+ 
+ 
+ /* Tell the user we have just set a breakpoint B.  */
+Index: gdb-7.0.90.20100312/gdb/breakpoint.h
+===================================================================
+--- gdb-7.0.90.20100312.orig/gdb/breakpoint.h	2010-03-12 14:54:26.000000000 +0100
++++ gdb-7.0.90.20100312/gdb/breakpoint.h	2010-03-12 14:54:53.000000000 +0100
+@@ -774,6 +774,9 @@ extern struct breakpoint *set_momentary_
+ extern struct breakpoint *set_momentary_breakpoint_at_pc
+   (struct gdbarch *, CORE_ADDR pc, enum bptype type);
+ 
++extern struct breakpoint *set_momentary_breakpoint_at_pc_with_number
++  (struct gdbarch *, CORE_ADDR pc, enum bptype type);
++
+ extern struct breakpoint *clone_momentary_breakpoint (struct breakpoint *bpkt);
+ 
+ extern void set_ignore_count (int, int, int);
+Index: gdb-7.0.90.20100312/gdb/infcall.c
+===================================================================
+--- gdb-7.0.90.20100312.orig/gdb/infcall.c	2010-03-12 14:54:26.000000000 +0100
++++ gdb-7.0.90.20100312/gdb/infcall.c	2010-03-12 14:55:19.000000000 +0100
+@@ -410,6 +410,18 @@ run_inferior_call (struct thread_info *c
+   return e;
+ }
+ 
++/* A cleanup function that deletes a breakpoint, if it still exists,
++   given the breakpoint's number.  */
++
++static void
++do_delete_breakpoint_by_number (void *arg)
++{
++  int *num = arg;
++  struct breakpoint *bp = get_breakpoint (*num);
++  if (bp)
++    delete_breakpoint (bp);
++}
++
+ /* All this stuff with a dummy frame may seem unnecessarily complicated
+    (why not just save registers in GDB?).  The purpose of pushing a dummy
+    frame which looks just like a real frame is so that if you call a
+@@ -447,7 +459,8 @@ call_function_by_hand (struct value *fun
+   struct cleanup *args_cleanup;
+   struct frame_info *frame;
+   struct gdbarch *gdbarch;
+-  struct breakpoint *terminate_bp = NULL;
++  int terminate_bp_num = 0;
++  CORE_ADDR terminate_bp_addr = 0;
+   struct minimal_symbol *tm;
+   struct cleanup *terminate_bp_cleanup = NULL;
+   ptid_t call_thread_ptid;
+@@ -765,8 +778,13 @@ call_function_by_hand (struct value *fun
+        struct minimal_symbol *tm = lookup_minimal_symbol  ("std::terminate()",
+ 							   NULL, NULL);
+        if (tm != NULL)
+-	   terminate_bp = set_momentary_breakpoint_at_pc
++	 {
++	   struct breakpoint *bp;
++	   bp = set_momentary_breakpoint_at_pc_with_number
+ 	     (gdbarch, SYMBOL_VALUE_ADDRESS (tm),  bp_breakpoint);
++	   terminate_bp_num = bp->number;
++	   terminate_bp_addr = bp->loc->address;
++	 }
+      }
+ 
+   /* Everything's ready, push all the info needed to restore the
+@@ -780,8 +798,9 @@ call_function_by_hand (struct value *fun
+   discard_cleanups (inf_status_cleanup);
+ 
+   /* Register a clean-up for unwind_on_terminating_exception_breakpoint.  */
+-  if (terminate_bp)
+-    terminate_bp_cleanup = make_cleanup_delete_breakpoint (terminate_bp);
++  if (terminate_bp_num != 0)
++    terminate_bp_cleanup = make_cleanup (do_delete_breakpoint_by_number,
++					 &terminate_bp_num);
+ 
+   /* - SNIP - SNIP - SNIP - SNIP - SNIP - SNIP - SNIP - SNIP - SNIP -
+      If you're looking to implement asynchronous dummy-frames, then
+@@ -947,9 +966,9 @@ When the function is done executing, GDB
+ 		 in an inferior function call. Rewind, and warn the
+ 		 user.  */
+ 
+-	      if (terminate_bp != NULL
++	      if (terminate_bp_num != 0
+ 		  && (inferior_thread ()->stop_bpstat->breakpoint_at->address
+-		      == terminate_bp->loc->address))
++		      == terminate_bp_addr))
+ 		{
+ 		  /* We must get back to the frame we were before the
+ 		     dummy call.  */
+@@ -998,7 +1017,7 @@ When the function is done executing, GDB
+ 
+   /* If we get here and the std::terminate() breakpoint has been set,
+      it has to be cleaned manually.  */
+-  if (terminate_bp)
++  if (terminate_bp_num != 0)
+     do_cleanups (terminate_bp_cleanup);
+ 
+   /* If we get here the called FUNCTION ran to completion,

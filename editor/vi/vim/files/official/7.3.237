@@ -1,0 +1,222 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.237
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.237
+Problem:    "filetype" completion doesn't work on Windows. (Yue Wu)
+Solution:   Don't use a glob pattern for the directories, use a list of
+            directories. (Dominique Pelle)
+Files:      src/ex_getln.c
+     
+
+*** ../vim-7.3.236/src/ex_getln.c	2011-05-19 18:26:34.000000000 +0200
+--- src/ex_getln.c	2011-06-26 19:36:36.000000000 +0200
+***************
+*** 110,116 ****
+  static int	expand_showtail __ARGS((expand_T *xp));
+  #ifdef FEAT_CMDL_COMPL
+  static int	expand_shellcmd __ARGS((char_u *filepat, int *num_file, char_u ***file, int flagsarg));
+! static int	ExpandRTDir __ARGS((char_u *pat, int *num_file, char_u ***file, char *dirname));
+  # if defined(FEAT_USR_CMDS) && defined(FEAT_EVAL)
+  static int	ExpandUserDefined __ARGS((expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***file));
+  static int	ExpandUserList __ARGS((expand_T *xp, int *num_file, char_u ***file));
+--- 110,116 ----
+  static int	expand_showtail __ARGS((expand_T *xp));
+  #ifdef FEAT_CMDL_COMPL
+  static int	expand_shellcmd __ARGS((char_u *filepat, int *num_file, char_u ***file, int flagsarg));
+! static int	ExpandRTDir __ARGS((char_u *pat, int *num_file, char_u ***file, char *dirname[]));
+  # if defined(FEAT_USR_CMDS) && defined(FEAT_EVAL)
+  static int	ExpandUserDefined __ARGS((expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***file));
+  static int	ExpandUserList __ARGS((expand_T *xp, int *num_file, char_u ***file));
+***************
+*** 4536,4548 ****
+  	    || xp->xp_context == EXPAND_TAGS_LISTFILES)
+  	return expand_tags(xp->xp_context == EXPAND_TAGS, pat, num_file, file);
+      if (xp->xp_context == EXPAND_COLORS)
+! 	return ExpandRTDir(pat, num_file, file, "colors");
+      if (xp->xp_context == EXPAND_COMPILER)
+! 	return ExpandRTDir(pat, num_file, file, "compiler");
+      if (xp->xp_context == EXPAND_OWNSYNTAX)
+! 	return ExpandRTDir(pat, num_file, file, "syntax");
+      if (xp->xp_context == EXPAND_FILETYPE)
+! 	return ExpandRTDir(pat, num_file, file, "{syntax,indent,ftplugin}");
+  # if defined(FEAT_USR_CMDS) && defined(FEAT_EVAL)
+      if (xp->xp_context == EXPAND_USER_LIST)
+  	return ExpandUserList(xp, num_file, file);
+--- 4536,4560 ----
+  	    || xp->xp_context == EXPAND_TAGS_LISTFILES)
+  	return expand_tags(xp->xp_context == EXPAND_TAGS, pat, num_file, file);
+      if (xp->xp_context == EXPAND_COLORS)
+!     {
+! 	char *directories[] = {"colors", NULL};
+! 	return ExpandRTDir(pat, num_file, file, directories);
+!     }
+      if (xp->xp_context == EXPAND_COMPILER)
+!     {
+! 	char *directories[] = {"colors", NULL};
+! 	return ExpandRTDir(pat, num_file, file, directories);
+!     }
+      if (xp->xp_context == EXPAND_OWNSYNTAX)
+!     {
+! 	char *directories[] = {"syntax", NULL};
+! 	return ExpandRTDir(pat, num_file, file, directories);
+!     }
+      if (xp->xp_context == EXPAND_FILETYPE)
+!     {
+! 	char *directories[] = {"syntax", "indent", "ftplugin", NULL};
+! 	return ExpandRTDir(pat, num_file, file, directories);
+!     }
+  # if defined(FEAT_USR_CMDS) && defined(FEAT_EVAL)
+      if (xp->xp_context == EXPAND_USER_LIST)
+  	return ExpandUserList(xp, num_file, file);
+***************
+*** 4995,5051 ****
+  /*
+   * Expand color scheme, compiler or filetype names:
+   * 'runtimepath'/{dirnames}/{pat}.vim
+!  * dirnames may contain one directory (ex: "colorscheme") or can be a glob
+!  * expression matching multiple directories (ex: "{syntax,ftplugin,indent}").
+   */
+      static int
+  ExpandRTDir(pat, num_file, file, dirnames)
+      char_u	*pat;
+      int		*num_file;
+      char_u	***file;
+!     char	*dirnames;
+  {
+!     char_u	*all;
+      char_u	*s;
+      char_u	*e;
+      garray_T	ga;
+  
+      *num_file = 0;
+      *file = NULL;
+!     s = alloc((unsigned)(STRLEN(pat) + STRLEN(dirnames) + 7));
+!     if (s == NULL)
+! 	return FAIL;
+!     sprintf((char *)s, "%s/%s*.vim", dirnames, pat);
+!     all = globpath(p_rtp, s, 0);
+!     vim_free(s);
+!     if (all == NULL)
+! 	return FAIL;
+  
+!     ga_init2(&ga, (int)sizeof(char *), 3);
+!     for (s = all; *s != NUL; s = e)
+      {
+! 	e = vim_strchr(s, '\n');
+! 	if (e == NULL)
+! 	    e = s + STRLEN(s);
+! 	if (ga_grow(&ga, 1) == FAIL)
+! 	    break;
+! 	if (e - 4 > s && STRNICMP(e - 4, ".vim", 4) == 0)
+  	{
+! 	    for (s = e - 4; s > all; mb_ptr_back(all, s))
+! 		if (*s == '\n' || vim_ispathsep(*s))
+! 		    break;
+! 	    ++s;
+! 	    ((char_u **)ga.ga_data)[ga.ga_len] =
+  					    vim_strnsave(s, (int)(e - s - 4));
+! 	    ++ga.ga_len;
+  	}
+! 	if (*e != NUL)
+! 	    ++e;
+      }
+!     vim_free(all);
+  
+      /* Sort and remove duplicates which can happen when specifying multiple
+!      * directories in dirnames such as "{syntax,ftplugin,indent}". */
+      remove_duplicates(&ga);
+  
+      *file = ga.ga_data;
+--- 5007,5074 ----
+  /*
+   * Expand color scheme, compiler or filetype names:
+   * 'runtimepath'/{dirnames}/{pat}.vim
+!  * "dirnames" is an array with one or more directory names.
+   */
+      static int
+  ExpandRTDir(pat, num_file, file, dirnames)
+      char_u	*pat;
+      int		*num_file;
+      char_u	***file;
+!     char	*dirnames[];
+  {
+!     char_u	*matches;
+      char_u	*s;
+      char_u	*e;
+      garray_T	ga;
++     int		i;
++     int		pat_len;
+  
+      *num_file = 0;
+      *file = NULL;
+!     pat_len = STRLEN(pat);
+!     ga_init2(&ga, (int)sizeof(char *), 10);
+  
+!     for (i = 0; dirnames[i] != NULL; ++i)
+      {
+! 	s = alloc((unsigned)(STRLEN(dirnames[i]) + pat_len + 7));
+! 	if (s == NULL)
+  	{
+! 	    ga_clear_strings(&ga);
+! 	    return FAIL;
+! 	}
+! 	sprintf((char *)s, "%s/%s*.vim", dirnames[i], pat);
+! 	matches = globpath(p_rtp, s, 0);
+! 	vim_free(s);
+! 	if (matches == NULL)
+! 	    continue;
+! 
+! 	for (s = matches; *s != NUL; s = e)
+! 	{
+! 	    e = vim_strchr(s, '\n');
+! 	    if (e == NULL)
+! 		e = s + STRLEN(s);
+! 	    if (ga_grow(&ga, 1) == FAIL)
+! 		break;
+! 	    if (e - 4 > s && STRNICMP(e - 4, ".vim", 4) == 0)
+! 	    {
+! 		for (s = e - 4; s > matches; mb_ptr_back(matches, s))
+! 		    if (*s == '\n' || vim_ispathsep(*s))
+! 			break;
+! 		++s;
+! 		((char_u **)ga.ga_data)[ga.ga_len] =
+  					    vim_strnsave(s, (int)(e - s - 4));
+! 		++ga.ga_len;
+! 	    }
+! 	    if (*e != NUL)
+! 		++e;
+  	}
+! 	vim_free(matches);
+      }
+!     if (ga.ga_len == 0)
+!         return FAIL;
+  
+      /* Sort and remove duplicates which can happen when specifying multiple
+!      * directories in dirnames. */
+      remove_duplicates(&ga);
+  
+      *file = ga.ga_data;
+*** ../vim-7.3.236/src/version.c	2011-06-26 19:13:33.000000000 +0200
+--- src/version.c	2011-06-26 19:39:39.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     237,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+230. You spend your Friday nights typing away at your keyboard
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

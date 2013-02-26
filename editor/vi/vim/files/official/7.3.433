@@ -1,0 +1,92 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.433
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.433
+Problem:    Using continued lines in a Vim script can be slow.
+Solution:   Instead of reallocating for every line use a growarray. (Yasuhiro
+            Matsumoto)
+Files:      src/ex_cmds2.c
+
+
+*** ../vim-7.3.432/src/ex_cmds2.c	2012-02-04 21:57:44.000000000 +0100
+--- src/ex_cmds2.c	2012-02-05 23:06:31.000000000 +0100
+***************
+*** 3439,3460 ****
+      {
+  	/* compensate for the one line read-ahead */
+  	--sourcing_lnum;
+! 	for (;;)
+  	{
+! 	    sp->nextline = get_one_sourceline(sp);
+! 	    if (sp->nextline == NULL)
+! 		break;
+! 	    p = skipwhite(sp->nextline);
+! 	    if (*p != '\\')
+! 		break;
+! 	    s = alloc((unsigned)(STRLEN(line) + STRLEN(p)));
+! 	    if (s == NULL)	/* out of memory */
+! 		break;
+! 	    STRCPY(s, line);
+! 	    STRCAT(s, p + 1);
+  	    vim_free(line);
+! 	    line = s;
+! 	    vim_free(sp->nextline);
+  	}
+      }
+  
+--- 3439,3470 ----
+      {
+  	/* compensate for the one line read-ahead */
+  	--sourcing_lnum;
+! 
+! 	/* Get the next line and concatenate it when it starts with a
+! 	 * backslash. We always need to read the next line, keep it in
+! 	 * sp->nextline. */
+! 	sp->nextline = get_one_sourceline(sp);
+! 	if (sp->nextline != NULL && *(p = skipwhite(sp->nextline)) == '\\')
+  	{
+! 	    garray_T    ga;
+! 
+! 	    ga_init2(&ga, (int)sizeof(char_u), 200);
+! 	    ga_concat(&ga, line);
+! 	    ga_concat(&ga, p + 1);
+! 	    for (;;)
+! 	    {
+! 		vim_free(sp->nextline);
+! 		sp->nextline = get_one_sourceline(sp);
+! 		if (sp->nextline == NULL)
+! 		    break;
+! 		p = skipwhite(sp->nextline);
+! 		if (*p != '\\')
+! 		    break;
+! 		ga_concat(&ga, p + 1);
+! 	    }
+! 	    ga_append(&ga, NUL);
+  	    vim_free(line);
+! 	    line = ga.ga_data;
+  	}
+      }
+  
+*** ../vim-7.3.432/src/version.c	2012-02-05 22:51:27.000000000 +0100
+--- src/version.c	2012-02-05 23:09:21.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     433,
+  /**/
+
+-- 
+Due knot trussed yore spell chequer two fined awl miss steaks.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

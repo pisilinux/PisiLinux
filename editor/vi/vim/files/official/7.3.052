@@ -1,0 +1,345 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.052
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.052
+Problem:    When 'completefunc' opens a new window all kinds of errors follow.
+	    (Xavier Deguillard)
+Solution:   When 'completefunc' goes to another window or buffer and when it
+	    deletes text abort completion.  Add a test for 'completefunc'.
+Files:	    src/edit.c, src/testdir/Make_amiga.mak, src/testdir/Make_dos.mak,
+	    src/testdir/Make_ming.mak, src/testdir/Make_os2.mak,
+	    src/testdir/Make_vms.mms, src/testdir/Makefile,
+	    src/testdir/test76.in, src/testdir/test76.ok
+
+
+*** ../vim-7.3.051/src/edit.c	2010-08-15 21:57:25.000000000 +0200
+--- src/edit.c	2010-11-10 16:50:12.000000000 +0100
+***************
+*** 58,63 ****
+--- 58,67 ----
+  };
+  
+  static char e_hitend[] = N_("Hit end of paragraph");
++ #ifdef FEAT_COMPL_FUNC
++ static char e_complwin[] = N_("E839: Completion function changed window");
++ static char e_compldel[] = N_("E840: Completion function deleted text");
++ #endif
+  
+  /*
+   * Structure used to store one match for insert completion.
+***************
+*** 3833,3838 ****
+--- 3837,3844 ----
+      char_u	*args[2];
+      char_u	*funcname;
+      pos_T	pos;
++     win_T	*curwin_save;
++     buf_T	*curbuf_save;
+  
+      funcname = (type == CTRL_X_FUNCTION) ? curbuf->b_p_cfu : curbuf->b_p_ofu;
+      if (*funcname == NUL)
+***************
+*** 3843,3855 ****
+      args[1] = base;
+  
+      pos = curwin->w_cursor;
+      matchlist = call_func_retlist(funcname, 2, args, FALSE);
+      curwin->w_cursor = pos;	/* restore the cursor position */
+!     if (matchlist == NULL)
+! 	return;
+  
+!     ins_compl_add_list(matchlist);
+!     list_unref(matchlist);
+  }
+  #endif /* FEAT_COMPL_FUNC */
+  
+--- 3849,3875 ----
+      args[1] = base;
+  
+      pos = curwin->w_cursor;
++     curwin_save = curwin;
++     curbuf_save = curbuf;
+      matchlist = call_func_retlist(funcname, 2, args, FALSE);
++     if (curwin_save != curwin || curbuf_save != curbuf)
++     {
++ 	EMSG(_(e_complwin));
++ 	goto theend;
++     }
+      curwin->w_cursor = pos;	/* restore the cursor position */
+!     check_cursor();
+!     if (!equalpos(curwin->w_cursor, pos))
+!     {
+! 	EMSG(_(e_compldel));
+! 	goto theend;
+!     }
+!     if (matchlist != NULL)
+! 	ins_compl_add_list(matchlist);
+  
+! theend:
+!     if (matchlist != NULL)
+! 	list_unref(matchlist);
+  }
+  #endif /* FEAT_COMPL_FUNC */
+  
+***************
+*** 4994,4999 ****
+--- 5014,5021 ----
+  	    int		col;
+  	    char_u	*funcname;
+  	    pos_T	pos;
++ 	    win_T	*curwin_save;
++ 	    buf_T	*curbuf_save;
+  
+  	    /* Call 'completefunc' or 'omnifunc' and get pattern length as a
+  	     * string */
+***************
+*** 5009,5016 ****
+--- 5031,5051 ----
+  	    args[0] = (char_u *)"1";
+  	    args[1] = NULL;
+  	    pos = curwin->w_cursor;
++ 	    curwin_save = curwin;
++ 	    curbuf_save = curbuf;
+  	    col = call_func_retnr(funcname, 2, args, FALSE);
++ 	    if (curwin_save != curwin || curbuf_save != curbuf)
++ 	    {
++ 		EMSG(_(e_complwin));
++ 		return FAIL;
++ 	    }
+  	    curwin->w_cursor = pos;	/* restore the cursor position */
++ 	    check_cursor();
++ 	    if (!equalpos(curwin->w_cursor, pos))
++ 	    {
++ 		EMSG(_(e_compldel));
++ 		return FAIL;
++ 	    }
+  
+  	    if (col < 0)
+  		col = curs_col;
+*** ../vim-7.3.051/src/testdir/Make_amiga.mak	2010-10-27 18:36:32.000000000 +0200
+--- src/testdir/Make_amiga.mak	2010-11-10 15:48:30.000000000 +0100
+***************
+*** 27,33 ****
+  		test56.out test57.out test58.out test59.out test60.out \
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+! 		test71.out test72.out test73.out test74.out test75.out
+  
+  .SUFFIXES: .in .out
+  
+--- 27,34 ----
+  		test56.out test57.out test58.out test59.out test60.out \
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+! 		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 122,124 ****
+--- 123,126 ----
+  test73.out: test73.in
+  test74.out: test74.in
+  test75.out: test75.in
++ test76.out: test76.in
+*** ../vim-7.3.051/src/testdir/Make_dos.mak	2010-10-27 18:36:32.000000000 +0200
+--- src/testdir/Make_dos.mak	2010-11-10 15:48:38.000000000 +0100
+***************
+*** 28,34 ****
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 28,34 ----
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.051/src/testdir/Make_ming.mak	2010-10-27 18:36:32.000000000 +0200
+--- src/testdir/Make_ming.mak	2010-11-10 15:48:53.000000000 +0100
+***************
+*** 48,54 ****
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 48,54 ----
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.051/src/testdir/Make_os2.mak	2010-10-27 18:36:32.000000000 +0200
+--- src/testdir/Make_os2.mak	2010-11-10 15:49:10.000000000 +0100
+***************
+*** 27,33 ****
+  		test56.out test57.out test58.out test59.out test60.out \
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+! 		test71.out test72.out test73.out test74.out test75.out
+  
+  .SUFFIXES: .in .out
+  
+--- 27,34 ----
+  		test56.out test57.out test58.out test59.out test60.out \
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+! 		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../vim-7.3.051/src/testdir/Make_vms.mms	2010-10-27 18:36:32.000000000 +0200
+--- src/testdir/Make_vms.mms	2010-11-10 15:49:32.000000000 +0100
+***************
+*** 4,10 ****
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2010 Oct 20
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+--- 4,10 ----
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2010 Nov 10
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+***************
+*** 74,80 ****
+  	 test56.out test57.out test60.out \
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+! 	 test71.out test72.out test74.out test75.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+--- 74,80 ----
+  	 test56.out test57.out test60.out \
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+! 	 test71.out test72.out test74.out test75.out test76.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+*** ../vim-7.3.051/src/testdir/Makefile	2010-10-27 18:36:32.000000000 +0200
+--- src/testdir/Makefile	2010-11-10 15:47:32.000000000 +0100
+***************
+*** 25,31 ****
+  		test59.out test60.out test61.out test62.out test63.out \
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+! 		test74.out test75.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 25,31 ----
+  		test59.out test60.out test61.out test62.out test63.out \
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out
+  
+  SCRIPTS_GUI = test16.out
+  
+*** ../vim-7.3.051/src/testdir/test76.in	2010-11-10 16:51:45.000000000 +0100
+--- src/testdir/test76.in	2010-11-10 16:38:45.000000000 +0100
+***************
+*** 0 ****
+--- 1,46 ----
++ Tests for completefunc/omnifunc. vim: set ft=vim :
++ 
++ STARTTEST
++ :"Test that nothing happens if the 'completefunc' opens
++ :"a new window (no completion, no crash)
++ :so small.vim
++ :function! DummyCompleteOne(findstart, base)
++ :  if a:findstart
++ :    return 0
++ :  else
++ :    wincmd n
++ :    return ['onedef', 'oneDEF']
++ :  endif
++ :endfunction
++ :setlocal completefunc=DummyCompleteOne
++ /^one
++ A:q!
++ :function! DummyCompleteTwo(findstart, base)
++ :  if a:findstart
++ :    wincmd n
++ :    return 0
++ :  else
++ :    return ['twodef', 'twoDEF']
++ :  endif
++ :endfunction
++ :setlocal completefunc=DummyCompleteTwo
++ /^two
++ A:q!
++ :"Test that 'completefunc' works when it's OK.
++ :function! DummyCompleteThree(findstart, base)
++ :  if a:findstart
++ :    return 0
++ :  else
++ :    return ['threedef', 'threeDEF']
++ :  endif
++ :endfunction
++ :setlocal completefunc=DummyCompleteThree
++ /^three
++ A:/^+++/,/^three/w! test.out
++ :qa!
++ ENDTEST
++ 
++ +++
++ one
++ two
++ three
+*** ../vim-7.3.051/src/testdir/test76.ok	2010-11-10 16:51:45.000000000 +0100
+--- src/testdir/test76.ok	2010-11-10 16:38:58.000000000 +0100
+***************
+*** 0 ****
+--- 1,4 ----
++ +++
++ 
++ two
++ threeDEF
+*** ../vim-7.3.051/src/version.c	2010-11-10 15:37:00.000000000 +0100
+--- src/version.c	2010-11-10 16:40:29.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     52,
+  /**/
+
+-- 
+BRIDGEKEEPER: What is the air-speed velocity of an unladen swallow?
+ARTHUR:       What do you mean?  An African or European swallow?
+BRIDGEKEEPER: Er ...  I don't know that ... Aaaaarrrrrrggghhh!
+   BRIDGEKEEPER is cast into the gorge.
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\        download, build and distribute -- http://www.A-A-P.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

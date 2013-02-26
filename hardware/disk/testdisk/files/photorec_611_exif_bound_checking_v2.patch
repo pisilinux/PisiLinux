@@ -1,0 +1,183 @@
+diff -ru testdisk-6.11/src/file_jpg.c testdisk-6.11.3/src/file_jpg.c
+--- testdisk-6.11/src/file_jpg.c	2009-04-08 12:24:02.000000000 +0200
++++ testdisk-6.11.3/src/file_jpg.c	2009-05-06 09:55:05.000000000 +0200
+@@ -95,36 +95,39 @@
+       memcmp(buffer, jpg_header_com,  sizeof(jpg_header_com))==0)
+   {
+     unsigned int i=2;
++    time_t jpg_time=0;
+     while(i<6*512 && i+4<buffer_size)
+     {
+       if(buffer[i]!=0xff)
+ 	return 0;
+       /* 0xe0 APP0 */
++      /* 0xef APP15 */
+       /* 0xfe COM */
+       /* 0xdb DQT */
+-      if(buffer[i+1]==0xe0 ||
+-	 buffer[i+1]==0xfe ||
+-	 buffer[i+1]==0xdb)
+-      {
+-      }
+-      else if(buffer[i+1]==0xe1)
++      if(buffer[i+1]==0xe1)
+       { /* APP1 Exif information */
+ 	if(i+0x0A < buffer_size && 2+(buffer[i+2]<<8)+buffer[i+3] > 0x0A)
+ 	{
+ 	  unsigned int tiff_size=2+(buffer[i+2]<<8)+buffer[i+3]-0x0A;
+ 	  if(buffer_size - (i+0x0A) < tiff_size)
+ 	    tiff_size=buffer_size - (i+0x0A);
+-	  file_recovery_new->time=get_date_from_tiff_header((const TIFFHeader*)&buffer[i+0x0A], tiff_size);
++	  jpg_time=get_date_from_tiff_header((const TIFFHeader*)&buffer[i+0x0A], tiff_size);
+ 	}
+       }
++      else if((buffer[i+1]>=0xe0 && buffer[i+1]<=0xef) ||
++	 buffer[i+1]==0xfe ||
++	 buffer[i+1]==0xdb)
++      {
++      }
+       else
+       {
+ 	reset_file_recovery(file_recovery_new);
+ 	file_recovery_new->extension=file_hint_jpg.extension;
+ 	file_recovery_new->file_check=&file_check_jpg;
+-	file_recovery_new->min_filesize=288;
++	file_recovery_new->min_filesize=(i>288?i:288);
+ 	file_recovery_new->data_check=&data_check_jpg;
+ 	file_recovery_new->calculated_file_size=2;
++	file_recovery_new->time=jpg_time;
+ 	return 1;
+       }
+       i+=2+(buffer[i+2]<<8)+buffer[i+3];
+@@ -135,6 +138,7 @@
+     file_recovery_new->min_filesize=i;
+     file_recovery_new->data_check=&data_check_jpg;
+     file_recovery_new->calculated_file_size=2;
++    file_recovery_new->time=jpg_time;
+     return 1;
+   }
+   return 0;
+@@ -511,7 +515,7 @@
+ 	    const unsigned int thumb_offset=thumb_data-(const char*)buffer;
+ 	    const unsigned int thumb_size=ifbytecount-(const char*)tiff;
+ 	    unsigned int j_old;
+-	    if(thumb_offset+thumb_size < sizeof(buffer))
++	    if(thumb_offset < sizeof(buffer) && thumb_offset+thumb_size < sizeof(buffer))
+ 	    {
+ 	      unsigned int j=thumb_offset+2;
+ 	      unsigned int thumb_sos_found=0;
+diff -ru testdisk-6.11/src/file_tiff.c testdisk-6.11.3/src/file_tiff.c
+--- testdisk-6.11/src/file_tiff.c	2009-04-13 12:00:24.000000000 +0200
++++ testdisk-6.11.3/src/file_tiff.c	2009-05-06 09:55:55.000000000 +0200
+@@ -65,6 +65,10 @@
+   const uint32_t *tiff_next_diroff;
+   const TIFFDirEntry *ifd;
+   unsigned int j;
++  /* Bound checking */
++  if((const char*)ifd0 < (const char*)tiff ||
++      (const char*)(ifd0+1) > (const char*)tiff + tiff_size)
++    return NULL;
+   for(j=0, ifd=&ifd0->ifd;
+       (const char*)(ifd+1) <= (const char*)tiff+tiff_size && j<be16(ifd0->nbr_fields);
+       j++, ifd++)
+@@ -75,7 +79,9 @@
+       exififd=(const struct ifd_header *)((const char*)tiff + be32(ifd->tdir_offset));
+   }
+   tiff_next_diroff=(const uint32_t *)ifd;
+-  if(exififd!=NULL)
++  if(exififd!=NULL &&
++      (const char*)exififd > (const char*)tiff &&
++      (const char*)(exififd+1) <= (const char*)tiff + tiff_size)
+   {	/* Exif */
+     for(j=0, ifd=&exififd->ifd;
+ 	(const char*)(ifd+1) <= (const char*)tiff+tiff_size && j<be16(exififd->nbr_fields);
+@@ -89,6 +95,9 @@
+   if(be32(*tiff_next_diroff)>0)
+   {
+     const const struct ifd_header *ifd1=(const struct ifd_header*)((const char *)tiff+be32(*tiff_next_diroff));
++    if((const char*)ifd1 <= (const char*)tiff ||
++	(const char*)(ifd1+1) > (const char*)tiff+tiff_size)
++      return NULL;
+     for(j=0, ifd=&ifd1->ifd;
+ 	(const char*)(ifd+1) <= (const char*)tiff+tiff_size && j<be16(ifd1->nbr_fields);
+ 	j++, ifd++)
+@@ -107,6 +116,10 @@
+   const uint32_t *tiff_next_diroff;
+   const TIFFDirEntry *ifd;
+   unsigned int j;
++  /* Bound checking */
++  if((const char*)ifd0 < (const char*)tiff ||
++      (const char*)(ifd0+1) > (const char*)tiff + tiff_size)
++    return NULL;
+   for(j=0, ifd=&ifd0->ifd;
+       (const char*)(ifd+1) <= (const char*)tiff+tiff_size && j<le16(ifd0->nbr_fields);
+       j++, ifd++)
+@@ -117,7 +130,9 @@
+       exififd=(const struct ifd_header *)((const char*)tiff + le32(ifd->tdir_offset));
+   }
+   tiff_next_diroff=(const uint32_t *)ifd;
+-  if(exififd!=NULL)
++  if(exififd!=NULL &&
++      (const char*)exififd > (const char*)tiff &&
++      (const char*)(exififd+1) <= (const char*)tiff + tiff_size)
+   {	/* Exif */
+     for(j=0, ifd=&exififd->ifd;
+ 	(const char*)(ifd+1) <= (const char*)tiff+tiff_size && j<le16(exififd->nbr_fields);
+@@ -131,6 +146,10 @@
+   if(le32(*tiff_next_diroff)>0)
+   {
+     const const struct ifd_header *ifd1=(const struct ifd_header*)((const char *)tiff+le32(*tiff_next_diroff));
++    /* Bound checking */
++    if((const char*)(ifd1) <= (const char*)tiff ||
++	(const char*)(ifd1+1) > (const char*)tiff+tiff_size)
++      return NULL;
+     for(j=0, ifd=&ifd1->ifd;
+ 	(const char*)(ifd+1) <= (const char*)tiff+tiff_size && j<le16(ifd1->nbr_fields);
+ 	j++, ifd++)
+@@ -168,11 +187,11 @@
+   /* DateTimeOriginal */
+   date_asc=find_tag_from_tiff_header(tiff, tiff_size, 0x9003);
+   /* DateTimeDigitalized*/
+-  if(date_asc==NULL || &date_asc[18] >= (const char *)tiff + tiff_size)
++  if(date_asc==NULL || date_asc < (const char *)tiff || &date_asc[18] >= (const char *)tiff + tiff_size)
+     date_asc=find_tag_from_tiff_header(tiff, tiff_size, 0x9004);
+-  if(date_asc==NULL || &date_asc[18] >= (const char *)tiff + tiff_size)
++  if(date_asc==NULL || date_asc < (const char *)tiff || &date_asc[18] >= (const char *)tiff + tiff_size)
+     date_asc=find_tag_from_tiff_header(tiff, tiff_size, 0x132);
+-  if(date_asc==NULL || &date_asc[18] >= (const char *)tiff + tiff_size)
++  if(date_asc==NULL || date_asc < (const char *)tiff || &date_asc[18] >= (const char *)tiff + tiff_size)
+     return (time_t)0;
+   memset(&tm_time, 0, sizeof(tm_time));
+   tm_time.tm_sec=(date_asc[17]-'0')*10+(date_asc[18]-'0');      /* seconds 0-59 */
+@@ -210,7 +229,7 @@
+     {
+       const char *tag_make;
+       tag_make=find_tag_from_tiff_header((const TIFFHeader *)buffer, buffer_size, TIFFTAG_MAKE);
+-      if(tag_make!=NULL)
++      if(tag_make!=NULL && tag_make >= (const char *)buffer && tag_make < (const char *)buffer + buffer_size - 20)
+       {
+ 	if(strcmp(tag_make, "PENTAX Corporation ")==0 ||
+ 	    strcmp(tag_make, "PENTAX             ")==0)
+diff -ru testdisk-6.11/src/savehdr.c testdisk-6.11.3/src/savehdr.c
+--- testdisk-6.11/src/savehdr.c	2009-02-02 10:02:53.000000000 +0100
++++ testdisk-6.11.3/src/savehdr.c	2009-05-06 20:25:59.000000000 +0200
+@@ -73,7 +73,8 @@
+       case STATUS_DELETED:        status='D'; break;
+     }
+     snprintf((char*)buffer,256*DEFAULT_SECTOR_SIZE,"%s\n%2u %c Sys=%02X %5u %3u %2u %5u %3u %2u %10lu\n",
+-	disk_car->description(disk_car), partition->order,status,disk_car->arch->get_part_type(partition),
++	disk_car->description(disk_car), partition->order, status,
++	(disk_car->arch->get_part_type!=NULL ?  disk_car->arch->get_part_type(partition) : 0),
+ 	offset2cylinder(disk_car,partition->part_offset), offset2head(disk_car,partition->part_offset),offset2sector(disk_car,partition->part_offset),
+ 	offset2cylinder(disk_car,partition->part_offset+partition->part_size-disk_car->sector_size), offset2head(disk_car,partition->part_offset+partition->part_size-disk_car->sector_size),offset2sector(disk_car,partition->part_offset+partition->part_size-disk_car->sector_size),
+ 	(unsigned long)(partition->part_size/disk_car->sector_size));
+@@ -242,7 +243,8 @@
+ 	  fprintf(f_backup,"%2d : start=%9lu, size=%9lu, Id=%02X, %c\n",
+ 	      parts->part->order, (unsigned long)(parts->part->part_offset/disk_car->sector_size),
+ 	      (unsigned long)(parts->part->part_size/disk_car->sector_size),
+-	      disk_car->arch->get_part_type(parts->part), status);
++	      (disk_car->arch->get_part_type!=NULL ?  disk_car->arch->get_part_type(parts->part) : 0),
++	      status);
+ 	}
+ 	break;
+       default:

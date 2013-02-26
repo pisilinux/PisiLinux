@@ -1,0 +1,136 @@
+#!/usr/bin/python
+
+## gutenprint-foomaticppdupdate
+
+## A utility for updating foomatic-generated PPDs so that they work with
+## a newly-installed gutenprint package.
+
+## Copyright (C) 2007, 2009 Red Hat, Inc.
+## Copyright (C) 2007, 2009 Tim Waugh <twaugh@redhat.com
+
+## This program is free software; you can redistribute it and/or modify
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation; either version 2 of the License, or
+## (at your option) any later version.
+
+## This program is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU General Public License for more details.
+
+## You should have received a copy of the GNU General Public License
+## along with this program; if not, write to the Free Software
+## Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+import sys
+import glob
+import os
+import subprocess
+import tempfile
+
+import cups
+
+if len (sys.argv) < 2 or sys.argv[1] == "--help":
+    print "Usage: gutenprint-foomaticppdupdate <version>"
+    sys.exit (1)
+
+gutenprint_version = sys.argv[1]
+dry_run = True
+
+def generate_ppd (ppdfile, printer, driver):
+    p = subprocess.Popen (["foomatic-ppdfile", "-p", printer, "-d", driver],
+                          stdin=file ("/dev/null"),
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE)
+    (ppd, stderr) = p.communicate ()
+    fname = ppdfile + ".tmp"
+    try:
+        file(fname, "w").write (ppd)
+    except IOError, e:
+        print e
+        raise
+
+    ppdobj = cups.PPD (fname)
+    os.remove (fname)
+    return ppdobj
+
+def update_ppdfile (ppdfile):
+    try:
+        ppd = cups.PPD (ppdfile)
+    except RuntimeError:
+        # Invalid PPD in some way.
+        return
+
+    attr = ppd.findAttr ("FoomaticIDs")
+    if not attr:
+        return
+
+    IDs = attr.value.split (" ")
+    if len (IDs) != 2:
+        print "Don't understand FoomaticIDs: %s" % IDs
+        return
+
+    if not IDs[1].startswith ("gutenprint"):
+        return
+
+    attr = ppd.findAttr ("FoomaticRIPCommandLine")
+    if not attr:
+        return
+
+    cmdline = attr.value
+    STP_VERSION="STP_VERSION="
+    i = cmdline.find (STP_VERSION)
+    if i == -1:
+        return
+
+    i += len (STP_VERSION)
+    j = i + 1
+    end = len (cmdline)
+    while j < end:
+        ch = cmdline[j]
+        if ch != '.' and not ch.isdigit ():
+            break
+        j += 1
+
+    version = cmdline[i:j]
+    if gutenprint_version == version:
+        return
+
+    # Needs updating.
+    firstdot = gutenprint_version.find ('.')
+    seconddot = firstdot + 1 + gutenprint_version[1 + firstdot:].find ('.')
+    major = gutenprint_version[:seconddot]
+
+    driver = IDs[1]
+    dot = driver.find ('.')
+    driver = driver[:dot] + "." + major
+    try:
+        genppd = generate_ppd (ppdfile, IDs[0], driver)
+    except:
+        return
+
+    os.environ['FILE'] = ppdfile
+    os.system ('cp -af "$FILE" "$FILE".bak')
+
+    def update_options (options, newppd, origppd):
+        for newopt in options:
+            origopt = origppd.findOption (newopt.keyword)
+            if origopt:
+                newppd.markOption (newopt.keyword, origopt.defchoice)
+
+    genppd.markDefaults ()
+    for group in genppd.optionGroups:
+        update_options (group.options, genppd, ppd)
+        for subgroup in group.subgroups:
+            update_options (subgroup.options, genppd, ppd)
+
+    ps = genppd.findOption ("PageSize")
+    if ps:
+        update_options ([ps], genppd, ppd)
+
+    f = file (ppdfile, "w")
+    genppd.writeFd (f.fileno ())
+    print "Updated PPD file %s" % ppdfile
+
+for ppdfile in glob.glob ("/etc/cups/ppd/*.ppd"):
+    update_ppdfile (ppdfile)

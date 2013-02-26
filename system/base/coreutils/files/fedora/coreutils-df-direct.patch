@@ -1,0 +1,168 @@
+diff -urNp coreutils-8.21-orig/doc/coreutils.texi coreutils-8.21/doc/coreutils.texi
+--- coreutils-8.21-orig/doc/coreutils.texi      2013-02-11 10:37:28.000000000 +0100
++++ coreutils-8.21/doc/coreutils.texi   2013-02-15 10:15:26.497593689 +0100
+@@ -10961,6 +10961,13 @@ pseudo-file-systems, such as automounter
+ Scale sizes by @var{size} before printing them (@pxref{Block size}).
+ For example, @option{-BG} prints sizes in units of 1,073,741,824 bytes.
+ 
++@item --direct
++@opindex --direct
++@cindex direct statfs for a file
++Do not resolve mount point and show statistics directly for a file. It can be
++especially useful for NFS mount points if there is a boundary between two
++storage policies behind the mount point.
++
+ @item --total
+ @opindex --total
+ @cindex grand total of disk size, usage and available space
+diff -urNp coreutils-8.21-orig/src/df.c coreutils-8.21/src/df.c
+--- coreutils-8.21-orig/src/df.c        2013-02-05 00:40:31.000000000 +0100
++++ coreutils-8.21/src/df.c     2013-02-15 10:26:41.158651782 +0100
+@@ -116,6 +116,9 @@ static bool print_type;
+ /* If true, print a grand total at the end.  */
+ static bool print_grand_total;
+ 
++/* If true, show statistics for a file instead of mount point.  */
++static bool direct_statfs;
++
+ /* Grand total data.  */
+ static struct fs_usage grand_fsu;
+ 
+@@ -238,13 +241,15 @@ enum
+   SYNC_OPTION,
+   TOTAL_OPTION,
+   OUTPUT_OPTION,
+-  MEGABYTES_OPTION  /* FIXME: remove long opt in Aug 2013 */
++  MEGABYTES_OPTION,  /* FIXME: remove long opt in Aug 2013 */
++  DIRECT_OPTION
+ };
+ 
+ static struct option const long_options[] =
+ {
+   {"all", no_argument, NULL, 'a'},
+   {"block-size", required_argument, NULL, 'B'},
++  {"direct", no_argument, NULL, DIRECT_OPTION},
+   {"inodes", no_argument, NULL, 'i'},
+   {"human-readable", no_argument, NULL, 'h'},
+   {"si", no_argument, NULL, 'H'},
+@@ -500,7 +505,10 @@ get_header (void)
+   for (col = 0; col < ncolumns; col++)
+     {
+       char *cell = NULL;
+-      char const *header = _(columns[col]->caption);
++      char const *header = (columns[col]->field == TARGET_FIELD
++                            && direct_statfs)?
++                            _("File") :
++                            _(columns[col]->caption);
+ 
+       if (columns[col]->field == SIZE_FIELD
+           && (header_mode == DEFAULT_MODE
+@@ -1150,6 +1158,17 @@ get_point (const char *point, const stru
+ static void
+ get_entry (char const *name, struct stat const *statp)
+ {
++  if (direct_statfs)
++    {
++      char *resolved = canonicalize_file_name (name);
++      if (resolved)
++       {
++         get_dev (NULL, resolved, NULL, NULL, false, false, NULL, false);
++         free (resolved);
++         return;
++       }
++    }
++
+   if ((S_ISBLK (statp->st_mode) || S_ISCHR (statp->st_mode))
+       && get_disk (name))
+     return;
+@@ -1219,6 +1238,7 @@ or all file systems by default.\n\
+   -B, --block-size=SIZE  scale sizes by SIZE before printing them.  E.g.,\n\
+                            '-BM' prints sizes in units of 1,048,576 bytes.\n\
+                            See SIZE format below.\n\
++      --direct          show statistics for a file instead of mount point\n\
+       --total           produce a grand total\n\
+   -h, --human-readable  print sizes in human readable format (e.g., 1K 234M 2G)\
+ \n\
+@@ -1305,6 +1325,9 @@ main (int argc, char **argv)
+               xstrtol_fatal (e, oi, c, long_options, optarg);
+           }
+           break;
++        case DIRECT_OPTION:
++          direct_statfs = true;
++          break;
+         case 'i':
+           if (header_mode == OUTPUT_MODE)
+             {
+@@ -1408,6 +1431,13 @@ main (int argc, char **argv)
+         }
+     }
+ 
++  if (direct_statfs && show_local_fs)
++    {
++      error (0, 0, _("options --direct and --local (-l) are mutually "
++                    "exclusive"));
++      usage (EXIT_FAILURE);
++    }
++
+   if (human_output_opts == -1)
+     {
+       if (posix_format)
+diff -urNp coreutils-8.21-orig/tests/df/direct.sh coreutils-8.21/tests/df/direct.sh
+--- coreutils-8.21-orig/tests/df/direct.sh      1970-01-01 01:00:00.000000000 +0100
++++ coreutils-8.21/tests/df/direct.sh   2013-02-15 10:15:26.503644446 +0100
+@@ -0,0 +1,55 @@
++#!/bin/sh
++# Ensure "df --direct" works as documented
++
++# Copyright (C) 2010 Free Software Foundation, Inc.
++
++# This program is free software: you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation, either version 3 of the License, or
++# (at your option) any later version.
++
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++. "${srcdir=.}/init.sh"; path_prepend_ ../src
++print_ver_ df
++
++df || skip_ "df fails"
++
++DIR=`pwd` || framework_failure
++FILE="$DIR/file"
++touch "$FILE" || framework_failure
++echo "$FILE" > file_exp || framework_failure
++echo "Mounted on" > header_mounted_exp || framework_failure
++echo "File" > header_file_exp || framework_failure
++
++fail=0
++
++df --portability "$FILE" > df_out || fail=1
++df --portability --direct "$FILE" > df_direct_out || fail=1
++df --portability --direct --local "$FILE" > /dev/null 2>&1 && fail=1
++
++# check df header
++$AWK '{ if (NR==1) print $6 " " $7; }' df_out > header_mounted_out \
++  || framework_failure
++$AWK '{ if (NR==1) print $6; }' df_direct_out > header_file_out \
++  || framework_failure
++compare header_mounted_out header_mounted_exp || fail=1
++compare header_file_out header_file_exp || fail=1
++
++# check df output (without --direct)
++$AWK '{ if (NR==2) print $6; }' df_out > file_out \
++  || framework_failure
++compare file_out file_exp && fail=1
++
++# check df output (with --direct)
++$AWK '{ if (NR==2) print $6; }' df_direct_out > file_out \
++  || framework_failure
++compare file_out file_exp || fail=1
++
++Exit $fail

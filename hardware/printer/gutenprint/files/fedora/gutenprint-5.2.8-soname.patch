@@ -1,0 +1,225 @@
+diff -up gutenprint-5.2.8/configure.ac.soname gutenprint-5.2.8/configure.ac
+--- gutenprint-5.2.8/configure.ac.soname	2012-06-12 13:21:46.683739168 +0200
++++ gutenprint-5.2.8/configure.ac	2012-06-12 13:21:46.685739141 +0200
+@@ -39,8 +39,8 @@ pushdef([GUTENPRINT_MAJOR_VERSION],
+ pushdef([GUTENPRINT_MINOR_VERSION],     [2])
+ pushdef([GUTENPRINT_MICRO_VERSION],     [8])
+ pushdef([GUTENPRINT_EXTRA_VERSION],     [])
+-pushdef([GUTENPRINT_CURRENT_INTERFACE], [3])
+-pushdef([GUTENPRINT_INTERFACE_AGE],     [0])
++pushdef([GUTENPRINT_CURRENT_INTERFACE], [2])
++pushdef([GUTENPRINT_INTERFACE_AGE],     [9])
+ pushdef([GUTENPRINT_BINARY_AGE],        [0])
+ pushdef([GUTENPRINTUI2_CURRENT_INTERFACE], [1])
+ pushdef([GUTENPRINTUI2_INTERFACE_AGE],     [0])
+diff -up gutenprint-5.2.8/include/gutenprint/vars.h.soname gutenprint-5.2.8/include/gutenprint/vars.h
+--- gutenprint-5.2.8/include/gutenprint/vars.h.soname	2012-06-12 13:24:04.387834146 +0200
++++ gutenprint-5.2.8/include/gutenprint/vars.h	2012-06-12 13:24:04.403833925 +0200
+@@ -438,14 +438,6 @@ extern void *stp_get_errdata(const stp_v
+  */
+ extern void stp_merge_printvars(stp_vars_t *user, const stp_vars_t *print);
+ 
+-/**
+- * Copy settings from one vars object to another, not modifying anything
+- * unset in the source.
+- * @param to the destination vars.
+- * @param from the vars to merge into user.
+- */
+-extern void stp_copy_vars_from(stp_vars_t *to, const stp_vars_t *from);
+-
+ 
+ /****************************************************************
+ *                                                               *
+diff -up gutenprint-5.2.8/src/cups/rastertoprinter.c.soname gutenprint-5.2.8/src/cups/rastertoprinter.c
+--- gutenprint-5.2.8/src/cups/rastertoprinter.c.soname	2012-06-12 13:17:29.971291187 +0200
++++ gutenprint-5.2.8/src/cups/rastertoprinter.c	2012-06-12 13:23:05.687646188 +0200
+@@ -134,7 +134,7 @@ static const char *save_file_name = NULL
+ static const char *load_file_name = NULL;
+ #endif /* ENABLE_CUPS_LOAD_SAVE_OPTIONS */
+ 
+-extern void stpi_vars_print_error(const stp_vars_t *v, const char *prefix);
++extern void stpi_vars_print_error(const stp_vars_t *v);
+ 
+ static void
+ set_string_parameter(stp_vars_t *v, const char *name, const char *val)
+@@ -248,7 +248,6 @@ print_debug_block(const stp_vars_t *v, c
+   fprintf(stderr, "DEBUG: Gutenprint:   cupsRowFeed = %d\n", cups->header.cupsRowFeed);
+   fprintf(stderr, "DEBUG: Gutenprint:   cupsRowStep = %d\n", cups->header.cupsRowStep);
+   fprintf(stderr, "DEBUG: Gutenprint:   shrink page to fit %d\n", cups->shrink_to_fit);
+-  stpi_vars_print_error(v, "DEBUG");
+   fprintf(stderr, "DEBUG: Gutenprint: End page data\n");
+ }
+ 
+@@ -1048,8 +1047,6 @@ load_options(const char *load_name)
+ 	      if (! suppress_messages)
+ 		fprintf(stderr, "DEBUG: Gutenprint: loading options from %s\n",
+ 			load_file_name);
+-	      if (! suppress_messages)
+-		stpi_vars_print_error(settings, "DEBUG");
+ 	    }
+ 	}
+       else
+@@ -1343,11 +1340,6 @@ main(int  argc,				/* I - Number of comm
+ 	  save_file_name = NULL;
+ 	}
+ #endif /* ENABLE_CUPS_LOAD_SAVE_OPTIONS */
+-      if (! suppress_messages)
+-	{
+-	  fprintf(stderr, "DEBUG: Gutenprint: Interim page settings:\n");
+-	  stpi_vars_print_error(v, "DEBUG");
+-	}
+       stp_merge_printvars(v, stp_printer_get_defaults(printer));
+       stp_set_int_parameter(v, "PageNumber", cups.page);
+       cups.row = 0;
+diff -up gutenprint-5.2.8/src/main/gutenprint-internal.h.soname gutenprint-5.2.8/src/main/gutenprint-internal.h
+--- gutenprint-5.2.8/src/main/gutenprint-internal.h.soname	2012-06-12 13:06:53.000000000 +0200
++++ gutenprint-5.2.8/src/main/gutenprint-internal.h	2012-06-12 13:10:45.127894676 +0200
+@@ -53,7 +53,7 @@ extern "C" {
+ extern void stpi_init_paper(void);
+ extern void stpi_init_dither(void);
+ extern void stpi_init_printer(void);
+-extern void stpi_vars_print_error(const stp_vars_t *v, const char *prefix);
++extern void stpi_vars_print_error(const stp_vars_t *v);
+ #define BUFFER_FLAG_FLIP_X	0x1
+ #define BUFFER_FLAG_FLIP_Y	0x2
+ extern stp_image_t* stpi_buffer_image(stp_image_t* image, unsigned int flags);
+@@ -71,7 +71,7 @@ do									\
+       stp_erprintf("\nERROR: ***Gutenprint %s assertion %s failed!"	\
+ 		   " file %s, line %d.  %s\n", PACKAGE_VERSION,		\
+ 		   #x, __FILE__, __LINE__, "Please report this bug!");	\
+-      if ((v)) stpi_vars_print_error((v), "ERROR");			\
++      if ((v)) stpi_vars_print_error((v));				\
+       stp_abort();							\
+     }									\
+ } while (0)
+diff -up gutenprint-5.2.8/src/main/print-vars.c.soname gutenprint-5.2.8/src/main/print-vars.c
+--- gutenprint-5.2.8/src/main/print-vars.c.soname	2012-02-04 20:17:29.000000000 +0100
++++ gutenprint-5.2.8/src/main/print-vars.c	2012-06-12 13:22:34.965071211 +0200
+@@ -1454,7 +1454,7 @@ stp_vars_copy(stp_vars_t *vd, const stp_
+ }
+ 
+ void
+-stpi_vars_print_error(const stp_vars_t *v, const char *prefix)
++stpi_vars_print_error(const stp_vars_t *v)
+ {
+   int i;
+   char *cptr;
+@@ -1470,13 +1470,13 @@ stpi_vars_print_error(const stp_vars_t *
+     "Dimension",
+     "(Inactive)"
+   };
+-  stp_erprintf("%s: Gutenprint: === BEGIN GUTENPRINT SETTINGS ===\n", prefix);
+-  stp_erprintf("%s: Gutenprint:     Driver: %s\n", prefix, stp_get_driver(v));
+-  stp_erprintf("%s: Gutenprint:     L: %d  T: %d  W: %d  H: %d\n", prefix, stp_get_left(v),
++  stp_erprintf("ERROR: Gutenprint: === BEGIN GUTENPRINT SETTINGS ===\n");
++  stp_erprintf("ERROR: Gutenprint:     Driver: %s\n", stp_get_driver(v));
++  stp_erprintf("ERROR: Gutenprint:     L: %d  T: %d  W: %d  H: %d\n", stp_get_left(v),
+ 	       stp_get_top(v), stp_get_width(v), stp_get_height(v));
+-  stp_erprintf("%s: Gutenprint:     Page: %dx%d\n", prefix, stp_get_page_width(v),
++  stp_erprintf("ERROR: Gutenprint:     Page: %dx%d\n", stp_get_page_width(v),
+ 	       stp_get_page_height(v));
+-  stp_erprintf("%s: Gutenprint:     Conversion: %s\n", prefix, stp_get_color_conversion(v));
++  stp_erprintf("ERROR: Gutenprint:     Conversion: %s\n", stp_get_color_conversion(v));
+   for (i = 0; i < STP_PARAMETER_TYPE_INVALID; i++)
+     {
+       const stp_list_item_t *item =
+@@ -1496,7 +1496,7 @@ stpi_vars_print_error(const stp_vars_t *
+ 		    *cptr = ' ';
+ 		  cptr++;
+ 		}
+-	      stp_erprintf("%s: Gutenprint:         (%s) (%i) (%s) [%s]\n", prefix,
++	      stp_erprintf("ERROR: Gutenprint:         (%s) (%i) (%s) [%s]\n",
+ 			   val->name, val->active, data_types[val->typ],
+ 			   crep ? crep : "NULL");
+ 	      if (crep)
+@@ -1508,7 +1508,7 @@ stpi_vars_print_error(const stp_vars_t *
+ 	    case STP_PARAMETER_TYPE_FILE:
+ 	    case STP_PARAMETER_TYPE_RAW:
+ 	      crep = stp_rawtoxmlstr(&(val->value.rval));
+-	      stp_erprintf("%s: Gutenprint:         (%s) (%i) (%s) [%s]\n", prefix,
++	      stp_erprintf("ERROR: Gutenprint:         (%s) (%i) (%s) [%s]\n",
+ 			   val->name, val->active, data_types[val->typ],
+ 			   crep ? crep : "NULL");
+ 	      if (crep)
+@@ -1517,12 +1517,12 @@ stpi_vars_print_error(const stp_vars_t *
+ 	    case STP_PARAMETER_TYPE_INT:
+ 	    case STP_PARAMETER_TYPE_DIMENSION:
+ 	    case STP_PARAMETER_TYPE_BOOLEAN:
+-	      stp_erprintf("%s: Gutenprint:         (%s) (%i) (%s) [%d]\n", prefix,
++	      stp_erprintf("ERROR: Gutenprint:         (%s) (%i) (%s) [%d]\n",
+ 			   val->name, val->active, data_types[val->typ],
+ 			   val->value.ival);
+ 	      break;
+ 	    case STP_PARAMETER_TYPE_DOUBLE:
+-	      stp_erprintf("%s: Gutenprint:         (%s) (%i) (%s) [%f]\n", prefix,
++	      stp_erprintf("ERROR: Gutenprint:         (%s) (%i) (%s) [%f]\n",
+ 			   val->name, val->active, data_types[val->typ],
+ 			   val->value.dval);
+ 	      break;
+@@ -1532,7 +1532,7 @@ stpi_vars_print_error(const stp_vars_t *
+ 	  item = stp_list_item_next(item);
+ 	}
+     }
+-  stp_erprintf("%s: Gutenprint: === END GUTENPRINT SETTINGS ===\n", prefix);
++  stp_erprintf("ERROR: Gutenprint: === END GUTENPRINT SETTINGS ===\n");
+ }
+ 
+ void
+@@ -1882,57 +1882,6 @@ stp_parameter_list_append(stp_parameter_
+     }
+ }
+ 
+-void
+-stp_copy_vars_from(stp_vars_t *to, const stp_vars_t *from)
+-{
+-  int i;
+-  if (!from || !to)
+-    return;
+-  for (i = 0; i < STP_PARAMETER_TYPE_INVALID; i++)
+-    {
+-      const stp_list_item_t *item =
+-	stp_list_get_start((const stp_list_t *) from->params[i]);
+-      while (item)
+-	{
+-	  const value_t *val = (const value_t *) stp_list_item_get_data(item);
+-	  switch (val->typ)
+-	    {
+-	    case STP_PARAMETER_TYPE_CURVE:
+-	      stp_set_curve_parameter(to, val->name, val->value.cval);
+-	      break;
+-	    case STP_PARAMETER_TYPE_ARRAY:
+-	      stp_set_array_parameter(to, val->name, val->value.aval);
+-	      break;
+-	    case STP_PARAMETER_TYPE_STRING_LIST:
+-	      stp_set_string_parameter(to, val->name, val->value.rval.data);
+-	      break;
+-	    case STP_PARAMETER_TYPE_FILE:
+-	      stp_set_file_parameter(to, val->name, val->value.rval.data);
+-	      break;
+-	    case STP_PARAMETER_TYPE_RAW:
+-	      stp_set_raw_parameter(to, val->name, val->value.rval.data,
+-				    val->value.rval.bytes);
+-	      break;
+-	    case STP_PARAMETER_TYPE_INT:
+-	      stp_set_int_parameter(to, val->name, val->value.ival);
+-	      break;
+-	    case STP_PARAMETER_TYPE_DIMENSION:
+-	      stp_set_dimension_parameter(to, val->name, val->value.ival);
+-	      break;
+-	    case STP_PARAMETER_TYPE_BOOLEAN:
+-	      stp_set_boolean_parameter(to, val->name, val->value.bval);
+-	      break;
+-	    case STP_PARAMETER_TYPE_DOUBLE:
+-	      stp_set_float_parameter(to, val->name, val->value.dval);
+-	      break;
+-	    default:
+-	      break;
+-	    }
+-	  item = stp_list_item_next(item);
+-	}
+-    }
+-}
+-
+ static void
+ fill_vars_from_xmltree(stp_mxml_node_t *prop, stp_mxml_node_t *root,
+ 		       stp_vars_t *v)

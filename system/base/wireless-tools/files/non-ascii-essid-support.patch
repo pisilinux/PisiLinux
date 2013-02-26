@@ -1,0 +1,429 @@
+--- wireless_tools.29/iwlib.c	2007-06-30 02:43:31.000000000 +0300
++++ wireless_tools.30/iwlib.c	2008-05-16 02:11:43.000000000 +0300
+@@ -707,12 +707,13 @@
+ 
+   /* Get ESSID */
+   wrq.u.essid.pointer = (caddr_t) info->essid;
+-  wrq.u.essid.length = IW_ESSID_MAX_SIZE + 1;
++  wrq.u.essid.length = IW_ESSID_MAX_SIZE + 2;
+   wrq.u.essid.flags = 0;
+   if(iw_get_ext(skfd, ifname, SIOCGIWESSID, &wrq) >= 0)
+     {
+       info->has_essid = 1;
+       info->essid_on = wrq.u.data.flags;
++      info->essid_len = wrq.u.essid.length;
+     }
+ 
+   /* Get operation mode */
+@@ -923,6 +924,132 @@
+   return(0);
+ }
+ 
++/************************ ESSID SUBROUTINES ************************/
++/*
++ * The ESSID identify 802.11 networks, and is an array if 32 bytes.
++ * Most people use it as an ASCII string, and are happy with it.
++ * However, any byte is valid, including the NUL character. Characters
++ * beyond the ASCII range are interpreted according to the locale and
++ * the OS, which is somethign we don't control (network of other
++ * people).
++ * Routines in here try to deal with that in asafe way.
++ */
++
++/*------------------------------------------------------------------*/
++/*
++ * Escape non-ASCII characters from ESSID.
++ * This allow us to display those weirds characters to the user.
++ *
++ * Source is 32 bytes max.
++ * Destination buffer needs to be at least 129 bytes, will be NUL
++ * terminated.
++ */
++void
++iw_essid_escape(char *		dest,
++		const char *	src,
++		const int	slen)
++{
++  const unsigned char *	s = (const unsigned char *) src;
++  const unsigned char *	e = s + slen;
++  char *		d = dest;
++
++  /* Look every character of the string */
++  while(s < e)
++    {
++      int	isescape;
++
++      /* Escape the escape to avoid ambiguity.
++       * We do a fast path test for performance reason. Compiler will
++       * optimise all that ;-) */
++      if(*s == '\\')
++	{
++	  /* Check if we would confuse it with an escape sequence */
++	  if((e-s) > 4 && (s[1] == 'x')
++	     && (isxdigit(s[2])) && (isxdigit(s[3])))
++	    {
++	      isescape = 1;
++	    }
++	  else
++	    isescape = 0;
++	}
++      else
++	isescape = 0;
++      
++
++      /* Is it a non-ASCII character ??? */
++      if(isescape || !isascii(*s) || iscntrl(*s))
++	{
++	  /* Escape */
++	  sprintf(d, "\\x%02X", *s);
++	  d += 4;
++	}
++      else
++	{
++	  /* Plain ASCII, just copy */
++	  *d = *s;
++	  d++;
++	}
++      s++;
++    }
++
++  /* NUL terminate destination */
++  *d = '\0';
++}
++
++/* ---------------------------------------------------------------- */
++/*
++ * Un-Escape non-ASCII characters from ESSID
++ * This allow the user to specify weird characters in ESSID.
++ *
++ * The source is a NUL terminated string.
++ * Destination buffer is at least the size of source (ESSID will shrink)
++ * Destination may contains NUL, therefore we return the length.
++ * This function still works is src and dest are the same ;-)
++ */
++int
++iw_essid_unescape(char *	dest,
++		  const char *	src)
++{
++  const char *	s = src;
++  char *	d = dest;
++  char *	p;
++  int		len;
++
++  /* Look-up the next '\' sequence, stop when no more */
++  while((p = strchr(s, '\\')) != NULL)
++    {
++      /* Copy block of unescaped chars before the '\' */
++      len = p - s;
++      memcpy(d, s, len);
++      d += len;
++      s += len;		/* Identical to 's = p' */
++
++      /* Check if it is really an escape sequence. We do also check for NUL */
++      if((s[1] == 'x') && (isxdigit(s[2])) && (isxdigit(s[3])))
++	{
++	  unsigned int	temp;
++	  /* Valid Escape sequence, un-escape it */
++	  sscanf(s + 2, "%2X", &temp);
++	  *d = temp;
++	  d++;
++	  s+=4;
++	}
++      else
++	{
++	  /* Not valid, don't un-escape it */
++	  *d = *s;
++	  d++;
++	  s++;
++	}
++    }
++
++  /* Copy remaining of the string */
++  len = strlen(s);
++  memcpy(d, s, len + 1);
++  /* Return length */
++  return((d - dest) + len);
++}
++
+ /********************** FREQUENCY SUBROUTINES ***********************/
+ /*
+  * Note : the two functions below are the cause of troubles on
+@@ -2983,7 +3110,7 @@
+     case SIOCGIWESSID:
+       wscan->b.has_essid = 1;
+       wscan->b.essid_on = event->u.data.flags;
+-      memset(wscan->b.essid, '\0', IW_ESSID_MAX_SIZE+1);
++      memset(wscan->b.essid, '\0', IW_ESSID_MAX_SIZE + 1);
+       if((event->u.essid.pointer) && (event->u.essid.length))
+ 	memcpy(wscan->b.essid, event->u.essid.pointer, event->u.essid.length);
+       break;
+--- wireless_tools.29/iwlib.h	2007-06-22 21:01:04.000000000 +0300
++++ wireless_tools.30/iwlib.h	2008-05-16 02:16:32.000000000 +0300
+@@ -183,7 +183,8 @@
+   int		key_flags;		/* Various flags */
+   int		has_essid;
+   int		essid_on;
+-  char		essid[IW_ESSID_MAX_SIZE + 1];	/* ESSID (extended network) */
++  char		essid[IW_ESSID_MAX_SIZE + 2];	/* ESSID (extended network) */
++  int		essid_len;
+   int		has_mode;
+   int		mode;			/* Operation mode */
+ } wireless_config;
+@@ -197,7 +198,7 @@
+   int		has_sens;
+   iwparam	sens;			/* sensitivity */
+   int		has_nickname;
+-  char		nickname[IW_ESSID_MAX_SIZE + 1]; /* NickName */
++  char		nickname[IW_ESSID_MAX_SIZE + 2]; /* NickName */
+   int		has_ap_addr;
+   sockaddr	ap_addr;		/* Access point address */
+   int		has_bitrate;
+@@ -320,6 +321,14 @@
+ int
+ 	iw_protocol_compare(const char *	protocol1,
+ 			    const char *	protocol2);
++/* ---------------------- ESSID SUBROUTINES ---------------------- */
++void
++	iw_essid_escape(char *		dest,
++			const char *	src,
++			const int	slen);
++int
++	iw_essid_unescape(char *	dest,
++			  const char *	src);
+ /* -------------------- FREQUENCY SUBROUTINES --------------------- */
+ void
+ 	iw_float2freq(double	in,
+diff -Naur wireless_tools.29/iwlist.c wireless_tools.30/iwlist.c
+--- wireless_tools.29/iwlist.c	2007-06-30 04:11:09.000000000 +0300
++++ wireless_tools.30/iwlist.c	2008-01-17 03:45:41.000000000 +0200
+@@ -496,10 +496,11 @@
+       break;
+     case SIOCGIWESSID:
+       {
+-	char essid[IW_ESSID_MAX_SIZE+1];
++	char essid[4*IW_ESSID_MAX_SIZE+1];
+ 	memset(essid, '\0', sizeof(essid));
+ 	if((event->u.essid.pointer) && (event->u.essid.length))
+-	  memcpy(essid, event->u.essid.pointer, event->u.essid.length);
++	  iw_essid_escape(essid,
++			  event->u.essid.pointer, event->u.essid.length);
+ 	if(event->u.essid.flags)
+ 	  {
+ 	    /* Does it have an ESSID index ? */
+diff -Naur wireless_tools.29/iwconfig.c wireless_tools.30/iwconfig.c
+--- wireless_tools.29/iwconfig.c	2007-07-19 00:18:01.000000000 +0300
++++ wireless_tools.30/iwconfig.c	2008-05-16 02:17:52.000000000 +0300
+@@ -100,7 +100,7 @@
+ #ifndef WE_ESSENTIAL
+   /* Get NickName */
+   wrq.u.essid.pointer = (caddr_t) info->nickname;
+-  wrq.u.essid.length = IW_ESSID_MAX_SIZE + 1;
++  wrq.u.essid.length = IW_ESSID_MAX_SIZE + 2;
+   wrq.u.essid.flags = 0;
+   if(iw_get_ext(skfd, ifname, SIOCGIWNICKN, &wrq) >= 0)
+     if(wrq.u.data.length > 1)
+@@ -160,7 +160,7 @@
+ display_info(struct wireless_info *	info,
+ 	     char *			ifname)
+ {
+-  char		buffer[128];	/* Temporary buffer */
++  char		buffer[256];	/* Temporary buffer */
+ 
+   /* One token is more of less 5 characters, 14 tokens per line */
+   int	tokens = 3;	/* For name */
+@@ -173,12 +173,14 @@
+     {
+       if(info->b.essid_on)
+ 	{
++	  /* Escape the non-printable characters */
++	  iw_essid_escape(buffer, info->b.essid, info->b.essid_len);
+ 	  /* Does it have an ESSID index ? */
+ 	  if((info->b.essid_on & IW_ENCODE_INDEX) > 1)
+-	    printf("ESSID:\"%s\" [%d]  ", info->b.essid,
++	    printf("ESSID:\"%s\" [%d]  ", buffer,
+ 		   (info->b.essid_on & IW_ENCODE_INDEX));
+ 	  else
+-	    printf("ESSID:\"%s\"  ", info->b.essid);
++	    printf("ESSID:\"%s\"  ", buffer);
+ 	}
+       else
+ 	printf("ESSID:off/any  ");
+@@ -619,7 +621,9 @@
+ {
+   struct iwreq		wrq;
+   int			i = 1;
+-  char			essid[IW_ESSID_MAX_SIZE + 1];
++  char			essid[4*IW_ESSID_MAX_SIZE + 1];
++  int			essid_len;
++  int			essid_index;
+   int			we_kernel_version;
+ 
+   if((!strcasecmp(args[0], "off")) ||
+@@ -627,6 +631,7 @@
+     {
+       wrq.u.essid.flags = 0;
+       essid[0] = '\0';
++      essid_len = 0;
+     }
+   else
+     if(!strcasecmp(args[0], "on"))
+@@ -634,11 +639,12 @@
+ 	/* Get old essid */
+ 	memset(essid, '\0', sizeof(essid));
+ 	wrq.u.essid.pointer = (caddr_t) essid;
+-	wrq.u.essid.length = IW_ESSID_MAX_SIZE + 1;
++	wrq.u.essid.length = IW_ESSID_MAX_SIZE + 2;
+ 	wrq.u.essid.flags = 0;
+ 	if(iw_get_ext(skfd, ifname, SIOCGIWESSID, &wrq) < 0)
+ 	  return(IWERR_GET_EXT);
+ 	wrq.u.essid.flags = 1;
++	essid_len = wrq.u.essid.length;
+       }
+     else
+       {
+@@ -651,31 +657,37 @@
+ 	  {
+ 	    if(++i >= count)
+ 	      return(IWERR_ARG_NUM);
++	    essid_len = strlen(args[i]);
+ 	  }
+ 
+-	/* Check the size of what the user passed us to avoid
+-	 * buffer overflows */
+-	if(strlen(args[i]) > IW_ESSID_MAX_SIZE)
++	/* First size check : check if ot fits in our internal buffer.
++	 * We do a two pass size check because of unescaping */
++	if(strlen(args[i]) > (4*IW_ESSID_MAX_SIZE))
+ 	  {
+ 	    errmax = IW_ESSID_MAX_SIZE;
+ 	    return(IWERR_ARG_SIZE);
+ 	  }
+-	else
++
++	/* Unescape the ESSID to allow the user to enter weird chars */
++	essid_len = iw_essid_unescape(essid, args[i]);
++
++	/* Check the size to see if it fits the API. */
++	if(essid_len > IW_ESSID_MAX_SIZE)
+ 	  {
+-	    int		temp;
++	    errmax = IW_ESSID_MAX_SIZE;
++	    return(IWERR_ARG_SIZE);
++	  }
+ 
+-	    wrq.u.essid.flags = 1;
+-	    strcpy(essid, args[i]);	/* Size checked, all clear */
+-	    i++;
+-
+-	    /* Check for ESSID index */
+-	    if((i < count) &&
+-	       (sscanf(args[i], "[%i]", &temp) == 1) &&
+-	       (temp > 0) && (temp < IW_ENCODE_INDEX))
+-	      {
+-		wrq.u.essid.flags = temp;
+-		++i;
+-	      }
++	wrq.u.essid.flags = 1;
++	i++;
++
++	/* Check for ESSID index */
++	if((i < count) &&
++	   (sscanf(args[i], "[%i]", &essid_index) == 1) &&
++	   (essid_index > 0) && (essid_index < IW_ENCODE_INDEX))
++	  {
++	    wrq.u.essid.flags = essid_index;
++	    ++i;
+ 	  }
+       }
+ 
+@@ -684,7 +696,7 @@
+ 
+   /* Finally set the ESSID value */
+   wrq.u.essid.pointer = (caddr_t) essid;
+-  wrq.u.essid.length = strlen(essid);
++  wrq.u.essid.length = essid_len;
+   if(we_kernel_version < 21)
+     wrq.u.essid.length++;
+ 
+@@ -1034,8 +1046,8 @@
+ 	wrq.u.power.disabled = 0;
+ 
+ 	/* Is there any value to grab ? */
+-	value = strtod(args[0], &unit);
+-	if(unit != args[0])
++	value = strtod(args[i], &unit);
++	if(unit != args[i])
+ 	  {
+ 	    struct iw_range	range;
+ 	    int			flags;
+@@ -1420,8 +1432,8 @@
+   wrq.u.retry.disabled = 0;
+ 
+   /* Is there any value to grab ? */
+-  value = strtod(args[0], &unit);
+-  if(unit == args[0])
++  value = strtod(args[i], &unit);
++  if(unit == args[i])
+     {
+       errarg = i;
+       return(IWERR_ARG_TYPE);
+diff -Naur wireless_tools.29/iwevent.c wireless_tools.30/iwevent.c
+--- wireless_tools.29/iwevent.c	2006-02-14 02:08:20.000000000 +0200
++++ wireless_tools.30/iwevent.c	2008-05-16 02:18:52.000000000 +0300
+@@ -341,10 +341,11 @@
+     case SIOCSIWESSID:
+     case SIOCGIWESSID:
+       {
+-	char essid[IW_ESSID_MAX_SIZE+1];
++	char essid[4*IW_ESSID_MAX_SIZE + 1];
+ 	memset(essid, '\0', sizeof(essid));
+ 	if((event->u.essid.pointer) && (event->u.essid.length))
+-	  memcpy(essid, event->u.essid.pointer, event->u.essid.length);
++	  iw_essid_escape(essid,
++			  event->u.essid.pointer, event->u.essid.length);
+ 	if(event->u.essid.flags)
+ 	  {
+ 	    /* Does it have an ESSID index ? */
+diff -Naur wireless_tools.29/iwgetid.c wireless_tools.30/iwgetid.c
+--- wireless_tools.29/iwgetid.c	2007-07-09 23:18:33.000000000 +0300
++++ wireless_tools.30/iwgetid.c	2008-05-16 02:20:56.000000000 +0300
+@@ -84,8 +84,8 @@
+ 	    int			format)
+ {
+   struct iwreq		wrq;
+-  char			essid[IW_ESSID_MAX_SIZE + 1];	/* ESSID */
+-  char			pessid[IW_ESSID_MAX_SIZE + 1];	/* Pcmcia format */
++  char			essid[IW_ESSID_MAX_SIZE + 2];	/* ESSID */
++  char			pessid[4 * IW_ESSID_MAX_SIZE + 1];	/* Printable format */
+   unsigned int		i;
+   unsigned int		j;
+ 
+@@ -94,7 +94,7 @@
+ 
+   /* Get ESSID */
+   wrq.u.essid.pointer = (caddr_t) essid;
+-  wrq.u.essid.length = IW_ESSID_MAX_SIZE + 1;
++  wrq.u.essid.length = IW_ESSID_MAX_SIZE + 2;
+   wrq.u.essid.flags = 0;
+   if(iw_get_ext(skfd, ifname, SIOCGIWESSID, &wrq) < 0)
+     return(-1);
+@@ -104,7 +104,7 @@
+     case FORMAT_SCHEME:
+       /* Strip all white space and stuff */
+       j = 0;
+-      for(i = 0; i < strlen(essid); i++)
++      for(i = 0; i < wrq.u.essid.length; i++)
+ 	if(isalnum(essid[i]))
+ 	  pessid[j++] = essid[i];
+       pessid[j] = '\0';
+@@ -116,7 +116,8 @@
+       printf("%s\n", essid);
+       break;
+     default:
+-      printf("%-8.16s  ESSID:\"%s\"\n", ifname, essid);
++      iw_essid_escape(pessid, essid, wrq.u.essid.length);
++      printf("%-8.16s  ESSID:\"%s\"\n", ifname, pessid);
+       break;
+     }
+ 
+

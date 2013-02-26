@@ -1,0 +1,134 @@
+diff -Nur -x '*.orig' -x '*~' libgksu-2.0.9/libgksu/libgksu.c libgksu-2.0.9.new/libgksu/libgksu.c
+--- libgksu-2.0.9/libgksu/libgksu.c	2009-03-04 19:53:02.000000000 +0100
++++ libgksu-2.0.9.new/libgksu/libgksu.c	2009-03-09 09:55:32.000000000 +0100
+@@ -174,6 +174,7 @@
+ } FadeoutData;
+ 
+ FadeoutData *fade_data = NULL;
++static GList *fade_data_l = NULL;
+ static GList *fadeout_windows = NULL;
+ 
+ #define FADE_DURATION 500.0
+@@ -222,6 +223,30 @@
+ 	return geometry.y;
+ }
+ 
++typedef void (*GsmScreenForeachFunc) (GdkScreen *screen,
++                                     int        monitor);
++
++void
++gsm_foreach_screen (GsmScreenForeachFunc callback)
++{
++       GdkDisplay *display;
++       int         n_screens, i;
++
++       display = gdk_display_get_default ();
++
++       n_screens = gdk_display_get_n_screens (display);
++       for (i = 0; i < n_screens; i++) {
++               GdkScreen *screen;
++               int        n_monitors, j;
++
++               screen = gdk_display_get_screen (display, i);
++
++               n_monitors = gdk_screen_get_n_monitors (screen);
++               for (j = 0; j < n_monitors; j++)
++                       callback (screen, j);
++       }
++}
++
+ static void
+ get_current_frame (FadeoutData *fadeout,
+ 		   double    sat)
+@@ -467,9 +492,51 @@
+   g_get_current_time (&fadeout->start_time);
+   g_idle_add ((GSourceFunc) fadeout_callback, fadeout);
+ 
+-  fade_data = fadeout;
++  fade_data_l = g_list_prepend (fade_data, fadeout);
+ }
+ 
++static void
++fadein (void)
++{
++  GList *l;
++  GList *next;
++
++  /* set start_time for all screens */
++  for (l = fade_data_l; l; l = l->next)
++    {
++      FadeoutData *fd;
++      fd = (FadeoutData*)l->data;
++      g_get_current_time (&fd->start_time);
++    }
++
++  /* iterate through all screens and call the fadein_callback 
++   * until all of them return FALSE */
++  next = fade_data_l;
++  while (next != NULL)
++    {
++      l = next;
++      next = l->next;
++
++      /* remove from list when finished fading */
++      if (fadein_callback ((FadeoutData*)l->data) == FALSE)
++	{
++	  fade_data_l = g_list_remove(fade_data, l->data);
++	}
++
++      /* this wrapping around needs to be delayed because fade_data_l could
++       * have changed above */
++      if (next == NULL)
++	{
++	  next = fade_data_l;
++	}
++    }
++
++  /* free the list. The FadeoutData structs are being free'd from
++   * within the fadein_callback's */
++  g_list_free (fade_data_l);
++  fade_data_l = NULL;
++} 
++
+ /* End of 'stolen' code */
+ 
+ #define GRAB_TRIES	16
+@@ -553,7 +620,7 @@
+   g_free (fname);
+ 
+   gdk_threads_enter ();
+-  fadeout_screen (gdk_screen_get_default (), 0);
++  gsm_foreach_screen (fadeout_screen);
+   gtk_widget_show_all (dialog);
+ 
+   /* reset cursor */
+@@ -569,8 +636,7 @@
+       if (++grab_tries > GRAB_TRIES)
+ 	{
+ 	  gtk_widget_hide (dialog);
+-	  g_get_current_time (&fade_data->start_time);
+-	  while (fadein_callback (fade_data) != FALSE);
++	  fadein();
+ 	  report_failed_grab (FAILED_GRAB_MOUSE);
+ 	  exit (1);
+ 	  break;
+@@ -589,8 +655,7 @@
+       if (++grab_tries > GRAB_TRIES)
+ 	{
+ 	  gtk_widget_hide (dialog);
+-	  g_get_current_time (&fade_data->start_time);
+-	  while (fadein_callback (fade_data) != FALSE);
++	  fadein();
+ 	  report_failed_grab (FAILED_GRAB_KEYBOARD);
+ 	  exit (1);
+ 	  break;
+@@ -617,8 +682,7 @@
+   gdk_keyboard_ungrab(GDK_CURRENT_TIME);
+   gdk_flush();
+ 
+-  g_get_current_time (&fade_data->start_time);
+-  while (fadein_callback (fade_data) != FALSE);
++  fadein();
+   gdk_threads_leave();
+ 
+   close(lock);

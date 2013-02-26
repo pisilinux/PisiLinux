@@ -1,0 +1,142 @@
+autofs-5.0.5 - wait for master map available at start
+
+From: Ian Kent <raven@themaw.net>
+
+If the network map source isn't available at start the master map
+can't be read. In this case we should wait until it is available
+so we can get a startup map.
+---
+
+ CHANGELOG           |    1 +
+ daemon/automount.c  |   22 +++++++++++++++++++++-
+ daemon/lookup.c     |    7 +++++++
+ lib/master.c        |    4 +++-
+ modules/lookup_yp.c |   13 +++++++++----
+ 5 files changed, 41 insertions(+), 6 deletions(-)
+
+
+--- autofs-5.0.5.orig/CHANGELOG
++++ autofs-5.0.5/CHANGELOG
+@@ -54,6 +54,7 @@
+ - add external bind method.
+ - fix add simple bind auth.
+ - add option to dump configured automount maps.
++- wait for master map to be available at start.
+ 
+ 03/09/2009 autofs-5.0.5
+ -----------------------
+--- autofs-5.0.5.orig/daemon/automount.c
++++ autofs-5.0.5/daemon/automount.c
+@@ -1809,6 +1809,21 @@ static int convert_log_priority(char *pr
+ 	return -1;
+ }
+ 
++static int do_master_read_master(struct master *master, time_t age, int readall)
++{
++	while (1) {
++		struct timespec t = { 0, 500000000 };
++
++		if (master_read_master(master, age, readall))
++			return 1;
++
++		if (nanosleep(&t, NULL) == -1)
++			break;
++	}
++
++	return 0;
++}
++
+ int main(int argc, char *argv[])
+ {
+ 	int res, opt, status;
+@@ -2143,7 +2158,12 @@ int main(int argc, char *argv[])
+ 		dh_tirpc = dlopen("libitirpc.so.1", RTLD_NOW);
+ #endif
+ 
+-	if (!master_read_master(master_list, age, 0)) {
++	/*
++	 * Read master map, waiting until it is available, unless
++	 * a signal is received, in which case exit returning an
++	 * error.
++	 */
++	if (!do_master_read_master(master_list, age, 0)) {
+ 		master_kill(master_list);
+ 		*pst_stat = 3;
+ 		res = write(start_pipefd[1], pst_stat, sizeof(*pst_stat));
+--- autofs-5.0.5.orig/daemon/lookup.c
++++ autofs-5.0.5/daemon/lookup.c
+@@ -216,6 +216,7 @@ int lookup_nss_read_master(struct master
+ 	}
+ 
+ 	/* First one gets it */
++	result = NSS_STATUS_UNKNOWN;
+ 	head = &nsslist;
+ 	list_for_each(p, head) {
+ 		struct nss_source *this;
+@@ -223,6 +224,12 @@ int lookup_nss_read_master(struct master
+ 
+ 		this = list_entry(p, struct nss_source, list);
+ 
++		if (strncmp(this->source, "files", 5) &&
++		    strncmp(this->source, "nis", 3) &&
++		    strncmp(this->source, "nisplus", 7) &&
++		    strncmp(this->source, "ldap", 4))
++			continue;
++
+ 		debug(logopt,
+ 		      "reading master %s %s", this->source, master->name);
+ 
+--- autofs-5.0.5.orig/lib/master.c
++++ autofs-5.0.5/lib/master.c
+@@ -836,7 +836,9 @@ int master_read_master(struct master *ma
+ 		master_mount_mounts(master, age, readall);
+ 	else {
+ 		master->read_fail = 0;
+-		if (!readall)
++		if (readall)
++			return 0;
++		else
+ 			master_mount_mounts(master, age, readall);
+ 	}
+ 
+--- autofs-5.0.5.orig/modules/lookup_yp.c
++++ autofs-5.0.5/modules/lookup_yp.c
+@@ -214,9 +214,9 @@ int lookup_read_master(struct master *ma
+ 	char *mapname;
+ 	int err;
+ 
+-	mapname = alloca(strlen(ctxt->mapname) + 1);
++	mapname = malloc(strlen(ctxt->mapname) + 1);
+ 	if (!mapname)
+-		return 0;
++		return NSS_STATUS_UNKNOWN;
+ 
+ 	strcpy(mapname, ctxt->mapname);
+ 
+@@ -240,19 +240,24 @@ int lookup_read_master(struct master *ma
+ 			err = yp_all((char *) ctxt->domainname, mapname, &ypcb);
+ 		}
+ 
+-		if (err == YPERR_SUCCESS)
++		if (err == YPERR_SUCCESS) {
++			free(mapname);
+ 			return NSS_STATUS_SUCCESS;
++		}
+ 
+ 		info(logopt,
+ 		     MODPREFIX "read of master map %s failed: %s",
+ 		     mapname, yperr_string(err));
+ 
+-		if (err == YPERR_PMAP || err == YPERR_YPSERV)
++		if (err == YPERR_PMAP || err == YPERR_YPSERV) {
++			free(mapname);
+ 			return NSS_STATUS_UNAVAIL;
++		}
+ 
+ 		return NSS_STATUS_NOTFOUND;
+ 	}
+ 
++	free(mapname);
+ 	return NSS_STATUS_SUCCESS;
+ }
+ 

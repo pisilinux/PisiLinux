@@ -1,0 +1,182 @@
+--- syslinux-3.82/utils/isohybrid	2009-06-09 19:21:50.000000000 +0200
++++ syslinux-3.82/utils/isohybrid	2009-10-16 17:16:34.000000000 +0200
+@@ -44,6 +44,7 @@
+     'id'     => [0, 0xffffffff],
+     'hd0'    => [0, 2],
+     'partok' => [0, 1],
++    'fat'    => [0, 1],
+ );
+ 
+ # Boolean options just set other options
+@@ -53,6 +54,7 @@
+     'ctrlhd0'  => ['hd0', 2],
+     'nopartok' => ['partok', 0],
+     'partok'   => ['partok', 1],
++    'fatfirst' => ['fat', 1],
+ );
+ 
+ sub usage() {
+@@ -66,7 +68,8 @@
+     "  -id         Specify MBR ID (default random)\n",
+     "  -forcehd0   Always assume we are loaded as disk ID 0\n",
+     "  -ctrlhd0    Assume disk ID 0 if the Ctrl key is pressed\n",
+-    "  -partok     Allow booting from within a partition\n";
++    "  -partok     Allow booting from within a partition\n",
++    "  -fatfirst   Create a small fat partition first\n";
+     exit 1;
+ }
+ 
+@@ -221,9 +224,9 @@
+ 
+ # Print partition table
+ $offset  = $opt{'offset'};
+-$psize   = $c*$h*$s - $offset;
++$psize   = $c*$h*$s - $offset - 1;
+ $bhead   = int($offset/$s) % $h;
+-$bsect   = ($offset % $s) + 1;
++$bsect   = ($offset % $s) + 1 + 1;
+ $bcyl    = int($offset/($h*$s));
+ $bsect  += ($bcyl & 0x300) >> 2;
+ $bcyl   &= 0xff;
+@@ -233,10 +236,29 @@
+ $fstype  = $opt{'type'};	# Partition type
+ $pentry  = $opt{'entry'};	# Partition slot
+ 
++$offset += $psize;
++$psize1   = $cylsize/512;
++$bhead1   = int(($offset+1)/$s) % $h;
++$bsect1   = (($offset+1) % $s) + 1;
++$bcyl1    = int(($offset+1)/($h*$s));
++$bsect1  += ($bcyl1 & 0x300) >> 2;
++$bcyl1   &= 0xff;
++$ehead1   = $h-1;
++$esect1   = $s;
++$ecyl1   = $bcyl1;
++print "ehead1=$ehead1 esect1=$esect1 ecyl1=$ecyl1\n";
++
++if ( $opt{'fat'} == 1 ) {
++	$pentry = 2;
++}
++
+ for ( $i = 1 ; $i <= 4 ; $i++ ) {
+-    if ( $i == $pentry ) {
++    if ( $opt{'fat'} == 1 && $i == 1 ) {
++	$mbr .= pack("CCCCCCCCVV", 0x00, $bhead1, $bsect1, $bcyl1, 0xc,
++		     $ehead1, $esect1, $ecyl1, $offset+1, $psize1);
++    } elsif ( $i == $pentry ) {
+ 	$mbr .= pack("CCCCCCCCVV", 0x80, $bhead, $bsect, $bcyl, $fstype,
+-		     $ehead, $esect, $ecyl, $offset, $psize);
++		     $ehead, $esect, $ecyl, $offset + 1, $psize);
+     } else {
+ 	$mbr .= "\0" x 16;
+     }
+@@ -251,6 +273,18 @@
+     print FILE "\0" x $padding;
+ }
+ 
++# Create fat image and put it into the file
++if($opt{'fat'}) {
++    open(FATFILE, "> $file.fat") or die "$0: cannot open $file.fat: $!\n";
++    print FATFILE "\0" x ($psize1*512);
++    close(FATFILE);
++    system("/usr/sbin/mkfs.vfat -n RESIZE_ME $file.fat") and die "$0: cannot format fat\n";
++    open(FATFILE, "< $file.fat");
++    print FILE <FATFILE>;
++    close(FATFILE);
++    unlink("$file.fat");
++}
++
+ # Done...
+ close(FILE);
+ 
+--- syslinux-3.82/utils/isohybrid.in	2009-06-09 19:21:50.000000000 +0200
++++ syslinux-3.82/utils/isohybrid.in	2009-10-16 17:16:34.000000000 +0200
+@@ -44,6 +44,7 @@
+     'id'     => [0, 0xffffffff],
+     'hd0'    => [0, 2],
+     'partok' => [0, 1],
++    'fat'    => [0, 1],
+ );
+ 
+ # Boolean options just set other options
+@@ -53,6 +54,7 @@
+     'ctrlhd0'  => ['hd0', 2],
+     'nopartok' => ['partok', 0],
+     'partok'   => ['partok', 1],
++    'fatfirst' => ['fat', 1],
+ );
+ 
+ sub usage() {
+@@ -66,7 +68,8 @@
+     "  -id         Specify MBR ID (default random)\n",
+     "  -forcehd0   Always assume we are loaded as disk ID 0\n",
+     "  -ctrlhd0    Assume disk ID 0 if the Ctrl key is pressed\n",
+-    "  -partok     Allow booting from within a partition\n";
++    "  -partok     Allow booting from within a partition\n",
++    "  -fatfirst   Create a small fat partition first\n";
+     exit 1;
+ }
+ 
+@@ -221,9 +224,9 @@
+ 
+ # Print partition table
+ $offset  = $opt{'offset'};
+-$psize   = $c*$h*$s - $offset;
++$psize   = $c*$h*$s - $offset - 1;
+ $bhead   = int($offset/$s) % $h;
+-$bsect   = ($offset % $s) + 1;
++$bsect   = ($offset % $s) + 1 + 1;
+ $bcyl    = int($offset/($h*$s));
+ $bsect  += ($bcyl & 0x300) >> 2;
+ $bcyl   &= 0xff;
+@@ -233,10 +236,29 @@
+ $fstype  = $opt{'type'};	# Partition type
+ $pentry  = $opt{'entry'};	# Partition slot
+ 
++$offset += $psize;
++$psize1   = $cylsize/512;
++$bhead1   = int(($offset+1)/$s) % $h;
++$bsect1   = (($offset+1) % $s) + 1;
++$bcyl1    = int(($offset+1)/($h*$s));
++$bsect1  += ($bcyl1 & 0x300) >> 2;
++$bcyl1   &= 0xff;
++$ehead1   = $h-1;
++$esect1   = $s;
++$ecyl1   = $bcyl1;
++print "ehead1=$ehead1 esect1=$esect1 ecyl1=$ecyl1\n";
++
++if ( $opt{'fat'} == 1 ) {
++	$pentry = 2;
++}
++
+ for ( $i = 1 ; $i <= 4 ; $i++ ) {
+-    if ( $i == $pentry ) {
++    if ( $opt{'fat'} == 1 && $i == 1 ) {
++	$mbr .= pack("CCCCCCCCVV", 0x00, $bhead1, $bsect1, $bcyl1, 0xc,
++		     $ehead1, $esect1, $ecyl1, $offset+1, $psize1);
++    } elsif ( $i == $pentry ) {
+ 	$mbr .= pack("CCCCCCCCVV", 0x80, $bhead, $bsect, $bcyl, $fstype,
+-		     $ehead, $esect, $ecyl, $offset, $psize);
++		     $ehead, $esect, $ecyl, $offset + 1, $psize);
+     } else {
+ 	$mbr .= "\0" x 16;
+     }
+@@ -251,6 +273,18 @@
+     print FILE "\0" x $padding;
+ }
+ 
++# Create fat image and put it into the file
++if($opt{'fat'}) {
++    open(FATFILE, "> $file.fat") or die "$0: cannot open $file.fat: $!\n";
++    print FATFILE "\0" x ($psize1*512);
++    close(FATFILE);
++    system("/usr/sbin/mkfs.vfat -n RESIZE_ME $file.fat") and die "$0: cannot format fat\n";
++    open(FATFILE, "< $file.fat");
++    print FILE <FATFILE>;
++    close(FATFILE);
++    unlink("$file.fat");
++}
++
+ # Done...
+ close(FILE);
+ 

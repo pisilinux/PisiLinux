@@ -1,0 +1,232 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.514
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.514
+Problem:    No completion for :history command.
+Solution:   Add the completion and update the docs. Also fix ":behave"
+	    completion. (Dominique Pelle)
+Files:	    runtime/doc/cmdline.txt, runtime/doc/map.txt, src/ex_docmd.c,
+	    src/ex_getln.c, src/vim.h
+
+
+*** ../vim-7.3.513/runtime/doc/cmdline.txt	2010-08-15 21:57:17.000000000 +0200
+--- runtime/doc/cmdline.txt	2012-04-30 18:30:00.000000000 +0200
+***************
+*** 330,341 ****
+  
+  :his[tory] [{name}] [{first}][, [{last}]]
+  		List the contents of history {name} which can be:
+! 		c[md]	 or :	command-line history
+! 		s[earch] or /	search string history
+! 		e[xpr]	 or =	expression register history
+! 		i[nput]	 or @	input line history
+! 		d[ebug]	 or >	debug command history
+! 		a[ll]		all of the above
+  		{not in Vi}
+  
+  		If the numbers {first} and/or {last} are given, the respective
+--- 330,341 ----
+  
+  :his[tory] [{name}] [{first}][, [{last}]]
+  		List the contents of history {name} which can be:
+! 		c[md]	 or :		command-line history
+! 		s[earch] or / or ?	search string history
+! 		e[xpr]	 or =		expression register history
+! 		i[nput]	 or @		input line history
+! 		d[ebug]	 or >		debug command history
+! 		a[ll]			all of the above
+  		{not in Vi}
+  
+  		If the numbers {first} and/or {last} are given, the respective
+*** ../vim-7.3.513/runtime/doc/map.txt	2011-07-20 16:36:35.000000000 +0200
+--- runtime/doc/map.txt	2012-04-30 18:30:00.000000000 +0200
+***************
+*** 1202,1207 ****
+--- 1219,1225 ----
+  
+  	-complete=augroup	autocmd groups
+  	-complete=buffer	buffer names
++ 	-complete=behave	:behave suboptions
+  	-complete=color		color schemes
+  	-complete=command	Ex command (and arguments)
+  	-complete=compiler	compilers
+***************
+*** 1216,1221 ****
+--- 1234,1240 ----
+  	-complete=function	function name
+  	-complete=help		help subjects
+  	-complete=highlight	highlight groups
++ 	-complete=history	:history suboptions
+  	-complete=locale	locale names (as output of locale -a)
+  	-complete=mapping	mapping name
+  	-complete=menu		menus
+*** ../vim-7.3.513/src/ex_docmd.c	2012-02-12 20:13:55.000000000 +0100
+--- src/ex_docmd.c	2012-04-30 18:33:27.000000000 +0200
+***************
+*** 3920,3927 ****
+--- 3920,3935 ----
+  #endif
+  	case CMD_behave:
+  	    xp->xp_context = EXPAND_BEHAVE;
++ 	    xp->xp_pattern = arg;
+  	    break;
+  
++ #if defined(FEAT_CMDHIST)
++ 	case CMD_history:
++ 	    xp->xp_context = EXPAND_HISTORY;
++ 	    xp->xp_pattern = arg;
++ 	    break;
++ #endif
++ 
+  #endif /* FEAT_CMDL_COMPL */
+  
+  	default:
+***************
+*** 5329,5334 ****
+--- 5337,5343 ----
+  } command_complete[] =
+  {
+      {EXPAND_AUGROUP, "augroup"},
++     {EXPAND_BEHAVE, "behave"},
+      {EXPAND_BUFFERS, "buffer"},
+      {EXPAND_COLORS, "color"},
+      {EXPAND_COMMANDS, "command"},
+***************
+*** 5350,5357 ****
+      {EXPAND_FUNCTIONS, "function"},
+      {EXPAND_HELP, "help"},
+      {EXPAND_HIGHLIGHT, "highlight"},
+  #if (defined(HAVE_LOCALE_H) || defined(X_LOCALE)) \
+!         && (defined(FEAT_GETTEXT) || defined(FEAT_MBYTE))
+      {EXPAND_LOCALES, "locale"},
+  #endif
+      {EXPAND_MAPPINGS, "mapping"},
+--- 5359,5369 ----
+      {EXPAND_FUNCTIONS, "function"},
+      {EXPAND_HELP, "help"},
+      {EXPAND_HIGHLIGHT, "highlight"},
++ #if defined(FEAT_CMDHIST)
++     {EXPAND_HISTORY, "history"},
++ #endif
+  #if (defined(HAVE_LOCALE_H) || defined(X_LOCALE)) \
+! 	&& (defined(FEAT_GETTEXT) || defined(FEAT_MBYTE))
+      {EXPAND_LOCALES, "locale"},
+  #endif
+      {EXPAND_MAPPINGS, "mapping"},
+*** ../vim-7.3.513/src/ex_getln.c	2012-03-07 19:16:49.000000000 +0100
+--- src/ex_getln.c	2012-04-30 18:36:04.000000000 +0200
+***************
+*** 25,31 ****
+      int		cmdlen;		/* number of chars in command line */
+      int		cmdpos;		/* current cursor position */
+      int		cmdspos;	/* cursor column on screen */
+!     int		cmdfirstc;	/* ':', '/', '?', '=' or NUL */
+      int		cmdindent;	/* number of spaces before cmdline */
+      char_u	*cmdprompt;	/* message in front of cmdline */
+      int		cmdattr;	/* attributes for prompt */
+--- 25,31 ----
+      int		cmdlen;		/* number of chars in command line */
+      int		cmdpos;		/* current cursor position */
+      int		cmdspos;	/* cursor column on screen */
+!     int		cmdfirstc;	/* ':', '/', '?', '=', '>' or NUL */
+      int		cmdindent;	/* number of spaces before cmdline */
+      char_u	*cmdprompt;	/* message in front of cmdline */
+      int		cmdattr;	/* attributes for prompt */
+***************
+*** 111,116 ****
+--- 111,119 ----
+  #ifdef FEAT_CMDL_COMPL
+  static int	expand_shellcmd __ARGS((char_u *filepat, int *num_file, char_u ***file, int flagsarg));
+  static int	ExpandRTDir __ARGS((char_u *pat, int *num_file, char_u ***file, char *dirname[]));
++ # ifdef FEAT_CMDHIST
++ static char_u	*get_history_arg __ARGS((expand_T *xp, int idx));
++ # endif
+  # if defined(FEAT_USR_CMDS) && defined(FEAT_EVAL)
+  static int	ExpandUserDefined __ARGS((expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***file));
+  static int	ExpandUserList __ARGS((expand_T *xp, int *num_file, char_u ***file));
+***************
+*** 4628,4633 ****
+--- 4631,4639 ----
+  	{
+  	    {EXPAND_COMMANDS, get_command_name, FALSE, TRUE},
+  	    {EXPAND_BEHAVE, get_behave_arg, TRUE, TRUE},
++ #ifdef FEAT_CMDHIST
++ 	    {EXPAND_HISTORY, get_history_arg, TRUE, TRUE},
++ #endif
+  #ifdef FEAT_USR_CMDS
+  	    {EXPAND_USER_COMMANDS, get_user_commands, FALSE, TRUE},
+  	    {EXPAND_USER_CMD_FLAGS, get_user_cmd_flags, FALSE, TRUE},
+***************
+*** 5245,5250 ****
+--- 5251,5284 ----
+      NULL
+  };
+  
++ #if defined(FEAT_CMDL_COMPL) || defined(PROTO)
++ /*
++  * Function given to ExpandGeneric() to obtain the possible first
++  * arguments of the ":history command.
++  */
++     static char_u *
++ get_history_arg(xp, idx)
++     expand_T	*xp UNUSED;
++     int		idx;
++ {
++     static char_u compl[2] = { NUL, NUL };
++     char *short_names = ":=@>?/";
++     int short_names_count = STRLEN(short_names);
++     int history_name_count = sizeof(history_names) / sizeof(char *) - 1;
++ 
++     if (idx < short_names_count)
++     {
++ 	compl[0] = (char_u)short_names[idx];
++ 	return compl;
++     }
++     if (idx < short_names_count + history_name_count)
++ 	return (char_u *)history_names[idx - short_names_count];
++     if (idx == short_names_count + history_name_count)
++ 	return (char_u *)"all";
++     return NULL;
++ }
++ #endif
++ 
+  /*
+   * init_history() - Initialize the command line history.
+   * Also used to re-allocate the history when the size changes.
+*** ../vim-7.3.513/src/vim.h	2012-03-23 16:25:13.000000000 +0100
+--- src/vim.h	2012-04-30 18:30:00.000000000 +0200
+***************
+*** 781,786 ****
+--- 781,787 ----
+  #define EXPAND_FILES_IN_PATH	38
+  #define EXPAND_OWNSYNTAX	39
+  #define EXPAND_LOCALES		40
++ #define EXPAND_HISTORY		41
+  
+  /* Values for exmode_active (0 is no exmode) */
+  #define EXMODE_NORMAL		1
+*** ../vim-7.3.513/src/version.c	2012-04-30 18:18:43.000000000 +0200
+--- src/version.c	2012-04-30 18:36:19.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     514,
+  /**/
+
+-- 
+You can be stopped by the police for biking over 65 miles per hour.
+You are not allowed to walk across a street on your hands.
+		[real standing laws in Connecticut, United States of America]
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

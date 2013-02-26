@@ -1,0 +1,102 @@
+diff -up bind-9.8.1rc1/bin/named-sdb/main.c.sdb-sqlite-bld bind-9.8.1rc1/bin/named-sdb/main.c
+--- bind-9.8.1rc1/bin/named-sdb/main.c.sdb-sqlite-bld	2011-08-31 14:41:15.646020840 +0200
++++ bind-9.8.1rc1/bin/named-sdb/main.c	2011-08-31 14:41:35.132019452 +0200
+@@ -85,6 +85,7 @@
+ /* #include "xxdb.h" */
+ #include "ldapdb.h"
+ #include "pgsqldb.h"
++#include "sqlitedb.h"
+ #include "dirdb.h"
+ 
+ #ifdef CONTRIB_DLZ
+@@ -792,6 +793,7 @@ setup(void) {
+ 
+ 	ldapdb_clear();
+ 	pgsqldb_clear();
++	sqlitedb_clear();
+ 	dirdb_clear();
+ 
+ 	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
+@@ -921,6 +923,23 @@ setup(void) {
+                           ISC_LOG_NOTICE, "SDB postgreSQL DB zone database module loaded."
+                          );
+ 
++        result = sqlitedb_init();
++        if (result != ISC_R_SUCCESS)
++        {
++             isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_ERROR, 
++                          "SDB sqlite3 module initialisation failed: %s.",
++                          isc_result_totext(result)
++                );
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_ERROR, 
++                          "SDB sqlite3 zone database will be unavailable."
++                );
++        }else
++            isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
++                          ISC_LOG_NOTICE, "SDB sqlite3 DB zone database module loaded."
++                         );
++
+         result = dirdb_init();
+         if (result != ISC_R_SUCCESS)
+         {
+@@ -971,6 +990,7 @@ cleanup(void) {
+ 
+         ldapdb_clear();
+         pgsqldb_clear();
++        sqlitedb_clear();
+         dirdb_clear();
+ 
+ 	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_MAIN,
+diff -up bind-9.8.1rc1/bin/named-sdb/Makefile.in.sdb-sqlite-bld bind-9.8.1rc1/bin/named-sdb/Makefile.in
+--- bind-9.8.1rc1/bin/named-sdb/Makefile.in.sdb-sqlite-bld	2011-08-31 14:41:15.646020840 +0200
++++ bind-9.8.1rc1/bin/named-sdb/Makefile.in	2011-08-31 14:41:15.658020839 +0200
+@@ -28,10 +28,10 @@ top_srcdir =	@top_srcdir@
+ #
+ # Add database drivers here.
+ #
+-DBDRIVER_OBJS =	ldapdb.@O@ pgsqldb.@O@ dirdb.@O@
+-DBDRIVER_SRCS =	ldapdb.c pgsqldb.c dirdb.c
++DBDRIVER_OBJS =	ldapdb.@O@ pgsqldb.@O@ sqlitedb.@O@ dirdb.@O@
++DBDRIVER_SRCS =	ldapdb.c pgsqldb.c sqlitedb.c dirdb.c
+ DBDRIVER_INCLUDES =
+-DBDRIVER_LIBS =	-lldap -llber -lpq
++DBDRIVER_LIBS =	-lldap -llber -lpq -lsqlite3
+ 
+ DLZ_DRIVER_DIR =	${top_srcdir}/contrib/dlz/drivers
+ 
+diff -up bind-9.8.1rc1/bin/sdb_tools/Makefile.in.sdb-sqlite-bld bind-9.8.1rc1/bin/sdb_tools/Makefile.in
+--- bind-9.8.1rc1/bin/sdb_tools/Makefile.in.sdb-sqlite-bld	2011-08-31 14:41:15.651020840 +0200
++++ bind-9.8.1rc1/bin/sdb_tools/Makefile.in	2011-08-31 14:41:15.658020839 +0200
+@@ -32,11 +32,11 @@ DEPLIBS =	${LWRESDEPLIBS} ${DNSDEPLIBS} 
+ LIBS =		${LWRESLIBS} ${DNSLIBS} ${BIND9LIBS} \
+ 		${ISCCFGLIBS} ${ISCCCLIBS} ${ISCLIBS} ${DBDRIVER_LIBS} @LIBS@
+ 
+-TARGETS =	zone2ldap@EXEEXT@ ldap2zone@EXEEXT@ zonetodb@EXEEXT@
++TARGETS =	zone2ldap@EXEEXT@ ldap2zone@EXEEXT@ zonetodb@EXEEXT@ zone2sqlite@EXEEXT@
+ 
+-OBJS	=	zone2ldap.@O@ ldap2zone.@O@ zonetodb.@O@
++OBJS	=	zone2ldap.@O@ ldap2zone.@O@ zonetodb.@O@ zone2sqlite.@O@
+ 
+-SRCS    =       zone2ldap.c ldap2zone.c zonetodb.c
++SRCS    =       zone2ldap.c ldap2zone.c zonetodb.c zone2sqlite.c
+ 
+ MANPAGES =      zone2ldap.1
+ 
+@@ -50,6 +50,9 @@ zone2ldap@EXEEXT@: zone2ldap.@O@ ${DEPLI
+ zonetodb@EXEEXT@: zonetodb.@O@  ${DEPLIBS}
+ 	${LIBTOOL_MODE_LINK} ${PURIFY} ${CC} ${CFLAGS} ${LDFLAGS} -o $@ zonetodb.@O@ -lpq ${LIBS}
+ 
++zone2sqlite@EXEEXT@: zone2sqlite.@O@  ${DEPLIBS}
++	${LIBTOOL_MODE_LINK} ${PURIFY} ${CC} ${ALL_CFLAGS} ${LDFLAGS} -o $@ zone2sqlite.@O@ -lsqlite3 -lssl ${LIBS}
++
+ ldap2zone@EXEEXT@: ldap2zone.@O@ ${DEPLIBS}
+ 	${LIBTOOL_MODE_LINK} ${PURIFY} ${CC} ${ALL_CFLAGS} ${LDFLAGS} -o $@ ldap2zone.@O@ -lldap -llber ${LIBS}
+ 
+@@ -64,4 +67,5 @@ install:: ${TARGETS} installdirs
+ 	${LIBTOOL_MODE_INSTALL} ${INSTALL_PROGRAM} zone2ldap@EXEEXT@ ${DESTDIR}${sbindir}
+ 	${LIBTOOL_MODE_INSTALL} ${INSTALL_PROGRAM} ldap2zone@EXEEXT@ ${DESTDIR}${sbindir}
+ 	${LIBTOOL_MODE_INSTALL} ${INSTALL_PROGRAM} zonetodb@EXEEXT@  ${DESTDIR}${sbindir}
++	${LIBTOOL_MODE_INSTALL} ${INSTALL_PROGRAM} zone2sqlite@EXEEXT@  ${DESTDIR}${sbindir}
+ 	${INSTALL_DATA} ${srcdir}/zone2ldap.1 ${DESTDIR}${mandir}/man1/zone2ldap.1

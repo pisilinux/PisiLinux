@@ -1,0 +1,208 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.591
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.591
+Problem:    Can only move to a tab by absolute number.
+Solution:   Move a number of tabs to the left or the right. (Lech Lorens)
+Files:	    runtime/doc/tabpage.txt, src/ex_cmds.h, src/ex_docmd.c,
+	    src/testdir/test62.in, src/testdir/test62.ok, src/window.c
+
+
+*** ../vim-7.3.590/runtime/doc/tabpage.txt	2010-08-15 21:57:17.000000000 +0200
+--- runtime/doc/tabpage.txt	2012-07-06 18:10:06.000000000 +0200
+***************
+*** 173,182 ****
+--- 173,192 ----
+  REORDERING TAB PAGES:
+  
+  :tabm[ove] [N]						*:tabm* *:tabmove*
++ :[N]tabm[ove]
+  		Move the current tab page to after tab page N.  Use zero to
+  		make the current tab page the first one.  Without N the tab
+  		page is made the last one.
+  
++ :tabm[ove] +[N]
++ :tabm[ove] -[N]
++ 		Move the current tab page N places to the right (with +) or to
++ 		the left (with -).
++ 
++ Note that although it is possible to move a tab behind the N-th one by using
++ :Ntabmove, it is impossible to move it by N places by using :+Ntabmove. For
++ clarification what +N means in this context see |[range]|.
++ 
+  
+  LOOPING OVER TAB PAGES:
+  
+*** ../vim-7.3.590/src/ex_cmds.h	2012-05-18 18:47:11.000000000 +0200
+--- src/ex_cmds.h	2012-07-06 18:10:13.000000000 +0200
+***************
+*** 944,950 ****
+  EX(CMD_tabfirst,	"tabfirst",	ex_tabnext,
+  			TRLBAR),
+  EX(CMD_tabmove,		"tabmove",	ex_tabmove,
+! 			RANGE|NOTADR|ZEROR|COUNT|TRLBAR|ZEROR),
+  EX(CMD_tablast,		"tablast",	ex_tabnext,
+  			TRLBAR),
+  EX(CMD_tabnext,		"tabnext",	ex_tabnext,
+--- 944,950 ----
+  EX(CMD_tabfirst,	"tabfirst",	ex_tabnext,
+  			TRLBAR),
+  EX(CMD_tabmove,		"tabmove",	ex_tabmove,
+! 			RANGE|NOTADR|ZEROR|EXTRA|NOSPC|TRLBAR),
+  EX(CMD_tablast,		"tablast",	ex_tabnext,
+  			TRLBAR),
+  EX(CMD_tabnext,		"tabnext",	ex_tabnext,
+*** ../vim-7.3.590/src/ex_docmd.c	2012-06-06 19:02:40.000000000 +0200
+--- src/ex_docmd.c	2012-07-06 18:16:25.000000000 +0200
+***************
+*** 7478,7484 ****
+  ex_tabmove(eap)
+      exarg_T	*eap;
+  {
+!     tabpage_move(eap->addr_count == 0 ? 9999 : (int)eap->line2);
+  }
+  
+  /*
+--- 7478,7519 ----
+  ex_tabmove(eap)
+      exarg_T	*eap;
+  {
+!     int tab_number = 9999;
+! 
+!     if (eap->arg && *eap->arg != NUL)
+!     {
+! 	char_u *p = eap->arg;
+! 	int    relative = 0; /* argument +N/-N means: move N places to the
+! 			      * right/left relative to the current position. */
+! 
+! 	if (*eap->arg == '-')
+! 	{
+! 	    relative = -1;
+! 	    p = eap->arg + 1;
+! 	}
+! 	else if (*eap->arg == '+')
+! 	{
+! 	    relative = 1;
+! 	    p = eap->arg + 1;
+! 	}
+! 	else
+! 	    p = eap->arg;
+! 
+! 	if (p == skipdigits(p))
+! 	{
+! 	    /* No numbers as argument. */
+! 	    eap->errmsg = e_invarg;
+! 	    return;
+! 	}
+! 
+! 	tab_number = getdigits(&p);
+! 	if (relative != 0)
+! 	    tab_number = tab_number * relative + tabpage_index(curtab) - 1;;
+!     }
+!     else if (eap->addr_count != 0)
+! 	tab_number = eap->line2;
+! 
+!     tabpage_move(tab_number);
+  }
+  
+  /*
+*** ../vim-7.3.590/src/testdir/test62.in	2012-03-07 22:55:17.000000000 +0100
+--- src/testdir/test62.in	2012-07-06 18:10:13.000000000 +0200
+***************
+*** 93,98 ****
+--- 93,126 ----
+  :endif
+  :"
+  :"
++ :for i in range(9) | tabnew | endfor
++ 1gt
++ Go=tabpagenr()
++ :tabmove 5
++ i=tabpagenr()
++ :tabmove -2
++ i=tabpagenr()
++ :tabmove +4
++ i=tabpagenr()
++ :tabmove
++ i=tabpagenr()
++ :tabmove -20
++ i=tabpagenr()
++ :tabmove +20
++ i=tabpagenr()
++ :3tabmove
++ i=tabpagenr()
++ :7tabmove 5
++ i=tabpagenr()
++ :let a='No error caught.'
++ :try
++ :tabmove foo
++ :catch E474
++ :let a='E474 caught.'
++ :endtry
++ i=a
++ :"
++ :"
+  :/^Results/,$w! test.out
+  :qa!
+  ENDTEST
+*** ../vim-7.3.590/src/testdir/test62.ok	2012-02-22 19:13:00.000000000 +0100
+--- src/testdir/test62.ok	2012-07-06 18:10:13.000000000 +0200
+***************
+*** 8,10 ****
+--- 8,20 ----
+  tab drop 1: pass
+  tab drop 2: pass
+  tab drop 3: pass
++ 1
++ 6
++ 4
++ 8
++ 10
++ 1
++ 10
++ 4
++ 6
++ E474 caught.
+*** ../vim-7.3.590/src/window.c	2012-07-06 16:39:43.000000000 +0200
+--- src/window.c	2012-07-06 18:10:13.000000000 +0200
+***************
+*** 3929,3935 ****
+      }
+  
+      /* Re-insert it at the specified position. */
+!     if (n == 0)
+      {
+  	curtab->tp_next = first_tabpage;
+  	first_tabpage = curtab;
+--- 3929,3935 ----
+      }
+  
+      /* Re-insert it at the specified position. */
+!     if (n <= 0)
+      {
+  	curtab->tp_next = first_tabpage;
+  	first_tabpage = curtab;
+*** ../vim-7.3.590/src/version.c	2012-07-06 17:51:24.000000000 +0200
+--- src/version.c	2012-07-06 18:11:08.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     591,
+  /**/
+
+-- 
+Bare feet magnetize sharp metal objects so they point upward from the
+floor -- especially in the dark.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

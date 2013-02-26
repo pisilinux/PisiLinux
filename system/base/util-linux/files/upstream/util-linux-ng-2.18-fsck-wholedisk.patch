@@ -1,0 +1,510 @@
+diff -up util-linux-ng-2.18/fsck/fsck.8.kzak util-linux-ng-2.18/fsck/fsck.8
+--- util-linux-ng-2.18/fsck/fsck.8.kzak	2010-06-30 12:51:35.000000000 +0200
++++ util-linux-ng-2.18/fsck/fsck.8	2010-10-26 23:55:30.000000000 +0200
+@@ -7,7 +7,7 @@
+ fsck \- check and repair a Linux file system
+ .SH SYNOPSIS
+ .B fsck
+-.RB [ \-sAVRTMNP ]
++.RB [ \-lsAVRTMNP ]
+ .RB [ \-C
+ .RI [ fd ]]
+ .RB [ \-t
+@@ -80,6 +80,17 @@ variable.  Please see the file system-sp
+ further details.
+ .SH OPTIONS
+ .TP
++.B \-l
++Lock whole-disk device by exclusive
++.BR flock (2).
++This option can be used with one device only (e.g. -A and -l are mutually
++exclusive). This option is recommended when more
++.B fsck (8)
++instances are executed in the same time. The option is ignored when used for
++multiple devices or for non-rotating disk. The fsck does not lock underlying
++devices if executed to check stacked devices (e.g. MD or DM) -- this feature is
++not implemented yet.
++.TP
+ .B \-s
+ Serialize
+ .B fsck
+@@ -200,6 +211,11 @@ If there are multiple filesystems with t
+ fsck will attempt to check them in parallel, although it will avoid running
+ multiple filesystem checks on the same physical disk.
+ .sp
++.B fsck
++does not check stacked devices (RAIDs, dm-crypt, ...) in parallel with any other
++device. See below for FSCK_FORCE_ALL_PARALLEL setting. The /sys filesystem is
++used to detemine dependencies between devices.
++.sp
+ Hence, a very common configuration in
+ .I /etc/fstab
+ files is to set the root filesystem to have a
+@@ -366,10 +382,10 @@ program's behavior is affected by the fo
+ .B FSCK_FORCE_ALL_PARALLEL
+ If this environment variable is set,
+ .B fsck
+-will attempt to run all of the specified filesystems in parallel,
+-regardless of whether the filesystems appear to be on the same
+-device.  (This is useful for RAID systems or high-end storage systems
+-such as those sold by companies such as IBM or EMC.)
++will attempt to run all of the specified filesystems in parallel, regardless of
++whether the filesystems appear to be on the same device.  (This is useful for
++RAID systems or high-end storage systems such as those sold by companies such
++as IBM or EMC.) Note that the fs_passno value is still used.
+ .TP
+ .B FSCK_MAX_INST
+ This environment variable will limit the maximum number of file system
+diff -up util-linux-ng-2.18/fsck/fsck.c.kzak util-linux-ng-2.18/fsck/fsck.c
+--- util-linux-ng-2.18/fsck/fsck.c.kzak	2010-05-19 23:36:23.000000000 +0200
++++ util-linux-ng-2.18/fsck/fsck.c	2010-10-26 23:55:30.000000000 +0200
+@@ -31,6 +31,8 @@
+ #include <sys/wait.h>
+ #include <sys/signal.h>
+ #include <sys/stat.h>
++#include <sys/file.h>
++#include <fcntl.h>
+ #include <limits.h>
+ #include <stdio.h>
+ #include <ctype.h>
+@@ -42,6 +44,8 @@
+ #include <errno.h>
+ #include <malloc.h>
+ #include <signal.h>
++#include <dirent.h>
++#include <blkid.h>
+ 
+ #include "fsprobe.h"
+ 
+@@ -85,6 +89,7 @@ char *devices[MAX_DEVICES];
+ char *args[MAX_ARGS];
+ int num_devices, num_args;
+ 
++int lockdisk = 0;
+ int verbose = 0;
+ int doall = 0;
+ int noexecute = 0;
+@@ -214,11 +219,97 @@ static void parse_escape(char *word)
+ 	*q = 0;
+ }
+ 
++static dev_t get_disk(const char *device)
++{
++	struct stat st;
++	dev_t disk;
++
++	if (!stat(device, &st) &&
++	    !blkid_devno_to_wholedisk(st.st_rdev, NULL, 0, &disk))
++		return disk;
++
++	return 0;
++}
++
++static int is_irrotational_disk(dev_t disk)
++{
++	char path[PATH_MAX];
++	FILE *f;
++	int rc, x;
++
++	rc = snprintf(path, sizeof(path),
++			"/sys/dev/block/%d:%d/queue/rotational",
++			major(disk), minor(disk));
++
++	if (rc < 0 || rc + 1 > sizeof(path))
++		return 0;
++
++	f = fopen(path, "r");
++	if (!f)
++		return 0;
++
++	rc = fscanf(f, "%u", &x);
++	fclose(f);
++
++	return rc == 1 ? !x : 0;
++}
++
++static void lock_disk(struct fsck_instance *inst)
++{
++	dev_t disk = inst->fs->disk ? : get_disk(inst->fs->device);
++	char *diskname;
++
++	if (!disk || is_irrotational_disk(disk))
++		return;
++
++	diskname = blkid_devno_to_devname(disk);
++	if (!diskname)
++		return;
++
++	if (verbose)
++		printf(_("Locking disk %s ... "), diskname);
++
++	inst->lock = open(diskname, O_CLOEXEC | O_RDONLY);
++	if (inst->lock >= 0) {
++		int rc = -1;
++
++		/* inform users that we're waiting on the lock */
++		if (verbose &&
++		    (rc = flock(inst->lock, LOCK_EX | LOCK_NB)) != 0 &&
++		    errno == EWOULDBLOCK)
++			printf(_("(waiting) "));
++
++		if (rc != 0 && flock(inst->lock, LOCK_EX) != 0) {
++			close(inst->lock);			/* failed */
++			inst->lock = -1;
++		}
++	}
++
++	if (verbose)
++		printf("%s.\n", inst->lock >= 0 ? _("success") : _("failed"));
++
++	free(diskname);
++	return;
++}
++
++static void unlock_disk(struct fsck_instance *inst)
++{
++	if (inst->lock >= 0) {
++		/* explicitly unlock, don't rely on close(), maybe some library
++		 * (e.g. liblkid) has still open the device.
++		 */
++		flock(inst->lock, LOCK_UN);
++		close(inst->lock);
++	}
++}
++
++
++
+ static void free_instance(struct fsck_instance *i)
+ {
++	if (lockdisk)
++		unlock_disk(i);
+ 	free(i->prog);
+-	free(i->device);
+-	free(i->base_device);
+ 	free(i);
+ 	return;
+ }
+@@ -240,6 +331,8 @@ static struct fs_info *create_fs_device(
+ 	fs->passno = passno;
+ 	fs->flags = 0;
+ 	fs->next = NULL;
++	fs->disk = 0;
++	fs->stacked = 0;
+ 
+ 	if (!filesys_info)
+ 		filesys_info = fs;
+@@ -414,8 +507,7 @@ static int progress_active(NOARGS)
+  * Execute a particular fsck program, and link it into the list of
+  * child processes we are waiting for.
+  */
+-static int execute(const char *type, const char *device, const char *mntpt,
+-		   int interactive)
++static int execute(const char *type, struct fs_info *fs, int interactive)
+ {
+ 	char *s, *argv[80], prog[80];
+ 	int  argc, i;
+@@ -452,7 +544,7 @@ static int execute(const char *type, con
+ 		}
+ 	}
+ 
+-	argv[argc++] = string_copy(device);
++	argv[argc++] = string_copy(fs->device);
+ 	argv[argc] = 0;
+ 
+ 	s = find_fsck(prog);
+@@ -464,12 +556,19 @@ static int execute(const char *type, con
+ 
+ 	if (verbose || noexecute) {
+ 		printf("[%s (%d) -- %s] ", s, num_running,
+-		       mntpt ? mntpt : device);
++		       fs->mountpt ? fs->mountpt : fs->device);
+ 		for (i=0; i < argc; i++)
+ 			printf("%s ", argv[i]);
+ 		printf("\n");
+ 	}
+ 
++
++	inst->fs = fs;
++	inst->lock = -1;
++
++	if (lockdisk)
++		lock_disk(inst);
++
+ 	/* Fork and execute the correct program. */
+ 	if (noexecute)
+ 		pid = -1;
+@@ -492,8 +591,6 @@ static int execute(const char *type, con
+ 	inst->pid = pid;
+ 	inst->prog = string_copy(prog);
+ 	inst->type = string_copy(type);
+-	inst->device = string_copy(device);
+-	inst->base_device = base_device(device);
+ 	inst->start_time = time(0);
+ 	inst->next = NULL;
+ 
+@@ -597,12 +694,12 @@ static struct fsck_instance *wait_one(in
+ 		} else {
+ 			printf(_("Warning... %s for device %s exited "
+ 			       "with signal %d.\n"),
+-			       inst->prog, inst->device, sig);
++			       inst->prog, inst->fs->device, sig);
+ 			status = EXIT_ERROR;
+ 		}
+ 	} else {
+ 		printf(_("%s %s: status is %x, should never happen.\n"),
+-		       inst->prog, inst->device, status);
++		       inst->prog, inst->fs->device, status);
+ 		status = EXIT_ERROR;
+ 	}
+ 	inst->exit_status = status;
+@@ -641,7 +738,7 @@ ret_inst:
+ 		instance_list = inst->next;
+ 	if (verbose > 1)
+ 		printf(_("Finished with %s (exit status %d)\n"),
+-		       inst->device, inst->exit_status);
++		       inst->fs->device, inst->exit_status);
+ 	num_running--;
+ 	return inst;
+ }
+@@ -698,7 +795,7 @@ static void fsck_device(struct fs_info *
+ 		type = DEFAULT_FSTYPE;
+ 
+ 	num_running++;
+-	retval = execute(type, fs->device, fs->mountpt, interactive);
++	retval = execute(type, fs, interactive);
+ 	if (retval) {
+ 		fprintf(stderr, _("%s: Error %d while executing fsck.%s "
+ 			"for %s\n"), progname, retval, type, fs->device);
+@@ -924,40 +1021,70 @@ static int ignore(struct fs_info *fs)
+ 	return 0;
+ }
+ 
++static int count_slaves(dev_t disk)
++{
++	DIR *dir;
++	struct dirent *dp;
++	char dirname[PATH_MAX];
++	int count = 0;
++
++	snprintf(dirname, sizeof(dirname),
++			"/sys/dev/block/%u:%u/slaves/",
++			major(disk), minor(disk));
++
++	if (!(dir = opendir(dirname)))
++		return -1;
++
++	while ((dp = readdir(dir)) != 0) {
++#ifdef _DIRENT_HAVE_D_TYPE
++		if (dp->d_type != DT_UNKNOWN && dp->d_type != DT_LNK)
++			continue;
++#endif
++		if (dp->d_name[0] == '.' &&
++		    ((dp->d_name[1] == 0) ||
++		     ((dp->d_name[1] == '.') && (dp->d_name[2] == 0))))
++			continue;
++
++		count++;
++	}
++	closedir(dir);
++	return count;
++}
++
+ /*
+  * Returns TRUE if a partition on the same disk is already being
+  * checked.
+  */
+-static int device_already_active(char *device)
++static int disk_already_active(struct fs_info *fs)
+ {
+ 	struct fsck_instance *inst;
+-	char *base;
+ 
+ 	if (force_all_parallel)
+ 		return 0;
+ 
+-#ifdef BASE_MD
+-	/* Don't check a soft raid disk with any other disk */
+-	if (instance_list &&
+-	    (!strncmp(instance_list->device, BASE_MD, sizeof(BASE_MD)-1) ||
+-	     !strncmp(device, BASE_MD, sizeof(BASE_MD)-1)))
++	if (instance_list && instance_list->fs->stacked)
++		/* any instance for a stacked device is already running */
+ 		return 1;
+-#endif
+ 
+-	base = base_device(device);
++	if (!fs->disk) {
++		fs->disk = get_disk(fs->device);
++		if (fs->disk)
++			fs->stacked = count_slaves(fs->disk);
++	}
++
+ 	/*
+ 	 * If we don't know the base device, assume that the device is
+ 	 * already active if there are any fsck instances running.
++	 *
++	 * Don't check a stacked device with any other disk too.
+ 	 */
+-	if (!base)
++	if (!fs->disk || fs->stacked)
+ 		return (instance_list != 0);
++
+ 	for (inst = instance_list; inst; inst = inst->next) {
+-		if (!inst->base_device || !strcmp(base, inst->base_device)) {
+-			free(base);
++		if (!inst->fs->disk || fs->disk == inst->fs->disk)
+ 			return 1;
+-		}
+ 	}
+-	free(base);
+ 	return 0;
+ }
+ 
+@@ -1038,7 +1165,7 @@ static int check_all(NOARGS)
+ 			 * already been spawned, then we need to defer
+ 			 * this to another pass.
+ 			 */
+-			if (device_already_active(fs->device)) {
++			if (disk_already_active(fs)) {
+ 				pass_done = 0;
+ 				continue;
+ 			}
+@@ -1188,6 +1315,9 @@ static void PRS(int argc, char *argv[])
+ 					}
+ 				}
+ 				break;
++			case 'l':
++				lockdisk++;
++				break;
+ 			case 'V':
+ 				verbose++;
+ 				break;
+@@ -1298,6 +1428,12 @@ int main(int argc, char *argv[])
+ 	if ((num_devices == 1) || (serialize))
+ 		interactive = 1;
+ 
++	if (lockdisk && (doall || num_devices > 1)) {
++		fprintf(stderr, _("%s: the -l option can be used with one "
++				  "device only -- ignore\n"), progname);
++		lockdisk = 0;
++	}
++
+ 	/* If -A was specified ("check all"), do that! */
+ 	if (doall)
+ 		return check_all();
+diff -up util-linux-ng-2.18/fsck/fsck.h.kzak util-linux-ng-2.18/fsck/fsck.h
+--- util-linux-ng-2.18/fsck/fsck.h.kzak	2010-03-18 23:11:23.000000000 +0100
++++ util-linux-ng-2.18/fsck/fsck.h	2010-10-26 23:55:30.000000000 +0200
+@@ -44,6 +44,8 @@ struct fs_info {
+ 	int   freq;
+ 	int   passno;
+ 	int   flags;
++	dev_t disk;
++	int   stacked;
+ 	struct fs_info *next;
+ };
+ 
+@@ -56,12 +58,12 @@ struct fs_info {
+ struct fsck_instance {
+ 	int	pid;
+ 	int	flags;
++	int	lock;		/* flock()ed whole disk file descriptor or -1 */
+ 	int	exit_status;
+ 	time_t	start_time;
+ 	char *	prog;
+ 	char *	type;
+-	char *	device;
+-	char *	base_device;
++	struct fs_info *fs;
+ 	struct fsck_instance *next;
+ };
+ 
+diff -up util-linux-ng-2.18/fsck/Makefile.am.kzak util-linux-ng-2.18/fsck/Makefile.am
+--- util-linux-ng-2.18/fsck/Makefile.am.kzak	2010-05-24 12:33:46.000000000 +0200
++++ util-linux-ng-2.18/fsck/Makefile.am	2010-10-26 23:55:30.000000000 +0200
+@@ -3,7 +3,7 @@ include $(top_srcdir)/config/include-Mak
+ sbin_PROGRAMS = fsck
+ dist_man_MANS = fsck.8
+ 
+-fsck_SOURCES = base_device.c fsck.c fsck.h $(top_srcdir)/lib/ismounted.c \
++fsck_SOURCES = fsck.c fsck.h $(top_srcdir)/lib/ismounted.c \
+ 	       $(top_srcdir)/lib/fsprobe.c $(top_srcdir)/lib/canonicalize.c
+ fsck_LDADD =
+ fsck_CFLAGS = $(AM_CFLAGS)
+diff -up util-linux-ng-2.18/fsck/Makefile.in.kzak util-linux-ng-2.18/fsck/Makefile.in
+--- util-linux-ng-2.18/fsck/Makefile.in.kzak	2010-10-26 23:56:04.000000000 +0200
++++ util-linux-ng-2.18/fsck/Makefile.in	2010-10-26 23:56:15.000000000 +0200
+@@ -62,9 +62,8 @@ CONFIG_CLEAN_FILES =
+ CONFIG_CLEAN_VPATH_FILES =
+ am__installdirs = "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(man8dir)"
+ PROGRAMS = $(sbin_PROGRAMS)
+-am_fsck_OBJECTS = fsck-base_device.$(OBJEXT) fsck-fsck.$(OBJEXT) \
+-	fsck-ismounted.$(OBJEXT) fsck-fsprobe.$(OBJEXT) \
+-	fsck-canonicalize.$(OBJEXT)
++am_fsck_OBJECTS = fsck-fsck.$(OBJEXT) fsck-ismounted.$(OBJEXT) \
++	fsck-fsprobe.$(OBJEXT) fsck-canonicalize.$(OBJEXT)
+ fsck_OBJECTS = $(am_fsck_OBJECTS)
+ am__DEPENDENCIES_1 =
+ @BUILD_LIBBLKID_FALSE@am__DEPENDENCIES_2 = $(am__DEPENDENCIES_1)
+@@ -204,6 +203,7 @@ PACKAGE_BUGREPORT = @PACKAGE_BUGREPORT@
+ PACKAGE_NAME = @PACKAGE_NAME@
+ PACKAGE_STRING = @PACKAGE_STRING@
+ PACKAGE_TARNAME = @PACKAGE_TARNAME@
++PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+ PERL = @PERL@
+@@ -315,7 +315,7 @@ ul_libmount_la = $(top_builddir)/shlibs/
+ # mount.h is generated by ./configure script and stored in build directory
+ ul_libmount_incdir = $(ul_libmount_builddir)
+ dist_man_MANS = fsck.8
+-fsck_SOURCES = base_device.c fsck.c fsck.h $(top_srcdir)/lib/ismounted.c \
++fsck_SOURCES = fsck.c fsck.h $(top_srcdir)/lib/ismounted.c \
+ 	       $(top_srcdir)/lib/fsprobe.c $(top_srcdir)/lib/canonicalize.c
+ 
+ fsck_LDADD = $(am__append_1) $(am__append_3)
+@@ -407,7 +407,6 @@ mostlyclean-compile:
+ distclean-compile:
+ 	-rm -f *.tab.c
+ 
+-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/fsck-base_device.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/fsck-canonicalize.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/fsck-fsck.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/fsck-fsprobe.Po@am__quote@
+@@ -437,22 +436,6 @@ distclean-compile:
+ @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+ @am__fastdepCC_FALSE@	$(LTCOMPILE) -c -o $@ $<
+ 
+-fsck-base_device.o: base_device.c
+-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(fsck_CFLAGS) $(CFLAGS) -MT fsck-base_device.o -MD -MP -MF $(DEPDIR)/fsck-base_device.Tpo -c -o fsck-base_device.o `test -f 'base_device.c' || echo '$(srcdir)/'`base_device.c
+-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/fsck-base_device.Tpo $(DEPDIR)/fsck-base_device.Po
+-@am__fastdepCC_FALSE@	$(AM_V_CC) @AM_BACKSLASH@
+-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='base_device.c' object='fsck-base_device.o' libtool=no @AMDEPBACKSLASH@
+-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(fsck_CFLAGS) $(CFLAGS) -c -o fsck-base_device.o `test -f 'base_device.c' || echo '$(srcdir)/'`base_device.c
+-
+-fsck-base_device.obj: base_device.c
+-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(fsck_CFLAGS) $(CFLAGS) -MT fsck-base_device.obj -MD -MP -MF $(DEPDIR)/fsck-base_device.Tpo -c -o fsck-base_device.obj `if test -f 'base_device.c'; then $(CYGPATH_W) 'base_device.c'; else $(CYGPATH_W) '$(srcdir)/base_device.c'; fi`
+-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/fsck-base_device.Tpo $(DEPDIR)/fsck-base_device.Po
+-@am__fastdepCC_FALSE@	$(AM_V_CC) @AM_BACKSLASH@
+-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='base_device.c' object='fsck-base_device.obj' libtool=no @AMDEPBACKSLASH@
+-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(fsck_CFLAGS) $(CFLAGS) -c -o fsck-base_device.obj `if test -f 'base_device.c'; then $(CYGPATH_W) 'base_device.c'; else $(CYGPATH_W) '$(srcdir)/base_device.c'; fi`
+-
+ fsck-fsck.o: fsck.c
+ @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(fsck_CFLAGS) $(CFLAGS) -MT fsck-fsck.o -MD -MP -MF $(DEPDIR)/fsck-fsck.Tpo -c -o fsck-fsck.o `test -f 'fsck.c' || echo '$(srcdir)/'`fsck.c
+ @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/fsck-fsck.Tpo $(DEPDIR)/fsck-fsck.Po
+diff -up util-linux-ng-2.18/Makefile.am.kzak util-linux-ng-2.18/Makefile.am
+--- util-linux-ng-2.18/Makefile.am.kzak	2010-03-18 23:11:23.000000000 +0100
++++ util-linux-ng-2.18/Makefile.am	2010-10-26 23:55:30.000000000 +0200
+@@ -30,8 +30,10 @@ SUBDIRS += mount
+ endif
+ 
+ if BUILD_FSCK
++if BUILD_LIBBLKID
+ SUBDIRS += fsck
+ endif
++endif
+ 
+ ACLOCAL_AMFLAGS = -I m4
+ 

@@ -1,0 +1,186 @@
+--- plugins/endplugins/ffmpegendanalyzer.cpp
++++ plugins/endplugins/ffmpegendanalyzer.cpp
+@@ -294,17 +294,22 @@ int64_t seek_data(void *opaque, int64_t offset, int whence) {
+     return -1;
+
+   int64_t t= s->reset(target);
+-  cout<<t<<"\n"<<flush;
++  //cout<<t<<"\n"<<flush;
+   return (t == target ? target : -1);
+ }
+
+ int64_t const no_bitrate = 0x8000000000000000ULL;
+
++//SAMPLE_FMT_NONE has been renamed in later versions of FFmpeg
++#if not defined SAMPLE_FMT_NONE
++  #define SAMPLE_FMT_NONE AV_SAMPLE_FMT_NONE
++#endif
+ signed char
+ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+   uint8_t pDataBuffer[32768];//65536];
+   long lSize = 32768;
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   ByteIOContext ByteIOCtx;
+   if(init_put_byte(&ByteIOCtx, pDataBuffer, lSize, 0, in, read_data, NULL, seek_data) < 0)
+     return -1;
+@@ -312,6 +317,12 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+   //pAVInputFormat->flags |= AVFMT_NOFILE;
+   ByteIOCtx.is_streamed = 0;
+
++#else
++  AVFormatContext *fc = avformat_alloc_context();
++  fc->pb = avio_alloc_context(pDataBuffer, lSize, 0, in, read_data, NULL, seek_data);
++  if(!fc || !(fc->pb))
++    return -1;
++#endif
+   AVProbeData pd;
+   const char *buf;
+   pd.filename ="";
+@@ -324,6 +335,7 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+   if(fmt == NULL)
+     return 1;
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   AVFormatContext *fc = NULL;
+   if(av_open_input_stream(&fc, &ByteIOCtx, "", fmt, NULL) < 0)
+     return -1;
+@@ -333,6 +345,15 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+   // Dump information about file onto standard error
+   dump_format(fc, 0, ar.path().c_str(), false);
+
++#else
++  if(avformat_open_input(&fc, "", fmt, NULL) < 0)
++    return -1;
++
++  avformat_find_stream_info(fc,NULL);
++  // Dump information about file onto standard error
++  av_dump_format(fc, 0, ar.path().c_str(), false);
++#endif
++
+   if(fc->bit_rate)
+     ar.addValue(factory->bitrateProperty, fc->bit_rate);
+   else if (fc->duration!= no_bitrate && fc->duration > 0) {
+@@ -372,10 +393,14 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+         ar.addTriplet(streamuri, durationPropertyName,outs.str());
+       }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+       //FIXME we must stop using the deprecated fuction av_metadata_get and use
+       // av_dict_get once we are able to detect the version of FFMpeg being used
+       // using version macros. same goes for all occurences of this function.
+       AVMetadataTag *entry = av_metadata_get(stream.metadata, "language", NULL, 0);
++#else
++      AVDictionaryEntry *entry = av_dict_get(stream.metadata, "language", NULL, 0);
++#endif
+       if (entry != NULL) {
+         const char *languageValue = entry->value;
+         if (size_t len = strlen(languageValue)) {
+@@ -469,7 +494,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+
+   // Tags
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   AVMetadataTag *entry = av_metadata_get(fc->metadata, "title", NULL, 0);
++#else
++  AVDictionaryEntry *entry = av_dict_get(fc->metadata, "title", NULL, 0);
++#endif
+   if (entry != NULL)
+   {
+     const char *titleValue = entry->value;
+@@ -478,7 +507,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+     }
+   }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   entry = av_metadata_get(fc->metadata, "author", NULL, 0);
++#else
++  entry = av_dict_get(fc->metadata, "author", NULL, 0);
++#endif
+   if (entry != NULL)
+   {
+     const char *authorValue = entry->value;
+@@ -490,7 +523,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+     }
+   }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   entry = av_metadata_get(fc->metadata, "copyright", NULL, 0);
++#else
++  entry = av_dict_get(fc->metadata, "copyright", NULL, 0);
++#endif
+   if (entry != NULL)
+   {
+     const char *copyrightValue = entry->value;
+@@ -499,7 +536,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+     }
+   }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   entry = av_metadata_get(fc->metadata, "comment", NULL, 0);
++#else
++  entry = av_dict_get(fc->metadata, "comment", NULL, 0);
++#endif
+   if (entry != NULL)
+   {
+     const char *commentValue = entry->value;
+@@ -508,7 +549,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+     }
+   }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   entry = av_metadata_get(fc->metadata, "album", NULL, 0);
++#else
++  entry = av_dict_get(fc->metadata, "album", NULL, 0);
++#endif
+   if (entry != NULL)
+   {
+     const char *albumValue = entry->value;
+@@ -520,7 +565,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+     }
+   }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   entry = av_metadata_get(fc->metadata, "genre", NULL, 0);
++#else
++  entry = av_dict_get(fc->metadata, "genre", NULL, 0);
++#endif
+   if (entry != NULL)
+   {
+     const char *genreValue = entry->value;
+@@ -529,7 +578,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+     }
+   }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   entry = av_metadata_get(fc->metadata, "track", NULL, 0);
++#else
++  entry = av_dict_get(fc->metadata, "track", NULL, 0);
++#endif
+   if (entry != NULL)
+   {
+     const char *trackValue = entry->value;
+@@ -538,7 +591,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+     }
+   }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   entry = av_metadata_get(fc->metadata, "year", NULL, 0);
++#else
++  entry = av_dict_get(fc->metadata, "year", NULL, 0);
++#endif
+   if (entry != NULL)
+   {
+     const char *yearValue = entry->value;
+@@ -547,7 +604,11 @@ FFMPEGEndAnalyzer::analyze(AnalysisResult& ar, ::InputStream* in) {
+     }
+   }
+
++#if (LIBAVUTIL_VERSION_MAJOR < 51)
+   av_close_input_stream(fc);
++#else
++  avformat_close_input(&fc);
++#endif
+   //url_fclose(&ByteIOCtx);
+
+   return 0;

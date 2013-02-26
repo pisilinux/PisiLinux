@@ -1,0 +1,310 @@
+diff -Naur mingetty-1.0.7s/Makefile mingetty-1.0.7s-patched/Makefile
+--- mingetty-1.0.7s/Makefile	2007-05-29 17:49:01.000000000 +0300
++++ mingetty-1.0.7s-patched/Makefile	2008-01-31 16:02:09.000000000 +0200
+@@ -4,26 +4,34 @@
+ DEFTERM	=	linux
+ VERSION	=	mingetty-1.0.7s
+ #
+-DEFINES	=	-DRESET_TTY=1 -DDEFAULT_TERM=\"$(DEFTERM)\" -DVERSION=\"$(VERSION)\"
++LOCALEDIR =    /usr/share/locale
++
++DEFINES	=	-DLOCALEDIR=\"$(LOCALEDIR)\" -DRESET_TTY=1 -DDEFAULT_TERM=\"$(DEFTERM)\" -DVERSION=\"$(VERSION)\"
+ CFLAGS	=	-Wall $(RPM_OPT_FLAGS) -pipe -D_GNU_SOURCE -D_BSD_SOURCE $(DEFINES)
+ #
+-LDFLAGS	=	-Wl,-warn-common
++LDFLAGS	=	-Wl,-warn-common,-lgettextpo
+ CC	=	gcc
+ DESTDIR	=
+ MANDIR	=	/usr/share/man
+ SBINDIR	=	/sbin
+ 
+-
+-all:		mingetty
++all:		mingetty po
+ 		size mingetty
+ 
+ install:	all
+ 		install mingetty $(DESTDIR)$(SBINDIR)
+ 		install -m 644 mingetty.8 $(DESTDIR)$(MANDIR)/man8/
++		install -m 0644 tr.mo /usr/share/locale/tr/LC_MESSAGES/mingetty.mo
++
++po:	tr.po
++		msgfmt tr.po -o tr.mo
++
++messages: mingetty.c
++		xgettext --default-domain=mingetty --keyword=_ --keyword=N_ -o mingetty.pot mingetty.c
+ 
+ mingetty:	mingetty.o revoke.o
+ mingetty.o:	mingetty.c revoke.c revoke.h
+ 
+ clean:
+-		rm -f *.o mingetty
++		rm -f *.o mingetty *.mo
+ 
+diff -Naur mingetty-1.0.7s/mingetty.c mingetty-1.0.7s-patched/mingetty.c
+--- mingetty-1.0.7s/mingetty.c	2007-05-29 18:06:50.000000000 +0300
++++ mingetty-1.0.7s-patched/mingetty.c	2008-01-31 16:13:56.000000000 +0200
+@@ -110,14 +110,19 @@
+ #include <iconv.h>
+ #include <wctype.h>
+ #include <sys/kd.h>
++#include <libintl.h>
++#include <gettext-po.h>
++#include <locale.h>
+ #include "revoke.h"
+ 
++#define _(string) gettext(string)
++
+ #ifndef IUTF8
+ #  error IUTF8 input flag not defined
+ #endif
+ 
+ #define	ISSUE "/etc/issue"	/* displayed before the login prompt */
+-#define LOGIN "login: "		/* login prompt */
++//#define LOGIN "login: "		/* login prompt */
+ #ifndef _PATH_LOGIN
+ #define _PATH_LOGIN "/bin/login"
+ #endif
+@@ -335,13 +340,13 @@
+ 	   for sane settings. We also get a SIGHUP/SIGCONT.
+ 	 */
+ 	if ((fd = open (buf, O_RDWR, 0)) < 0)
+-		error ("%s: cannot open tty: %s", buf, strerror(errno));
++		error (_("%s: cannot open tty: %s"), buf, strerror(errno));
+ 	if (!isatty (fd))
+-		error ("%s: not a tty", buf);
++		error (_("%s: not a tty"), buf);
+ 
+ 	if (nohangup == 0) {
+ 		if (vhangup ())
+-			error ("%s: vhangup() failed", tty);
++			error (_("%s: vhangup() failed"), tty);
+ 		/* Get rid of the present stdout/stderr. */
+ 		close (2);
+ 		close (1);
+@@ -351,19 +356,19 @@
+ 	}
+ 
+ 	if ((fd = open (buf, O_RDWR, 0)) < 0)
+-		error ("%s: cannot open tty: %s", buf, strerror(errno));
++		error (_("%s: cannot open tty: %s"), buf, strerror(errno));
+ 	if (ioctl (fd, TIOCSCTTY, (void *)1) == -1)
+-		error ("%s: cannot get controlling tty: %s", buf, strerror(errno));
++		error (_("%s: cannot get controlling tty: %s"), buf, strerror(errno));
+ 	if (tcsetpgrp(fd, pid))
+-		error ("%s: cannot set process group: %s", buf, strerror(errno));
++		error (_("%s: cannot set process group: %s"), buf, strerror(errno));
+ 
+ 	/* Set up standard output and standard error file descriptors. */
+ 	if (dup2 (fd, 0) != 0)
+-		error ("%s: dup problem: %s", buf, strerror(errno));
++		error (_("%s: dup problem: %s"), buf, strerror(errno));
+ 	if (dup2 (fd, 1) != 1)
+-		error ("%s: dup problem: %s", buf, strerror(errno));
++		error (_("%s: dup problem: %s"), buf, strerror(errno));
+ 	if (dup2 (fd, 2) != 2)
+-		error ("%s: dup problem: %s", buf, strerror(errno));
++		error (_("%s: dup problem: %s"), buf, strerror(errno));
+ 	if (fd > 2)
+ 		close (fd);
+ 
+@@ -486,7 +491,7 @@
+ 	if (nohostname == 0)
+ 		printf ("%s ", hn);
+ 	if (showlogin)
+-		printf ("%s", LOGIN);
++		printf ("%s", _(" login: "));
+ 	fflush (stdout);
+ }
+ 
+@@ -537,10 +542,10 @@
+ 			}
+ 
+ 			if (ascii && !isprint (c))
+-				error ("%s: invalid character 0x%x in login name", tty, c);
++				error (_("%s: invalid character 0x%x in login name"), tty, c);
+ 
+ 			if ((size_t)(bp - logname) >= sizeof (logname) - 1)
+-				error ("%s: too long login name", tty);
++				error (_("%s: too long login name"), tty);
+ 
+ 			*bp++ = c;
+ 		}
+@@ -556,7 +561,7 @@
+ 		op = tmpbuf;
+ 		lp = logname;
+ 		if ((wcl = iconv(ic , &lp, &len, &op, &out)) == (size_t)-1)
+-			error ("%s: invalid character conversion for login name", tty);
++			error (_("%s: invalid character conversion for login name"), tty);
+ 		iconv_close(ic);
+ 
+ 		wcp = (wint_t*)tmpbuf;
+@@ -564,7 +569,7 @@
+ 		while (*wcp) {
+ 			const wint_t wc = *wcp++;
+ 			if (!iswprint(wc))
+-				error ("%s: invalid character 0x%x in login name", tty, wc);
++				error (_("%s: invalid character 0x%x in login name"), tty, wc);
+ 		}
+ 	}
+ 	return logname;
+@@ -572,11 +577,11 @@
+ 
+ static void usage (void)
+ {
+-	error ("%s: usage: '%s [--noclear] [--nonewline] [--noissue]"
++	error (_("%s: usage: '%s [--noclear] [--nonewline] [--noissue]"
+ 	       " [--nohangup] [--noreset] [--no-hostname] [--long-hostname]"
+ 	       " [--login program] [--logopts \"loginprg opts\"] [--nice 10]"
+ 	       " [--delay 10] [--chdir /home] [--chroot /chroot] [--autologin user]"
+-	       " [--old] tty [term]' with e.g. tty=tty1", VERSION, progname);
++	       " [--old] tty [term]' with e.g. tty=tty1"), VERSION, progname);
+ }
+ 
+ static struct option const long_options[] = {
+@@ -606,8 +611,36 @@
+  */
+ int main (int argc, char **argv)
+ {
+-	char *logname, *s;
+-	int c;
++    char *logname, *s;
++    int c;
++    FILE *f;
++    char buf[512], *t, *default_locale = NULL;
++
++    // get default locale
++    f = fopen ("/etc/env.d/03locale", "r");
++    if (!f) return NULL;
++    while (fgets (buf, 512, f)) {
++        strtok (buf, "\r\n");
++        t = strchr (buf, '=');
++        if (!t) break;
++        *t = '\0';
++        t++;
++
++        if (strncmp(buf, "LC_ALL", 6) == 0) {
++            default_locale = t;
++            break;
++        }
++    }
++    fclose(f);
++
++	if (default_locale)
++		setlocale (LC_ALL, default_locale);
++	else
++		setlocale (LC_ALL, "");
++
++    bindtextdomain ("mingetty", LOCALEDIR);
++    textdomain ("mingetty");
++
+ 	char *logoptstr;
+ 	char logcmd[NAME_MAX+1];
+ 	char *logarr[ARRAY_SIZE_MAX];
+@@ -690,7 +723,7 @@
+ 
+ 	if (autologin) {
+ 		do_prompt (0);
+-		printf ("%s%s (automatic login)\n", LOGIN, autologin);
++		printf (_("%s%s (automatic login)\n"), _(" login: "), autologin);
+ 		logname = autologin;
+ 		logoptstr = "-f \\u";
+ 	} else {
+@@ -714,7 +747,7 @@
+ 		nice (priority);
+ 
+ 	execv (loginprog, logarr);
+-	error ("%s: can't exec %s: %s", tty, loginprog, strerror (errno));
++	error (_("%s: can't exec %s: %s"), tty, loginprog, strerror (errno));
+ 	sleep (1);
+ 	exit (EXIT_FAILURE);
+ }
+diff -Naur mingetty-1.0.7s/mingetty.pot mingetty-1.0.7s-patched/mingetty.pot
+--- mingetty-1.0.7s/mingetty.pot	1970-01-01 02:00:00.000000000 +0200
++++ mingetty-1.0.7s-patched/mingetty.pot	2008-01-31 16:02:10.000000000 +0200
+@@ -0,0 +1,85 @@
++# SOME DESCRIPTIVE TITLE.
++# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
++# This file is distributed under the same license as the PACKAGE package.
++# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
++#
++#, fuzzy
++msgid ""
++msgstr ""
++"Project-Id-Version: PACKAGE VERSION\n"
++"Report-Msgid-Bugs-To: \n"
++"POT-Creation-Date: 2008-01-31 16:02+0200\n"
++"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
++"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
++"Language-Team: LANGUAGE <LL@li.org>\n"
++"MIME-Version: 1.0\n"
++"Content-Type: text/plain; charset=CHARSET\n"
++"Content-Transfer-Encoding: 8bit\n"
++
++#: mingetty.c:343 mingetty.c:359
++#, c-format
++msgid "%s: cannot open tty: %s"
++msgstr ""
++
++#: mingetty.c:345
++#, c-format
++msgid "%s: not a tty"
++msgstr ""
++
++#: mingetty.c:349
++#, c-format
++msgid "%s: vhangup() failed"
++msgstr ""
++
++#: mingetty.c:361
++#, c-format
++msgid "%s: cannot get controlling tty: %s"
++msgstr ""
++
++#: mingetty.c:363
++#, c-format
++msgid "%s: cannot set process group: %s"
++msgstr ""
++
++#: mingetty.c:367 mingetty.c:369 mingetty.c:371
++#, c-format
++msgid "%s: dup problem: %s"
++msgstr ""
++
++#: mingetty.c:494 mingetty.c:703
++msgid " login: "
++msgstr ""
++
++#: mingetty.c:545 mingetty.c:572
++#, c-format
++msgid "%s: invalid character 0x%x in login name"
++msgstr ""
++
++#: mingetty.c:548
++#, c-format
++msgid "%s: too long login name"
++msgstr ""
++
++#: mingetty.c:564
++#, c-format
++msgid "%s: invalid character conversion for login name"
++msgstr ""
++
++#: mingetty.c:580
++#, c-format
++msgid ""
++"%s: usage: '%s [--noclear] [--nonewline] [--noissue] [--nohangup] [--"
++"noreset] [--no-hostname] [--long-hostname] [--login program] [--logopts "
++"\"loginprg opts\"] [--nice 10] [--delay 10] [--chdir /home] [--chroot /"
++"chroot] [--autologin user] [--old] tty [term]' with e.g. tty=tty1"
++msgstr ""
++
++#: mingetty.c:703
++#, c-format
++msgid "%s%s (automatic login)\n"
++msgstr ""
++
++#: mingetty.c:727
++#, c-format
++msgid "%s: can't exec %s: %s"
++msgstr ""

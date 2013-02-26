@@ -1,0 +1,392 @@
+--- TiMidity++-2.13.2/utils/net.c	2008-05-03 20:26:26.071330866 +0300
++++ TiMidity++-2.13.2/utils/net.c	2008-05-03 20:44:00.054330651 +0300
+@@ -58,7 +58,9 @@
+ SOCKET open_socket(char *host, unsigned short port)
+ {
+     SOCKET fd;
+-    struct sockaddr_in in;
++    struct addrinfo hints, *result, *rp;
++    char service[NI_MAXSERV];
++    int s;
+ 
+ #if defined(WINSOCK)
+     static int first = 1;
+@@ -69,27 +71,36 @@
+     }
+ #endif
+ 
+-    memset(&in, 0, sizeof(in));
+-    if((in.sin_addr.s_addr = inet_addr(host)) == INADDR_NONE)
+-    {
+-	struct hostent *hp;
+-	if((hp = gethostbyname(host)) == NULL)
+-	    return (SOCKET)-1;
+-	memcpy(&in.sin_addr, hp->h_addr, hp->h_length);
+-    }
+-    in.sin_port = htons(port);
+-    in.sin_family = AF_INET;
++    memset(&hints, 0, sizeof(struct addrinfo));
++    hints.ai_family = AF_UNSPEC;
++    hints.ai_socktype = SOCK_STREAM;
++    hints.ai_flags = AI_ADDRCONFIG;
++
++    snprintf(service, sizeof(service), "%d", port);
++
++    s = getaddrinfo(host, service, &hints, &result);
+ 
+-    if((fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET)
+-	return (SOCKET)-1;
++    if (s)
++        return (SOCKET)-1;
+ 
+-    if(connect(fd, (struct sockaddr *)&in, sizeof(in)) == SOCKET_ERROR)
++    for (rp = result; rp != NULL; rp = rp->ai_next)
+     {
+-	closesocket(fd);
+-	return (SOCKET)-1;
++        if (rp->ai_family != AF_INET && rp->ai_family != AF_INET6)
++            continue;
++
++        fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
++
++        if (fd != -1 && connect(fd, rp->ai_addr, rp->ai_addrlen) != -1)
++            break;
++
++        if (fd != -1) {
++            close(fd);
++            fd = -1;
++        }
+     }
+ 
+-    return fd;
++    freeaddrinfo(result);
++    return (SOCKET) fd;
+ }
+ 
+ #if !defined(__W32__) || defined(__CYGWIN32__)
+--- TiMidity++-2.13.2/libarc/url_news.c	2008-05-03 20:26:26.069330916 +0300
++++ TiMidity++-2.13.2/libarc/url_news.c	2008-05-03 20:44:00.052330701 +0300
+@@ -288,8 +288,17 @@
+     buff[sizeof(buff) - 1] = '\0';
+ 
+     host = buff;
+-    for(p = host; *p && *p != ':' && *p != '/'; p++)
+-	;
++    if (host[0] == '[')
++    {
++        if (!(p = strchr(host, ']')))
++            return NULL;
++        *p = '\0';
++        ++host;
++        ++p;
++    } else
++        for(p = host; *p && *p != ':' && *p != '/'; p++)
++	    ;
++
+     if(*p == ':')
+     {
+ 	*p++ = '\0'; /* terminate `host' string */
+--- TiMidity++-2.13.2/libarc/url_ftp.c	2008-05-03 20:26:26.069330916 +0300
++++ TiMidity++-2.13.2/libarc/url_ftp.c	2008-05-03 20:44:00.052330701 +0300
+@@ -234,6 +234,14 @@
+ 		*passwd++ = '\0';
+ 	}
+ 
++        if (host[0] == '[')
++        {
++            if (!(p = strchr(host, ']')))
++                return NULL;
++            *p = '\0';
++            ++host;
++        } 
++
+ #ifdef DEBUG
+ 	printf("open(host=`%s', port=`%d')\n", host, port);
+ #endif /* DEBUG */
+--- TiMidity++-2.13.2/libarc/url_http.c	2008-05-03 20:26:26.069330916 +0300
++++ TiMidity++-2.13.2/libarc/url_http.c	2008-05-03 20:44:00.052330701 +0300
+@@ -133,8 +133,15 @@
+ 	p = name;
+ 	if(strncmp(p, "http://", 7) == 0)
+ 	    p += 7;
+-	for(q = p; *q && *q != ':' && *q != '/'; q++)
+-	    ;
++        if (p[0] == '[')
++        {
++            if (!(q = strchr(p, ']')))
++                return NULL;
++            *q = '\0';
++            ++p;
++        } else
++	    for(q = p; *q && *q != ':' && *q != '/'; q++)
++	        ;
+ 	len = q - p;
+ 	if(len >= sizeof(wwwserver) - 1) { /* What?? */
+ 	    strcpy(wwwserver, "localhost");
+@@ -158,8 +165,18 @@
+ 	memcpy(buff, name, n + 1);
+ 
+ 	host = buff;
+-	for(p = host; *p && *p != ':' && *p != '/'; p++)
+-	    ;
++
++        if (host[0] == '[')
++        {
++            if (!(p = strchr(host, ']')))
++                return NULL;
++            *p = '\0';
++            ++host;
++            ++p;
++        } else
++            for(p = host; *p && *p != ':' && *p != '/'; p++)
++                ;
++
+ 	if(*p == ':')
+ 	{
+ 	    char *pp;
+--- TiMidity++-2.13.2/interface/server_c.c	2008-05-03 20:26:26.063331347 +0300
++++ TiMidity++-2.13.2/interface/server_c.c	2008-05-03 20:44:00.040331003 +0300
+@@ -50,6 +50,7 @@
+ #include <sys/socket.h>
+ #include <sys/time.h>
+ #include <netinet/in.h>
++#include <netdb.h>
+ #ifndef NO_STRING_H
+ #include <string.h>
+ #else
+@@ -227,7 +228,7 @@
+ static int tmr_running;
+ 
+ static int is_system_prefix = 0;
+-static struct sockaddr_in control_client;
++static struct sockaddr_storage control_client;
+ static double low_time_at = 0.3;
+ static double high_time_at = 0.5;
+ static FILE *outfp;
+@@ -294,44 +295,82 @@
+ 
+ static int pasv_open(int *port)
+ {
+-    int sfd;
+-    struct sockaddr_in server;
++    int sfd, s;
++    struct addrinfo hints, *result, *rp;
++    char service[NI_MAXSERV];
+ 
+-    if((sfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
++    memset(&hints, 0, sizeof(struct addrinfo));
++    hints.ai_family = AF_UNSPEC;
++    hints.ai_socktype = SOCK_STREAM;
++    hints.ai_flags = AI_PASSIVE;
++
++    sprintf(service, "%d", *port);
++    
++    s = getaddrinfo(NULL, service, &hints, &result);
++    if (s)
+     {
+-	perror("socket");
+-	return -1;
++        fprintf(stderr, "getaddrinfo %s", gai_strerror(s));
++        return -1;
+     }
+ 
+-    memset(&server, 0, sizeof(server));
+-    server.sin_port        = htons(*port);
+-    server.sin_family      = AF_INET;
+-    server.sin_addr.s_addr = htonl(INADDR_ANY);
++    for (rp = result; rp != NULL; rp = rp->ai_next)
++    {
++        if (rp->ai_family != AF_INET && rp->ai_family != AF_INET6)
++            continue;
++
++        sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
++
++        if (sfd == -1)
++            continue;
+ 
+ #ifdef SO_REUSEADDR
+-    {
+-	int on = 1;
+-	setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (caddr_t)&on, sizeof(on));
+-    }
++        {
++            int on = 1;
++            setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (caddr_t)&on, sizeof(on));
++        }
+ #endif /* SO_REUSEADDR */
+ 
+-    ctl.cmsg(CMSG_INFO, VERB_DEBUG, "Bind TCP/IP port=%d", *port);
+-    if(bind(sfd, (struct sockaddr *)&server, sizeof(server)) < 0)
++        ctl.cmsg(CMSG_INFO, VERB_DEBUG, "Bind TCP/IP port=%d", *port);
++        if (bind(sfd, rp->ai_addr, rp->ai_addrlen) != 0) {
++            perror("bind");
++            close(sfd);
++        } else
++            break;
++
++        close(sfd);
++    }
++
++    if (rp == NULL)
+     {
+-	perror("bind");
+-	close(sfd);
+-	return -1;
++        fprintf(stderr, "Could not bind\n");
++        freeaddrinfo(result);
++        return -1;
+     }
++
++    freeaddrinfo(result);
++
+     if(*port == 0)
+     {
++	struct sockaddr_storage server;
+ 	int len = sizeof(server);
++
+ 	if(getsockname(sfd, (struct sockaddr *)&server, &len) < 0)
+ 	{
+ 	    perror("getsockname");
+ 	    close(sfd);
+ 	    return -1;
+ 	}
+-	*port = ntohs(server.sin_port);
++
++        /* Not quite protocol independent */
++        switch (((struct sockaddr *) &server)->sa_family)
++        {
++            case AF_INET:
++                *port = ntohs(((struct sockaddr_in *) &server)->sin_port);
++                break;
++            case AF_INET6:
++                *port = ntohs(((struct sockaddr_in6 *) &server)->sin6_port);
++                break;
++        }
+     }
+ 
+     /* Set it up to wait for connections. */
+@@ -847,7 +886,7 @@
+ static int cmd_open(int argc, char **argv)
+ {
+     int sock;
+-    struct sockaddr_in in;
++    struct sockaddr_storage in;
+     int addrlen;
+     int port;
+ 
+@@ -881,8 +920,29 @@
+     }
+     close(sock);
+ 
+-    if(control_client.sin_addr.s_addr != in.sin_addr.s_addr)
+-	return send_status(513, "Security violation:  Address mismatch");
++    /* Not quite protocol independent */
++    switch (((struct sockaddr *) &control_client)->sa_family)
++    {
++        case AF_INET:
++            if (((struct sockaddr_in *) &control_client)->sin_addr.s_addr !=
++                ((struct sockaddr_in *) &in)->sin_addr.s_addr)
++              {
++                close(data_fd);
++                data_fd = -1;
++                return send_status(513, "Security violation: Address mismatch");
++              }
++              break;
++        case AF_INET6:
++            if (memcmp(
++                ((struct sockaddr_in6 *) &control_client)->sin6_addr.s6_addr,
++                ((struct sockaddr_in6 *) &in)->sin6_addr.s6_addr, 16))
++              {
++                close(data_fd);
++                data_fd = -1;
++                return send_status(513, "Security violation: Address mismatch");
++              }
++              break;
++    }
+ 
+     send_status(200, "Ready data connection");
+     data_buffer_len = 0;
+--- TiMidity++-2.13.2/timidity/timidity.c	2008-05-03 20:26:26.051329973 +0300
++++ TiMidity++-2.13.2/timidity/timidity.c	2008-05-03 20:44:00.017329627 +0300
+@@ -1489,6 +1489,8 @@
+ 	/* #extension HTTPproxy hostname:port */
+ 	else if(strcmp(w[0], "HTTPproxy") == 0)
+ 	{
++            char r_bracket, l_bracket;
++
+ 	    if(words < 2)
+ 	    {
+ 		ctl->cmsg(CMSG_ERROR, VERB_NORMAL,
+@@ -1500,7 +1502,7 @@
+ 	    /* If network is not supported, this extension is ignored. */
+ #ifdef SUPPORT_SOCKET
+ 	    url_http_proxy_host = safe_strdup(w[1]);
+-	    if((cp = strchr(url_http_proxy_host, ':')) == NULL)
++	    if((cp = strrchr(url_http_proxy_host, ':')) == NULL)
+ 	    {
+ 		ctl->cmsg(CMSG_ERROR, VERB_NORMAL,
+ 			  "%s: line %d: Syntax error", name, line);
+@@ -1516,11 +1518,30 @@
+ 		CHECKERRLIMIT;
+ 		continue;
+ 	    }
++
++            l_bracket = url_http_proxy_host[0];
++            r_bracket = url_http_proxy_host[strlen(url_http_proxy_host) - 1];
++
++            if (l_bracket == '[' || r_bracket == ']')
++            {
++                if (l_bracket != '[' || r_bracket != ']')
++                {
++                    ctl->cmsg(CMSG_ERROR, VERB_NORMAL,
++                              "%s: line %d: Malformed IPv6 address",
++                              name, line);
++                    CHECKERRLIMIT;
++                    continue;
++                }
++                url_http_proxy_host++;
++                url_http_proxy_host[strlen(url_http_proxy_host) - 1] = '\0';
++            } 
+ #endif
+ 	}
+ 	/* #extension FTPproxy hostname:port */
+ 	else if(strcmp(w[0], "FTPproxy") == 0)
+ 	{
++            char l_bracket, r_bracket;
++ 
+ 	    if(words < 2)
+ 	    {
+ 		ctl->cmsg(CMSG_ERROR, VERB_NORMAL,
+@@ -1532,7 +1553,7 @@
+ 	    /* If network is not supported, this extension is ignored. */
+ #ifdef SUPPORT_SOCKET
+ 	    url_ftp_proxy_host = safe_strdup(w[1]);
+-	    if((cp = strchr(url_ftp_proxy_host, ':')) == NULL)
++	    if((cp = strrchr(url_ftp_proxy_host, ':')) == NULL)
+ 	    {
+ 		ctl->cmsg(CMSG_ERROR, VERB_NORMAL,
+ 			  "%s: line %d: Syntax error", name, line);
+@@ -1548,6 +1569,23 @@
+ 		CHECKERRLIMIT;
+ 		continue;
+ 	    }
++
++            l_bracket = url_ftp_proxy_host[0];
++            r_bracket = url_ftp_proxy_host[strlen(url_ftp_proxy_host) - 1];
++
++            if (l_bracket == '[' || r_bracket == ']')
++            {
++                if (l_bracket != '[' || r_bracket != ']')
++                {
++                    ctl->cmsg(CMSG_ERROR, VERB_NORMAL,
++                              "%s: line %d: Malformed IPv6 address",
++                              name, line);
++                    CHECKERRLIMIT;
++                    continue;
++                }
++                url_ftp_proxy_host++;
++                url_ftp_proxy_host[strlen(url_ftp_proxy_host) - 1] = '\0';
++            }
+ #endif
+ 	}
+ 	/* #extension mailaddr somebody@someware.domain.com */

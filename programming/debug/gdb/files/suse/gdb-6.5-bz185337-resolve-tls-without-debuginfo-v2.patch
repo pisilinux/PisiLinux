@@ -1,0 +1,241 @@
+https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=185337
+
+2008-02-24  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Port to GDB-6.8pre.
+
+currently for trivial nonthreaded helloworld with no debug info up to -ggdb2 you
+will get:
+        (gdb) p errno
+        [some error]
+
+* with -ggdb2 and less "errno" in fact does not exist anywhere as it was
+  compiled to "(*__errno_location ())" and the macro definition is not present.
+  Unfortunately gdb will find the TLS symbol and it will try to access it but
+  as the program has been compiled without -lpthread the TLS base register
+  (%gs on i386) is not setup and it will result in:
+        Cannot access memory at address 0x8
+
+Attached suggestion patch how to deal with the most common "errno" symbol
+for the most common under-ggdb3 compiled programs.
+
+
+
+2007-11-03  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* ./gdb/dwarf2read.c (read_partial_die, dwarf2_linkage_name): Prefer
+	DW_AT_MIPS_linkage_name over DW_AT_name now only for non-C.
+
+glibc-debuginfo-2.7-2.x86_64: /usr/lib/debug/lib64/libc.so.6.debug:
+  <81a2>     DW_AT_name        : (indirect string, offset: 0x280e): __errno_location
+  <81a8>     DW_AT_MIPS_linkage_name: (indirect string, offset: 0x2808): *__GI___errno_location
+
+Index: gdb-7.0.50.20100128/gdb/gdbtypes.c
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/gdbtypes.c	2010-01-28 12:52:17.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/gdbtypes.c	2010-01-28 12:52:48.000000000 +0100
+@@ -3978,6 +3978,9 @@ gdbtypes_post_init (struct gdbarch *gdba
+     = arch_type (gdbarch, TYPE_CODE_INTERNAL_FUNCTION, 0,
+ 		 "<internal function>");
+ 
++  builtin_type->nodebug_text_symbol_errno_location
++    = lookup_function_type (lookup_pointer_type (builtin_type->builtin_int));
++
+   return builtin_type;
+ }
+ 
+Index: gdb-7.0.50.20100128/gdb/gdbtypes.h
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/gdbtypes.h	2010-01-28 12:52:17.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/gdbtypes.h	2010-01-28 12:52:48.000000000 +0100
+@@ -1245,6 +1245,8 @@ struct builtin_type
+ 
+   /* This type is used to represent a GDB internal function.  */
+   struct type *internal_fn;
++
++  struct type *nodebug_text_symbol_errno_location;
+ };
+ 
+ /* Return the type table for the specified architecture.  */
+Index: gdb-7.0.50.20100128/gdb/parse.c
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/parse.c	2010-01-28 12:52:19.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/parse.c	2010-01-28 12:53:20.000000000 +0100
+@@ -509,7 +509,11 @@ write_exp_msymbol (struct minimal_symbol
+     case mst_text:
+     case mst_file_text:
+     case mst_solib_trampoline:
+-      write_exp_elt_type (objfile_type (objfile)->nodebug_text_symbol);
++      if (builtin_type (gdbarch)->nodebug_text_symbol_errno_location != NULL
++          && strcmp (SYMBOL_LINKAGE_NAME (msymbol), "__errno_location") == 0)
++	write_exp_elt_type (builtin_type (gdbarch)->nodebug_text_symbol_errno_location);
++      else
++	write_exp_elt_type (objfile_type (objfile)->nodebug_text_symbol);
+       break;
+ 
+     case mst_text_gnu_ifunc:
+Index: gdb-7.0.50.20100128/gdb/target.c
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/target.c	2010-01-28 12:52:29.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/target.c	2010-01-28 12:52:48.000000000 +0100
+@@ -1000,6 +1000,25 @@ pop_all_targets (int quitting)
+   pop_all_targets_above (dummy_stratum, quitting);
+ }
+ 
++static int
++resolve_errno (void *arg)
++{
++  CORE_ADDR *arg_addr = arg;
++  struct expression *expr;
++  struct cleanup *old_chain = 0;
++  struct value *val;
++
++  expr = parse_expression ("__errno_location()");
++  old_chain = make_cleanup (free_current_contents, &expr);
++  val = evaluate_expression (expr);
++  *arg_addr = value_as_address (val);
++  release_value (val);
++  value_free (val);
++  do_cleanups (old_chain);
++
++  return 1;
++}
++
+ /* Using the objfile specified in OBJFILE, find the address for the
+    current thread's thread-local storage with offset OFFSET.  */
+ CORE_ADDR
+@@ -1090,7 +1109,28 @@ target_translate_tls_address (struct obj
+   /* It wouldn't be wrong here to try a gdbarch method, too; finding
+      TLS is an ABI-specific thing.  But we don't do that yet.  */
+   else
+-    error (_("Cannot find thread-local variables on this target"));
++    {
++      struct minimal_symbol *msymbol;
++
++      msymbol = lookup_minimal_symbol ("errno", NULL, NULL);
++      if (msymbol != NULL
++	  && SYMBOL_VALUE_ADDRESS (msymbol) == offset
++	  && (SYMBOL_OBJ_SECTION (msymbol)->objfile == objfile
++	      || (objfile->separate_debug_objfile != NULL
++	          && SYMBOL_OBJ_SECTION (msymbol)->objfile
++		     == objfile->separate_debug_objfile)
++	      || (objfile->separate_debug_objfile_backlink != NULL
++	          && SYMBOL_OBJ_SECTION (msymbol)->objfile
++		     == objfile->separate_debug_objfile_backlink)))
++	{
++	  if (!catch_errors (resolve_errno, (void *) &addr, "",
++	                     RETURN_MASK_ALL))
++	    error (_("TLS symbol `errno' not resolved for non-TLS program."
++		     "  You should compile the program with `gcc -pthread'."));
++	}
++      else
++	error (_("Cannot find thread-local variables on this target"));
++    }
+ 
+   return addr;
+ }
+Index: gdb-7.0.50.20100128/gdb/testsuite/gdb.dwarf2/dw2-errno.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.0.50.20100128/gdb/testsuite/gdb.dwarf2/dw2-errno.c	2010-01-28 12:52:48.000000000 +0100
+@@ -0,0 +1,28 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2005, 2007 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++   Please email any bugs, comments, and/or additions to this file to:
++   bug-gdb@prep.ai.mit.edu  */
++
++#include <errno.h>
++
++int main()
++{
++  errno = 42;
++
++  return 0;	/* breakpoint */
++}
+Index: gdb-7.0.50.20100128/gdb/testsuite/gdb.dwarf2/dw2-errno.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.0.50.20100128/gdb/testsuite/gdb.dwarf2/dw2-errno.exp	2010-01-28 12:52:48.000000000 +0100
+@@ -0,0 +1,67 @@
++# Copyright 2007 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++if $tracelevel then {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++set testfile dw2-errno
++set srcfile ${testfile}.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++proc prep {} {
++    global srcdir subdir binfile
++    gdb_exit
++    gdb_start
++    gdb_reinitialize_dir $srcdir/$subdir
++    gdb_load ${binfile}
++
++    runto_main
++
++    gdb_breakpoint [gdb_get_line_number "breakpoint"]
++    gdb_continue_to_breakpoint "breakpoint"
++}
++
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable "additional_flags=-g2"] != "" } {
++    untested "Couldn't compile test program"
++    return -1
++}
++prep
++gdb_test "print errno" ".* = 42" "errno with macros=N threads=N"
++
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable "additional_flags=-g3"] != "" } {
++    untested "Couldn't compile test program"
++    return -1
++}
++prep
++gdb_test "print errno" ".* = 42" "errno with macros=Y threads=N"
++
++if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable "additional_flags=-g2"] != "" } {
++    return -1
++}
++prep
++gdb_test "print errno" ".* = 42" "errno with macros=N threads=Y"
++
++if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable "additional_flags=-g3"] != "" } {
++    return -1
++}
++prep
++gdb_test "print errno" ".* = 42" "errno with macros=Y threads=Y"
++
++# TODO: Test the error on resolving ERRNO with only libc loaded.
++# Just how to find the current libc filename?

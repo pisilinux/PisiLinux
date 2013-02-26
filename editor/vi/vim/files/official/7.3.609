@@ -1,0 +1,251 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.609
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.609
+Problem:    File names in :checkpath! output are garbled.
+Solution:   Check for \zs in the pattern. (Lech Lorens)
+Files:	    src/search.c, src/testdir/test17.in, src/testdir/test17.ok
+
+
+*** ../vim-7.3.608/src/search.c	2012-07-19 17:18:21.000000000 +0200
+--- src/search.c	2012-07-25 13:33:08.000000000 +0200
+***************
+*** 4740,4756 ****
+  			 * Isolate the file name.
+  			 * Include the surrounding "" or <> if present.
+  			 */
+! 			for (p = incl_regmatch.endp[0]; !vim_isfilec(*p); p++)
+! 			    ;
+! 			for (i = 0; vim_isfilec(p[i]); i++)
+! 			    ;
+  			if (i == 0)
+  			{
+  			    /* Nothing found, use the rest of the line. */
+  			    p = incl_regmatch.endp[0];
+  			    i = (int)STRLEN(p);
+  			}
+! 			else
+  			{
+  			    if (p[-1] == '"' || p[-1] == '<')
+  			    {
+--- 4740,4772 ----
+  			 * Isolate the file name.
+  			 * Include the surrounding "" or <> if present.
+  			 */
+! 			if (inc_opt != NULL
+! 				   && strstr((char *)inc_opt, "\\zs") != NULL)
+! 			{
+! 			    /* pattern contains \zs, use the match */
+! 			    p = incl_regmatch.startp[0];
+! 			    i = (int)(incl_regmatch.endp[0]
+! 						   - incl_regmatch.startp[0]);
+! 			}
+! 			else
+! 			{
+! 			    /* find the file name after the end of the match */
+! 			    for (p = incl_regmatch.endp[0];
+! 						  *p && !vim_isfilec(*p); p++)
+! 				;
+! 			    for (i = 0; vim_isfilec(p[i]); i++)
+! 				;
+! 			}
+! 
+  			if (i == 0)
+  			{
+  			    /* Nothing found, use the rest of the line. */
+  			    p = incl_regmatch.endp[0];
+  			    i = (int)STRLEN(p);
+  			}
+! 			/* Avoid checking before the start of the line, can
+! 			 * happen if \zs appears in the regexp. */
+! 			else if (p > line)
+  			{
+  			    if (p[-1] == '"' || p[-1] == '<')
+  			    {
+*** ../vim-7.3.608/src/testdir/test17.in	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test17.in	2012-07-25 13:41:43.000000000 +0200
+***************
+*** 1,4 ****
+! Tests for "gf" on ${VAR}
+  
+  STARTTEST
+  :so small.vim
+--- 1,6 ----
+! Tests for:
+! - "gf" on ${VAR},
+! - ":checkpath!" with various 'include' settings.
+  
+  STARTTEST
+  :so small.vim
+***************
+*** 20,27 ****
+  :endif
+  gf
+  :w! test.out
+! :qa!
+  ENDTEST
+  
+  	${CDIR}/test17a.in
+  	$TDIR/test17a.in
+--- 22,120 ----
+  :endif
+  gf
+  :w! test.out
+! :brewind
+  ENDTEST
+  
+  	${CDIR}/test17a.in
+  	$TDIR/test17a.in
++ 
++ STARTTEST
++ :" check for 'include' without \zs or \ze
++ :lang C
++ :!rm -f ./Xbase.a
++ :!rm -rf ./Xdir1
++ :!mkdir -p Xdir1/dir2
++ :e Xdir1/dir2/foo.a
++ i#include   "bar.a"
++ :w
++ :e Xdir1/dir2/bar.a
++ i#include      "baz.a"
++ :w
++ :e Xdir1/dir2/baz.a
++ i#include            "foo.a"
++ :w
++ :e Xbase.a
++ :set path=Xdir1/dir2
++ i#include    <foo.a>
++ :w
++ :redir! >>test.out
++ :checkpath!
++ :redir END
++ :brewind
++ ENDTEST
++ 
++ STARTTEST
++ :" check for 'include' with \zs and \ze
++ :!rm -f ./Xbase.b
++ :!rm -rf ./Xdir1
++ :!mkdir -p Xdir1/dir2
++ :let &include='^\s*%inc\s*/\zs[^/]\+\ze'
++ :function! DotsToSlashes()
++ :  return substitute(v:fname, '\.', '/', 'g') . '.b'
++ :endfunction
++ :let &includeexpr='DotsToSlashes()'
++ :e Xdir1/dir2/foo.b
++ i%inc   /bar/
++ :w
++ :e Xdir1/dir2/bar.b
++ i%inc      /baz/
++ :w
++ :e Xdir1/dir2/baz.b
++ i%inc            /foo/
++ :w
++ :e Xbase.b
++ :set path=Xdir1/dir2
++ i%inc    /foo/
++ :w
++ :redir! >>test.out
++ :checkpath!
++ :redir END
++ :brewind
++ ENDTEST
++ 
++ STARTTEST
++ :" check for 'include' with \zs and no \ze
++ :!rm -f ./Xbase.c
++ :!rm -rf ./Xdir1
++ :!mkdir -p Xdir1/dir2
++ :let &include='^\s*%inc\s*\%([[:upper:]][^[:space:]]*\s\+\)\?\zs\S\+\ze'
++ :function! StripNewlineChar()
++ :  if v:fname =~ '\n$'
++ :    return v:fname[:-2]
++ :  endif
++ :  return v:fname
++ :endfunction
++ :let &includeexpr='StripNewlineChar()'
++ :e Xdir1/dir2/foo.c
++ i%inc   bar.c
++ :w
++ :e Xdir1/dir2/bar.c
++ i%inc      baz.c
++ :w
++ :e Xdir1/dir2/baz.c
++ i%inc            foo.c
++ :w
++ :e Xdir1/dir2/FALSE.c
++ i%inc            foo.c
++ :w
++ :e Xbase.c
++ :set path=Xdir1/dir2
++ i%inc    FALSE.c foo.c
++ :w
++ :redir! >>test.out
++ :checkpath!
++ :redir END
++ :brewind
++ :q
++ ENDTEST
++ 
+*** ../vim-7.3.608/src/testdir/test17.ok	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test17.ok	2012-07-25 13:45:37.000000000 +0200
+***************
+*** 1,3 ****
+--- 1,33 ----
+  This file is just to test "gf" in test 17.
+  The contents is not important.
+  Just testing!
++ 
++ 
++ --- Included files in path ---
++ Xdir1/dir2/foo.a
++ Xdir1/dir2/foo.a -->
++   Xdir1/dir2/bar.a
++   Xdir1/dir2/bar.a -->
++     Xdir1/dir2/baz.a
++     Xdir1/dir2/baz.a -->
++       "foo.a"  (Already listed)
++ 
++ 
++ --- Included files in path ---
++ Xdir1/dir2/foo.b
++ Xdir1/dir2/foo.b -->
++   Xdir1/dir2/bar.b
++   Xdir1/dir2/bar.b -->
++     Xdir1/dir2/baz.b
++     Xdir1/dir2/baz.b -->
++       foo  (Already listed)
++ 
++ 
++ --- Included files in path ---
++ Xdir1/dir2/foo.c
++ Xdir1/dir2/foo.c -->
++   Xdir1/dir2/bar.c
++   Xdir1/dir2/bar.c -->
++     Xdir1/dir2/baz.c
++     Xdir1/dir2/baz.c -->
++       foo.c^@  (Already listed)
+*** ../vim-7.3.608/src/version.c	2012-07-19 18:05:40.000000000 +0200
+--- src/version.c	2012-07-25 13:38:54.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     609,
+  /**/
+
+-- 
+"The question of whether computers can think is just like the question
+of whether submarines can swim."      -- Edsger W. Dijkstra
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

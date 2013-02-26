@@ -1,0 +1,252 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.148
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.148
+Problem:    A syntax file with a huge number of items or clusters causes weird
+	    behavior, a hang or a crash. (Yukihiro Nakadaira)
+Solution:   Check running out of IDs. (partly by Ben Schmidt)
+Files:	    src/syntax.c
+
+
+*** ../vim-7.3.147/src/syntax.c	2011-01-22 00:58:15.000000000 +0100
+--- src/syntax.c	2011-04-01 14:25:39.000000000 +0200
+***************
+*** 219,234 ****
+  
+  /*
+   * Syntax group IDs have different types:
+!  *     0 -  9999  normal syntax groups
+!  * 10000 - 14999  ALLBUT indicator (current_syn_inc_tag added)
+!  * 15000 - 19999  TOP indicator (current_syn_inc_tag added)
+!  * 20000 - 24999  CONTAINED indicator (current_syn_inc_tag added)
+!  * >= 25000	  cluster IDs (subtract SYNID_CLUSTER for the cluster ID)
+!  */
+! #define SYNID_ALLBUT	10000	    /* syntax group ID for contains=ALLBUT */
+! #define SYNID_TOP	15000	    /* syntax group ID for contains=TOP */
+! #define SYNID_CONTAINED	20000	    /* syntax group ID for contains=CONTAINED */
+! #define SYNID_CLUSTER	25000	    /* first syntax group ID for clusters */
+  
+  /*
+   * Annoying Hack(TM):  ":syn include" needs this pointer to pass to
+--- 219,238 ----
+  
+  /*
+   * Syntax group IDs have different types:
+!  *     0 - 19999  normal syntax groups
+!  * 20000 - 20999  ALLBUT indicator (current_syn_inc_tag added)
+!  * 21000 - 21999  TOP indicator (current_syn_inc_tag added)
+!  * 22000 - 22999  CONTAINED indicator (current_syn_inc_tag added)
+!  * 23000 - 32767  cluster IDs (subtract SYNID_CLUSTER for the cluster ID)
+!  */
+! #define SYNID_ALLBUT	20000	    /* syntax group ID for contains=ALLBUT */
+! #define SYNID_TOP	21000	    /* syntax group ID for contains=TOP */
+! #define SYNID_CONTAINED	22000	    /* syntax group ID for contains=CONTAINED */
+! #define SYNID_CLUSTER	23000	    /* first syntax group ID for clusters */
+! 
+! #define MAX_SYNID       SYNID_ALLBUT
+! #define MAX_SYN_INC_TAG	999	    /* maximum before the above overflow */
+! #define MAX_CLUSTER_ID  (32767 - SYNID_CLUSTER)
+  
+  /*
+   * Annoying Hack(TM):  ":syn include" needs this pointer to pass to
+***************
+*** 3442,3447 ****
+--- 3446,3454 ----
+      /* free the stored states */
+      syn_stack_free_all(block);
+      invalidate_current_state();
++ 
++     /* Reset the counter for ":syn include" */
++     running_syn_inc_tag = 0;
+  }
+  
+  /*
+***************
+*** 4661,4666 ****
+--- 4668,4675 ----
+  	    return;
+  	}
+  	sgl_id = syn_check_cluster(arg, (int)(group_name_end - arg));
++ 	if (sgl_id == 0)
++ 	    return;
+  	/* separate_nextcmd() and expand_filename() depend on this */
+  	eap->arg = rest;
+      }
+***************
+*** 4689,4694 ****
+--- 4698,4708 ----
+       * Save and restore the existing top-level grouplist id and ":syn
+       * include" tag around the actual inclusion.
+       */
++     if (running_syn_inc_tag >= MAX_SYN_INC_TAG)
++     {
++ 	EMSG((char_u *)_("E847: Too many syntax includes"));
++ 	return;
++     }
+      prev_syn_inc_tag = current_syn_inc_tag;
+      current_syn_inc_tag = ++running_syn_inc_tag;
+      prev_toplvl_grp = curwin->w_s->b_syn_topgrp;
+***************
+*** 4712,4718 ****
+      char_u	*group_name_end;
+      int		syn_id;
+      char_u	*rest;
+!     char_u	*keyword_copy;
+      char_u	*p;
+      char_u	*kw;
+      syn_opt_arg_T syn_opt_arg;
+--- 4726,4732 ----
+      char_u	*group_name_end;
+      int		syn_id;
+      char_u	*rest;
+!     char_u	*keyword_copy = NULL;
+      char_u	*p;
+      char_u	*kw;
+      syn_opt_arg_T syn_opt_arg;
+***************
+*** 4724,4732 ****
+      if (rest != NULL)
+      {
+  	syn_id = syn_check_group(arg, (int)(group_name_end - arg));
+! 
+! 	/* allocate a buffer, for removing the backslashes in the keyword */
+! 	keyword_copy = alloc((unsigned)STRLEN(rest) + 1);
+  	if (keyword_copy != NULL)
+  	{
+  	    syn_opt_arg.flags = 0;
+--- 4738,4746 ----
+      if (rest != NULL)
+      {
+  	syn_id = syn_check_group(arg, (int)(group_name_end - arg));
+! 	if (syn_id != 0)
+! 	    /* allocate a buffer, for removing backslashes in the keyword */
+! 	    keyword_copy = alloc((unsigned)STRLEN(rest) + 1);
+  	if (keyword_copy != NULL)
+  	{
+  	    syn_opt_arg.flags = 0;
+***************
+*** 5133,5139 ****
+  			    (item == ITEM_SKIP) ? SPTYPE_SKIP : SPTYPE_END;
+  		    SYN_ITEMS(curwin->w_s)[idx].sp_flags |= syn_opt_arg.flags;
+  		    SYN_ITEMS(curwin->w_s)[idx].sp_syn.id = syn_id;
+! 		    SYN_ITEMS(curwin->w_s)[idx].sp_syn.inc_tag = current_syn_inc_tag;
+  		    SYN_ITEMS(curwin->w_s)[idx].sp_syn_match_id =
+  							ppp->pp_matchgroup_id;
+  #ifdef FEAT_CONCEAL
+--- 5147,5154 ----
+  			    (item == ITEM_SKIP) ? SPTYPE_SKIP : SPTYPE_END;
+  		    SYN_ITEMS(curwin->w_s)[idx].sp_flags |= syn_opt_arg.flags;
+  		    SYN_ITEMS(curwin->w_s)[idx].sp_syn.id = syn_id;
+! 		    SYN_ITEMS(curwin->w_s)[idx].sp_syn.inc_tag =
+! 							  current_syn_inc_tag;
+  		    SYN_ITEMS(curwin->w_s)[idx].sp_syn_match_id =
+  							ppp->pp_matchgroup_id;
+  #ifdef FEAT_CONCEAL
+***************
+*** 5426,5431 ****
+--- 5441,5454 ----
+  	curwin->w_s->b_syn_clusters.ga_growsize = 10;
+      }
+  
++     len = curwin->w_s->b_syn_clusters.ga_len;
++     if (len >= MAX_CLUSTER_ID)
++     {
++ 	EMSG((char_u *)_("E848: Too many syntax clusters"));
++ 	vim_free(name);
++ 	return 0;
++     }
++ 
+      /*
+       * Make room for at least one other cluster entry.
+       */
+***************
+*** 5434,5440 ****
+  	vim_free(name);
+  	return 0;
+      }
+-     len = curwin->w_s->b_syn_clusters.ga_len;
+  
+      vim_memset(&(SYN_CLSTR(curwin->w_s)[len]), 0, sizeof(syn_cluster_T));
+      SYN_CLSTR(curwin->w_s)[len].scl_name = name;
+--- 5457,5462 ----
+***************
+*** 5476,5483 ****
+  
+      if (rest != NULL)
+      {
+! 	scl_id = syn_check_cluster(arg, (int)(group_name_end - arg))
+! 							      - SYNID_CLUSTER;
+  
+  	for (;;)
+  	{
+--- 5498,5507 ----
+  
+      if (rest != NULL)
+      {
+! 	scl_id = syn_check_cluster(arg, (int)(group_name_end - arg));
+! 	if (scl_id == 0)
+! 	    return;
+! 	scl_id -= SYNID_CLUSTER;
+  
+  	for (;;)
+  	{
+***************
+*** 5516,5522 ****
+  	if (got_clstr)
+  	{
+  	    redraw_curbuf_later(SOME_VALID);
+! 	    syn_stack_free_all(curwin->w_s);	/* Need to recompute all syntax. */
+  	}
+      }
+  
+--- 5540,5546 ----
+  	if (got_clstr)
+  	{
+  	    redraw_curbuf_later(SOME_VALID);
+! 	    syn_stack_free_all(curwin->w_s);	/* Need to recompute all. */
+  	}
+      }
+  
+***************
+*** 8972,8977 ****
+--- 8996,9008 ----
+  	highlight_ga.ga_growsize = 10;
+      }
+  
++     if (highlight_ga.ga_len >= MAX_SYNID)
++     {
++ 	EMSG(_("E849: Too many syntax groups"));
++ 	vim_free(name);
++ 	return 0;
++     }
++ 
+      /*
+       * Make room for at least one other syntax_highlight entry.
+       */
+*** ../vim-7.3.147/src/version.c	2011-04-01 13:05:37.000000000 +0200
+--- src/version.c	2011-04-01 14:26:44.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     148,
+  /**/
+
+-- 
+BLACK KNIGHT: None shall pass.
+ARTHUR:       I have no quarrel with you, brave Sir knight, but I must cross
+              this bridge.
+BLACK KNIGHT: Then you shall die.
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,121 @@
+2007-07-07  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.threads/leader-exit.c, gdb.threads/leader-exit.exp: New files.
+
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.threads/leader-exit.c	7 Jul 2007 15:21:57 -0000
+@@ -0,0 +1,47 @@
++/* Clean exit of the thread group leader should not break GDB.
++
++   Copyright 2007 Free Software Foundation, Inc.
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program; if not, write to the Free Software
++   Foundation, Inc., 59 Temple Place - Suite 330,
++   Boston, MA 02111-1307, USA.  */
++
++#include <pthread.h>
++#include <assert.h>
++#include <unistd.h>
++
++static void *start (void *arg)
++{
++  for (;;)
++    pause ();
++  /* NOTREACHED */
++  assert (0);
++  return arg;
++}
++
++int main (void)
++{
++  pthread_t thread;
++  int i;
++
++  i = pthread_create (&thread, NULL, start, NULL);	/* create1 */
++  assert (i == 0);
++
++  pthread_exit (NULL);
++  /* NOTREACHED */
++  assert (0);
++  return 0;
++}
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.threads/leader-exit.exp	7 Jul 2007 15:21:57 -0000
+@@ -0,0 +1,64 @@
++# Copyright (C) 2007 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# Exit of the thread group leader should not break GDB.
++
++# This file was written by Jan Kratochvil <jan.kratochvil@redhat.com>.
++
++if $tracelevel then {
++	strace $tracelevel
++}
++
++set testfile "leader-exit"
++set srcfile ${testfile}.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
++    return -1
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++gdb_run_cmd
++
++proc stop_process { description } {
++  global gdb_prompt
++
++  # For this to work we must be sure to consume the "Continuing."
++  # message first, or GDB's signal handler may not be in place.
++  after 1000 {send_gdb "\003"}
++  gdb_expect {
++    -re "Program received signal SIGINT.*$gdb_prompt $"
++      {
++	pass $description
++      }
++    timeout
++      {
++	fail "$description (timeout)"
++      }
++  }
++}
++
++# Prevent races.
++sleep 8
++
++stop_process "Threads could be stopped"
++
++gdb_test "info threads" \
++         "\\* 2 Thread \[^\r\n\]* in \[^\r\n\]*" \
++         "Single thread has been left"

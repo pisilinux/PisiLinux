@@ -1,0 +1,270 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.407
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.407
+Problem:    ":12verbose call F()" may duplicate text while trying to truncate.
+	    (Thinca)
+Solution:   Only truncate when there is not enough room.  Also check the byte
+	    length of the buffer.
+Files:	    src/buffer.c, src/eval.c, src/ex_getln.c, src/message.c,
+	    src/proto/message.pro
+
+
+*** ../vim-7.3.406/src/buffer.c	2011-12-30 13:39:04.000000000 +0100
+--- src/buffer.c	2012-01-20 18:37:43.000000000 +0100
+***************
+*** 3258,3266 ****
+  	    if (maxlen > 0)
+  	    {
+  		/* make it shorter by removing a bit in the middle */
+! 		len = vim_strsize(buf);
+! 		if (len > maxlen)
+! 		    trunc_string(buf, buf, maxlen);
+  	    }
+  	}
+      }
+--- 3258,3265 ----
+  	    if (maxlen > 0)
+  	    {
+  		/* make it shorter by removing a bit in the middle */
+! 		if (vim_strsize(buf) > maxlen)
+! 		    trunc_string(buf, buf, maxlen, IOSIZE);
+  	    }
+  	}
+      }
+*** ../vim-7.3.406/src/eval.c	2012-01-10 22:26:12.000000000 +0100
+--- src/eval.c	2012-01-20 20:43:32.000000000 +0100
+***************
+*** 22163,22170 ****
+  			s = tv2string(&argvars[i], &tofree, numbuf2, 0);
+  			if (s != NULL)
+  			{
+! 			    trunc_string(s, buf, MSG_BUF_CLEN);
+! 			    msg_puts(buf);
+  			    vim_free(tofree);
+  			}
+  		    }
+--- 22163,22174 ----
+  			s = tv2string(&argvars[i], &tofree, numbuf2, 0);
+  			if (s != NULL)
+  			{
+! 			    if (vim_strsize(s) > MSG_BUF_CLEN)
+! 			    {
+! 				trunc_string(s, buf, MSG_BUF_CLEN, MSG_BUF_LEN);
+! 				s = buf;
+! 			    }
+! 			    msg_puts(s);
+  			    vim_free(tofree);
+  			}
+  		    }
+***************
+*** 22252,22259 ****
+  	    s = tv2string(fc->rettv, &tofree, numbuf2, 0);
+  	    if (s != NULL)
+  	    {
+! 		trunc_string(s, buf, MSG_BUF_CLEN);
+! 		smsg((char_u *)_("%s returning %s"), sourcing_name, buf);
+  		vim_free(tofree);
+  	    }
+  	}
+--- 22256,22267 ----
+  	    s = tv2string(fc->rettv, &tofree, numbuf2, 0);
+  	    if (s != NULL)
+  	    {
+! 		if (vim_strsize(s) > MSG_BUF_CLEN)
+! 		{
+! 		    trunc_string(s, buf, MSG_BUF_CLEN, MSG_BUF_LEN);
+! 		    s = buf;
+! 		}
+! 		smsg((char_u *)_("%s returning %s"), sourcing_name, s);
+  		vim_free(tofree);
+  	    }
+  	}
+*** ../vim-7.3.406/src/ex_getln.c	2011-12-08 18:44:47.000000000 +0100
+--- src/ex_getln.c	2012-01-20 18:40:46.000000000 +0100
+***************
+*** 5923,5929 ****
+  							      hist[i].hisnum);
+  		    if (vim_strsize(hist[i].hisstr) > (int)Columns - 10)
+  			trunc_string(hist[i].hisstr, IObuff + STRLEN(IObuff),
+! 							   (int)Columns - 10);
+  		    else
+  			STRCAT(IObuff, hist[i].hisstr);
+  		    msg_outtrans(IObuff);
+--- 5923,5929 ----
+  							      hist[i].hisnum);
+  		    if (vim_strsize(hist[i].hisstr) > (int)Columns - 10)
+  			trunc_string(hist[i].hisstr, IObuff + STRLEN(IObuff),
+! 				  (int)Columns - 10, IOSIZE - STRLEN(IObuff));
+  		    else
+  			STRCAT(IObuff, hist[i].hisstr);
+  		    msg_outtrans(IObuff);
+*** ../vim-7.3.406/src/message.c	2012-01-10 22:26:12.000000000 +0100
+--- src/message.c	2012-01-20 20:38:29.000000000 +0100
+***************
+*** 222,236 ****
+  	    if (enc_utf8)
+  		/* may have up to 18 bytes per cell (6 per char, up to two
+  		 * composing chars) */
+! 		buf = alloc((room + 2) * 18);
+  	    else if (enc_dbcs == DBCS_JPNU)
+  		/* may have up to 2 bytes per cell for euc-jp */
+! 		buf = alloc((room + 2) * 2);
+  	    else
+  #endif
+! 		buf = alloc(room + 2);
+  	    if (buf != NULL)
+! 		trunc_string(s, buf, room);
+  	}
+      }
+      return buf;
+--- 222,237 ----
+  	    if (enc_utf8)
+  		/* may have up to 18 bytes per cell (6 per char, up to two
+  		 * composing chars) */
+! 		len = (room + 2) * 18;
+  	    else if (enc_dbcs == DBCS_JPNU)
+  		/* may have up to 2 bytes per cell for euc-jp */
+! 		len = (room + 2) * 2;
+  	    else
+  #endif
+! 		len = room + 2;
+! 	    buf = alloc(len);
+  	    if (buf != NULL)
+! 		trunc_string(s, buf, room, len);
+  	}
+      }
+      return buf;
+***************
+*** 241,250 ****
+   * "s" and "buf" may be equal.
+   */
+      void
+! trunc_string(s, buf, room)
+      char_u	*s;
+      char_u	*buf;
+      int		room;
+  {
+      int		half;
+      int		len;
+--- 242,252 ----
+   * "s" and "buf" may be equal.
+   */
+      void
+! trunc_string(s, buf, room, buflen)
+      char_u	*s;
+      char_u	*buf;
+      int		room;
++     int		buflen;
+  {
+      int		half;
+      int		len;
+***************
+*** 257,263 ****
+      len = 0;
+  
+      /* First part: Start of the string. */
+!     for (e = 0; len < half; ++e)
+      {
+  	if (s[e] == NUL)
+  	{
+--- 259,265 ----
+      len = 0;
+  
+      /* First part: Start of the string. */
+!     for (e = 0; len < half && e < buflen; ++e)
+      {
+  	if (s[e] == NUL)
+  	{
+***************
+*** 274,280 ****
+  	if (has_mbyte)
+  	    for (n = (*mb_ptr2len)(s + e); --n > 0; )
+  	    {
+! 		++e;
+  		buf[e] = s[e];
+  	    }
+  #endif
+--- 276,283 ----
+  	if (has_mbyte)
+  	    for (n = (*mb_ptr2len)(s + e); --n > 0; )
+  	    {
+! 		if (++e == buflen)
+! 		    break;
+  		buf[e] = s[e];
+  	    }
+  #endif
+***************
+*** 319,326 ****
+      }
+  
+      /* Set the middle and copy the last part. */
+!     mch_memmove(buf + e, "...", (size_t)3);
+!     STRMOVE(buf + e + 3, s + i);
+  }
+  
+  /*
+--- 322,340 ----
+      }
+  
+      /* Set the middle and copy the last part. */
+!     if (e + 3 < buflen)
+!     {
+! 	mch_memmove(buf + e, "...", (size_t)3);
+! 	len = STRLEN(s + i) + 1;
+! 	if (len >= buflen - e - 3)
+! 	    len = buflen - e - 3 - 1;
+! 	mch_memmove(buf + e + 3, s + i, len);
+! 	buf[e + 3 + len - 1] = NUL;
+!     }
+!     else
+!     {
+! 	buf[e - 1] = NUL;  // make sure it is truncated
+!     }
+  }
+  
+  /*
+*** ../vim-7.3.406/src/proto/message.pro	2011-01-17 20:08:03.000000000 +0100
+--- src/proto/message.pro	2012-01-20 18:51:19.000000000 +0100
+***************
+*** 4,10 ****
+  int msg_attr __ARGS((char_u *s, int attr));
+  int msg_attr_keep __ARGS((char_u *s, int attr, int keep));
+  char_u *msg_strtrunc __ARGS((char_u *s, int force));
+! void trunc_string __ARGS((char_u *s, char_u *buf, int room));
+  void reset_last_sourcing __ARGS((void));
+  void msg_source __ARGS((int attr));
+  int emsg_not_now __ARGS((void));
+--- 4,10 ----
+  int msg_attr __ARGS((char_u *s, int attr));
+  int msg_attr_keep __ARGS((char_u *s, int attr, int keep));
+  char_u *msg_strtrunc __ARGS((char_u *s, int force));
+! void trunc_string __ARGS((char_u *s, char_u *buf, int room, int buflen));
+  void reset_last_sourcing __ARGS((void));
+  void msg_source __ARGS((int attr));
+  int emsg_not_now __ARGS((void));
+*** ../vim-7.3.406/src/version.c	2012-01-20 17:57:47.000000000 +0100
+--- src/version.c	2012-01-20 20:42:23.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     407,
+  /**/
+
+-- 
+Hanson's Treatment of Time:
+	There are never enough hours in a day, but always too
+	many days before Saturday.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

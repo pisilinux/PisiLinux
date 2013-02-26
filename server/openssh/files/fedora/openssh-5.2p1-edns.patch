@@ -1,0 +1,72 @@
+diff -up openssh-5.2p1/dns.c.rh205842 openssh-5.2p1/dns.c
+--- openssh-5.2p1/dns.c.rh205842	2009-07-27 16:25:28.000000000 +0200
++++ openssh-5.2p1/dns.c	2009-07-27 16:40:59.000000000 +0200
+@@ -176,6 +176,7 @@ verify_host_key_dns(const char *hostname
+ {
+ 	u_int counter;
+ 	int result;
++	unsigned int rrset_flags = 0;
+ 	struct rrsetinfo *fingerprints = NULL;
+ 
+ 	u_int8_t hostkey_algorithm;
+@@ -199,8 +200,19 @@ verify_host_key_dns(const char *hostname
+ 		return -1;
+ 	}
+ 
++	/*
++	 * Original getrrsetbyname function, found on OpenBSD for example,
++	 * doesn't accept any flag and prerequisite for obtaining AD bit in
++	 * DNS response is set by "options edns0" in resolv.conf.
++	 *
++	 * Our version is more clever and use RRSET_FORCE_EDNS0 flag.
++	 */
++#ifndef HAVE_GETRRSETBYNAME
++	rrset_flags |= RRSET_FORCE_EDNS0;
++#endif
+ 	result = getrrsetbyname(hostname, DNS_RDATACLASS_IN,
+-	    DNS_RDATATYPE_SSHFP, 0, &fingerprints);
++	    DNS_RDATATYPE_SSHFP, rrset_flags, &fingerprints);
++
+ 	if (result) {
+ 		verbose("DNS lookup error: %s", dns_result_totext(result));
+ 		return -1;
+diff -up openssh-5.2p1/openbsd-compat/getrrsetbyname.c.rh205842 openssh-5.2p1/openbsd-compat/getrrsetbyname.c
+--- openssh-5.2p1/openbsd-compat/getrrsetbyname.c.rh205842	2009-07-27 16:22:23.000000000 +0200
++++ openssh-5.2p1/openbsd-compat/getrrsetbyname.c	2009-07-27 16:41:55.000000000 +0200
+@@ -209,8 +209,8 @@ getrrsetbyname(const char *hostname, uns
+ 		goto fail;
+ 	}
+ 
+-	/* don't allow flags yet, unimplemented */
+-	if (flags) {
++	/* Allow RRSET_FORCE_EDNS0 flag only. */
++	if ((flags & !RRSET_FORCE_EDNS0) != 0) {
+ 		result = ERRSET_INVAL;
+ 		goto fail;
+ 	}
+@@ -226,9 +226,9 @@ getrrsetbyname(const char *hostname, uns
+ #endif /* DEBUG */
+ 
+ #ifdef RES_USE_DNSSEC
+-	/* turn on DNSSEC if EDNS0 is configured */
+-	if (_resp->options & RES_USE_EDNS0)
+-		_resp->options |= RES_USE_DNSSEC;
++	/* turn on DNSSEC if required  */
++	if (flags & RRSET_FORCE_EDNS0)
++		_resp->options |= (RES_USE_EDNS0|RES_USE_DNSSEC);
+ #endif /* RES_USE_DNSEC */
+ 
+ 	/* make query */
+diff -up openssh-5.2p1/openbsd-compat/getrrsetbyname.h.rh205842 openssh-5.2p1/openbsd-compat/getrrsetbyname.h
+--- openssh-5.2p1/openbsd-compat/getrrsetbyname.h.rh205842	2009-07-27 16:35:02.000000000 +0200
++++ openssh-5.2p1/openbsd-compat/getrrsetbyname.h	2009-07-27 16:36:09.000000000 +0200
+@@ -72,6 +72,9 @@
+ #ifndef RRSET_VALIDATED
+ # define RRSET_VALIDATED	1
+ #endif
++#ifndef RRSET_FORCE_EDNS0
++# define RRSET_FORCE_EDNS0	0x0001
++#endif
+ 
+ /*
+  * Return codes for getrrsetbyname()

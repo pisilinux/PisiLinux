@@ -1,0 +1,82 @@
+http://sourceware.org/ml/gdb-patches/2009-10/msg00142.html
+Subject: [patch] Fix GNU/Linux core open: Can't read pathname for load map:  Input/output error.
+
+Hi,
+
+GDB currently always prints on loading a core file:
+	warning: Can't read pathname for load map: Input/output error.
+
+The patch is not nice but it was WONTFIXed on the glibc side in:
+	http://sourceware.org/ml/libc-alpha/2009-10/msg00001.html
+
+The same message in GDB PR 8882 and glibc PR 387 was for ld-linux.so.2 l_name
+but that one is now ignored thanks to IGNORE_FIRST_LINK_MAP_ENTRY.
+
+This fix is intended for Linux system vDSO l_name which is a second entry in
+the DSO list.
+
+Regression tested on {x86_86,x86_64-m32,i686}-fedora11-linux-gnu.
+
+
+Thanks,
+Jan
+
+
+gdb/
+2009-10-06  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Do not print false warning on reading core file with vDSO on GNU/Linux.
+	* solib-svr4.c (svr4_current_sos): Suppress the warning if
+	MASTER_SO_LIST is still NULL.
+	* solib.c (update_solib_list): New variable saved_so_list_head.
+	Conditionally restart the function.
+
+[ Context backport.  ]
+
+--- a/gdb/solib-svr4.c
++++ b/gdb/solib-svr4.c
+@@ -1097,8 +1097,18 @@ svr4_current_sos (void)
+ 	  target_read_string (LM_NAME (new), &buffer,
+ 			      SO_NAME_MAX_PATH_SIZE - 1, &errcode);
+ 	  if (errcode != 0)
+-	    warning (_("Can't read pathname for load map: %s."),
+-		     safe_strerror (errcode));
++	    {
++	      /* During the first ever DSO list reading some strings may be
++		 unreadable as residing in the ld.so readonly memory not being
++		 present in a dumped core file.  Delay the error check after
++		 the first pass of DSO list scanning when ld.so should be
++		 already mapped in and all the DSO list l_name memory gets
++		 readable.  */
++
++	      if (master_so_list () != NULL)
++		warning (_("Can't read pathname for load map: %s."),
++			 safe_strerror (errcode));
++	    }
+ 	  else
+ 	    {
+ 	      struct build_id *build_id;
+--- a/gdb/solib.c
++++ b/gdb/solib.c
+@@ -538,6 +538,7 @@ update_solib_list (int from_tty, struct target_ops *target)
+   struct target_so_ops *ops = solib_ops (target_gdbarch);
+   struct so_list *inferior = ops->current_sos();
+   struct so_list *gdb, **gdb_link;
++  struct so_list *saved_so_list_head = so_list_head;
+ 
+   /* We can reach here due to changing solib-search-path or the
+      sysroot, before having any inferior.  */
+@@ -668,6 +669,12 @@ update_solib_list (int from_tty, struct target_ops *target)
+ 	  observer_notify_solib_loaded (i);
+ 	}
+     }
++
++  /* If this was the very first DSO list scan and we possibly read in ld.so
++     recheck all the formerly unreadable DSO names strings.  */
++
++  if (saved_so_list_head == NULL && so_list_head != NULL)
++    update_solib_list (from_tty, target);
+ }
+ 
+ 
+

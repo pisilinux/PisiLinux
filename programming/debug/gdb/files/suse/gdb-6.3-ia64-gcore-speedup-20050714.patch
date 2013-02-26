@@ -1,0 +1,126 @@
+2005-07-14  Jeff Johnsotn  <jjohnstn@redhat.com>
+
+	* linux-nat.c (linux_nat_xfer_memory): Incorporate Fujitsu
+	work-around to use /proc/mem for storage, but to fall-back
+	to PTRACE for ia64 rse register areas.
+	* ia64-linux-nat.c (ia64_rse_slot_num): New static function.
+	(ia64_rse_skip_regs): Ditto.
+	(ia64_linux_check_stack_region): New function.
+	
+Index: gdb-6.8.50.20090803/gdb/linux-nat.c
+===================================================================
+--- gdb-6.8.50.20090803.orig/gdb/linux-nat.c	2009-08-04 06:29:55.000000000 +0200
++++ gdb-6.8.50.20090803/gdb/linux-nat.c	2009-08-04 06:30:53.000000000 +0200
+@@ -4495,15 +4495,38 @@ linux_xfer_partial (struct target_ops *o
+ 	offset &= ((ULONGEST) 1 << addr_bit) - 1;
+     }
+ 
+-#ifndef NATIVE_XFER_UNWIND_TABLE
+-  /* FIXME: For ia64, we cannot currently use linux_proc_xfer_memory
+-	    for accessing thread storage.  Revert when Bugzilla 147436
+-	    is fixed.  */
+   xfer = linux_proc_xfer_partial (ops, object, annex, readbuf, writebuf,
+ 				  offset, len);
+   if (xfer != 0)
+-    return xfer;
++    {
++#ifdef NATIVE_XFER_UNWIND_TABLE
++      struct mem_region range;
++      range.lo = memaddr;
++      range.hi = memaddr + len;
++
++      /* FIXME: For ia64, we cannot currently use
++	 linux_proc_xfer_partial for accessing rse register storage.
++	 Revert when Bugzilla 147436 is fixed.  */
++#ifdef NATIVE_XFER_UNWIND_TABLE
++      extern int ia64_linux_check_stack_region (struct lwp_info *lwp,
++						void *range);
++#endif
++      if (iterate_over_lwps (ia64_linux_check_stack_region, &range) != NULL)
++	{ /* This region contains ia64 rse registers, we have to re-read.  */
++	  int xxfer;
++
++	  /* Re-read register stack area.  */
++	  xxfer = super_xfer_partial (ops, object, annex,
++				      readbuf + (range.lo - memaddr),
++				      writebuf + (range.lo - memaddr),
++				      offset + (range.lo - memaddr),
++				      range.hi - range.lo);
++	  if (xxfer == 0)
++	    xfer = 0;
++	}
+ #endif
++      return xfer;
++    }
+ 
+   return super_xfer_partial (ops, object, annex, readbuf, writebuf,
+ 			     offset, len);
+Index: gdb-6.8.50.20090803/gdb/ia64-linux-nat.c
+===================================================================
+--- gdb-6.8.50.20090803.orig/gdb/ia64-linux-nat.c	2009-02-23 01:03:49.000000000 +0100
++++ gdb-6.8.50.20090803/gdb/ia64-linux-nat.c	2009-08-04 06:30:53.000000000 +0200
+@@ -809,6 +809,64 @@ ia64_linux_xfer_partial (struct target_o
+ 
+ void _initialize_ia64_linux_nat (void);
+ 
++/*
++ * Note: taken from ia64_tdep.c
++ *
++ */
++
++static __inline__ unsigned long
++ia64_rse_slot_num (unsigned long addr)
++{
++  return (addr >> 3) & 0x3f;
++}
++
++/* Skip over a designated number of registers in the backing
++   store, remembering every 64th position is for NAT.  */
++static __inline__ unsigned long
++ia64_rse_skip_regs (unsigned long  addr, long num_regs)
++{
++  long delta = ia64_rse_slot_num(addr) + num_regs;
++
++  if (num_regs < 0)
++    delta -= 0x3e;
++  return addr + ((num_regs + delta/0x3f) << 3);
++}
++
++/*
++ * Check mem_region is stack or not. If stack, /proc/<pid>/mem cannot return 
++ * expected value.
++ */
++int ia64_linux_check_stack_region(struct lwp_info *ti, struct mem_region *range)
++{
++	CORE_ADDR addr;
++	int error;
++	unsigned long bsp, cfm, bspstore;
++	long sof;
++	pid_t pid = ptid_get_lwp(ti->ptid);
++	bsp = ptrace(PTRACE_PEEKUSER, pid, PT_AR_BSP ,NULL);
++	if (bsp == (unsigned long)-1) {
++		return 1;
++	}
++	/* stack is allocated by one-segment, not separated into several segments.
++	   So, we only have to check whether bsp is in *range* or not. */ 		
++	if((range->lo <= bsp) && (bsp <= range->hi)) {
++		bspstore = ptrace(PTRACE_PEEKUSER, pid, PT_AR_BSPSTORE, NULL);
++		cfm = ptrace(PTRACE_PEEKUSER, pid, PT_CFM, NULL);
++		sof = cfm & 0x3f;
++		bsp = ia64_rse_skip_regs(bsp, -sof);
++		range->lo = bspstore;
++		range->hi = bsp;
++		/* we have to check the size of dirty register stack area */
++		/*
++		fprintf_unfiltered(gdb_stdlog, "<%d> <%p>  <%lx> <%p> <%p>\n",
++				   pid, bsp, sof, range->lo, range->hi);
++		*/
++		return 1;
++	}
++	
++	return 0;
++}
++
+ void
+ _initialize_ia64_linux_nat (void)
+ {

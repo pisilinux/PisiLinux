@@ -1,0 +1,75 @@
+Index: network-manager-applet-0.8.2/src/connection-editor/main.c
+===================================================================
+--- network-manager-applet-0.8.2.orig/src/connection-editor/main.c
++++ network-manager-applet-0.8.2/src/connection-editor/main.c
+@@ -44,6 +44,7 @@
+ static GMainLoop *loop = NULL;
+ 
+ #define ARG_TYPE "type"
++#define ARG_WINID "winid"
+ 
+ #define DBUS_TYPE_G_MAP_OF_VARIANT          (dbus_g_type_get_map ("GHashTable", G_TYPE_STRING, G_TYPE_VALUE))
+ 
+@@ -224,12 +225,14 @@ main (int argc, char *argv[])
+ 	NMConnectionList *list;
+ 	DBusGConnection *bus;
+ 	char *type = NULL;
++	gint win_id = 0;
+ 	GType ctype;
+ 	NMCEService *service = NULL;
+ 	DBusGProxy *proxy = NULL;
+ 
+ 	GOptionEntry entries[] = {
+ 		{ ARG_TYPE, 0, 0, G_OPTION_ARG_STRING, &type, "Type of connection to show at launch", NM_SETTING_WIRED_SETTING_NAME },
++		{ ARG_WINID, 0, 0, G_OPTION_ARG_INT, &win_id, "Window ID of container application to embed connection editor", 0},
+ 		{ NULL }
+ 	};
+ 
+@@ -263,7 +266,7 @@ main (int argc, char *argv[])
+ 		/* Check for an existing instance on the bus */
+ 		if (proxy) {
+ 			if (try_existing_instance (bus, proxy, type))
+-				goto exit;
++				goto alreadyrunning;
+ 		}
+ 	}
+ 
+@@ -289,17 +292,37 @@ main (int argc, char *argv[])
+ 	nm_connection_list_run (list);
+ 
+ 	setup_signals ();
++
++	if (win_id > 0)
++	{
++		GtkWidget *plug;
++		GtkWidget *vbox;
++
++		plug = gtk_plug_new ((GdkNativeWindow)win_id);
++		vbox = gtk_dialog_get_content_area(GTK_DIALOG(list->dialog));
++		gtk_widget_reparent(vbox, plug);
++		gtk_widget_hide(GTK_WIDGET(list->dialog));
++
++		gtk_container_add (GTK_CONTAINER (plug), vbox);
++		gtk_widget_show ( plug );
++	}
++
+ 	g_main_loop_run (loop);
+ 
+ 	g_object_unref (list);
+ 	if (service)
+ 		g_object_unref (service);
+ 
+-exit:
+ 	if (proxy)
+ 		g_object_unref (proxy);
+ 	if (bus)
+ 		dbus_g_connection_unref (bus);
+ 	return 0;
++
++alreadyrunning:
++	if (proxy)
++		g_object_unref (proxy);
++	dbus_g_connection_unref (bus);
++	return 1;
+ }
+ 

@@ -1,0 +1,97 @@
+From: Jean Delvare <jdelvare@suse.de>
+Subject: Add a --fuzz parameter to quilt setup and inspect
+References: bnc#615073
+
+Let quilt setup and inspect overrule the _default_patch_fuzz
+setting of rpmbuild, by adding a --fuzz option to both. This is
+particularly useful when working on an old source tree with a
+recent version of patch which defaults to fuzz 0.
+---
+ quilt/scripts/inspect.in |    9 +++++++--
+ quilt/setup.in           |   12 +++++++++---
+ 2 files changed, 16 insertions(+), 5 deletions(-)
+
+--- quilt-0.48.orig/quilt/scripts/inspect.in
++++ quilt-0.48/quilt/scripts/inspect.in
+@@ -17,11 +17,11 @@ fi
+ cd ${SUBDIR:-.}
+ 
+ usage() {
+-	echo "Usage: ${0##*/} specfile"
++	echo "Usage: ${0##*/} [--fuzz=N] specfile"
+ 	exit 1
+ }
+ 
+-options=$(getopt -o v --long sourcedir: -n "${0##*/}" -- "$@") || exit
++options=$(getopt -o v --long sourcedir:,fuzz: -n "${0##*/}" -- "$@") || exit
+ 
+ eval set -- "$options"
+ 
+@@ -36,6 +36,10 @@ do
+ 	--sourcedir)
+ 		sourcedir=${2%/}/
+ 		shift 2 ;;
++	--fuzz)
++		# Only works with rpm 4.6 and later
++		DEFINE_FUZZ="%define _default_patch_fuzz $2"
++		shift 2 ;;
+ 	--)
+ 		shift
+ 		break ;;
+@@ -269,6 +273,7 @@ rpmbuild --eval "%define _sourcedir $sou
+ 	 --eval "%define _builddir  $tmpdir/build" \
+ 	 --eval "%define __patch    $tmpdir/bin/patch" \
+ 	 --eval "%define __tar      $tmpdir/bin/tar" \
++	 --eval "$DEFINE_FUZZ" \
+ 	 --nodeps \
+ 	 -bp "$specdir/$specfile" < /dev/null >&2
+ status=$?
+--- quilt-0.48.orig/quilt/setup.in
++++ quilt-0.48/quilt/setup.in
+@@ -72,7 +72,7 @@ create_symlink() {
+ 
+ usage()
+ {
+-	printf $"Usage: quilt setup [-d path-prefix] [-v] [--sourcedir dir] {specfile|seriesfile}\n"
++	printf $"Usage: quilt setup [-d path-prefix] [-v] [--sourcedir dir] [--fuzz=N] {specfile|seriesfile}\n"
+ 	if [ x$1 = x-h ]
+ 	then
+ 		printf $"
+@@ -84,6 +84,9 @@ Initializes a source tree from an rpm sp
+ 	Directory that contains the package sources. Defaults to \`.'.
+ 
+ -v	Verbose debug output.
++
++--fuzz=N
++	Set the maximum fuzz factor (needs rpm 4.6 or later).
+ "
+ 		exit 0
+ 	else
+@@ -91,7 +94,7 @@ Initializes a source tree from an rpm sp
+ 	fi
+ }
+ 
+-options=`getopt -o d:vh --long sourcedir: -- "$@"`
++options=`getopt -o d:vh --long sourcedir:,fuzz: -- "$@"`
+ 
+ if [ $? -ne 0 ]
+ then
+@@ -117,6 +120,9 @@ do
+ 	--sourcedir)
+ 		sourcedir=${2%/}/
+ 		shift 2 ;;
++	--fuzz)
++		opt_fuzz="--fuzz $2"
++		shift 2 ;;
+ 	--)
+ 		shift
+ 		break ;;
+@@ -137,7 +143,7 @@ case "$1" in
+ *.spec)
+ 	spec_file=$1
+ 
+-	if ! $QUILT_DIR/scripts/inspect $verbose $opt_sourcedir \
++	if ! $QUILT_DIR/scripts/inspect $verbose $opt_sourcedir $opt_fuzz \
+ 					"$spec_file" 2>&1 > $tmpfile
+ 	then
+ 		printf $"The %%prep section of %s failed; results may be incomplete\n" "$spec_file"

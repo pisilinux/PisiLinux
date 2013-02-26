@@ -1,0 +1,127 @@
+http://sourceware.org/ml/gdb-patches/2010-03/msg00868.html
+Subject: [patch] PIE: Fix back re-run  [Re: [patch] svr4_exec_displacement  success indicator]
+
+Hi,
+
+currently:
+
+$ echo 'main(){}'|gcc -o 1 -fPIE -pie -x c -; ./gdb -nx -ex 'set disable-randomization off' -ex 'b main' -ex r -ex c -ex r ./1
+Breakpoint 1 at 0x6b0
+Starting program: /home/jkratoch/redhat/gdb-clean/gdb/testsuite/1 
+Breakpoint 1, 0x00007fbf73e8c6b0 in main ()
+Continuing.
+Program exited with code 0140.
+Starting program: /home/jkratoch/redhat/gdb-clean/gdb/testsuite/1 
+Error in re-setting breakpoint 1: Cannot access memory at address 0x7fbf73e8c6ac
+
+It is since:
+	[patch] svr4_exec_displacement success indicator [Re: PIE question]
+	http://sourceware.org/ml/gdb-patches/2010-03/msg00336.html
+
+
+On Mon, 08 Mar 2010 22:53:58 +0100, Jan Kratochvil wrote:
+> Attached these changes:
+> 
+> * svr4_exec_displacement calling convention should have success indicator.
+> 
+> * Preserving now section_offsets if they are already set, inspired by
+>   init_objfile_sect_indices.
+> 
+> I believe either of parts would be sufficient for this problem.
+
+The first part has caused the regression for PIE on native x86* GNU/Linux host.
+
+As I believe for Daniel J.'s seen regression of `qOffsets' the second already
+checked-in part is sufficient - I would like to remove the first part.
+
+OK to check it in?
+
+No regressions on {x86_64,x86_64-m32,i686}-fedora12-linux-gnu.
+
+(I do not think one needs to think about 7.1-branch as it is not a regression
+against any FSF GDB release.)
+
+
+Thanks,
+Jan
+
+
+gdb/
+2010-03-25  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Fix re-run of PIE executable.
+	* solib-svr4.c (svr4_relocate_main_executable) <symfile_objfile>: Remove
+	the part of pre-set SYMFILE_OBJFILE->SECTION_OFFSETS.
+
+gdb/testsuite/
+2010-03-25  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Fix re-run of PIE executable.
+	* gdb.base/break-interp.exp (test_ld): Turn off "disable-randomization".
+	Remove $displacement_main to match the solib-svr4.c change.  New "kill"
+	and re-"run" of the inferior.
+
+--- a/gdb/solib-svr4.c
++++ b/gdb/solib-svr4.c
+@@ -1791,17 +1791,10 @@ svr4_relocate_main_executable (void)
+ {
+   CORE_ADDR displacement;
+ 
+-  if (symfile_objfile)
+-    {
+-      int i;
+-
+-      /* Remote target may have already set specific offsets by `qOffsets'
+-	 which should be preferred.  */
+-
+-      for (i = 0; i < symfile_objfile->num_sections; i++)
+-	if (ANOFFSET (symfile_objfile->section_offsets, i) != 0)
+-	  return;
+-    }
++  /* SYMFILE_OBJFILE->SECTION_OFFSETS may now contain displacement from the
++     previous run of the inferior.  Re-set it according to the current value,
++     if we can find it out.  But otherwise keep it as for remote target it may
++     have been pre-set by the `qOffsets' packet.  */
+ 
+   if (! svr4_exec_displacement (&displacement))
+     return;
+--- a/gdb/testsuite/gdb.base/break-interp.exp
++++ b/gdb/testsuite/gdb.base/break-interp.exp
+@@ -416,25 +416,28 @@ proc test_ld {file ifmain trynosym displacement} {
+     # Print the "PIE (Position Independent Executable) displacement" message.
+     gdb_test "set verbose on"
+ 
++    # A bit better test coverage.
++    gdb_test "set disable-randomization off"
++
+     reach "dl_main" "run segv" $displacement
+ 
+     gdb_test "bt" "#0 +\[^\r\n\]*\\mdl_main\\M.*" "dl bt"
+ 
+     if $ifmain {
+ 	# Displacement message will be printed the second time on initializing
+-	# the linker from svr4_special_symbol_handling.  If any ANOFFSET has
+-	# been already set as non-zero the detection will no longer be run.
+-	if {$displacement == "NONZERO"} {
+-	    set displacement_main "NONE"
+-	} else {
+-	    set displacement_main $displacement
+-	}
+-	reach "main" continue $displacement_main
++	# the linker from svr4_special_symbol_handling.
++	reach "main" continue $displacement
+ 
+ 	reach "libfunc" continue "NONE"
+ 
+ 	gdb_test "bt" "#0 +\[^\r\n\]*\\mlibfunc\\M\[^\r\n\]*\r\n#1 +\[^\r\n\]*\\mmain\\M.*" "main bt"
++    }
+ 
++    # Try re-run if the new PIE displacement takes effect.
++    gdb_test "kill" "" "kill" {Kill the program being debugged\? \(y or n\) } "y"
++    reach "dl_main" "run  segv" $displacement
++
++    if $ifmain {
+ 	test_core $file $displacement
+ 
+ 	test_attach $file $displacement
+

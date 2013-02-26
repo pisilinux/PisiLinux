@@ -1,0 +1,168 @@
+Index: glib-2.31.0/glib/gkeyfile.c
+===================================================================
+--- glib-2.31.0.orig/glib/gkeyfile.c
++++ glib-2.31.0/glib/gkeyfile.c
+@@ -447,6 +447,7 @@ struct _GKeyFile
+ 
+   gchar **locales;
+   gchar  *gettext_domain;
++  gchar  *file_basename;
+ 
+   volatile gint ref_count;
+ };
+@@ -579,6 +580,7 @@ g_key_file_init (GKeyFile *key_file)
+   key_file->flags = 0;
+   key_file->locales = g_strdupv ((gchar **)g_get_language_names ());
+   key_file->gettext_domain = NULL;
++  key_file->file_basename = NULL;
+ }
+ 
+ static void
+@@ -604,6 +606,12 @@ g_key_file_clear (GKeyFile *key_file)
+        key_file->gettext_domain = NULL;
+     }
+ 
++  if (key_file->file_basename)
++    {
++       g_free (key_file->file_basename);
++       key_file->file_basename = NULL;
++    }
++
+   tmp = key_file->groups;
+   while (tmp != NULL)
+     {
+@@ -747,6 +755,39 @@ find_file_in_data_dirs (const gchar   *f
+   return fd;
+ }
+ 
++static int _g_key_file_default_textdomain_codeset_bound = 0;
++#define _G_KEY_FILE_DEFAULT_DOMAIN "desktop_translations"
++
++static char *
++_g_key_file_get_default_gettext_domain (void)
++{
++  if (!_g_key_file_default_textdomain_codeset_bound)
++    {
++      const char *codeset;
++
++      _g_key_file_default_textdomain_codeset_bound = 1;
++
++      codeset = bind_textdomain_codeset (_G_KEY_FILE_DEFAULT_DOMAIN, "UTF-8");
++
++      if (codeset)
++        _g_key_file_default_textdomain_codeset_bound |= 1 << 1;
++    }
++
++  return g_strdup (_G_KEY_FILE_DEFAULT_DOMAIN);
++}
++
++static inline gboolean
++_g_key_file_is_default_gettext_domain (const char *domain)
++{
++  return (domain && strcmp (domain, _G_KEY_FILE_DEFAULT_DOMAIN) == 0);
++}
++
++static inline gboolean
++_g_key_file_default_gettext_domain_is_bound (void)
++{
++  return _g_key_file_default_textdomain_codeset_bound & (1 << 1);
++}
++
+ static gboolean
+ g_key_file_load_from_fd (GKeyFile       *key_file,
+ 			 gint            fd,
+@@ -832,6 +873,9 @@ g_key_file_load_from_fd (GKeyFile
+                                                     G_KEY_FILE_DESKTOP_KEY_GETTEXT_DOMAIN,
+                                                     NULL);
+ 
++  if (!key_file->gettext_domain)
++    key_file->gettext_domain = _g_key_file_get_default_gettext_domain ();
++
+   return TRUE;
+ }
+ 
+@@ -881,6 +925,8 @@ g_key_file_load_from_file (GKeyFile
+       return FALSE;
+     }
+ 
++  key_file->file_basename = g_path_get_basename (file);
++
+   return TRUE;
+ }
+ 
+@@ -943,6 +989,9 @@ g_key_file_load_from_data (GKeyFile
+                                                     G_KEY_FILE_DESKTOP_KEY_GETTEXT_DOMAIN,
+                                                     NULL);
+ 
++  if (!key_file->gettext_domain)
++    key_file->gettext_domain = _g_key_file_get_default_gettext_domain ();
++
+   return TRUE;
+ }
+ 
+@@ -1012,6 +1061,9 @@ g_key_file_load_from_dirs (GKeyFile
+         }
+     }
+ 
++  if (found_file)
++    key_file->file_basename = g_path_get_basename (output_path);
++
+   if (found_file && full_path)
+     *full_path = output_path;
+   else
+@@ -2190,12 +2242,38 @@ g_key_file_get_locale_string (GKeyFile
+           const gchar *translated;
+           gboolean has_gettext;
+ 
+-          codeset_set = bind_textdomain_codeset (key_file->gettext_domain, "UTF-8") != NULL;
++          if (_g_key_file_is_default_gettext_domain (key_file->gettext_domain))
++            codeset_set = _g_key_file_default_gettext_domain_is_bound ();
++          else
++            codeset_set = bind_textdomain_codeset (key_file->gettext_domain, "UTF-8") != NULL;
+           translated = NULL;
+ 
+-          translated = g_dgettext (key_file->gettext_domain,
+-                                   orig_value);
+-          has_gettext = translated != orig_value;
++          /* first try to translate with the context */
++          if (key_file->file_basename)
++            {
++              gchar *context;
++              gchar *context_value;
++
++              context = g_strdup_printf ("%s(%s)", key,
++                                         key_file->file_basename);
++              context_value = g_strdup_printf ("%s%s%s",
++                                               context, ": ", orig_value);
++
++              translated = g_dgettext (key_file->gettext_domain,
++                                       context_value);
++              has_gettext = translated != context_value;
++
++              g_free (context_value);
++              g_free (context);
++            }
++
++          /* no translation with the context: try without context */
++          if (!has_gettext)
++            {
++              translated = g_dgettext (key_file->gettext_domain,
++                                       orig_value);
++              has_gettext = translated != orig_value;
++            }
+ 
+           g_free (orig_value);
+ 
+Index: glib-2.31.0/glib/gkeyfile.h
+===================================================================
+--- glib-2.31.0.orig/glib/gkeyfile.h
++++ glib-2.31.0/glib/gkeyfile.h
+@@ -258,7 +258,7 @@ gboolean  g_key_file_remove_group
+ #define G_KEY_FILE_DESKTOP_KEY_STARTUP_NOTIFY   "StartupNotify"
+ #define G_KEY_FILE_DESKTOP_KEY_STARTUP_WM_CLASS "StartupWMClass"
+ #define G_KEY_FILE_DESKTOP_KEY_URL              "URL"
+-#define G_KEY_FILE_DESKTOP_KEY_GETTEXT_DOMAIN   "X-GNOME-Gettext-Domain"
++#define G_KEY_FILE_DESKTOP_KEY_GETTEXT_DOMAIN   "X-SUSE-Gettext-Domain"
+ 
+ #define G_KEY_FILE_DESKTOP_TYPE_APPLICATION     "Application"
+ #define G_KEY_FILE_DESKTOP_TYPE_LINK            "Link"

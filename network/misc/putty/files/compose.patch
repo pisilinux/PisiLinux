@@ -1,0 +1,309 @@
+Description: Support dead keys and compose sequences
+Origin: backport, http://svn.tartarus.org/sgt?view=rev&revision=9567
+Origin: upstream, http://svn.tartarus.org/sgt?view=rev&revision=9568
+Origin: backport, http://svn.tartarus.org/sgt?view=rev&revision=9573
+Forwarded: not-needed
+Last-Update: 2012-06-22
+
+Index: b/unix/gtkwin.c
+===================================================================
+--- a/unix/gtkwin.c
++++ b/unix/gtkwin.c
+@@ -13,6 +13,7 @@
+ #include <stdio.h>
+ #include <time.h>
+ #include <errno.h>
++#include <locale.h>
+ #include <fcntl.h>
+ #include <unistd.h>
+ #include <sys/types.h>
+@@ -24,6 +25,10 @@
+ #include <X11/Xutil.h>
+ #include <X11/Xatom.h>
+ 
++#if GTK_CHECK_VERSION(2,0,0)
++#include <gtk/gtkimmodule.h>
++#endif
++
+ #define PUTTY_DO_GLOBALS	       /* actually _define_ globals */
+ 
+ #include "putty.h"
+@@ -69,6 +74,9 @@
+ 	*restartitem;
+     GtkWidget *sessionsmenu;
+     GdkPixmap *pixmap;
++#if GTK_CHECK_VERSION(2,0,0)
++    GtkIMContext *imc;
++#endif
+     unifont *fonts[4];                 /* normal, bold, wide, widebold */
+     int xpos, ypos, gotpos, gravity;
+     GdkCursor *rawcursor, *textcursor, *blankcursor, *waitcursor, *currcursor;
+@@ -478,6 +486,10 @@
+     if (inst->term)
+ 	term_invalidate(inst->term);
+ 
++#if GTK_CHECK_VERSION(2,0,0)
++    gtk_im_context_set_client_window(inst->imc, widget->window);
++#endif
++
+     return TRUE;
+ }
+ 
+@@ -509,6 +521,7 @@
+     char output[256];
+     wchar_t ucsoutput[2];
+     int ucsval, start, end, special, output_charset, use_ucsoutput;
++    int nethack_mode, app_keypad_mode;
+ 
+     /* Remember the timestamp. */
+     inst->input_event_time = event->time;
+@@ -528,21 +541,26 @@
+      * inconvenience in having to type a zero before a single-digit
+      * character code.
+      */
+-    if (event->type == GDK_KEY_RELEASE &&
+-	(event->keyval == GDK_Meta_L || event->keyval == GDK_Alt_L ||
+-	 event->keyval == GDK_Meta_R || event->keyval == GDK_Alt_R) &&
+-	inst->alt_keycode >= 0 && inst->alt_digits > 1) {
++    if (event->type == GDK_KEY_RELEASE) {
++        if ((event->keyval == GDK_Meta_L || event->keyval == GDK_Alt_L ||
++             event->keyval == GDK_Meta_R || event->keyval == GDK_Alt_R) &&
++            inst->alt_keycode >= 0 && inst->alt_digits > 1) {
+ #ifdef KEY_DEBUGGING
+-	printf("Alt key up, keycode = %d\n", inst->alt_keycode);
++            printf("Alt key up, keycode = %d\n", inst->alt_keycode);
++#endif
++            /*
++             * FIXME: we might usefully try to do something clever here
++             * about interpreting the generated key code in a way that's
++             * appropriate to the line code page.
++             */
++            output[0] = inst->alt_keycode;
++            end = 1;
++            goto done;
++        }
++#if GTK_CHECK_VERSION(2,0,0)
++        if (gtk_im_context_filter_keypress(inst->imc, event))
++            return TRUE;
+ #endif
+-	/*
+-	 * FIXME: we might usefully try to do something clever here
+-	 * about interpreting the generated key code in a way that's
+-	 * appropriate to the line code page.
+-	 */
+-	output[0] = inst->alt_keycode;
+-	end = 1;
+-	goto done;
+     }
+ 
+     if (event->type == GDK_KEY_PRESS) {
+@@ -645,6 +663,10 @@
+ 	special = FALSE;
+ 	use_ucsoutput = FALSE;
+ 
++        nethack_mode = inst->cfg.nethack_keypad;
++        app_keypad_mode = (inst->term->app_keypad_keys &&
++                           !inst->cfg.no_applic_k);
++
+ 	/* ALT+things gives leading Escape. */
+ 	output[0] = '\033';
+ #if !GTK_CHECK_VERSION(2,0,0)
+@@ -658,13 +680,73 @@
+ 	output_charset = CS_ISO8859_1;
+ 	strncpy(output+1, event->string, lenof(output)-1);
+ #else
++        /*
++         * Most things can now be passed to
++         * gtk_im_context_filter_keypress without breaking anything
++         * below this point. An exception is the numeric keypad if
++         * we're in Nethack or application mode: the IM will eat
++         * numeric keypad presses if Num Lock is on, but we don't want
++         * it to.
++         */
++	if (app_keypad_mode &&
++            (event->keyval == GDK_Num_Lock ||
++             event->keyval == GDK_KP_Divide ||
++             event->keyval == GDK_KP_Multiply ||
++             event->keyval == GDK_KP_Subtract ||
++             event->keyval == GDK_KP_Add ||
++             event->keyval == GDK_KP_Enter ||
++             event->keyval == GDK_KP_0 ||
++             event->keyval == GDK_KP_Insert ||
++             event->keyval == GDK_KP_1 ||
++             event->keyval == GDK_KP_End ||
++             event->keyval == GDK_KP_2 ||
++             event->keyval == GDK_KP_Down ||
++             event->keyval == GDK_KP_3 ||
++             event->keyval == GDK_KP_Page_Down ||
++             event->keyval == GDK_KP_4 ||
++             event->keyval == GDK_KP_Left ||
++             event->keyval == GDK_KP_5 ||
++             event->keyval == GDK_KP_Begin ||
++             event->keyval == GDK_KP_6 ||
++             event->keyval == GDK_KP_Right ||
++             event->keyval == GDK_KP_7 ||
++             event->keyval == GDK_KP_Home ||
++             event->keyval == GDK_KP_8 ||
++             event->keyval == GDK_KP_Up ||
++             event->keyval == GDK_KP_9 ||
++             event->keyval == GDK_KP_Page_Up ||
++             event->keyval == GDK_KP_Decimal ||
++             event->keyval == GDK_KP_Delete)) {
++            /* app keypad; do nothing */
++        } else if (nethack_mode &&
++                   (event->keyval == GDK_KP_1 ||
++                    event->keyval == GDK_KP_End ||
++                    event->keyval == GDK_KP_2 ||
++                    event->keyval == GDK_KP_Down ||
++                    event->keyval == GDK_KP_3 ||
++                    event->keyval == GDK_KP_Page_Down ||
++                    event->keyval == GDK_KP_4 ||
++                    event->keyval == GDK_KP_Left ||
++                    event->keyval == GDK_KP_5 ||
++                    event->keyval == GDK_KP_Begin ||
++                    event->keyval == GDK_KP_6 ||
++                    event->keyval == GDK_KP_Right ||
++                    event->keyval == GDK_KP_7 ||
++                    event->keyval == GDK_KP_Home ||
++                    event->keyval == GDK_KP_8 ||
++                    event->keyval == GDK_KP_Up ||
++                    event->keyval == GDK_KP_9 ||
++                    event->keyval == GDK_KP_Page_Up)) {
++            /* nethack mode; do nothing */
++        } else {
++            if (gtk_im_context_filter_keypress(inst->imc, event))
++                return TRUE;
++        }
++
+ 	/*
+ 	 * GDK 2.0 arranges to have done some translation for us: in
+ 	 * GDK 2.0, event->string is encoded in the current locale.
+ 	 *
+-	 * (However, it's also deprecated; we really ought to be
+-	 * using a GTKIMContext.)
+-	 *
+ 	 * So we use the standard C library function mbstowcs() to
+ 	 * convert from the current locale into Unicode; from there
+ 	 * we can convert to whatever PuTTY is currently working in.
+@@ -786,7 +868,7 @@
+ 	/*
+ 	 * NetHack keypad mode.
+ 	 */
+-	if (inst->cfg.nethack_keypad) {
++	if (nethack_mode) {
+ 	    char *keys = NULL;
+ 	    switch (event->keyval) {
+ 	      case GDK_KP_1: case GDK_KP_End: keys = "bB\002"; break;
+@@ -815,7 +897,7 @@
+ 	/*
+ 	 * Application keypad mode.
+ 	 */
+-	if (inst->term->app_keypad_keys && !inst->cfg.no_applic_k) {
++	if (app_keypad_mode) {
+ 	    int xkey = 0;
+ 	    switch (event->keyval) {
+ 	      case GDK_Num_Lock: xkey = 'P'; break;
+@@ -1119,6 +1201,16 @@
+     return TRUE;
+ }
+ 
++#if GTK_CHECK_VERSION(2,0,0)
++void input_method_commit_event(GtkIMContext *imc, gchar *str, gpointer data)
++{
++    struct gui_data *inst = (struct gui_data *)data;
++    lpage_send(inst->ldisc, CS_UTF8, str, strlen(str), 1);
++    show_mouseptr(inst, 0);
++    term_seen_key_event(inst->term);
++}
++#endif
++
+ gboolean button_internal(struct gui_data *inst, guint32 timestamp,
+ 			 GdkEventType type, guint ebutton, guint state,
+ 			 gdouble ex, gdouble ey)
+@@ -2310,6 +2402,17 @@
+ 		    x*inst->font_width+inst->cfg.window_border,
+ 		    y*inst->font_height+inst->cfg.window_border,
+ 		    len*widefactor*inst->font_width, inst->font_height);
++
++#if GTK_CHECK_VERSION(2,0,0)
++    {
++        GdkRectangle cursorrect;
++        cursorrect.x = x*inst->font_width+inst->cfg.window_border;
++        cursorrect.y = y*inst->font_height+inst->cfg.window_border;
++        cursorrect.width = len*widefactor*inst->font_width;
++        cursorrect.height = inst->font_height;
++        gtk_im_context_set_cursor_location(inst->imc, &cursorrect);
++    }
++#endif
+ }
+ 
+ GdkCursor *make_mouse_ptr(struct gui_data *inst, int cursor_val)
+@@ -3367,6 +3470,8 @@
+     extern int cfgbox(Config *cfg);
+     struct gui_data *inst;
+ 
++    setlocale(LC_CTYPE, "");
++
+     /*
+      * Create an instance structure and initialise to zeroes
+      */
+@@ -3426,6 +3531,10 @@
+ 
+     inst->area = gtk_drawing_area_new();
+ 
++#if GTK_CHECK_VERSION(2,0,0)
++    inst->imc = gtk_im_multicontext_new();
++#endif
++
+     setup_fonts_ucs(inst);
+     init_cutbuffers();
+ 
+@@ -3512,6 +3621,10 @@
+ 		       GTK_SIGNAL_FUNC(selection_get), inst);
+     gtk_signal_connect(GTK_OBJECT(inst->area), "selection_clear_event",
+ 		       GTK_SIGNAL_FUNC(selection_clear), inst);
++#if GTK_CHECK_VERSION(2,0,0)
++    g_signal_connect(G_OBJECT(inst->imc), "commit",
++                     G_CALLBACK(input_method_commit_event), inst);
++#endif
+     if (inst->cfg.scrollbar)
+ 	gtk_signal_connect(GTK_OBJECT(inst->sbar_adjust), "value_changed",
+ 			   GTK_SIGNAL_FUNC(scrollbar_moved), inst);
+Index: b/unix/uxucs.c
+===================================================================
+--- a/unix/uxucs.c
++++ b/unix/uxucs.c
+@@ -29,7 +29,6 @@
+ 	mbstate_t state;
+ 
+ 	memset(&state, 0, sizeof state);
+-	setlocale(LC_CTYPE, "");
+ 
+ 	while (mblen > 0) {
+ 	    size_t i = mbrtowc(wcstr+n, mbstr, (size_t)mblen, &state);
+@@ -40,8 +39,6 @@
+ 	    mblen -= i;
+ 	}
+ 
+-	setlocale(LC_CTYPE, "C");
+-
+ 	return n;
+     } else if (codepage == CS_NONE) {
+ 	int n = 0;
+@@ -73,7 +70,6 @@
+ 	int n = 0;
+ 
+ 	memset(&state, 0, sizeof state);
+-	setlocale(LC_CTYPE, "");
+ 
+ 	while (wclen > 0) {
+ 	    int i = wcrtomb(output, wcstr[0], &state);
+@@ -85,8 +81,6 @@
+ 	    wclen--;
+ 	}
+ 
+-	setlocale(LC_CTYPE, "C");
+-
+ 	return n;
+     } else if (codepage == CS_NONE) {
+ 	int n = 0;

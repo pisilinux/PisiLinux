@@ -1,0 +1,145 @@
+diff -Nur r5u870_k2.6.27-old/ChangeLog r5u870_k2.6.27/ChangeLog
+--- r5u870_k2.6.27-old/ChangeLog	2009-05-14 22:44:55.130980372 +0300
++++ r5u870_k2.6.27/ChangeLog	2009-05-14 22:46:50.606146698 +0300
+@@ -1,3 +1,6 @@
++2008-06-15  Onur Küçük <onur@pardus.org.tr>
++    Ported r5u870 to kernel-2.6.30.
++
+ 2008-06-15  Alexander Hixon  <hixon.alexander@mediati.org>
+     Released r5u870 version 0.11.1.
+ 
+diff -Nur r5u870_k2.6.27-old/r5u870.c r5u870_k2.6.27/r5u870.c
+--- r5u870_k2.6.27-old/r5u870.c	2009-05-14 22:44:55.129980664 +0300
++++ r5u870_k2.6.27/r5u870.c	2009-05-14 22:45:14.706233251 +0300
+@@ -869,10 +869,12 @@
+ #define V4L2_CID_LASTP1			(V4L2_CID_BASE+31) /* last CID + 1 */
+ #else
+ #define V4L2_CID_GREEN_BALANCE		(V4L2_CID_BASE+31)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+ #define V4L2_CID_PRIVACY		(V4L2_CID_BASE+32)
+-#define V4L2_CID_NIGHT_MODE		(V4L2_CID_BASE+33)
+ #define V4L2_CID_LASTP1			(V4L2_CID_BASE+34) /* last CID + 1 */
+ #endif
++#define V4L2_CID_NIGHT_MODE		(V4L2_CID_BASE+33)
++#endif
+ 
+ /* 2007-09-09 TJ Ensure names are identical to uvcvideo,
+  * so user applications aren't confused by differing results for UVC queries */
+diff -Nur r5u870_k2.6.27-old/usbcam/usbcam_fops.c r5u870_k2.6.27/usbcam/usbcam_fops.c
+--- r5u870_k2.6.27-old/usbcam/usbcam_fops.c	2009-05-14 22:44:55.136961582 +0300
++++ r5u870_k2.6.27/usbcam/usbcam_fops.c	2009-05-14 22:45:14.707959798 +0300
+@@ -124,7 +124,7 @@
+  * V4L file_operations callout implementations
+  */
+ 
+-static int usbcam_v4l_open(struct inode *inode, struct file *filp)
++static int usbcam_v4l_open(struct file *filp)
+ {
+ 	struct usbcam_dev *udp;
+ 	struct usbcam_fh *ufp;
+@@ -213,7 +213,7 @@
+ 	return res;
+ }
+ 
+-static int usbcam_v4l_release(struct inode *inode, struct file *filp)
++static int usbcam_v4l_release(struct file *filp)
+ {
+ 	struct usbcam_fh *ufp = (struct usbcam_fh *) filp->private_data;
+ 	struct usbcam_dev *udp = ufp->ufh_dev;
+@@ -518,8 +518,10 @@
+ 		usbcam_drvname(udp->ud_minidrv),
+ 		sizeof(cap->driver));
+ 	strlcpy(cap->card, udp->ud_vdev.name, sizeof(cap->card));
++    /*
+ 	snprintf(cap->bus_info, sizeof(cap->bus_info),
+ 		 "usb:%s", udp->ud_dev->dev.bus_id);
++         */
+ 	cap->version = udp->ud_minidrv->um_version;
+ 	cap->capabilities = (V4L2_CAP_VIDEO_CAPTURE |
+ 			     V4L2_CAP_READWRITE |
+@@ -910,7 +912,7 @@
+ }
+ 
+ /* Intercept calls to minidriver V4L handler thing for compat calls. */
+-static int usbcam_v4l_int_ioctl(struct inode *inodep, struct file *filp,
++static long usbcam_v4l_int_ioctl(struct file *filp,
+ 				unsigned int cmd, void *arg)
+ {
+     struct usbcam_fh        *ufp = (struct usbcam_fh *) filp->private_data;
+@@ -927,7 +929,6 @@
+ 		usbcam_lock(udp);
+ 		
+ 		strlcpy(cap->name, udp->ud_vdev.name, sizeof(cap->name));
+-		cap->type = VID_TYPE_CAPTURE;
+ 		cap->audios = 0;
+ 		cap->channels = 1;	/* only one input source, the camera */
+ 		
+@@ -1155,7 +1156,7 @@
+ 	}
+ }
+ 
+-static int usbcam_v4l_ioctl (struct inode *inodep, struct file *file,
++static long usbcam_v4l_ioctl (struct file *file,
+ 	       unsigned int cmd, unsigned long arg)
+ {
+     struct usbcam_fh        *ufp = (struct usbcam_fh *) file->private_data;
+@@ -1167,11 +1168,11 @@
+ 	if (_IOC_TYPE(cmd) == 'v')
+ 	{
+ 		// run our own internal ioctl handler for these V4L compat ioctl.
+-		return video_usercopy(inodep, file, cmd, arg, usbcam_v4l_int_ioctl);
++		return video_usercopy(file, cmd, arg, usbcam_v4l_int_ioctl);
+ 	}
+ #endif
+ 	
+-	return video_ioctl2(inodep, file, cmd, arg);
++	return video_ioctl2(file, cmd, arg);
+ }
+ 
+ /*
+@@ -1185,7 +1186,7 @@
+  * will refer to the minidriver module, not usbcam.
+  */
+ 
+-struct file_operations usbcam_v4l_fops_template = {
++struct v4l2_file_operations usbcam_v4l_fops_template = {
+ 	.owner		= THIS_MODULE,
+ 	.open		= usbcam_v4l_open,
+ 	.release	= usbcam_v4l_release,
+@@ -1197,7 +1198,6 @@
+ #ifdef CONFIG_COMPAT
+ 	.compat_ioctl	= v4l_compat_ioctl32,
+ #endif
+-	.llseek		= no_llseek,
+ };
+ 
+ 
+@@ -1246,7 +1246,6 @@
+ struct video_device usbcam_videodev_template = {
+ 	.name			= "usbcam-unknown",
+ 	.type			= VFL_TYPE_GRABBER,
+-	.type2			= VID_TYPE_CAPTURE,
+ 	.minor			= -1,
+ 
+ 	.vidioc_querycap	= usbcam_v4l_vidioc_querycap,
+diff -Nur r5u870_k2.6.27-old/usbcam/usbcam_priv.h r5u870_k2.6.27/usbcam/usbcam_priv.h
+--- r5u870_k2.6.27-old/usbcam/usbcam_priv.h	2009-05-14 22:44:55.138960789 +0300
++++ r5u870_k2.6.27/usbcam/usbcam_priv.h	2009-05-14 22:45:14.708960135 +0300
+@@ -120,7 +120,7 @@
+ 	struct mutex			um_lock;
+ 	const struct usbcam_dev_ops	*um_ops;
+ 	struct video_device		um_videodev_template;
+-	struct file_operations		um_v4l_fops;
++	struct v4l2_file_operations		um_v4l_fops;
+ 	const int			*um_video_nr_array;
+ 	int				um_video_nr_array_len;
+ };
+@@ -199,7 +199,7 @@
+ }
+ 
+ extern struct videobuf_queue_ops usbcam_videobuf_qops;
+-extern struct file_operations usbcam_v4l_fops_template;
++extern struct v4l2_file_operations usbcam_v4l_fops_template;
+ extern struct video_device usbcam_videodev_template;
+ 
+ #endif  /* !defined(__USBCAM_PRIV_H__) */

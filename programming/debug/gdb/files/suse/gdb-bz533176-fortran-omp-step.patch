@@ -1,0 +1,115 @@
+https://bugzilla.redhat.com/show_bug.cgi?id=533176#c4
+
+I find it a bug in DWARF and gdb behaves correctly according to it.  From the
+current DWARF's point of view the is a function call which you skip by "next".
+
+If you hide any /usr/lib/debug such as using:
+gdb -nx -ex 'set debug-file-directory /qwe' -ex 'file ./tpcommon_gfortran44'
+and use "step" command instead of "next" there it will work.
+(You need to hide debuginfo from libgomp as you would step into libgomp sources
+to maintain the threads for execution.)
+
+There should be some DWARF extension for it, currently tried to detect
+substring ".omp_fn." as this function is called "MAIN__.omp_fn.0" and do not
+consider such sub-function as a skippable by "next".
+
+Another problem is that with "set scheduler-locking" being "off" (default
+upstream) or "step" (default in F/RHEL) the simultaneous execution of the
+threads is inconvenient.  Setting it to "on" will lockup the debugging as the
+threads need to get synchronized at some point.  This is a more general
+debugging problem of GOMP outside of the scope of this Bug.
+
+
+
+--- ./gdb/infrun.c	2009-12-09 22:03:33.000000000 +0100
++++ ./gdb/infrun.c	2009-12-09 22:29:56.000000000 +0100
+@@ -3994,6 +3994,12 @@ infrun: not switching back to stepped th
+ 
+       if (ecs->event_thread->step_over_calls == STEP_OVER_ALL)
+ 	{
++	  struct symbol *stop_fn = find_pc_function (stop_pc);
++
++	  if (stop_fn == NULL
++	      || strstr (SYMBOL_LINKAGE_NAME (stop_fn), ".omp_fn.") == NULL)
++{	/* ".omp_fn." */
++
+ 	  /* We're doing a "next".
+ 
+ 	     Normal (forward) execution: set a breakpoint at the
+@@ -4020,6 +4026,7 @@ infrun: not switching back to stepped th
+ 
+ 	  keep_going (ecs);
+ 	  return;
++}	/* ".omp_fn." */
+ 	}
+ 
+       /* If we are in a function call trampoline (a stub between the
+--- ./gdb/testsuite/gdb.fortran/omp-step.exp	1970-01-01 01:00:00.000000000 +0100
++++ ./gdb/testsuite/gdb.fortran/omp-step.exp	2009-12-09 22:31:04.000000000 +0100
+@@ -0,0 +1,31 @@
++# Copyright 2009 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++set testfile "omp-step"
++set srcfile ${testfile}.f90
++if { [prepare_for_testing $testfile.exp $testfile $srcfile {debug f77 additional_flags=-fopenmp}] } {
++    return -1
++}
++
++if ![runto [gdb_get_line_number "start-here"]] {
++    perror "Couldn't run to start-here"
++    return 0
++}
++
++gdb_test "next" {!\$omp parallel} "step closer"
++gdb_test "next" {a\(omp_get_thread_num\(\) \+ 1\) = 1} "step into omp"
++
++gdb_breakpoint [gdb_get_line_number "success"]
++gdb_continue_to_breakpoint "success" ".*success.*"
+--- ./gdb/testsuite/gdb.fortran/omp-step.f90	1970-01-01 01:00:00.000000000 +0100
++++ ./gdb/testsuite/gdb.fortran/omp-step.f90	2009-12-09 22:25:35.000000000 +0100
+@@ -0,0 +1,32 @@
++! Copyright 2009 Free Software Foundation, Inc.
++
++! This program is free software; you can redistribute it and/or modify
++! it under the terms of the GNU General Public License as published by
++! the Free Software Foundation; either version 3 of the License, or
++! (at your option) any later version.
++!
++! This program is distributed in the hope that it will be useful,
++! but WITHOUT ANY WARRANTY; without even the implied warranty of
++! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++! GNU General Public License for more details.
++!
++! You should have received a copy of the GNU General Public License
++! along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++      use omp_lib
++      integer nthreads, i, a(1000)
++      nthreads = omp_get_num_threads()
++      if (nthreads .gt. 1000) call abort
++
++      do i = 1, nthreads
++          a(i) = 0
++      end do
++      print *, "start-here"
++!$omp parallel
++      a(omp_get_thread_num() + 1) = 1
++!$omp end parallel
++      do i = 1, nthreads
++          if (a(i) .ne. 1) call abort
++      end do
++      print *, "success"
++      end

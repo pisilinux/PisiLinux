@@ -1,0 +1,52 @@
+Start with only TERM defined in the environment, like NetKit rlogind does, and
+KRB5CCNAME, which we set ourselves.
+--- krb5-1.3/src/appl/bsd/krlogind.c
++++ krb5-1.3/src/appl/bsd/krlogind.c
+@@ -713,6 +713,9 @@
+ #else
+ 	struct sgttyb b;
+ #endif /* POSIX_TERMIOS */
++	char environ_term[sizeof(term) + 6], environ_ccname[sizeof(environ_term)];
++	char *bare_environ[] = {environ_term, environ_ccname, NULL};
++
+ 	if ((retval = pty_open_slave(line, &t))) {
+ 	    fatal(f, error_message(retval));
+ 	    exit(1);
+@@ -819,11 +822,15 @@
+ /* use the vendors login, which has -p and -f. Tested on 
+  * AIX 4.1.4 and HPUX 10 
+  */
++    memset(environ_term, '\0', sizeof(environ_term));
++    memset(environ_ccname, '\0', sizeof(environ_ccname));
++    if (getenv("KRB5CCNAME") != NULL)
++      snprintf(environ_ccname, sizeof(environ_ccname) - 1, "KRB5CCNAME=%s", getenv("KRB5CCNAME"));
+     {
+         char *cp;
+-        if ((cp = strchr(term,'/')))
+-            *cp = '\0';
+-        setenv("TERM",term, 1);
++        snprintf(environ_term, sizeof(environ_term) - 1, "TERM=%s", term);
++        if ((cp = strchr(environ_term,'/')))
++            *cp = '\0';
+     }
+ 
+     retval = pty_make_sane_hostname((struct sockaddr *) fromp, maxhostlen,
+@@ -832,13 +839,13 @@
+     if (retval)
+         fatalperror(f, "failed make_sane_hostname");
+     if (passwd_req)
+-        execl(login_program, "login", "-p", "-h", rhost_sane,
+-          lusername, (char *)NULL);
++        execle(login_program, "login", "-p", "-h", rhost_sane,
++          lusername, NULL, bare_environ);
+     else
+-        execl(login_program, "login", "-p", "-h", rhost_sane,
+-             "-f", lusername, (char *)NULL);
++        execle(login_program, "login", "-p", "-h", rhost_sane,
++             "-f", lusername, NULL, bare_environ);
+ #else /* USE_LOGIN_F */
+-	execl(login_program, "login", "-r", rhost_sane, (char *)NULL);
++	execle(login_program, "login", "-r", rhost_sane, NULL, bare_environ);
+ #endif /* USE_LOGIN_F */
+ 	syslog(LOG_ERR, "failed exec of %s: %s",
+ 	       login_program, error_message(errno));

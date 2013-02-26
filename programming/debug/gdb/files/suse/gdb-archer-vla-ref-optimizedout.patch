@@ -1,0 +1,105 @@
+commit a683bac73af74a757591672d89d720169c0b5ec9
+Author: Jan Kratochvil <jan.kratochvil@redhat.com>
+Date:   Thu May 13 18:08:30 2010 +0200
+
+    Support DW_AT_upper_bound is referencing an optimized-out variable.
+    https://bugzilla.redhat.com/show_bug.cgi?id=591879
+
+--- a/gdb/dwarf2loc.c
++++ b/gdb/dwarf2loc.c
+@@ -383,6 +383,9 @@ dwarf_loclist_baton_eval (struct dwarf2_loclist_baton *dllbaton,
+   size_t size;
+   struct value *val;
+ 
++  if (!dllbaton)
++    return 0;
++
+   data = find_location_expression (dllbaton, &size,
+ 				   get_frame_address_in_block (frame));
+   if (data == NULL)
+--- a/gdb/dwarf2read.c
++++ b/gdb/dwarf2read.c
+@@ -11693,6 +11693,11 @@ dwarf2_attr_to_loclist_baton (struct attribute *attr, struct dwarf2_cu *cu)
+ {
+   struct dwarf2_loclist_baton *baton;
+ 
++  /* DW_AT_location of the referenced DIE may be missing if the referenced
++     variable has been optimized out.  */
++  if (!attr)
++    return NULL;
++
+   if (!(attr_form_is_section_offset (attr)
+ 	/* ".debug_loc" may not exist at all, or the offset may be outside
+ 	   the section.  If so, fall through to the complaint in the
+--- a/gdb/testsuite/gdb.dwarf2/dw2-bound-loclist.S
++++ b/gdb/testsuite/gdb.dwarf2/dw2-bound-loclist.S
+@@ -51,6 +51,17 @@ vardata:
+ 	.4byte		.Llen_var-.Lcu1_begin	/* DW_AT_upper_bound */
+ 	.byte		0			/* End of children of die */
+ 
++	/* DW_AT_upper_bound is referencing an optimized-out variable.  */
++.Larrayb_type:
++	.uleb128	2			/* Abbrev: DW_TAG_array_type */
++	.4byte		.Lchar_type-.Lcu1_begin	/* DW_AT_type */
++
++	.uleb128	3			/* Abbrev: DW_TAG_subrange_type */
++	.4byte		.Luint_type-.Lcu1_begin	/* DW_AT_type */
++	.byte		0			/* DW_AT_lower_bound */
++	.4byte		.Llenb_var-.Lcu1_begin	/* DW_AT_upper_bound */
++	.byte		0			/* End of children of die */
++
+ .Luint_type:
+ 	.uleb128	4			/* Abbrev: DW_TAG_base_type */
+ 	.4byte		.Luint_str		/* DW_AT_name */
+@@ -69,9 +80,24 @@ vardata:
+ 	.4byte		.Luint_type-.Lcu1_begin	/* DW_AT_type */
+ 	.4byte		.Llen_loclist-.Lloclist	/* DW_AT_location */
+ 
++	/* optimized-out variable for b_string.  */
++.Llenb_var:
++	.uleb128	7			/* Abbrev: DW_TAG_variable artificial no DW_AT_location */
++	.byte		1			/* DW_AT_artificial */
++	.4byte		.Luint_type-.Lcu1_begin	/* DW_AT_type */
++
+ 	.uleb128	6			/* Abbrev: DW_TAG_variable DW_FORM_string */
+ 	.string		"a_string"		/* DW_AT_name */
+-	.4byte		.Larray_type-.Lcu1_begin/* DW_AT_type */
++	.4byte		.Larray_type-.Lcu1_begin /* DW_AT_type */
++	.byte		2f - 1f			/* DW_AT_location */
++1:	.byte		3			/*   DW_OP_addr */
++	.4byte		vardata			/*   <addr> */
++2:
++
++	/* DW_AT_upper_bound is referencing an optimized-out variable.  */
++	.uleb128	6			/* Abbrev: DW_TAG_variable DW_FORM_string */
++	.string		"b_string"		/* DW_AT_name */
++	.4byte		.Larrayb_type-.Lcu1_begin /* DW_AT_type */
+ 	.byte		2f - 1f			/* DW_AT_location */
+ 1:	.byte		3			/*   DW_OP_addr */
+ 	.4byte		vardata			/*   <addr> */
+@@ -164,6 +190,16 @@ vardata:
+ 	.byte		0x0			/* Terminator */
+ 	.byte		0x0			/* Terminator */
+ 
++	.uleb128	7			/* Abbrev code */
++	.uleb128	0x34			/* DW_TAG_variable */
++	.byte		0x0			/* no_children */
++	.uleb128	0x34			/* DW_AT_artificial */
++	.uleb128	0x0c			/* DW_FORM_flag */
++	.uleb128	0x49			/* DW_AT_type */
++	.uleb128	0x13			/* DW_FORM_ref4 */
++	.byte		0x0			/* Terminator */
++	.byte		0x0			/* Terminator */
++
+ 	.byte		0x0			/* Terminator */
+ 
+ /* String table */
+--- a/gdb/testsuite/gdb.dwarf2/dw2-bound-loclist.exp
++++ b/gdb/testsuite/gdb.dwarf2/dw2-bound-loclist.exp
+@@ -46,3 +46,6 @@ if ![runto "*main"] {
+ 
+ gdb_test "p a_string" { = "seen"}
+ gdb_test "ptype a_string" {type = char \[4\]}
++
++gdb_test "p b_string" { = (0x[0-9a-f]+ )?"seennotseen"}
++gdb_test "ptype b_string" {type = char \[\]}

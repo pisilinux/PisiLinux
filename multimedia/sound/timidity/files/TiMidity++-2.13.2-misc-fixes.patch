@@ -1,0 +1,172 @@
+--- timidity-2.13.2.orig/timidity/aq.c
++++ timidity-2.13.2/timidity/aq.c
+@@ -87,7 +87,7 @@
+ 
+ /* effect.c */
+ extern void init_effect(void);
+-extern int do_effect(int32* buf, int32 count);
++extern void do_effect(int32* buf, int32 count);
+ 
+ int aq_calc_fragsize(void)
+ {
+--- timidity-2.13.2.orig/timidity/common.c
++++ timidity-2.13.2/timidity/common.c
+@@ -405,7 +411,8 @@
+     }
+ 
+   /* First try the given name */
+-  strncpy(current_filename, url_unexpand_home_dir(name), 1023);
++  /* strncpy(current_filename, url_unexpand_home_dir(name), 1023); */
++  strncpy(current_filename, name, 1023);
+   current_filename[1023]='\0';
+ 
+   if(noise_mode)
+--- timidity-2.13.2.orig/timidity/mod2midi.c
++++ timidity-2.13.2/timidity/mod2midi.c
+@@ -195,7 +195,8 @@
+ 
+   if (period < 14 || period > 13696)
+   {
+-    ctl->cmsg(CMSG_WARNING, VERB_NORMAL, "BAD period %d\n", period);
++    ctl->cmsg(CMSG_WARNING, VERB_NOISY, "BAD period %d", period);
++    *finetune = 0;
+     return -1;
+   }
+ 
+@@ -266,11 +267,13 @@
+     return;
+ 
+   new_noteon = period2note (ModV[v].period, &bend);
++  if (new_noteon >= 0) {
+ #ifndef TRACE_SLIDE_NOTES
+-  bend += (new_noteon - ModV[v].noteon) << 13;
+-  new_noteon = ModV[v].noteon;
++    bend += (new_noteon - ModV[v].noteon) << 13;
++    new_noteon = ModV[v].noteon;
+ #endif
+-  bend = WHEEL_VALUE(bend);
++    bend = WHEEL_VALUE(bend);
++  }
+ 
+   if (ModV[v].noteon != new_noteon)
+     {
+@@ -278,7 +281,7 @@
+ 
+       if (new_noteon < 0)
+         {
+-	  ctl->cmsg(CMSG_WARNING, VERB_VERBOSE,
++	  ctl->cmsg(CMSG_WARNING, VERB_NOISY,
+ 			  "Strange period %d",
+ 			  ModV[v].period);
+ 	  return;
+@@ -330,13 +333,13 @@
+     Voice_Stop (v);
+ 
+   new_noteon = period2note (ModV[v].period, &bend);
+-  bend = WHEEL_VALUE(bend);
+   if (new_noteon < 0) {
+-    ctl->cmsg(CMSG_WARNING, VERB_VERBOSE,
++    ctl->cmsg(CMSG_WARNING, VERB_NOISY,
+ 			  "Strange period %d",
+ 			  ModV[v].period);
+     return;
+   }
++  bend = WHEEL_VALUE(bend);
+ 
+   ModV[v].noteon = new_noteon;
+   ModV[v].time = at;
+@@ -590,9 +593,13 @@
+ 	special_patch[i]->sample = sp =
+ 	    (Sample *)safe_malloc(sizeof(Sample));
+ 	memset(sp, 0, sizeof(Sample));
+-	strncpy(name, s->samplename, 22);
+-	name[22] = '\0';
+-	code_convert(name, NULL, 23, NULL, "ASCII");
++	memset(name, 0, 23 * sizeof(char));
++	if (s->samplename != NULL)
++	{
++	    strncpy(name, s->samplename, 22);
++	    name[22] = '\0';
++	    code_convert(name, NULL, 23, NULL, "ASCII");
++	}
+ 	if(name[0] == '\0')
+ 	    special_patch[i]->name = NULL;
+ 	else
+--- timidity-2.13.2.orig/timidity/reverb.c
++++ timidity-2.13.2/timidity/reverb.c
+@@ -1624,8 +1624,8 @@
+ 		buf[i] += r;
+ 		buf[++i] += l;
+ 
+-		if (++index0 == buf_size) {index0 = 0;}
+-		if (++buf_index == buf_size) {buf_index = 0;}
++		if (index0++ == buf_size) {index0 = 0;}
++		if (buf_index++ == buf_size) {buf_index = 0;}
+ 	}
+ 	memset(reverb_effect_buffer, 0, sizeof(int32) * count);
+ 	info->index[0] = index0;
+--- timidity-2.13.2.orig/timidity/tables.c
++++ timidity-2.13.2/timidity/tables.c
+@@ -1682,4 +1682,4 @@
+ 	420.0, 416.0, 412.0, 408.0, 405.0, 401.0, 397.0, 394.0,
+ 	390.0, 387.0, 383.0, 380.0, 377.0, 374.0, 371.0, 368.0,
+ 	364.0, 361.0, 359.0, 356.0, 353.0, 350.0, 347.0, 345.0,
+-};
+\ No newline at end of file
++};
+--- timidity-2.13.2.orig/timidity/timidity.c
++++ timidity-2.13.2/timidity/timidity.c
+@@ -5466,14 +5446,14 @@
+ static int CoInitializeOK = 0;
+ #endif
+ 
+-static inline bool directory_p(const char* path)
++static inline int directory_p(const char* path)
+ {
+ #if defined ( IA_W32GUI ) || defined ( IA_W32G_SYN )
+     return is_directory(path);
+ #else
+     struct stat st;
+     if(stat(path, &st) != -1) return S_ISDIR(st.st_mode);
+-    return false;
++    return 0;
+ #endif
+ }
+ 
+@@ -5649,11 +5629,11 @@
+ 	    }
+ 
+ 	    ctl->cmsg(CMSG_FATAL, VERB_NORMAL,
+-		      "%s: Can't read any configuration file.\nPlease check "
++		      "%s: Error reading configuration file.\nPlease check "
+ 		      "%s or %s", program_name, config1, config2);
+ #else
+ 	    ctl->cmsg(CMSG_FATAL, VERB_NORMAL,
+-		      "%s: Can't read any configuration file.\nPlease check "
++		      "%s: Error reading configuration file.\nPlease check "
+ 		      CONFIG_FILE, program_name);
+ #endif /* __W32__ */
+ 	}
+--- timidity-2.13.2.orig/timidity/wrd.h
++++ timidity-2.13.2/timidity/wrd.h
+@@ -148,6 +148,7 @@
+ #endif
+ #include <limits.h>
+ #include "mblock.h"
++#include "common.h"
+ #include "controls.h"
+ static inline void print_ecmd(char *cmd, int *args, int narg)
+ {
+--- timidity-2.13.2.orig/timidity/wrd_read.c
++++ timidity-2.13.2/timidity/wrd_read.c
+@@ -1765,7 +1765,10 @@
+ 
+ #ifdef ENABLE_SHERRY
+ /*******************************************************************************/
++#if 0
++/* for mac only */
+ #pragma mark -
++#endif
+ 
+ static int sherry_started;	/* 0 - before start command 0x01*/
+ 				/* 1 - after start command 0x01*/

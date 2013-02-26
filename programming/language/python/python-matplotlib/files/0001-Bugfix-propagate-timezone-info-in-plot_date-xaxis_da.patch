@@ -1,0 +1,188 @@
+--- a/lib/matplotlib/axes.py
++++ b/lib/matplotlib/axes.py
+@@ -2679,18 +2679,20 @@ class Axes(martist.Artist):
+     def xaxis_date(self, tz=None):
+         """Sets up x-axis ticks and labels that treat the x data as dates.
+ 
+-        *tz* is the time zone to use in labeling dates.  Defaults to rc value.
++        *tz* is a timezone string or :class:`tzinfo` instance.
++        Defaults to rc value.
+         """
+         # should be enough to inform the unit conversion interface
+-        # dates are comng in
+-        self.xaxis.axis_date()
++        # dates are coming in
++        self.xaxis.axis_date(tz)
+ 
+     def yaxis_date(self, tz=None):
+         """Sets up y-axis ticks and labels that treat the y data as dates.
+ 
+-        *tz* is the time zone to use in labeling dates.  Defaults to rc value.
++        *tz* is a timezone string or :class:`tzinfo` instance.
++        Defaults to rc value.
+         """
+-        self.yaxis.axis_date()
++        self.yaxis.axis_date(tz)
+ 
+     def format_xdata(self, x):
+         """
+@@ -3808,7 +3810,7 @@ class Axes(martist.Artist):
+           *fmt*: string
+             The plot format string.
+ 
+-          *tz*: [ None | timezone string ]
++          *tz*: [ None | timezone string | :class:`tzinfo` instance]
+             The time zone to use in labeling dates. If *None*, defaults to rc
+             value.
+ 
+diff --git a/lib/matplotlib/axis.py b/lib/matplotlib/axis.py
+index 85e078c..a825d8e 100644
+--- a/lib/matplotlib/axis.py
++++ b/lib/matplotlib/axis.py
+@@ -1249,21 +1249,21 @@ class Axis(artist.Artist):
+     def update_units(self, data):
+         """
+         introspect *data* for units converter and update the
+-        axis.converter instance if necessary. Return *True* is *data* is
+-        registered for unit conversion
++        axis.converter instance if necessary. Return *True*
++        if *data* is registered for unit conversion.
+         """
+ 
+         converter = munits.registry.get_converter(data)
+-        if converter is None: return False
++        if converter is None:
++            return False
+ 
+         neednew = self.converter!=converter
+         self.converter = converter
+         default = self.converter.default_units(data, self)
+-        #print 'update units: default="%s", units=%s"'%(default, self.units)
++        #print 'update units: default=%s, units=%s'%(default, self.units)
+         if default is not None and self.units is None:
+             self.set_units(default)
+ 
+-
+         if neednew:
+             self._update_axisinfo()
+         return True
+@@ -1484,14 +1484,21 @@ class Axis(artist.Artist):
+         self.major.locator.zoom(direction)
+ 
+ 
+-    def axis_date(self):
++    def axis_date(self, tz=None):
+         """
+         Sets up x-axis ticks and labels that treat the x data as dates.
++        *tz* is a :class:`tzinfo` instance or a timezone string.
++        This timezone is used to create date labels.
+         """
++        # By providing a sample datetime instance with the desired
++        # timezone, the registered converter can be selected,
++        # and the "units" attribute, which is the timezone, can
++        # be set.
+         import datetime
+-        # should be enough to inform the unit conversion interface
+-        # dates are comng in
+-        self.update_units(datetime.date(2009,1,1))
++        if isinstance(tz, (str, unicode)):
++            import pytz
++            tz = pytz.timezone(tz)
++        self.update_units(datetime.datetime(2009,1,1,0,0,0,0,tz))
+ 
+ 
+ class XAxis(Axis):
+diff --git a/lib/matplotlib/dates.py b/lib/matplotlib/dates.py
+index 7a2f9f3..9018315 100644
+--- a/lib/matplotlib/dates.py
++++ b/lib/matplotlib/dates.py
+@@ -1104,15 +1104,26 @@ def weeks(w):
+ 
+ 
+ class DateConverter(units.ConversionInterface):
+-    """The units are equivalent to the timezone."""
++    """
++    Converter for datetime.date and datetime.datetime data,
++    or for date/time data represented as it would be converted
++    by :func:`date2num`.
++
++    The 'unit' tag for such data is None or a tzinfo instance.
++    """
+ 
+     @staticmethod
+     def axisinfo(unit, axis):
+-        'return the unit AxisInfo'
+-        # make sure that the axis does not start at 0
++        """
++        Return the :class:`~matplotlib.units.AxisInfo` for *unit*.
++
++        *unit* is a tzinfo instance or None.
++        The *axis* argument is required but not used.
++        """
++        tz = unit
+ 
+-        majloc = AutoDateLocator(tz=unit)
+-        majfmt = AutoDateFormatter(majloc, tz=unit)
++        majloc = AutoDateLocator(tz=tz)
++        majfmt = AutoDateFormatter(majloc, tz=tz)
+         datemin = datetime.date(2000, 1, 1)
+         datemax = datetime.date(2010, 1, 1)
+ 
+@@ -1121,12 +1132,28 @@ class DateConverter(units.ConversionInterface):
+ 
+     @staticmethod
+     def convert(value, unit, axis):
+-        if units.ConversionInterface.is_numlike(value): return value
++        """
++        If *value* is not already a number or sequence of numbers,
++        convert it with :func:`date2num`.
++
++        The *unit* and *axis* arguments are not used.
++        """
++        if units.ConversionInterface.is_numlike(value):
++            return value
+         return date2num(value)
+ 
+     @staticmethod
+     def default_units(x, axis):
+-        'Return the default unit for *x* or None'
++        'Return the tzinfo instance of *x* or of its first element, or None'
++        try:
++            x = x[0]
++        except (TypeError, IndexError):
++            pass
++
++        try:
++            return x.tzinfo
++        except AttributeError:
++            pass
+         return None
+ 
+ 
+diff --git a/lib/matplotlib/units.py b/lib/matplotlib/units.py
+index 700363a..59b570e 100644
+--- a/lib/matplotlib/units.py
++++ b/lib/matplotlib/units.py
+@@ -7,8 +7,8 @@ objects, eg a list of datetime objects, as well as for objects that
+ are unit aware.  We don't assume any particular units implementation,
+ rather a units implementation must provide a ConversionInterface, and
+ the register with the Registry converter dictionary.  For example,
+-here is a complete implementation which support plotting with native
+-datetime objects
++here is a complete implementation which supports plotting with native
++datetime objects::
+ 
+ 
+     import matplotlib.units as units
+@@ -48,7 +48,7 @@ from matplotlib.cbook import iterable, is_numlike, is_string_like
+ class AxisInfo:
+     'information to support default axis labeling and tick labeling, and default limits'
+     def __init__(self, majloc=None, minloc=None,
+-                 majfmt=None, minfmt=None, label=None, 
++                 majfmt=None, minfmt=None, label=None,
+                  default_limits=None):
+         """
+         majloc and minloc: TickLocators for the major and minor ticks
+-- 
+1.7.6.2
+

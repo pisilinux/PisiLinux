@@ -1,0 +1,540 @@
+Index: libsyncml/transports/http_client_internals.h
+===================================================================
+--- libsyncml/transports/http_client_internals.h	(revision 344)
++++ libsyncml/transports/http_client_internals.h	(working copy)
+@@ -25,7 +25,11 @@
+ #include <libsoup/soup-uri.h>
+ 
+ typedef struct SmlTransportHttpClientEnv {
++#ifdef HAVE_LIBSOUP22
+ 	SoupUri *uri;
++#else
++	SoupURI *uri;
++#endif
+ 	SoupSession *session;
+ 	SmlTransport *tsp;
+ 	uint16_t port;
+@@ -35,8 +39,6 @@
+ 	char *username;
+ 	char *password;
+ 	SmlBool connectDone;
+-	GMutex *cleanupMutex;
+-	SmlBool shutdown;
+ } SmlTransportHttpClientEnv;
+ 
+ #endif //_HTTP_CLIENT_INTERNALS_H_
+Index: libsyncml/transports/http_client.c
+===================================================================
+--- libsyncml/transports/http_client.c	(revision 344)
++++ libsyncml/transports/http_client.c	(working copy)
+@@ -38,24 +38,25 @@
+  */
+ /*@{*/
+ 
++#ifdef HAVE_LIBSOUP22
++#define soup_message_headers_get soup_message_get_header
++#define soup_message_headers_append soup_message_add_header
++#endif
++
++#ifdef HAVE_LIBSOUP22
+ static void _msgReceived(SoupMessage *msg, gpointer userdata)
++#else
++static void _msgReceived(SoupSession *session, SoupMessage *msg, gpointer userdata)
++#endif
+ {
+ 	smlTrace(TRACE_ENTRY, "%s(%p, %p)", __func__, msg, userdata);
+ 	SmlTransportHttpClientEnv *env = userdata;
+ 	SmlError *error = NULL;
+ 
+-	/* this mutex lock is necessary to avoid conflicts with session shutdown */
+-	g_mutex_lock(env->cleanupMutex);
+-
+ 	/* handle potential session shutdown */
+-	if (env->shutdown)
++	if (msg->status_code == SOUP_STATUS_CANCELLED)
+ 	{
+-		/* a call to finalize failed because of libsoup
+-		 * so try to finalize again and ignore the message
+-		 */
+-		g_mutex_unlock(env->cleanupMutex);
+-		smlTrace(TRACE_INTERNAL, "%s - failed finalize detected", __func__);
+-		smlTransportHttpClientFinalize(userdata, NULL);
++		smlTrace(TRACE_INTERNAL, "%s - ignoring due to shutdown", __func__);
+ 		smlTrace(TRACE_EXIT, "%s", __func__);
+ 		return;
+ 	}
+@@ -101,7 +102,7 @@
+ 	}
+ 
+ 	/* check the header of the received message */
+-	const char *header = soup_message_get_header(msg->response_headers, "Content-Type");
++	const char *header = soup_message_headers_get(msg->response_headers, "Content-Type");
+ 	smlTrace(TRACE_INTERNAL, "content type: %s", header);
+ 	
+ 	SmlMimeType mimetype = SML_MIMETYPE_UNKNOWN;
+@@ -121,12 +122,26 @@
+ 	}
+ 
+ 	/* prepare the received message */
+-	char *data = smlTryMalloc0(msg->response.length, &error);
++	char *data;
++	gsize length;
++
++#ifdef HAVE_LIBSOUP22
++	length = msg->response.length;
++#else
++	length = msg->response_body->length;
++#endif
++
++	data = smlTryMalloc0(length, &error);
+ 	if (!data)
+ 		goto error;
+-	memcpy(data, msg->response.body, msg->response.length);
+-	
+-	SmlTransportData *tspdata = smlTransportDataNew(data, msg->response.length, mimetype, TRUE, &error);
++
++#ifdef HAVE_LIBSOUP22
++	memcpy(data, msg->response.body, length);
++#else
++	memcpy(data, msg->response_body->data, length);
++#endif
++
++	SmlTransportData *tspdata = smlTransportDataNew(data, length, mimetype, TRUE, &error);
+ 	if (!tspdata)
+ 		goto error_free_data;
+ 
+@@ -135,7 +150,6 @@
+ 
+ 	/* cleanup */
+ 	smlTransportDataDeref(tspdata);
+-	g_mutex_unlock(env->cleanupMutex);
+ 
+ 	smlTrace(TRACE_EXIT, "%s", __func__);
+ 	return;
+@@ -144,7 +158,6 @@
+ 	g_free(data);
+ error:
+ 	smlTransportReceiveEvent(env->tsp, NULL, SML_TRANSPORT_EVENT_ERROR, NULL, error);
+-	g_mutex_unlock(env->cleanupMutex);
+ 	smlTrace(TRACE_EXIT_ERROR, "%s: %s", __func__, smlErrorPrint(&error));
+ 	smlErrorDeref(&error);
+ }
+@@ -156,6 +169,8 @@
+  * account. Usually this is not required because the most
+  * SyncML server manage the authentication via SyncHdr.
+  */
++
++#ifdef HAVE_LIBSOUP22
+ static void
+ _authenticate (SoupSession *session, SoupMessage *msg,
+ 	      const char *auth_type, const char *auth_realm,
+@@ -166,7 +181,19 @@
+ 	*username = g_strdup(env->username);
+ 	*password = g_strdup(env->password);
+ }
++#else
++static void
++_authenticate (SoupSession *session, SoupMessage *msg,
++	       SoupAuth *auth, gboolean retrying, gpointer data)
++{
++	SmlTransportHttpClientEnv *env = data;
++	smlTrace(TRACE_INTERNAL, "%s: authentication via auth_type %s", __func__, soup_auth_get_scheme_name (auth));
+ 
++	if (!retrying)
++		soup_auth_authenticate(auth, env->username, env->password);
++}
++#endif
++
+ /*@}*/
+ 
+ /**
+@@ -202,8 +229,6 @@
+ 	env->url = g_strdup(config->url);
+ 	env->proxy = g_strdup(config->proxy);
+ 	env->connectDone = FALSE;
+-	env->cleanupMutex = g_mutex_new();
+-	env->shutdown = FALSE;
+ 	
+ 	env->tsp = tsp;
+ 	if (config->proxy != NULL && strlen(config->proxy) > 0 ||
+@@ -253,31 +278,13 @@
+ 	smlTrace(TRACE_ENTRY, "%s(%p, %p)", __func__, data, error);
+ 	smlAssert(data);
+ 	SmlTransportHttpClientEnv *env = data;
+-	g_mutex_lock(env->cleanupMutex);
+ 	
+ 	smlAssert(env->tsp);
+ 
+-	env->shutdown = TRUE;
+-
+-	// try to stop the session
+-	// this is a really nasty thing with lipsoup
+-	if (!soup_session_try_prune_connection(env->session))
+-	{
+-		// do not touch the env because otherwise _msgReceived can produce crashs
+-		// do not signal this as an error because this memory leak is not fixable
+-		// if you know what to do then feel free to correct me :)
+-		smlTrace(TRACE_EXIT_ERROR, "%s - connection was not pruned", __func__);
+-		g_mutex_unlock(env->cleanupMutex);
+-		return TRUE;
+-	}
++	soup_session_abort(env->session);
+ 	g_object_unref(env->session);
+ 	env->session = NULL;
+ 
+-	// if we are here then there are definitely no actions on the road
+-	// from libsoup session. so it is safe to give up control and cleanup
+-	g_mutex_unlock(env->cleanupMutex);
+-	g_mutex_free(env->cleanupMutex);
+-
+ 	if (env->data != NULL)
+ 	{
+ 		smlTransportDataDeref(env->data);
+@@ -312,29 +319,32 @@
+ 		goto error;
+ 	}
+ 	
++	const char *content_type;
+ 	switch (data->type) {
+ 		case SML_MIMETYPE_XML:
+-			soup_message_add_header(msg->request_headers, "Content-Type", SML_ELEMENT_XML);
+-			soup_message_add_header(msg->request_headers, "Accept", SML_ELEMENT_XML);
++			content_type = SML_ELEMENT_XML;
+ 			break;
+ 		case SML_MIMETYPE_WBXML:
+-			soup_message_add_header(msg->request_headers, "Content-Type", SML_ELEMENT_WBXML);
+-			soup_message_add_header(msg->request_headers, "Accept",	SML_ELEMENT_WBXML);
++			content_type = SML_ELEMENT_WBXML;
+ 			break;
+ 		case SML_MIMETYPE_SAN:
+-			soup_message_add_header(msg->request_headers, "Content-Type", SML_ELEMENT_SAN);
+-			soup_message_add_header(msg->request_headers, "Accept",	SML_ELEMENT_SAN);
++			content_type = SML_ELEMENT_SAN;
+ 		default:
+ 			smlErrorSet(&error, SML_ERROR_GENERIC, "Unknown Mimetype %d", data->type);
+ 			goto error_free_message;
+ 	}
+ 
+-	msg->request.body = data->data;
+-	msg->request.length = data->size;
+-	msg->request.owner = SOUP_BUFFER_USER_OWNED;
++	soup_message_headers_append(msg->request_headers, "Accept", content_type);
++	soup_message_set_request (msg, content_type,
++#ifdef HAVE_LIBSOUP22
++				  SOUP_BUFFER_USER_OWNED,
++#else
++				  SOUP_MEMORY_TEMPORARY,
++#endif
++				  data->data, data->size);
+ 	env->data = data;
+ 	smlTransportDataRef(data);
+-	smlTrace(TRACE_INTERNAL, "%s: data: %s", __func__, g_strdup(msg->request.body));
++	smlTrace(TRACE_INTERNAL, "%s: data: %s", __func__, g_strndup(data->data, data->size));
+ 	
+ 	soup_session_queue_message(env->session, msg, _msgReceived, userdata);
+ 	
+Index: libsyncml/transports/http_server_internals.h
+===================================================================
+--- libsyncml/transports/http_server_internals.h	(revision 344)
++++ libsyncml/transports/http_server_internals.h	(working copy)
+@@ -21,10 +21,13 @@
+ #ifndef _HTTP_SERVER_INTERNALS_H_
+ #define _HTTP_SERVER_INTERNALS_H_
+ 
+-#include <libsoup/soup-session.h>
+ #include <libsoup/soup-uri.h>
+ #include <libsoup/soup-server.h>
++#ifdef HAVE_LIBSOUP22
+ #include <libsoup/soup-server-message.h>
++#else
++#include <libsoup/soup-message.h>
++#endif
+ 
+ typedef struct SmlTransportHttpServerEnv {
+ 	SoupServer *server;
+Index: libsyncml/transports/http_server.c
+===================================================================
+--- libsyncml/transports/http_server.c	(revision 344)
++++ libsyncml/transports/http_server.c	(working copy)
+@@ -36,6 +36,7 @@
+  */
+ /*@{*/
+ 
++#ifdef HAVE_LIBSOUP22
+ static void _server_callback(SoupServerContext *context, SoupMessage *msg, gpointer data)
+ {
+ 	smlTrace(TRACE_ENTRY, "%s(%p, %p, %p)", __func__, context, msg, data);
+@@ -132,6 +133,101 @@
+ 	smlErrorDeref(&error);
+ }
+ 
++#else /* !HAVE_LIBSOUP22 */
++
++static void _server_callback(SoupServer        *server,
++			     SoupMessage       *msg, 
++			     const char        *path,
++			     GHashTable        *query,
++			     SoupClientContext *client,
++			     gpointer           data)
++{
++	smlTrace(TRACE_ENTRY, "%s(%p, %p, %s, %p, %p, %p)", __func__, server, msg, path, query, client, data);
++	SmlMimeType mimetype = SML_MIMETYPE_UNKNOWN;
++	smlAssert(data);
++	SmlTransportHttpServerEnv *env = data;
++	SmlError *error = NULL;
++	
++	smlTrace(TRACE_INTERNAL, "%s %s HTTP/1.%d", msg->method, path, soup_message_get_http_version(msg));
++	
++	if (msg->method != SOUP_METHOD_POST) {
++		smlErrorSet(&error, SML_ERROR_NOT_SUPPORTED, "Wrong method");
++		soup_message_set_status(msg, SOUP_STATUS_NOT_IMPLEMENTED);
++		goto error;
++	}
++	
++	if (env->url && g_strcasecmp(path, env->url)) {
++		smlErrorSet(&error, SML_ERROR_FILE_NOT_FOUND, "Not Found");
++		soup_message_set_status(msg, SOUP_STATUS_NOT_FOUND);
++		goto error;
++	}
++	
++	const char *header = soup_message_headers_get(msg->request_headers, "Content-Type");
++	if (header && !g_strncasecmp(header, SML_ELEMENT_XML, strlen(SML_ELEMENT_XML)))
++		mimetype = SML_MIMETYPE_XML;
++	else if(header && !g_strncasecmp(header, SML_ELEMENT_WBXML, strlen(SML_ELEMENT_WBXML)))
++		mimetype = SML_MIMETYPE_WBXML;
++	else if(header && !g_strncasecmp(header, SML_ELEMENT_SAN, strlen(SML_ELEMENT_SAN)))
++		mimetype = SML_MIMETYPE_SAN;
++	else if (header) {
++		smlErrorSet(&error, SML_ERROR_GENERIC, "Unknown mimetype");
++		soup_message_set_status (msg, SOUP_STATUS_BAD_REQUEST);
++		goto error;
++	} else {
++		smlErrorSet(&error, SML_ERROR_GENERIC, "Faulty mimetype");
++		soup_message_set_status (msg, SOUP_STATUS_BAD_REQUEST);
++		goto error;
++	}
++	
++	if (!msg->request_body->length) {
++		/* Tolerate empty message for now. Http client transport could send empty messages
++		   for initialization. Throwing an error here breaks testcase: manager_start_session 
++		   Empty Message for initialization got introduced with r251.
++		   It's not fixed yet if r251 will be the final implementation for http client initalization. */
++
++		/* FIXME: why does it do this? This causes a leak in both
++		 * the client and the server, because the server never finishes
++		 * responding to the request.
++		 */
++		soup_server_pause_message(server, msg);
++		smlTrace(TRACE_EXIT, "%s (empty message! tolerated for now ...)", __func__);
++		return;
++
++		/* FIXME: Throw an error again if changes in r251 got clarified/fixed. */
++		/*
++		smlErrorSet(&error, SML_ERROR_GENERIC, "No data sent");
++		soup_message_set_status (msg, SOUP_STATUS_BAD_REQUEST);
++		goto error;
++		*/
++	}
++	
++	SmlLink *link = smlLinkNew(env->tsp, msg, &error);
++	if (!link)
++		goto error;
++
++	SmlTransportData *tspdata = smlTransportDataNew((char *)msg->request_body->data, msg->request_body->length, mimetype, FALSE, &error);
++	if (!tspdata)
++		goto error_unref_msg;
++	
++	smlTransportReceiveEvent(env->tsp, link, SML_TRANSPORT_EVENT_DATA, tspdata, NULL);
++	
++	smlLinkDeref(link);
++	smlTransportDataDeref(tspdata);
++	
++	soup_server_pause_message(server, msg);
++	
++	smlTrace(TRACE_EXIT, "%s", __func__);
++	return;
++
++error_unref_msg:
++	smlLinkDeref(link);
++error:
++	smlTrace(TRACE_EXIT_ERROR, "%s: %s", __func__, smlErrorPrint(&error));
++	smlErrorDeref(&error);
++}
++
++#endif /* HAVE_LIBSOUP22 */
++
+ /*@}*/
+ 
+ /**
+@@ -181,7 +277,11 @@
+ 		goto error_free_env;
+ 	}
+ 	
++#ifdef HAVE_LIBSOUP22
+ 	soup_server_add_handler(env->server, NULL, NULL, _server_callback, NULL, env);
++#else
++	soup_server_add_handler(env->server, NULL, _server_callback, env, NULL);
++#endif
+ 	
+ 	soup_server_run_async(env->server);
+ 	
+@@ -206,7 +306,7 @@
+ 	smlAssert(env->tsp);
+ 	
+ 	soup_server_quit(env->server);
+-	// g_object_unref(env->server);
++	g_object_unref(env->server);
+ 	
+ 	g_free(env->url);
+ 	g_free(env->interface);
+@@ -230,37 +330,45 @@
+ 	if (error)
+ 		goto error_free_message;
+ 
+-	// duplicate the data because sometimes data is freed to early
+-	char *soupcopy = (char *) smlTryMalloc0(data->size, &error);
+-	if (error)
+-		goto error_free_message;
+-	memcpy(soupcopy, data->data, data->size);
+-
+ 	soup_message_set_status (msg, SOUP_STATUS_OK);
++#ifdef HAVE_LIBSOUP22
+ 	soup_server_message_set_encoding (SOUP_SERVER_MESSAGE(msg), SOUP_TRANSFER_CONTENT_LENGTH);
++#endif
+ 
++	const char *content_type;
+ 	switch (data->type) {
+ 		case SML_MIMETYPE_XML:
+-			soup_message_add_header(msg->response_headers, "Accept", "application/vnd.syncml+xml");
+-			soup_message_set_response (msg, "application/vnd.syncml+xml", SOUP_BUFFER_SYSTEM_OWNED,
+-						soupcopy, data->size);
++			content_type = "application/vnd.syncml+xml";
+ 			break;
+ 		case SML_MIMETYPE_WBXML:
+-			soup_message_add_header(msg->response_headers, "Accept", "application/vnd.syncml+wbxml");
+-			soup_message_set_response (msg, "application/vnd.syncml+wbxml", SOUP_BUFFER_SYSTEM_OWNED,
+-						soupcopy, data->size);
++			content_type = "application/vnd.syncml+wbxml";
+ 			break;
+ 		default:
+ 			smlErrorSet(&error, SML_ERROR_GENERIC, "Unknown Mimetype");
+ 			goto error_free_message;
+ 	}
+ 	
++	/* FIXME: Why do we add Accept to the response headers? Accept
++	 * is only defined as a request header. Is this just a bug?
++	 */
++
++#ifdef HAVE_LIBSOUP22
++	soup_message_add_header(msg->response_headers, "Accept", content_type);
++	// duplicate the data because sometimes data is freed to early
++	char *soupcopy = (char *) smlTryMalloc0(data->size, &error);
++	if (error)
++		goto error_free_message;
++	memcpy(soupcopy, data->data, data->size);
++	soup_message_set_response (msg, "application/vnd.syncml+xml", SOUP_BUFFER_SYSTEM_OWNED,
++				   soupcopy, data->size);
+ 	soup_message_io_unpause(msg);
++#else
++	soup_message_headers_append(msg->response_headers, "Accept", content_type);
++	soup_message_set_response(msg, "application/vnd.syncml+xml",
++				  SOUP_MEMORY_COPY, data->data, data->size);
++	soup_server_unpause_message(env->server, msg);
++#endif
+ 
+-	// FIXME: the documentation of libsoup never show an example with such a call
+-	// FIXME: msg is perhaps in use by libsoup because this is asynchronous I/O
+-	// g_object_unref(msg);
+-	
+ 	smlTrace(TRACE_EXIT, "%s", __func__);
+ 	return;
+ 	
+@@ -270,8 +378,12 @@
+ 	else
+ 		soup_message_set_status_full(msg, SOUP_STATUS_INTERNAL_SERVER_ERROR, smlErrorPrint(&error));
+ 
++#ifdef HAVE_LIBSOUP22
+ 	soup_server_message_set_encoding (SOUP_SERVER_MESSAGE (msg), SOUP_TRANSFER_CONTENT_LENGTH);
+ 	soup_message_io_unpause(msg);
++#else
++	soup_server_unpause_message(env->server, msg);
++#endif
+ 
+ 	// g_object_unref(msg);
+ 	smlErrorDeref(&error);
+Index: CMakeLists.txt
+===================================================================
+--- CMakeLists.txt	(revision 344)
++++ CMakeLists.txt	(working copy)
+@@ -47,7 +47,8 @@
+ 
+ # find requirements
+ SET ( OPENOBEX_MIN_VERSION "1.1" )
+-SET ( LIBSOUP2_MIN_VERSION "2.2.91" )
++SET ( LIBSOUP22_MIN_VERSION "2.2.91" )
++SET ( LIBSOUP24_MIN_VERSION "2.3.0.1" )
+ #SET ( LIBWBXML2_MIN_VERSION "0.9.0" )
+ #SET ( BLUEZ_MIN_VERSION "3.19" )
+ 
+Index: config.h.cmake
+===================================================================
+--- config.h.cmake	(revision 344)
++++ config.h.cmake	(working copy)
+@@ -6,6 +6,10 @@
+ /* Http Transport */
+ #cmakedefine ENABLE_HTTP
+ 
++/* libsoup version in use */
++#cmakedefine HAVE_LIBSOUP22
++#cmakedefine HAVE_LIBSOUP24
++
+ /* Obex Transport */
+ #cmakedefine ENABLE_OBEX
+ 
+Index: cmake/modules/FindLibSoup2.cmake
+===================================================================
+--- cmake/modules/FindLibSoup2.cmake	(revision 3105)
++++ cmake/modules/FindLibSoup2.cmake	(working copy)
+@@ -2,7 +2,7 @@
+ # Find libsoup headers, libraries and the answer to all questions.
+ #
+ #  LIBSOUP2_FOUND               True if libsoup got found
+-#  LIBSOUP2_INCLUDE_DIRS         Location of libsoup headers 
++#  LIBSOUP2_INCLUDE_DIRS        Location of libsoup headers 
+ #  LIBSOUP2_LIBRARIES           List of libaries to use libsoup
+ #
+ # Copyright (c) 2007 Daniel Gollub <dgollub@suse.de>
+@@ -21,13 +21,28 @@
+ 	SET( _pkgconfig_REQUIRED "" )	
+ ENDIF ( LibSoup2_FIND_REQUIRED )
+ 
+-IF ( LIBSOUP2_MIN_VERSION )
+-	PKG_SEARCH_MODULE( LIBSOUP2 ${_pkgconfig_REQUIRED} libsoup-2.2>=${LIBSOUP2_MIN_VERSION} libsoup2>=${LIBSOUP2_MIN_VERSION} )
+-ELSE ( LIBSOUP2_MIN_VERSION )
+-	PKG_SEARCH_MODULE( LIBSOUP2 ${_pkgconfig_REQUIRED} libsoup-2.2 libsoup2 )
+-ENDIF ( LIBSOUP2_MIN_VERSION )
++IF ( LIBSOUP24_MIN_VERSION )
++	PKG_SEARCH_MODULE( LIBSOUP2 ${_pkgconfig_REQUIRED} libsoup-2.4>=${LIBSOUP24_MIN_VERSION} libsoup2>=${LIBSOUP24_MIN_VERSION} )
++ELSE ( LIBSOUP24_MIN_VERSION )
++	PKG_SEARCH_MODULE( LIBSOUP2 ${_pkgconfig_REQUIRED} libsoup-2.4 libsoup2 )
++ENDIF ( LIBSOUP24_MIN_VERSION )
+ 
++IF ( LIBSOUP2_FOUND )
++	OPTION ( HAVE_LIBSOUP24 "building with libsoup 2.4" ON )
++	OPTION ( HAVE_LIBSOUP22 "building with libsoup 2.2" OFF )
++ELSE ( LIBSOUP2_FOUND )
++	IF ( LIBSOUP22_MIN_VERSION )
++		PKG_SEARCH_MODULE( LIBSOUP2 ${_pkgconfig_REQUIRED} libsoup-2.2>=${LIBSOUP22_MIN_VERSION} libsoup2>=${LIBSOUP22_MIN_VERSION} )
++	ELSE ( LIBSOUP22_MIN_VERSION )
++		PKG_SEARCH_MODULE( LIBSOUP2 ${_pkgconfig_REQUIRED} libsoup-2.2 libsoup2 )
++	ENDIF ( LIBSOUP22_MIN_VERSION )
+ 
++	IF ( LIBSOUP2_FOUND )
++		SET ( HAVE_LIBSOUP24 OFF )
++		SET ( HAVE_LIBSOUP22 ON )
++	ENDIF ( LIBSOUP2_FOUND )
++ENDIF ( LIBSOUP2_FOUND )
++
+ IF( NOT LIBSOUP2_FOUND AND NOT PKG_CONFIG_FOUND )
+ 
+ 	FIND_PATH( _libsoup2_include_DIR libsoup/soup.h PATH_SUFFIXES libsoup libsoup-2.2 )

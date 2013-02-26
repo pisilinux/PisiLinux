@@ -1,0 +1,256 @@
+From 1b15acdcfdc4664bc6c0be473cb6e096071a4e62 Mon Sep 17 00:00:00 2001
+From: Hubert Figuiere <hub@figuiere.net>
+Date: Sat, 6 Mar 2010 11:41:43 -0800
+Subject: [PATCH] - Support (partially) PEF from Pentax K20D.
+ - Detect that ORF file are compressed if they are. (Closes #26618)
+ - Skip compressed CFA when rendering the image. (Closes #25464)
+
+---
+ README                      |    5 +++--
+ include/libopenraw/consts.h |    5 +++--
+ lib/orffile.cpp             |   33 +++++++++++++++++++++++++++++----
+ lib/peffile.cpp             |   20 ++++++++++----------
+ lib/rawfile.cpp             |    7 ++++++-
+ testsuite/testsuite.xml     |   36 ++++++++++++++++++++++++++++++++++++
+ 6 files changed, 87 insertions(+), 19 deletions(-)
+
+diff --git a/README b/README
+index b4716ee..e373a22 100644
+--- a/README
++++ b/README
+@@ -114,9 +114,9 @@ Olympus ORF              Y Y N Y Y Y
+  E-10                    B B       T
+  E-3                     T T       T
+  E-300                   T T B T T T
+- E-330                   T T       T
++ E-330                   T T N     T
+  E-400                   T B   T   T
+- E-410                   B T   T   T
++ E-410                   B T N T   T
+  E-500                   T T   T   T
+  E-510                   B T   T   T
+  SP-350
+@@ -143,6 +143,7 @@ Pentax PEF               Y Y N Y Y Y
+  K10D                    T T N T T T
+  K100D                             T
+  K100D Super             T T N     T
++ K20D                    T T N T   
+ 
+ Epson ERF                Y Y Y Y Y Y
+  Epson RD1               T T T T T T
+diff --git a/include/libopenraw/consts.h b/include/libopenraw/consts.h
+index c2d6bf4..de49034 100644
+--- a/include/libopenraw/consts.h
++++ b/include/libopenraw/consts.h
+@@ -1,8 +1,8 @@
+ /*
+  * libopenraw - consts.h
+  *
+- * Copyright (C) 2005-2009 Hubert Figuiere
+  * Copyright (c) 2008 Novell, Inc.
++ * Copyright (C) 2005-2010 Hubert Figuiere
+  *
+  * This library is free software: you can redistribute it and/or
+  * modify it under the terms of the GNU Lesser General Public License
+@@ -204,7 +204,8 @@ extern "C" {
+ 		OR_TYPEID_PENTAX_IST_D,
+ 		OR_TYPEID_PENTAX_IST_DL,
+ 		OR_TYPEID_PENTAX_K100D_PEF,
+-		OR_TYPEID_PENTAX_K100D_SUPER_PEF
++		OR_TYPEID_PENTAX_K100D_SUPER_PEF,
++		OR_TYPEID_PENTAX_K20D_PEF
+ 	};
+ 
+ 	/** Epson type IDs */
+diff --git a/lib/orffile.cpp b/lib/orffile.cpp
+index c9f0181..28980f4 100644
+--- a/lib/orffile.cpp
++++ b/lib/orffile.cpp
+@@ -1,7 +1,7 @@
+ /*
+  * libopenraw - orffile.cpp
+  *
+- * Copyright (C) 2006, 2008 Hubert Figuiere
++ * Copyright (C) 2006, 2008, 2010 Hubert Figuiere
+  *
+  * This library is free software: you can redistribute it and/or
+  * modify it under the terms of the GNU Lesser General Public License
+@@ -77,7 +77,7 @@ namespace OpenRaw {
+ 
+ 		IFDDir::Ref  ORFFile::_locateCfaIfd()
+ 		{
+-			// in PEF the CFA IFD is the main IFD
++			// in ORF the CFA IFD is the main IFD
+ 			if(!m_mainIfd) {
+ 				m_mainIfd = _locateMainIfd();
+ 			}
+@@ -92,12 +92,37 @@ namespace OpenRaw {
+ 
+ 
+ 		
+-		::or_error ORFFile::_getRawData(RawData & data, uint32_t /*options*/)
++		::or_error ORFFile::_getRawData(RawData & data, uint32_t options)
+ 		{
++			::or_error err;
+ 			if(!m_cfaIfd) {
+ 				m_cfaIfd = _locateCfaIfd();
+ 			}
+-			return _getRawDataFromDir(data, m_cfaIfd);
++			err = _getRawDataFromDir(data, m_cfaIfd);
++			if(err == OR_ERROR_NONE) {
++				// ORF files seems to be marked as uncompressed even if they are.
++				uint32_t x = data.x();
++				uint32_t y = data.y();
++				uint16_t compression = 0;
++				if(data.size() < x * y * 2) {
++                    compression = 65535;
++                    data.setCompression(65535);
++					data.setDataType(OR_DATA_TYPE_COMPRESSED_CFA);
++				}
++                else {
++                    compression = data.compression();
++                }
++                switch(compression) {
++                case 65535:
++                    if((options & OR_OPTIONS_DONT_DECOMPRESS) == 0) {
++                        // TODO decompress
++                    }
++					break;
++				default:
++					break;
++				}
++			}
++			return err;
+ 		}
+ 
+ 	}
+diff --git a/lib/peffile.cpp b/lib/peffile.cpp
+index d8849fb..cef6b27 100644
+--- a/lib/peffile.cpp
++++ b/lib/peffile.cpp
+@@ -1,7 +1,7 @@
+ /*
+  * libopenraw - peffile.cpp
+  *
+- * Copyright (C) 2006-2008 Hubert Figuiere
++ * Copyright (C) 2006-2008, 2010 Hubert Figuiere
+  *
+  * This library is free software: you can redistribute it and/or
+  * modify it under the terms of the GNU Lesser General Public License
+@@ -48,6 +48,8 @@ namespace OpenRaw {
+ 														 OR_TYPEID_PENTAX_K100D_PEF) },
+ 			{ "PENTAX K100D Super ", OR_MAKE_FILE_TYPEID(OR_TYPEID_VENDOR_PENTAX, 
+ 														 OR_TYPEID_PENTAX_K100D_PEF) },
++			{ "PENTAX K20D        ", OR_MAKE_FILE_TYPEID(OR_TYPEID_VENDOR_PENTAX, 
++														 OR_TYPEID_PENTAX_K20D_PEF) },
+ 			{ 0, 0 }
+ 		};
+ 
+@@ -83,7 +85,7 @@ namespace OpenRaw {
+ 			return m_container->setDirectory(0);
+ 		}
+ 
+-		::or_error PEFFile::_getRawData(RawData & data, uint32_t /*options*/)
++		::or_error PEFFile::_getRawData(RawData & data, uint32_t options)
+ 		{
+ 			::or_error err;
+ 			if(!m_cfaIfd) {
+@@ -91,14 +93,12 @@ namespace OpenRaw {
+ 			}
+ 			err = _getRawDataFromDir(data, m_cfaIfd);
+ 			if(err == OR_ERROR_NONE) {
+-				uint16_t compression = 0;
+-				m_cfaIfd->getValue(IFD::EXIF_TAG_COMPRESSION, compression);
+-				switch(compression) {
+-				case 1:
+-					data.setDataType(OR_DATA_TYPE_CFA);
+-					break;
+-				case 65535:
+-					// TODO decompress
++                uint16_t compression = data.compression();
++                switch(compression) {
++                case 65535:
++                    if((options & OR_OPTIONS_DONT_DECOMPRESS) == 0) {
++                        // TODO decompress
++                    }
+ 					break;
+ 				default:
+ 					break;
+diff --git a/lib/rawfile.cpp b/lib/rawfile.cpp
+index 6b0821b..c1c11cb 100644
+--- a/lib/rawfile.cpp
++++ b/lib/rawfile.cpp
+@@ -1,8 +1,8 @@
+ /*
+  * libopenraw - rawfile.cpp
+  *
+- * Copyright (C) 2006-2008 Hubert Figuiere
+  * Copyright (C) 2008 Novell, Inc.
++ * Copyright (C) 2006-2008, 2010 Hubert Figuiere
+  *
+  * This library is free software: you can redistribute it and/or
+  * modify it under the terms of the GNU Lesser General Public License
+@@ -379,8 +379,13 @@ const std::vector<uint32_t> & RawFile::listThumbnailSizes(void)
+ ::or_error RawFile::getRenderedImage(BitmapData & bitmapdata, uint32_t options)
+ {
+     RawData rawdata;
++    Trace(DEBUG1) << "options are " << options << "\n";
+     ::or_error ret = getRawData(rawdata, options);
+     if(ret == OR_ERROR_NONE) {
++        if(rawdata.dataType() != OR_DATA_TYPE_CFA) {
++            Trace(DEBUG1) << "wrong data type\n";
++            return OR_ERROR_INVALID_FORMAT;
++        }
+         uint32_t x,y;
+         or_cfa_pattern pattern;
+         uint16_t *src;
+diff --git a/testsuite/testsuite.xml b/testsuite/testsuite.xml
+index 9f18dec..c5964b4 100644
+--- a/testsuite/testsuite.xml
++++ b/testsuite/testsuite.xml
+@@ -346,6 +346,42 @@
+     </results>
+   </test>
+   <test>
++    <name>ORF-test E330</name>
++    <file>/home/hub/samples/300mm_f5.6.ORF</file>
++    <source>http://raw.fotosite.pl/download-Olympus_E-330_Sigma_135-400_f4.5-5.6/300mm_f5.6.ORF</source>
++    <results>
++      <rawType>ORF</rawType>
++      <rawTypeId>458757</rawTypeId>
++      <thumbNum>1</thumbNum>
++      <thumbSizes>160</thumbSizes>
++      <thumbFormats>JPEG</thumbFormats>
++      <thumbDataSizes>11074</thumbDataSizes>
++      <rawDataType>COMP_CFA</rawDataType>
++      <rawDataSize>12857600</rawDataSize>
++      <rawDataDimensions>3280 2450</rawDataDimensions>
++      <rawCfaPattern>RGGB</rawCfaPattern>
++      <rawMinValue>0</rawMinValue>
++      <rawMaxValue>65535</rawMaxValue>
++      <metaOrientation>1</metaOrientation>
++    </results>
++  </test>
++  <test>
++  	<name>ORF-test E-410</name>
++  	<file>/home/hub/samples/p1013308.orf</file>
++  	<results>
++      <rawType>ORF</rawType>
++      <rawTypeId>458759</rawTypeId>
++      <thumbNum>0</thumbNum>
++      <rawDataType>COMP_CFA</rawDataType>
++      <rawDataSize>8131436</rawDataSize>
++      <rawDataDimensions>3720 2800</rawDataDimensions>
++      <rawCfaPattern>RGGB</rawCfaPattern>
++      <rawMinValue>0</rawMinValue>
++      <rawMaxValue>65535</rawMaxValue>
++      <metaOrientation>1</metaOrientation>
++  	</results>
++  </test>
++  <test>
+     <name>MRW-test Dimage5</name>
+     <file>/home/hub/samples/mrw/Dimage5/dimage5.mrw</file>
+     <source>http://libopenraw.freedesktop.org/samples/mrw/dimage5.mrw</source>
+-- 
+1.7.2.2
+

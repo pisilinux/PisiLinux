@@ -1,0 +1,624 @@
+Made more safe (but less effective) by using a linked list.
+
+Based on:
+	Re: [RFA] Delayed physname computation
+	http://sourceware.org/ml/gdb-patches/2010-05/msg00248.html
+
+Neither its obstack-leak.patch nor
+	[patch] Fix duplicate types for single DIE
+	http://sourceware.org/ml/gdb-patches/2010-05/msg00271.html
+is needed as the linked list is used instead.
+
+--- ./gdb/dwarf2read.c	2010-05-13 18:26:22.000000000 +0200
++++ ./gdb/dwarf2read.c	2010-05-13 18:45:04.000000000 +0200
+@@ -251,6 +251,28 @@ struct comp_unit_head
+   unsigned int first_die_offset;
+ };
+ 
++/* Type used for delaying computation of method physnames.
++   See comments for compute_delayed_physnames.  */
++struct delayed_method_info
++{
++  struct delayed_method_info *next;
++
++  /* The type to which the method is attached, i.e., its parent class.  */
++  struct type *type;
++
++  /* The index of the method in the type's function fieldlists.  */
++  int fnfield_index;
++
++  /* The index of the method in the fieldlist.  */
++  int index;
++
++  /* The name of the DIE.  */
++  const char *name;
++
++  /*  The DIE associated with this method.  */
++  struct die_info *die;
++};
++
+ /* Internal state when decoding a particular compilation unit.  */
+ struct dwarf2_cu
+ {
+@@ -329,6 +351,10 @@ struct dwarf2_cu
+   /* Header data from the line table, during full symbol processing.  */
+   struct line_header *line_header;
+ 
++  /* A list of methods which need to have physnames computed
++     after all type information has been read.  */
++  struct delayed_method_info *method_list;
++
+   /* Mark used when releasing cached dies.  */
+   unsigned int mark : 1;
+ 
+@@ -1208,6 +1234,9 @@ static void destroy_section (struct dwar
+ static struct dwarf2_locexpr_baton *dwarf2_attr_to_locexpr_baton
+   (struct attribute *attr, struct dwarf2_cu *cu);
+ 
++static const char *dwarf2_physname (char *name, struct die_info *die,
++				    struct dwarf2_cu *cu);
++
+ /* Try to locate the sections we need for DWARF 2 debugging
+    information and return true if we have enough to do something.  */
+ 
+@@ -3435,6 +3464,58 @@ load_full_comp_unit (struct dwarf2_per_c
+   discard_cleanups (free_cu_cleanup);
+ }
+ 
++/* Add a DIE to the delayed physname list.  */
++static void
++add_to_method_list (struct type *type, int fnfield_index, int index,
++		    const char *name, struct die_info *die,
++		    struct dwarf2_cu *cu)
++{
++  struct delayed_method_info *mi;
++
++  mi = xmalloc (sizeof (*mi));
++  mi->next = cu->method_list;
++  cu->method_list = mi;
++  mi->type = type;
++  mi->fnfield_index = fnfield_index;
++  mi->index = index;
++  mi->name = name;
++  mi->die = die;
++}
++
++/* Compute the physnames of any methods on the CU's method list.
++
++   The computation of method physnames is delayed in order to avoid the
++   (bad) condition that one of the method's formal parameters is of an as yet
++   incomplete type.  */
++static void
++compute_delayed_physnames (struct dwarf2_cu *cu)
++{
++  struct delayed_method_info *mi;
++  
++  for (mi = cu->method_list; mi; mi = mi->next)
++    {
++      char *physname;
++      struct fn_fieldlist *fn_flp
++	= &TYPE_FN_FIELDLIST (mi->type, mi->fnfield_index);
++      physname = (char *) dwarf2_physname ((char *) mi->name, mi->die, cu);
++      fn_flp->fn_fields[mi->index].physname = physname ? physname : "";
++    }
++}
++
++static void
++method_list_cleanup (void *arg)
++{
++  struct delayed_method_info **method_list_pointer = arg;
++
++  while (*method_list_pointer)
++    {
++      struct delayed_method_info *mi = *method_list_pointer;
++
++      *method_list_pointer = mi->next;
++      xfree (mi);
++    }
++}
++
+ /* Generate full symbol information for PST and CU, whose DIEs have
+    already been loaded into memory.  */
+ 
+@@ -3447,7 +3528,7 @@ process_full_comp_unit (struct dwarf2_pe
+   bfd *abfd = objfile->obfd;
+   CORE_ADDR lowpc, highpc;
+   struct symtab *symtab;
+-  struct cleanup *back_to;
++  struct cleanup *back_to, *delayed_list_cleanup;
+   CORE_ADDR baseaddr;
+ 
+   baseaddr = ANOFFSET (objfile->section_offsets, SECT_OFF_TEXT (objfile));
+@@ -3457,11 +3538,22 @@ process_full_comp_unit (struct dwarf2_pe
+ 
+   cu->list_in_scope = &file_symbols;
+ 
++  /* If methods were found in the partial symbol table, we allocate one
++     big buffer to hold the entire delayed list for the CU.  */
++  delayed_list_cleanup = make_cleanup (method_list_cleanup,
++				       &cu->method_list);
++
+   dwarf2_find_base_address (cu->dies, cu);
+ 
+   /* Do line number decoding in read_file_scope () */
+   process_die (cu->dies, cu);
+ 
++  /* Now that we have processed all the DIEs in the CU, all the types 
++     should be complete, and it should now be safe to compute all of the
++     physnames.  */
++  compute_delayed_physnames (cu);
++  do_cleanups (delayed_list_cleanup);
++
+   /* Some compilers don't define a DW_AT_high_pc attribute for the
+      compilation unit.  If the DW_AT_high_pc is missing, synthesize
+      it, by scanning the DIE's below the compilation unit.  */
+@@ -5093,7 +5185,6 @@ dwarf2_add_member_fn (struct field_info 
+   int i;
+   struct fn_field *fnp;
+   char *fieldname;
+-  char *physname;
+   struct nextfnfield *new_fnfield;
+   struct type *this_type;
+ 
+@@ -5105,9 +5196,6 @@ dwarf2_add_member_fn (struct field_info 
+   if (fieldname == NULL)
+     return;
+ 
+-  /* Get the mangled name.  */
+-  physname = (char *) dwarf2_physname (fieldname, die, cu);
+-
+   /* Look up member function name in fieldlist.  */
+   for (i = 0; i < fip->nfnfields; i++)
+     {
+@@ -5133,7 +5221,7 @@ dwarf2_add_member_fn (struct field_info 
+       flp->name = fieldname;
+       flp->length = 0;
+       flp->head = NULL;
+-      fip->nfnfields++;
++      i = fip->nfnfields++;
+     }
+ 
+   /* Create a new member function field and chain it to the field list
+@@ -5147,9 +5235,19 @@ dwarf2_add_member_fn (struct field_info 
+ 
+   /* Fill in the member function field info.  */
+   fnp = &new_fnfield->fnfield;
+-  /* The name is already allocated along with this objfile, so we don't
+-     need to duplicate it for the type.  */
+-  fnp->physname = physname ? physname : "";
++
++  /* Delay processing of the physname until later.  */
++  if (cu->language == language_cplus || cu->language == language_java)
++    {
++      add_to_method_list (type, i, flp->length - 1, fieldname,
++			  die, cu);
++    }
++  else
++    {
++      char *physname = (char *) dwarf2_physname (fieldname, die, cu);
++      fnp->physname = physname ? physname : "";
++    }
++
+   fnp->type = alloc_type (objfile);
+   this_type = read_type_die (die, cu);
+   if (this_type && TYPE_CODE (this_type) == TYPE_CODE_FUNC)
+@@ -5175,7 +5273,7 @@ dwarf2_add_member_fn (struct field_info 
+     }
+   else
+     complaint (&symfile_complaints, _("member function type missing for '%s'"),
+-	       physname);
++	       dwarf2_full_name (fieldname, die, cu));
+ 
+   /* Get fcontext from DW_AT_containing_type if present.  */
+   if (dwarf2_attr (die, DW_AT_containing_type, cu) != NULL)
+@@ -7500,7 +7598,9 @@ load_partial_dies (bfd *abfd, gdb_byte *
+ 		      || last_die->tag == DW_TAG_interface_type
+ 		      || last_die->tag == DW_TAG_structure_type
+ 		      || last_die->tag == DW_TAG_union_type))
+-	      || (cu->language == language_ada
++	      || ((cu->language == language_ada
++		   || cu->language == language_cplus
++		   || cu->language == language_java)
+ 		  && (last_die->tag == DW_TAG_subprogram
+ 		      || last_die->tag == DW_TAG_lexical_block))))
+ 	{
+--- ./gdb/testsuite/gdb.dwarf2/pr11465.S	1970-01-01 01:00:00.000000000 +0100
++++ ./gdb/testsuite/gdb.dwarf2/pr11465.S	2010-05-13 18:39:00.000000000 +0200
+@@ -0,0 +1,355 @@
++/* Copyright 2010 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++/* Compiled from:
++
++    namespace N
++    {
++      class C
++      {
++      public:
++        typedef void (*t) (C);
++        C (t) {}
++      };
++      typedef C::t u;
++      u f;
++      C c (f);
++    };
++
++    int
++    main ()
++    {
++      return 0;
++    }
++*/
++
++	.text
++_ZN1N1cE:	
++	.section	.debug_info
++d:
++	.long	.Ldebug_info_end - 1f /* Length of CU info */
++1:
++	.2byte	0x2		/* DWARF version number */
++	.long	.Ldebug_abbrev0	/* Abbrev offset */
++	.byte	0x4		/* Pointer size */
++dieb:	.uleb128 0x1		/* DW_TAG_compile_unit */
++	.long	.LASF4		/* DW_AT_producer */
++	.byte	0x4		/* DW_AT_language */
++	.long	.LASF5		/* DW_AT_name */
++	.long	.LASF6		/* DW_AT_comp_dir */
++	.long	0x0		/* DW_AT_low_pc */
++	.long	0x0		/* DW_AT_high_pc */
++	.long	0x0		/* DW_AT_entry_pc */
++die29:	.uleb128 0x2		/* DW_TAG_namespace */
++	.string	"N"		/* DW_AT_name */
++die32:	.uleb128 0x3		/* DW_TAG_class_type */
++	.string	"C"		/* DW_AT_name */
++	.byte	0x1		/* DW_AT_declaration */
++die36:	.uleb128 0x4		/* DW_TAG_typedef */
++	.string	"u"		/* DW_AT_name */
++	.long	die7e-d		/* DW_AT_type */
++die3f:	.uleb128 0x5		/* DW_TAG_variable */
++	.string	"f"		/* DW_AT_name */
++	.long	.LASF0		/* DW_AT_MIPS_linkage_name */
++	.long	die36-d		/* DW_AT_type */
++	.byte	0x1		/* DW_AT_external */
++	.byte	0x1		/* DW_AT_declaration */
++die4e:	.uleb128 0x5		/* DW_TAG_variable */
++	.string	"c"		/* DW_AT_name */
++	.long	.LASF1		/* DW_AT_MIPS_linkage_name */
++	.long	die5e-d		/* DW_AT_type */
++	.byte	0x1		/* DW_AT_external */
++	.byte	0x1		/* DW_AT_declaration */
++	.byte	0x0
++die5e:	.uleb128 0x6		/* DW_TAG_class_type */
++	.long	die32-d		/* DW_AT_specification */
++	.byte	0x1		/* DW_AT_byte_size */
++die6a:	.uleb128 0x7		/* DW_TAG_subprogram */
++	.byte	0x1		/* DW_AT_external */
++	.string	"C"		/* DW_AT_name */
++	.byte	0x1		/* DW_AT_declaration */
++die71:	.uleb128 0x8		/* DW_TAG_formal_parameter */
++	.long	die8f-d		/* DW_AT_type */
++	.byte	0x1		/* DW_AT_artificial */
++die77:	.uleb128 0x9		/* DW_TAG_formal_parameter */
++	.long	die7e-d		/* DW_AT_type */
++	.byte	0x0
++	.byte	0x0
++die7e:	.uleb128 0xa		/* DW_TAG_pointer_type */
++	.byte	0x4		/* DW_AT_byte_size */
++	.long	die84-d		/* DW_AT_type */
++die84:	.uleb128 0xb		/* DW_TAG_subroutine_type */
++die89:	.uleb128 0x9		/* DW_TAG_formal_parameter */
++	.long	die5e-d		/* DW_AT_type */
++	.byte	0x0
++die8f:	.uleb128 0xa		/* DW_TAG_pointer_type */
++	.byte	0x4		/* DW_AT_byte_size */
++	.long	die5e-d		/* DW_AT_type */
++die95:	.uleb128 0xc		/* DW_TAG_subprogram */
++	.long	die6a-d		/* DW_AT_specification */
++	.byte	0x2		/* DW_AT_inline */
++die9f:	.uleb128 0xd		/* DW_TAG_formal_parameter */
++	.long	.LASF7		/* DW_AT_name */
++	.long	dieaf-d		/* DW_AT_type */
++	.byte	0x1		/* DW_AT_artificial */
++diea9:	.uleb128 0x9		/* DW_TAG_formal_parameter */
++	.long	die7e-d		/* DW_AT_type */
++	.byte	0x0
++dieaf:	.uleb128 0xe		/* DW_TAG_const_type */
++	.long	die8f-d		/* DW_AT_type */
++dieb4:	.uleb128 0xf		/* DW_TAG_subprogram */
++	.long	die95-d		/* DW_AT_abstract_origin */
++	.long	_ZN1N1cE	/* DW_AT_low_pc */
++	.long	_ZN1N1cE	/* DW_AT_high_pc */
++diec9:	.uleb128 0x10		/* DW_TAG_subprogram */
++	.long	die9f-d		/* DW_AT_abstract_origin */
++	.byte	2f-1f		/* DW_AT_location */
++1:
++	.byte	0x50		/* DW_OP_reg0 */
++2:
++died1:	.uleb128 0x10		/* DW_TAG_formal_parameter */
++	.long	diea9-d		/* DW_AT_abstract_origin */
++	.byte	2f-1f		/* DW_AT_location */
++1:
++	.byte	0x51		/* DW_OP_reg1 */
++2:
++	.byte	0x0
++dieda:	.uleb128 0x11		/* DW_TAG_subprogram */
++	.byte	0x1		/* DW_AT_external */
++	.long	.LASF8		/* DW_AT_name */
++	.long	dief2-d		/* DW_AT_type */
++	.long	_ZN1N1cE	/* DW_AT_low_pc */
++	.long	_ZN1N1cE	/* DW_AT_high_pc */
++dief2:	.uleb128 0x12		/* DW_TAG_base_type */
++	.byte	0x4		/* DW_AT_byte_size */
++	.byte	0x5		/* DW_AT_encoding */
++	.string	"int"		/* DW_AT_name */
++die149:	.uleb128 0x16		/* DW_TAG_variable */
++	.long	die4e-d		/* DW_AT_specification */
++	.byte	0x5		/* DW_AT_location */
++	.byte	0x3
++	.long	_ZN1N1cE
++	.byte	0x0
++.Ldebug_info_end:
++	.section	.debug_abbrev
++.Ldebug_abbrev0:
++	.uleb128 0x1		/* abbrev code*/
++	.uleb128 0x11		/* DW_TAG_compile_unit */
++	.byte	0x1		/* DW_children_yes */
++	.uleb128 0x25		/* DW_AT_producer*/
++	.uleb128 0xe		/* DW_FORM_strp */
++	.uleb128 0x13		/* DW_AT_language */
++	.uleb128 0xb		/* DW_FORM_data1 */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0xe		/* DW_FORM_strp */
++	.uleb128 0x1b		/* DW_AT_comp_dir */
++	.uleb128 0xe		/* DW_FORM_strp */
++	.uleb128 0x11		/* DW_AT_low_pc */
++	.uleb128 0x1		/* DW_FORM_addr */
++	.uleb128 0x12		/* DW_AT_high_pc */
++	.uleb128 0x1		/* DW_FORM_addr */
++	.uleb128 0x52		/* DW_AT_entry_pc */
++	.uleb128 0x1		/* DW_FORM_addr */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x2		/* abbrev code */
++	.uleb128 0x39		/* DW_TAG_namespace */
++	.byte	0x1		/* DW_children_yes */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0x8		/* DW_FORM_string */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x3		/* abbrev code */
++	.uleb128 0x2		/* DW_TAG_class_type */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0x8		/* DW_FORM_string */
++	.uleb128 0x3c		/* DW_AT_declaration */
++	.uleb128 0xc		/* DW_FORM_flag */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x4		/* abbrev code */
++	.uleb128 0x16		/* DW_TAG_typedef */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0x8		/* DW_FORM_string */
++	.uleb128 0x49		/* DW_AT_type */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x5		/* abbrev code */
++	.uleb128 0x34		/* DW_TAG_variable */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0x8		/* DW_FORM_string */
++	.uleb128 0x2007		/* DW_AT_MIPS_linkage_name */
++	.uleb128 0xe		/* DW_FORM_strp */
++	.uleb128 0x49		/* DW_AT_TYPE */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0x3f		/* DW_AT_external */
++	.uleb128 0xc		/* DW_FORM_flag */
++	.uleb128 0x3c		/* DW_AT_declaration */
++	.uleb128 0xc		/* DW_FORM_flag */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x6		/* abbrev code */
++	.uleb128 0x2		/* DW_TAG_class_type */
++	.byte	0x1		/* DW_has_children_yes */
++	.uleb128 0x47		/* DW_AT_specification */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0xb		/* DW_AT_byte_size */
++	.uleb128 0xb		/* DW_FORM_data1 */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x7		/* abbrev code */
++	.uleb128 0x2e		/* DW_TAG_subprogra */
++	.byte	0x1		/* DW_has_children_yes */
++	.uleb128 0x3f		/* DW_AT_external */
++	.uleb128 0xc		/* DW_FORM_flag */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0x8		/* DW_FORM_string */
++	.uleb128 0x3c		/* DW_AT_declaration */
++	.uleb128 0xc		/* DW_FORM_flag */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x8		/* abbrev code */
++	.uleb128 0x5		/* DW_TAG_formal_parameter */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x49		/* DW_AT_type */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0x34		/* DW_AT_artificial */
++	.uleb128 0xc		/* DW_FORM_flag */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x9		/* abbrev code */
++	.uleb128 0x5		/* DW_TAG_formal_parameter */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x49		/* DW_AT_type */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0xa		/* abbrev code */
++	.uleb128 0xf		/* DW_TAG_pointer_type */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0xb		/* DW_AT_byte_size */
++	.uleb128 0xb		/* DW_FORM_data1 */
++	.uleb128 0x49		/* DW_AT_type */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0xb		/* abbrev code */
++	.uleb128 0x15		/* DW_TAG_subroutine_type */
++	.byte	0x1		/* DW_has_children_yes */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0xc		/* abbrev code */
++	.uleb128 0x2e		/* DW_TAG_subprogram */
++	.byte	0x1		/* DW_has_children_yes */
++	.uleb128 0x47		/* DW_AT_specification */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0x20		/* DW_AT_inline */
++	.uleb128 0xb		/* DW_FORM_data1 */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0xd		/* abbrev code */
++	.uleb128 0x5		/* DW_TAG_formal_parameter */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0xe		/* DW_FORM_strp */
++	.uleb128 0x49		/* DW_AT_type */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0x34		/* DW_AT_artificial */
++	.uleb128 0xc		/* DW_FORM_flag */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0xe		/* abbrev code */
++	.uleb128 0x26		/* DW_TAG_const_type */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x49		/* DW_AT_type */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0xf		/* abbrev code */
++	.uleb128 0x2e		/* DW_TAG_subprogram */
++	.byte	0x1		/* DW_has_children_yes */
++	.uleb128 0x31		/* DW_AT_abstract_origin */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0x11		/* DW_AT_low_pc */
++	.uleb128 0x1		/* DW_FORM_addr */
++	.uleb128 0x12		/* DW_AT_high_pc */
++	.uleb128 0x1		/* DW_FORM_addr */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x10		/* abbrev code */
++	.uleb128 0x5		/* DW_TAG_formal_parameter */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x31		/* DW_AT_abstract_origin */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0x2		/* DW_AT_location */
++	.uleb128 0xa		/* DW_FORM_block1 */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x11		/* abbrev code */
++	.uleb128 0x2e		/* DW_TAG_subprogram */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x3f		/* DW_AT_external */
++	.uleb128 0xc		/* DW_FORM_flag */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0xe		/* DW_FORM_strp */
++	.uleb128 0x49		/* DW_AT_type */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0x11		/* DW_AT_low_pc */
++	.uleb128 0x1		/* DW_FORM_addr */
++	.uleb128 0x12		/* DW_AT_high_pc */
++	.uleb128 0x1		/* DW_FORM_addr */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x12		/* abbrev code */
++	.uleb128 0x24		/* DW_TAG_base_type */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0xb		/* DW_AT_byte_size */
++	.uleb128 0xb		/* DW_FORM_data1 */
++	.uleb128 0x3e		/* DW_AT_encoding */
++	.uleb128 0xb		/* DW_FORM_data1 */
++	.uleb128 0x3		/* DW_AT_name */
++	.uleb128 0x8		/* DW_FORM_string */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x16		/* abbrev code */
++	.uleb128 0x34		/* DW_TAG_variable */
++	.byte	0x0		/* DW_has_children_no */
++	.uleb128 0x47		/* DW_AT_specification */
++	.uleb128 0x13		/* DW_FORM_ref4 */
++	.uleb128 0x2		/* DW_AT_location */
++	.uleb128 0xa		/* DW_FORM_block1 */
++	.byte	0x0
++	.byte	0x0
++	.byte	0x0
++	.section	.debug_str
++.LASF0:
++	.string	"_ZN1N1fE"
++.LASF7:
++	.string	"this"
++.LASF6:
++	.string	""
++.LASF8:
++	.string	"main"
++.LASF1:
++	.string	"_ZN1N1cE"
++.LASF5:
++	.string	"pr11465.cc"
++.LASF4:
++	.string	"GNU C++ 4.4.2"
++	.ident	"GCC: (GNU) 4.4.2"
+--- ./gdb/testsuite/gdb.dwarf2/pr11465.exp	1970-01-01 01:00:00.000000000 +0100
++++ ./gdb/testsuite/gdb.dwarf2/pr11465.exp	2010-05-13 18:39:00.000000000 +0200
+@@ -0,0 +1,39 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# This test can only be run on targets which support DWARF-2 and use gas.
++# For now pick a sampling of likely targets.
++if {![istarget *-*-linux*]
++    && ![istarget *-*-gnu*]
++    && ![istarget *-*-elf*]
++    && ![istarget *-*-openbsd*]
++    && ![istarget arm-*-eabi*]
++    && ![istarget powerpc-*-eabi*]} {
++    return 0  
++}
++
++set testfile "pr11465"
++set srcfile ${testfile}.S
++set executable ${testfile}.x
++set binfile ${objdir}/${subdir}/${executable}
++
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" object {}] != "" } {
++    return -1
++}
++
++clean_restart $executable
++
++# Test delayed physname computations
++gdb_test "p N::c.C" { = {void \(N::C \*, void \(\*\)\(N::C\)\)}.*}

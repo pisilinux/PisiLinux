@@ -1,0 +1,136 @@
+diff --git a/doc/xpath.txt b/doc/xpath.txt
+index cd12ebe..a609003 100644
+--- a/doc/xpath.txt
++++ b/doc/xpath.txt
+@@ -133,7 +133,10 @@ UnionExpr ::= PathExpr ("|" PathExpr)*
+ 
+ Literal ::= '"' /[^"]* / '"' | "'" /[^']* / "'"
+ Number       ::= /[0-9]+/
+-Name ::= /([^][/\= \t\n]|\\.)+/
++/* Names can contain whitespace in the interior */
++NameNoWS ::= [^][|/\= \t\n] | \\.
++NameWS   ::= [^][|/\=] | \\.
++Name ::= NameNoWS NameWS* NameNoWS | NameNoWS
+ 
+ VariableReference ::= '$' /[a-zA-Z_][a-zA-Z0-9_]*/
+ 
+diff --git a/src/pathx.c b/src/pathx.c
+index a4cdf48..acd4eb0 100644
+--- a/src/pathx.c
++++ b/src/pathx.c
+@@ -1374,17 +1374,16 @@ static void push_new_binary_op(enum binary_op op, struct state *state) {
+ }
+ 
+ /*
+- * Name ::= /[^][/=) \t\n]+/
++ * NameNoWS ::= [^][|/\= \t\n] | \\.
++ * NameWS   ::= [^][|/\=] | \\.
++ * Name ::= NameNoWS NameWS* NameNoWS | NameNoWS
+  */
+ static char *parse_name(struct state *state) {
++    static const char const follow[] = "][|/=()";
+     const char *s = state->pos;
+     char *result;
+ 
+-    while (*state->pos != '\0' &&
+-           *state->pos != L_BRACK && *state->pos != SEP &&
+-           *state->pos != R_BRACK && *state->pos != '=' &&
+-           *state->pos != ')' &&
+-           !isspace(*state->pos)) {
++    while (*state->pos != '\0' && strchr(follow, *state->pos) == NULL) {
+         if (*state->pos == '\\') {
+             state->pos += 1;
+             if (*state->pos == '\0') {
+@@ -1395,6 +1394,14 @@ static char *parse_name(struct state *state) {
+         state->pos += 1;
+     }
+ 
++    /* Strip trailing white space */
++    if (state->pos > s) {
++        state->pos -= 1;
++        while (isspace(*state->pos) && state->pos >= s)
++            state->pos -= 1;
++        state->pos += 1;
++    }
++
+     if (state->pos == s) {
+         STATE_ERROR(state, PATHX_ENAME);
+         return NULL;
+diff --git a/tests/test-xpath.c b/tests/test-xpath.c
+index 3a3d241..c990364 100644
+--- a/tests/test-xpath.c
++++ b/tests/test-xpath.c
+@@ -78,6 +78,19 @@ static char *token_to_eol(char *s, char **tok) {
+     return s;
+ }
+ 
++static char *findpath(char *s, char **p) {
++    char *t = skipws(s);
++
++    while (*s && *s != '=') s++;
++    if (s > t) {
++        s -= 1;
++        while (*s && isspace(*s)) s -= 1;
++        s += 1;
++    }
++    *p = strndup(t, s - t);
++    return s;
++}
++
+ static struct test *read_tests(void) {
+     char *fname;
+     FILE *fp;
+@@ -107,7 +120,7 @@ static struct test *read_tests(void) {
+             if (ALLOC(e) < 0)
+                 die("out of memory");
+             list_append(t->entries, e);
+-            s = token(s, &(e->path));
++            s = findpath(s, &(e->path));
+             s = skipws(s);
+             if (*s) {
+                 if (*s != '=') {
+@@ -318,6 +331,9 @@ static int run_tests(struct test *tests) {
+     r = aug_defvar(aug, "localhost", "'127.0.0.1'");
+     if (r != 0)
+         die("aug_defvar $localhost");
++    r = aug_defvar(aug, "php", "/files/etc/php.ini");
++    if (r != 1)
++        die("aug_defvar $php");
+ 
+     list_for_each(t, tests) {
+         if (run_one_test(aug, t) < 0)
+diff --git a/tests/xpath.tests b/tests/xpath.tests
+index b16792a..cd1909c 100644
+--- a/tests/xpath.tests
++++ b/tests/xpath.tests
+@@ -16,7 +16,9 @@
+ # results listed in the test
+ #
+ # The test framework sets up variables:
+-#   hosts   /files/etc/hosts/*
++#   hosts      /files/etc/hosts/*
++#   localhost  '127.0.0.1'
++#   php        /files/etc/php.ini
+ 
+ # Very simple to warm up
+ test wildcard /files/etc/hosts/*/ipaddr
+@@ -235,3 +237,19 @@ test union (/files/etc/yum.conf | /files/etc/yum.repos.d/*)/*/gpgcheck
+      /files/etc/yum.repos.d/fedora.repo/fedora-source/gpgcheck = 1
+      /files/etc/yum.repos.d/remi.repo/remi/gpgcheck = 1
+      /files/etc/yum.repos.d/remi.repo/remi-test/gpgcheck = 1
++
++# Paths with whitespace in them
++test php1 $php/mail function
++     /files/etc/php.ini/mail function
++
++test php2 $php[mail function]
++     /files/etc/php.ini
++
++test php3 $php[count(mail function) = 1]
++     /files/etc/php.ini
++
++test php4 $php/mail function/SMTP
++     /files/etc/php.ini/mail function/SMTP = localhost
++
++test php5 $php/mail\ function
++     /files/etc/php.ini/mail function

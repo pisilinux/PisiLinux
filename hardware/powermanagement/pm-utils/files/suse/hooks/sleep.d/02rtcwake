@@ -1,0 +1,106 @@
+#!/bin/sh
+#
+# Written by Gabriel Burt <gburt@novell.com>
+# Copyright 2008 Novell, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of version 2 of the GNU General Public License as
+# published by the Free Software Foundation.
+#
+# Use rtcwake to wake the computer from sleep or hibernate
+# as configured in /etc/pm/config.d/rtcwake.config
+
+. "${PM_FUNCTIONS}"
+
+rtcwake_cmd="/usr/sbin/rtcwake";
+
+command_exists $rtcwake_cmd || exit $NA
+
+rtcwake_config_file="/etc/pm/config.d/rtcwake.conf"
+
+function start_of_day {
+	echo `date -d "$1" "+%D"`
+}
+
+function since_epoch {
+	echo `date -d "$1" "+%s"`
+}
+
+function day_of_week {
+	echo `date -d "$1" "+%u"`
+}
+
+function isAlarmDow {
+	is=0
+	for dow in $RTCWAKE_DAYS; do
+		if test "x$dow" = "x$1"; then
+			is=1;
+			break;
+		fi
+	done
+	echo $is
+}
+
+function set_alarm
+{
+	# If USER_RTCWAKE_ALLOWED is yes and the user passed in a num_seconds_to_sleep variable, then
+	# we will respect it (and ignore the system config)
+	# Do require that the number of seconds is at least 30 though.
+	if test "x$USER_RTCWAKE_ALLOWED" != "xno" && test "x$NUM_SECONDS_TO_SLEEP" != "x" && test $(($NUM_SECONDS_TO_SLEEP > 30)) == 1; then
+		echo "Have NUM_SECONDS_TO_SLEEP: $NUM_SECONDS_TO_SLEEP";
+		# Actually set/configure the rtcwake
+		sh -c "$rtcwake_cmd -m on -s $NUM_SECONDS_TO_SLEEP &"
+	elif test "x$1" = "xyes"; then
+		echo "alarm enabled, configuring rtcwake...";
+		echo "RTCWAKE time: $RTCWAKE_TIME";
+		echo "RTCWAKE days: $RTCWAKE_DAYS";
+
+		next_alarm=0
+		now=$(since_epoch now);
+		# The next alarm has to be at most 7 days from now
+		for days_from_now in 0 1 2 3 4 5 6 7; do
+			# Get the date N days from now
+			alarm_day=$(start_of_day "$days_from_now day");
+
+			# Check that this day is an alarm-enabled day of the week
+			alarm_dow=$(day_of_week $alarm_day);
+			is_alarm_dow=$(isAlarmDow $alarm_dow);
+			if test "x$is_alarm_dow" = "x1"; then
+				# Get the actual alarm time on that day
+				alarm_time=$(since_epoch "$alarm_day $RTCWAKE_TIME");
+
+				# Ensure the alarm time is more than 15 minutes from now
+				#   - otherwise we set the alarm for the next slot
+				# 900 seconds = 15 minutes * 60 seconds/minute
+				is_enough_in_future=$(($alarm_time - $now > 900));
+				if test "x$is_enough_in_future" = "x1"; then
+					next_alarm=$alarm_time
+					break;
+				fi
+			fi
+		done
+
+		if test "x$next_alarm" != "x0"; then
+			# Recalculate now to be as accurate as possible
+			now=$(since_epoch now);
+			seconds_from_now=$(($next_alarm - $now));
+			echo "Will set alarm for $seconds_from_now seconds from now, at $alarm_day $RTCWAKE_TIME ($next_alarm)"
+
+			# Actually set/configure the rtcwake
+			sh -c "$rtcwake_cmd -m on -s $seconds_from_now &"
+		else
+			echo "No acceptable time found to set the rtcwake alarm.  Review your configuration in $rtcwake_config_file"
+			exit $NA
+		fi
+	else
+		echo "rtcwake alarm not enabled in $rtcwake_config_file, doing nothing...";
+		exit $NA
+	fi
+}
+
+
+case "$1" in
+	suspend) set_alarm $SUSPEND_RTCWAKE_ENABLED ;;
+	hibernate) set_alarm $HIBERNATE_RTCWAKE_ENABLED ;;
+	*) exit $NA ;;
+esac

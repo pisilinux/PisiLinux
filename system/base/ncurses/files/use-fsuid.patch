@@ -1,0 +1,66 @@
+diff -Naurp ncurses-5.6+20071103.orig/ncurses/tinfo/read_termcap.c ncurses-5.6+20071103/ncurses/tinfo/read_termcap.c
+--- ncurses-5.6+20071103.orig/ncurses/tinfo/read_termcap.c	2006-07-29 12:06:51.000000000 +0000
++++ ncurses-5.6+20071103/ncurses/tinfo/read_termcap.c	2007-11-04 14:29:25.000000000 +0000
+@@ -319,6 +319,7 @@ _nc_getent(
+ 	     */
+ 	    if (fd >= 0) {
+ 		(void) lseek(fd, (off_t) 0, SEEK_SET);
++#ifndef __linux__
+ 	    } else if ((_nc_access(db_array[current], R_OK) < 0)
+ 		       || (fd = open(db_array[current], O_RDONLY, 0)) < 0) {
+ 		/* No error on unfound file. */
+@@ -329,6 +330,33 @@ _nc_getent(
+ 	    } else {
+ 		myfd = TRUE;
+ 	    }
++#else
++	    } else {
++		bool fd1, fd2;
++
++		setfsuid(getuid());
++		setfsgid(getgid());
++
++		fd1 = _nc_access(db_array[current], R_OK) < 0;
++		if (!fd1) {
++		    fd = open(db_array[current], O_RDONLY, 0));
++		    fd1 = fd < 0;
++		}
++
++		setfsuid(geteuid());
++		setfsgid(getegid());
++
++		if (! fd1) {
++		    /* No error on unfound file. */
++		    if (errno == ENOENT)
++			continue;
++		    free(record);
++		    return (TC_SYS_ERR);
++		} else {
++		    myfd = TRUE;
++		}
++	    }
++#endif
+ 	    lineno = 0;
+ 
+ 	    /*
+@@ -1097,8 +1125,20 @@ _nc_read_termcap_entry(const char *const
+ 	for (i = 0; i < filecount; i++) {
+ 
+ 	    TR(TRACE_DATABASE, ("Looking for %s in %s", tn, termpaths[i]));
++#ifndef __linux__
+ 	    if (_nc_access(termpaths[i], R_OK) == 0
+		&& (fp = fopen(termpaths[i], "r")) != (FILE *) 0) {
++#else
++	    fp = (FILE *) 0;
++	    if (_nc_access(termpaths[i], R_OK) == 0) {
++		setfsuid(getuid());
++		setfsgid(getgid());
++		fp = fopen(termpaths[i], "r");
++		setfsuid(geteuid());
++		setfsgid(getegid());
++	    }
++	    if (fp != (FILE *) 0) {
++#endif
+ 		_nc_set_source(termpaths[i]);
+ 
+ 		/*

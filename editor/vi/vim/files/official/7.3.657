@@ -1,0 +1,195 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.657
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.657
+Problem:    Python bindings silently truncate string values containing NUL.
+Solution:   Fail when a string contains NUL. (ZyX)
+Files:      src/if_python.c, src/if_python3.c
+
+
+*** ../vim-7.3.656/src/if_python.c	2012-09-05 18:54:37.000000000 +0200
+--- src/if_python.c	2012-09-05 19:02:07.000000000 +0200
+***************
+*** 191,196 ****
+--- 191,197 ----
+  # define PyRun_SimpleString dll_PyRun_SimpleString
+  # define PyRun_String dll_PyRun_String
+  # define PyString_AsString dll_PyString_AsString
++ # define PyString_AsStringAndSize dll_PyString_AsStringAndSize
+  # define PyString_FromString dll_PyString_FromString
+  # define PyString_FromStringAndSize dll_PyString_FromStringAndSize
+  # define PyString_Size dll_PyString_Size
+***************
+*** 288,293 ****
+--- 289,295 ----
+  static int(*dll_PyRun_SimpleString)(char *);
+  static PyObject *(*dll_PyRun_String)(char *, int, PyObject *, PyObject *);
+  static char*(*dll_PyString_AsString)(PyObject *);
++ static int(*dll_PyString_AsStringAndSize)(PyObject *, char **, int *);
+  static PyObject*(*dll_PyString_FromString)(const char *);
+  static PyObject*(*dll_PyString_FromStringAndSize)(const char *, PyInt);
+  static PyInt(*dll_PyString_Size)(PyObject *);
+***************
+*** 406,411 ****
+--- 408,414 ----
+      {"PyRun_SimpleString", (PYTHON_PROC*)&dll_PyRun_SimpleString},
+      {"PyRun_String", (PYTHON_PROC*)&dll_PyRun_String},
+      {"PyString_AsString", (PYTHON_PROC*)&dll_PyString_AsString},
++     {"PyString_AsStringAndSize", (PYTHON_PROC*)&dll_PyString_AsStringAndSize},
+      {"PyString_FromString", (PYTHON_PROC*)&dll_PyString_FromString},
+      {"PyString_FromStringAndSize", (PYTHON_PROC*)&dll_PyString_FromStringAndSize},
+      {"PyString_Size", (PYTHON_PROC*)&dll_PyString_Size},
+***************
+*** 578,591 ****
+  static int initialised = 0;
+  #define PYINITIALISED initialised
+  
+- /* Add conversion from PyInt? */
+  #define DICTKEY_GET(err) \
+      if (!PyString_Check(keyObject)) \
+      { \
+  	PyErr_SetString(PyExc_TypeError, _("only string keys are allowed")); \
+  	return err; \
+      } \
+!     key = (char_u *) PyString_AsString(keyObject);
+  #define DICTKEY_UNREF
+  #define DICTKEY_DECL
+  
+--- 581,595 ----
+  static int initialised = 0;
+  #define PYINITIALISED initialised
+  
+  #define DICTKEY_GET(err) \
+      if (!PyString_Check(keyObject)) \
+      { \
+  	PyErr_SetString(PyExc_TypeError, _("only string keys are allowed")); \
+  	return err; \
+      } \
+!     if (PyString_AsStringAndSize(keyObject, (char **) &key, NULL) == -1) \
+! 	return err;
+! 
+  #define DICTKEY_UNREF
+  #define DICTKEY_DECL
+  
+*** ../vim-7.3.656/src/if_python3.c	2012-09-05 18:54:37.000000000 +0200
+--- src/if_python3.c	2012-09-05 19:02:07.000000000 +0200
+***************
+*** 172,177 ****
+--- 172,178 ----
+  # define PyUnicode_AsEncodedString py3_PyUnicode_AsEncodedString
+  # undef PyBytes_AsString
+  # define PyBytes_AsString py3_PyBytes_AsString
++ # define PyBytes_AsStringAndSize py3_PyBytes_AsStringAndSize
+  # undef PyBytes_FromString
+  # define PyBytes_FromString py3_PyBytes_FromString
+  # define PyFloat_FromDouble py3_PyFloat_FromDouble
+***************
+*** 273,278 ****
+--- 274,280 ----
+  static char* (*py3__PyUnicode_AsString)(PyObject *unicode);
+  static PyObject* (*py3_PyUnicode_AsEncodedString)(PyObject *unicode, const char* encoding, const char* errors);
+  static char* (*py3_PyBytes_AsString)(PyObject *bytes);
++ static int (*py3_PyBytes_AsStringAndSize)(PyObject *bytes, char **buffer, int *length);
+  static PyObject* (*py3_PyBytes_FromString)(char *str);
+  static PyObject* (*py3_PyFloat_FromDouble)(double num);
+  static double (*py3_PyFloat_AsDouble)(PyObject *);
+***************
+*** 379,384 ****
+--- 381,387 ----
+      {"PyImport_AppendInittab", (PYTHON_PROC*)&py3_PyImport_AppendInittab},
+      {"_PyUnicode_AsString", (PYTHON_PROC*)&py3__PyUnicode_AsString},
+      {"PyBytes_AsString", (PYTHON_PROC*)&py3_PyBytes_AsString},
++     {"PyBytes_AsStringAndSize", (PYTHON_PROC*)&py3_PyBytes_AsStringAndSize},
+      {"PyBytes_FromString", (PYTHON_PROC*)&py3_PyBytes_FromString},
+      {"PyFloat_FromDouble", (PYTHON_PROC*)&py3_PyFloat_FromDouble},
+      {"PyFloat_AsDouble", (PYTHON_PROC*)&py3_PyFloat_AsDouble},
+***************
+*** 544,560 ****
+  
+  #define PYINITIALISED py3initialised
+  
+! /* Add conversion from PyInt? */
+  #define DICTKEY_GET(err) \
+      if (PyBytes_Check(keyObject)) \
+! 	key = (char_u *) PyBytes_AsString(keyObject); \
+      else if (PyUnicode_Check(keyObject)) \
+      { \
+  	bytes = PyString_AsBytes(keyObject); \
+  	if (bytes == NULL) \
+  	    return err; \
+! 	key = (char_u *) PyBytes_AsString(bytes); \
+! 	if (key == NULL) \
+  	    return err; \
+      } \
+      else \
+--- 547,566 ----
+  
+  #define PYINITIALISED py3initialised
+  
+! #define DICTKEY_DECL PyObject *bytes = NULL;
+! 
+  #define DICTKEY_GET(err) \
+      if (PyBytes_Check(keyObject)) \
+!     { \
+! 	if (PyBytes_AsStringAndSize(keyObject, (char **) &key, NULL) == -1) \
+! 	    return err; \
+!     } \
+      else if (PyUnicode_Check(keyObject)) \
+      { \
+  	bytes = PyString_AsBytes(keyObject); \
+  	if (bytes == NULL) \
+  	    return err; \
+! 	if (PyBytes_AsStringAndSize(bytes, (char **) &key, NULL) == -1) \
+  	    return err; \
+      } \
+      else \
+***************
+*** 562,573 ****
+  	PyErr_SetString(PyExc_TypeError, _("only string keys are allowed")); \
+  	return err; \
+      }
+  #define DICTKEY_UNREF \
+      if (bytes != NULL) \
+  	Py_XDECREF(bytes);
+  
+- #define DICTKEY_DECL PyObject *bytes = NULL;
+- 
+  /*
+   * Include the code shared with if_python.c
+   */
+--- 568,578 ----
+  	PyErr_SetString(PyExc_TypeError, _("only string keys are allowed")); \
+  	return err; \
+      }
++ 
+  #define DICTKEY_UNREF \
+      if (bytes != NULL) \
+  	Py_XDECREF(bytes);
+  
+  /*
+   * Include the code shared with if_python.c
+   */
+*** ../vim-7.3.656/src/version.c	2012-09-05 18:54:37.000000000 +0200
+--- src/version.c	2012-09-05 19:03:03.000000000 +0200
+***************
+*** 721,722 ****
+--- 721,724 ----
+  {   /* Add new patch number below this line */
++ /**/
++     657,
+  /**/
+
+-- 
+Have you heard about the new Barbie doll?  It's called Divorce
+Barbie.  It comes with all of Ken's stuff.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

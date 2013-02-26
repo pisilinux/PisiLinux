@@ -1,0 +1,195 @@
+2005-02-11  Jeff Johnston  <jjohnstn@redhat.com>
+
+	* testsuite/gdb.threads/step-thread-exit.c: New testcase.
+	* testsuite/gdb.threads/step-thread-exit.exp: Ditto.
+	
+Index: gdb-6.8.50.20081128/gdb/testsuite/gdb.threads/step-thread-exit.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20081128/gdb/testsuite/gdb.threads/step-thread-exit.c	2008-12-08 22:21:26.000000000 +0100
+@@ -0,0 +1,50 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2005 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program; if not, write to the Free Software
++   Foundation, Inc., 59 Temple Place - Suite 330,
++   Boston, MA 02111-1307, USA.  */
++
++#include <pthread.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++
++void *thread_function (void *ptr)
++{
++  int *x = (int *)ptr;
++  printf("In thread_function, *x is %d\n", *x);
++} /* thread_function_end */
++
++volatile int repeat = 0;
++
++main()
++{
++  int ret;
++  pthread_t th;
++  int i = 3;
++
++  ret = pthread_create (&th, NULL, thread_function, &i);
++  do
++    {
++      repeat = 0;
++      sleep (3);  /* sleep */
++    }
++  while (repeat);
++  pthread_join (th, NULL);
++  return 0;
++}
++
++
+Index: gdb-6.8.50.20081128/gdb/testsuite/gdb.threads/step-thread-exit.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20081128/gdb/testsuite/gdb.threads/step-thread-exit.exp	2008-12-08 22:22:14.000000000 +0100
+@@ -0,0 +1,130 @@
++# This testcase is part of GDB, the GNU debugger.
++
++# Copyright 2005 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# Check that GDB can step over a thread exit.
++
++if $tracelevel {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++set testfile "step-thread-exit"
++set srcfile ${testfile}.c
++set binfile ${objdir}/${subdir}/${testfile}
++if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug "incdir=${objdir}"]] != "" } {
++    return -1
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++# Reset the debug file directory so we can't debug within the C library
++gdb_test "set debug-file-directory ." "" ""
++
++#
++# Run to `main' where we begin our tests.
++#
++
++if ![runto_main] then {
++    gdb_suppress_tests
++}
++
++# FIXME: Currently the main thread will escape/exit before our thread finishes
++# without this setting.
++gdb_test "set scheduler-locking step"
++gdb_test "show scheduler-locking" "Mode for locking scheduler during execution is \"step\"." "check scheduler-locking first"
++
++set sleep_line [expr [gdb_get_line_number "sleep"]]
++set end_line [expr [gdb_get_line_number "thread_function_end"]]
++
++gdb_breakpoint "$end_line"
++gdb_test "continue" "Break.*thread_function.*" "continue to thread_function 1"
++
++# Keep nexting until we cause the thread to exit.  We expect the main
++# thread to be stopped and a message printed to tell us we have stepped
++# over the thread exit.
++set test "step over thread exit 1"
++gdb_test_multiple "next" "$test" {
++  -re "\}.*$gdb_prompt $" {
++     send_gdb "next\n"
++     exp_continue
++  }
++  -re "\[Thread .* exited\].*Program received signal SIGSTOP.*$gdb_prompt $" {
++     pass "$test"
++  }
++  -re "start_thread.*$gdb_prompt $" {
++     send_gdb "next\n"
++     exp_continue
++  }
++}
++
++# Without this fixup we could end up in:
++# #0  0x00110416 in __kernel_vsyscall ()
++# #1  0x0011de26 in __lll_unlock_wake_private () from /lib/libpthread.so.0
++# #2  0x001179f4 in _L_unlock_3164 () from /lib/libpthread.so.0
++# #3  0x00116f01 in pthread_create@@GLIBC_2.1 () from /lib/libpthread.so.0
++# #4  0x08048531 in main () at ../.././gdb/testsuite/gdb.threads/step-thread-exit.c:39
++gdb_breakpoint "$sleep_line"
++gdb_test "set repeat=1" "" "Get to the sleep function prepare 1"
++gdb_test "continue" "Break.*$sleep_line.*" "Get to the sleep function 1"
++
++gdb_test "bt" "main.*$sleep_line.*" "backtrace after step 1"
++
++runto_main
++gdb_test "show scheduler-locking" "Mode for locking scheduler during execution is \"step\"." "check scheduler-locking second"
++
++gdb_breakpoint "$sleep_line"
++gdb_breakpoint "$end_line"
++set test "continue to thread_function 2"
++gdb_test_multiple "continue" "$test" {
++    -re "Break.*thread_function.*$gdb_prompt $" {
++	pass $test
++    }
++    -re "Break.*$sleep_line.*$gdb_prompt $" {
++	gdb_test "set repeat=1" "" ""
++	send_gdb "continue\n"
++	exp_continue
++    }
++}
++
++# Keep nexting until we cause the thread to exit.  In this case, we
++# expect the breakpoint in the main thread to have already triggered
++# and so we should stop there with a message that we stepped over
++# the thread exit.
++set test "step over thread exit 2"
++gdb_test_multiple "next" "$test" {
++  -re "\}.*$gdb_prompt $" {
++     send_gdb "next\n"
++     exp_continue
++  }
++  -re "\[Thread .* exited\].*Break.*$sleep_line.*$gdb_prompt $" {
++     pass "$test (breakpoint hit)"
++  }
++  -re "\[Thread .* exited\].*$gdb_prompt $" {
++     pass "$test (breakpoint not hit)"
++  }
++  -re "start_thread.*$gdb_prompt $" {
++     send_gdb "next\n"
++     exp_continue
++  }
++}
++

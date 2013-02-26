@@ -1,0 +1,210 @@
+Index: xserver-xorg-video-intel/src/intel.h
+===================================================================
+--- xserver-xorg-video-intel.orig/src/intel.h	2011-12-20 15:47:35.802985779 +1100
++++ xserver-xorg-video-intel/src/intel.h	2011-12-20 15:47:38.618985789 +1100
+@@ -432,6 +432,7 @@
+ 	OptionInfoPtr Options;
+ 
+ 	/* Driver phase/state information */
++	Bool starting;
+ 	Bool suspended;
+ 
+ 	enum last_3d last_3d;
+@@ -461,6 +462,7 @@
+ extern int intel_get_pipe_from_crtc_id(drm_intel_bufmgr *bufmgr, xf86CrtcPtr crtc);
+ extern int intel_crtc_id(xf86CrtcPtr crtc);
+ extern int intel_output_dpms_status(xf86OutputPtr output);
++extern void intel_copy_fb(ScrnInfoPtr scrn);
+ 
+ enum DRI2FrameEventType {
+ 	DRI2_SWAP,
+Index: xserver-xorg-video-intel/src/intel_display.c
+===================================================================
+--- xserver-xorg-video-intel.orig/src/intel_display.c	2011-12-20 15:47:35.778985780 +1100
++++ xserver-xorg-video-intel/src/intel_display.c	2011-12-20 15:54:45.422987131 +1100
+@@ -36,6 +36,8 @@
+ #include <errno.h>
+ #include <poll.h>
+ 
++#include <sys/ioctl.h>
++
+ #include "xorgVersion.h"
+ 
+ #include "intel.h"
+@@ -45,6 +47,8 @@
+ #include "X11/extensions/dpmsconst.h"
+ #include "xf86DDC.h"
+ 
++#include "uxa.h"
++
+ struct intel_mode {
+ 	int fd;
+ 	uint32_t fb_id;
+@@ -939,6 +943,13 @@
+ 	drmModeConnectorPtr koutput = intel_output->mode_output;
+ 	struct intel_mode *mode = intel_output->mode;
+ 	int i;
++	intel_screen_private *intel = intel_get_screen_private(output->scrn);
++
++	/* xf86Crtc.c calls dpms off in set desired modes, so ignore
++	 * the request if we're starting up. */
++
++	if (intel->starting)
++		return;
+ 
+ 	for (i = 0; i < koutput->count_props; i++) {
+ 		drmModePropertyPtr props;
+@@ -1632,6 +1643,11 @@
+ 	}
+ 
+ 	intel->modes = mode;
++
++#if GET_ABI_MAJOR(ABI_VIDEODRV_VERSION) < 9
++	scrn->canDoBGNoneRoot = TRUE;
++#endif
++
+ 	return TRUE;
+ }
+ 
+@@ -1701,3 +1717,100 @@
+ 	struct intel_crtc *intel_crtc = crtc->driver_private;
+ 	return intel_crtc->pipe;
+ }
++
++static PixmapPtr
++intel_create_pixmap_for_fbcon(ScrnInfoPtr scrn)
++{
++	xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(scrn);
++	struct intel_crtc *intel_crtc = xf86_config->crtc[0]->driver_private;
++	ScreenPtr pScreen = screenInfo.screens[scrn->scrnIndex];
++	struct intel_mode *mode = intel_crtc->mode;
++	intel_screen_private *intel = intel_get_screen_private(scrn);
++	drmModeFBPtr fbcon = NULL;
++	struct drm_gem_flink flink;
++	drm_intel_bo *bo;
++	PixmapPtr pixmap = NULL;
++	int i;
++
++	for (i = 0; i < mode->mode_res->count_crtcs; i++) {
++		intel_crtc = xf86_config->crtc[i]->driver_private;
++		if (intel_crtc->mode_crtc->buffer_id == 0)
++			continue;
++		fbcon = drmModeGetFB(mode->fd,
++				     intel_crtc->mode_crtc->buffer_id);
++		if (fbcon != NULL)
++			break;
++	}
++	if (i == mode->mode_res->count_crtcs)
++		return NULL;
++
++	flink.handle = fbcon->handle;
++	if (ioctl(mode->fd, DRM_IOCTL_GEM_FLINK, &flink) < 0) {
++		xf86DrvMsg(scrn->scrnIndex, X_ERROR,
++			   "Couldn't flink fbcon handle\n");
++		return NULL;
++	}
++
++	bo = drm_intel_bo_gem_create_from_name(intel->bufmgr,
++					       "fbcon", flink.name);
++	if (bo == NULL) {
++		xf86DrvMsg(scrn->scrnIndex, X_ERROR,
++			   "Couldn't allocate bo for fbcon handle\n");
++		return NULL;
++	}
++	if (!CreateScratchPixmapsForScreen(pScreen->myNum))
++		return NULL;
++
++	pixmap = GetScratchPixmapHeader(pScreen,
++					fbcon->width, fbcon->height,
++					fbcon->depth, fbcon->bpp,
++					fbcon->pitch, NULL);
++	if (pixmap == NULL) {
++		xf86DrvMsg(scrn->scrnIndex, X_ERROR,
++			   "Couldn't allocate pixmap fbcon contents\n");
++		return NULL;
++	}
++
++	intel_set_pixmap_bo(pixmap, bo);
++	drm_intel_bo_unreference(bo);
++	drmModeFreeFB(fbcon);
++
++	return pixmap;
++}
++
++void intel_copy_fb(ScrnInfoPtr scrn)
++{
++	ScreenPtr pScreen = screenInfo.screens[scrn->scrnIndex];
++	intel_screen_private *intel = intel_get_screen_private(scrn);
++	PixmapPtr src, dst;
++	unsigned int pitch = scrn->displayWidth * intel->cpp;
++
++	src = intel_create_pixmap_for_fbcon(scrn);
++	if (src == NULL) {
++		xf86DrvMsg(scrn->scrnIndex, X_ERROR,
++			   "Couldn't create pixmap for fbcon\n");
++		return;
++	}
++
++	/* We dont have a screen Pixmap yet */
++	dst = GetScratchPixmapHeader(pScreen,
++				     scrn->virtualX, scrn->virtualY,
++				     scrn->depth, scrn->bitsPerPixel,
++				     pitch,
++				     NULL);
++	intel_set_pixmap_bo(dst, intel->front_buffer);
++
++	intel->uxa_driver->prepare_copy(src, dst, -1, -1, GXcopy, FB_ALLONES);
++
++	intel->uxa_driver->copy(dst, 0, 0, 0, 0,
++				scrn->virtualX, scrn->virtualY);
++
++	intel->uxa_driver->done_copy(dst);
++
++	intel_batch_submit(scrn);
++
++	(*pScreen->DestroyPixmap)(src);
++	(*pScreen->DestroyPixmap)(dst);
++	FreeScratchPixmapsForScreen(pScreen->myNum);
++}
++
+Index: xserver-xorg-video-intel/src/intel_driver.c
+===================================================================
+--- xserver-xorg-video-intel.orig/src/intel_driver.c	2011-12-20 15:47:35.762985780 +1100
++++ xserver-xorg-video-intel/src/intel_driver.c	2011-12-20 15:47:38.618985789 +1100
+@@ -950,6 +950,10 @@
+ 		intel->directRenderingType = DRI_DRI2;
+ #endif
+ 
++#if GET_ABI_MAJOR(ABI_VIDEODRV_VERSION) >= 9
++	screen->canDoBGNoneRoot = TRUE;
++#endif
++
+ 	if (!intel_init_initial_framebuffer(scrn))
+ 		return FALSE;
+ 
+@@ -958,6 +962,8 @@
+ 	if (INTEL_INFO(intel)->gen >= 40)
+ 		gen4_render_state_init(scrn);
+ 
++	intel->starting = FALSE;
++
+ 	miClearVisualTypes();
+ 	if (!miSetVisualTypes(scrn->depth,
+ 			      miGetDefaultVisualMask(scrn->depth),
+@@ -1093,6 +1099,7 @@
+ 
+ 	intel_mode_init(intel);
+ 
++	intel->starting = FALSE;
+ 	intel->suspended = FALSE;
+ 
+ #if HAVE_UDEV
+@@ -1159,6 +1166,8 @@
+ 
+ 	intel_set_gem_max_sizes(scrn);
+ 
++	intel_copy_fb(scrn);
++
+ 	if (!xf86SetDesiredModes(scrn))
+ 		return FALSE;
+ 

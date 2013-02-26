@@ -1,0 +1,46 @@
+diff -up openssh-5.5p1/channels.c.x11 openssh-5.5p1/channels.c
+--- openssh-5.5p1/channels.c.x11	2010-06-30 15:22:45.000000000 +0200
++++ openssh-5.5p1/channels.c	2010-06-30 15:27:42.000000000 +0200
+@@ -3332,7 +3332,7 @@ x11_create_display_inet(int x11_display_
+ }
+ 
+ static int
+-connect_local_xsocket_path(const char *pathname)
++connect_local_xsocket_path(const char *pathname, int len)
+ {
+ 	int sock;
+ 	struct sockaddr_un addr;
+@@ -3342,7 +3342,11 @@ connect_local_xsocket_path(const char *p
+ 		error("socket: %.100s", strerror(errno));
+ 	memset(&addr, 0, sizeof(addr));
+ 	addr.sun_family = AF_UNIX;
+-	strlcpy(addr.sun_path, pathname, sizeof addr.sun_path);
++	if (len <= 0)
++		return -1;
++	if (len > sizeof addr.sun_path)
++		len = sizeof addr.sun_path;
++	memcpy(addr.sun_path, pathname , len);
+ 	if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == 0)
+ 		return sock;
+ 	close(sock);
+@@ -3354,8 +3358,18 @@ static int
+ connect_local_xsocket(u_int dnr)
+ {
+ 	char buf[1024];
+-	snprintf(buf, sizeof buf, _PATH_UNIX_X, dnr);
+-	return connect_local_xsocket_path(buf);
++	int len;
++#ifdef linux
++	int ret;
++#endif
++	len = snprintf(buf + 1, sizeof (buf) - 1, _PATH_UNIX_X, dnr);
++#ifdef linux
++	/* try abstract socket first */
++	buf[0] = '\0';
++	if ((ret = connect_local_xsocket_path(buf, len + 1)) >= 0)
++		return ret;
++#endif
++	return connect_local_xsocket_path(buf + 1, len);
+ }
+ 
+ int

@@ -1,0 +1,403 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.198
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.198
+Problem:    No completion for ":lang".
+Solution:   Get locales to complete from. (Dominique Pelle)
+Files:	    src/eval.c, src/ex_cmds2.c, src/ex_getln.c,
+	    src/proto/ex_cmds2.pro, src/proto/ex_getln.pro, src/vim.h
+
+
+*** ../mercurial/vim73/src/eval.c	2011-05-19 17:25:36.000000000 +0200
+--- src/eval.c	2011-05-19 17:52:02.000000000 +0200
+***************
+*** 911,916 ****
+--- 911,917 ----
+      hash_clear(&compat_hashtab);
+  
+      free_scriptnames();
++     free_locales();
+  
+      /* global variables */
+      vars_clear(&globvarht);
+*** ../mercurial/vim73/src/ex_cmds2.c	2011-05-10 16:41:13.000000000 +0200
+--- src/ex_cmds2.c	2011-05-19 18:16:54.000000000 +0200
+***************
+*** 1476,1482 ****
+  #endif
+  
+  /*
+!  * Ask the user what to do when abondoning a changed buffer.
+   * Must check 'write' option first!
+   */
+      void
+--- 1476,1482 ----
+  #endif
+  
+  /*
+!  * Ask the user what to do when abandoning a changed buffer.
+   * Must check 'write' option first!
+   */
+      void
+***************
+*** 4153,4158 ****
+--- 4153,4234 ----
+  }
+  
+  # if defined(FEAT_CMDL_COMPL) || defined(PROTO)
++ 
++ static char_u	**locales = NULL;	/* Array of all available locales */
++ static int	did_init_locales = FALSE;
++ 
++ static void init_locales __ARGS((void));
++ static char_u **find_locales __ARGS((void));
++ 
++ /*
++  * Lazy initialization of all available locales.
++  */
++     static void
++ init_locales()
++ {
++     if (!did_init_locales)
++     {
++ 	did_init_locales = TRUE;
++ 	locales = find_locales();
++     }
++ }
++ 
++ /* Return an array of strings for all available locales + NULL for the
++  * last element.  Return NULL in case of error. */
++     static char_u **
++ find_locales()
++ {
++     garray_T	locales_ga;
++     char_u	*loc;
++ 
++     /* Find all available locales by running command "locale -a".  If this
++      * doesn't work we won't have completion. */
++     char_u *locale_a = get_cmd_output((char_u *)"locale -a",
++ 							NULL, SHELL_SILENT);
++     if (locale_a == NULL)
++ 	return NULL;
++     ga_init2(&locales_ga, sizeof(char_u *), 20);
++ 
++     /* Transform locale_a string where each locale is separated by "\n"
++      * into an array of locale strings. */
++     loc = (char_u *)strtok((char *)locale_a, "\n");
++ 
++     while (loc != NULL)
++     {
++ 	if (ga_grow(&locales_ga, 1) == FAIL)
++ 	    break;
++ 	loc = vim_strsave(loc);
++ 	if (loc == NULL)
++ 	    break;
++ 
++ 	((char_u **)locales_ga.ga_data)[locales_ga.ga_len++] = loc;
++ 	loc = (char_u *)strtok(NULL, "\n");
++     }
++     vim_free(locale_a);
++     if (ga_grow(&locales_ga, 1) == FAIL)
++     {
++ 	ga_clear(&locales_ga);
++ 	return NULL;
++     }
++     ((char_u **)locales_ga.ga_data)[locales_ga.ga_len] = NULL;
++     return (char_u **)locales_ga.ga_data;
++ }
++ 
++ #  if defined(EXITFREE) || defined(PROTO)
++     void
++ free_locales()
++ {
++     int			i;
++     if (locales != NULL)
++     {
++ 	for (i = 0; locales[i] != NULL; i++)
++ 	    vim_free(locales[i]);
++ 	vim_free(locales);
++ 	locales = NULL;
++     }
++ }
++ #  endif
++ 
+  /*
+   * Function given to ExpandGeneric() to obtain the possible arguments of the
+   * ":language" command.
+***************
+*** 4168,4174 ****
+  	return (char_u *)"ctype";
+      if (idx == 2)
+  	return (char_u *)"time";
+!     return NULL;
+  }
+  # endif
+  
+--- 4244,4268 ----
+  	return (char_u *)"ctype";
+      if (idx == 2)
+  	return (char_u *)"time";
+! 
+!     init_locales();
+!     if (locales == NULL)
+! 	return NULL;
+!     return locales[idx - 3];
+! }
+! 
+! /*
+!  * Function given to ExpandGeneric() to obtain the available locales.
+!  */
+!     char_u *
+! get_locales(xp, idx)
+!     expand_T	*xp UNUSED;
+!     int		idx;
+! {
+!     init_locales();
+!     if (locales == NULL)
+! 	return NULL;
+!     return locales[idx];
+  }
+  # endif
+  
+*** ../mercurial/vim73/src/ex_getln.c	2011-05-19 14:50:49.000000000 +0200
+--- src/ex_getln.c	2011-05-19 18:18:49.000000000 +0200
+***************
+*** 4571,4618 ****
+  	    int		context;
+  	    char_u	*((*func)__ARGS((expand_T *, int)));
+  	    int		ic;
+  	} tab[] =
+  	{
+! 	    {EXPAND_COMMANDS, get_command_name, FALSE},
+! 	    {EXPAND_BEHAVE, get_behave_arg, TRUE},
+  #ifdef FEAT_USR_CMDS
+! 	    {EXPAND_USER_COMMANDS, get_user_commands, FALSE},
+! 	    {EXPAND_USER_CMD_FLAGS, get_user_cmd_flags, FALSE},
+! 	    {EXPAND_USER_NARGS, get_user_cmd_nargs, FALSE},
+! 	    {EXPAND_USER_COMPLETE, get_user_cmd_complete, FALSE},
+  #endif
+  #ifdef FEAT_EVAL
+! 	    {EXPAND_USER_VARS, get_user_var_name, FALSE},
+! 	    {EXPAND_FUNCTIONS, get_function_name, FALSE},
+! 	    {EXPAND_USER_FUNC, get_user_func_name, FALSE},
+! 	    {EXPAND_EXPRESSION, get_expr_name, FALSE},
+  #endif
+  #ifdef FEAT_MENU
+! 	    {EXPAND_MENUS, get_menu_name, FALSE},
+! 	    {EXPAND_MENUNAMES, get_menu_names, FALSE},
+  #endif
+  #ifdef FEAT_SYN_HL
+! 	    {EXPAND_SYNTAX, get_syntax_name, TRUE},
+  #endif
+! 	    {EXPAND_HIGHLIGHT, get_highlight_name, TRUE},
+  #ifdef FEAT_AUTOCMD
+! 	    {EXPAND_EVENTS, get_event_name, TRUE},
+! 	    {EXPAND_AUGROUP, get_augroup_name, TRUE},
+  #endif
+  #ifdef FEAT_CSCOPE
+! 	    {EXPAND_CSCOPE, get_cscope_name, TRUE},
+  #endif
+  #ifdef FEAT_SIGNS
+! 	    {EXPAND_SIGN, get_sign_name, TRUE},
+  #endif
+  #ifdef FEAT_PROFILE
+! 	    {EXPAND_PROFILE, get_profile_name, TRUE},
+  #endif
+  #if (defined(HAVE_LOCALE_H) || defined(X_LOCALE)) \
+  	&& (defined(FEAT_GETTEXT) || defined(FEAT_MBYTE))
+! 	    {EXPAND_LANGUAGE, get_lang_arg, TRUE},
+  #endif
+! 	    {EXPAND_ENV_VARS, get_env_name, TRUE},
+  	};
+  	int	i;
+  
+--- 4571,4620 ----
+  	    int		context;
+  	    char_u	*((*func)__ARGS((expand_T *, int)));
+  	    int		ic;
++ 	    int		escaped;
+  	} tab[] =
+  	{
+! 	    {EXPAND_COMMANDS, get_command_name, FALSE, TRUE},
+! 	    {EXPAND_BEHAVE, get_behave_arg, TRUE, TRUE},
+  #ifdef FEAT_USR_CMDS
+! 	    {EXPAND_USER_COMMANDS, get_user_commands, FALSE, TRUE},
+! 	    {EXPAND_USER_CMD_FLAGS, get_user_cmd_flags, FALSE, TRUE},
+! 	    {EXPAND_USER_NARGS, get_user_cmd_nargs, FALSE, TRUE},
+! 	    {EXPAND_USER_COMPLETE, get_user_cmd_complete, FALSE, TRUE},
+  #endif
+  #ifdef FEAT_EVAL
+! 	    {EXPAND_USER_VARS, get_user_var_name, FALSE, TRUE},
+! 	    {EXPAND_FUNCTIONS, get_function_name, FALSE, TRUE},
+! 	    {EXPAND_USER_FUNC, get_user_func_name, FALSE, TRUE},
+! 	    {EXPAND_EXPRESSION, get_expr_name, FALSE, TRUE},
+  #endif
+  #ifdef FEAT_MENU
+! 	    {EXPAND_MENUS, get_menu_name, FALSE, TRUE},
+! 	    {EXPAND_MENUNAMES, get_menu_names, FALSE, TRUE},
+  #endif
+  #ifdef FEAT_SYN_HL
+! 	    {EXPAND_SYNTAX, get_syntax_name, TRUE, TRUE},
+  #endif
+! 	    {EXPAND_HIGHLIGHT, get_highlight_name, TRUE, TRUE},
+  #ifdef FEAT_AUTOCMD
+! 	    {EXPAND_EVENTS, get_event_name, TRUE, TRUE},
+! 	    {EXPAND_AUGROUP, get_augroup_name, TRUE, TRUE},
+  #endif
+  #ifdef FEAT_CSCOPE
+! 	    {EXPAND_CSCOPE, get_cscope_name, TRUE, TRUE},
+  #endif
+  #ifdef FEAT_SIGNS
+! 	    {EXPAND_SIGN, get_sign_name, TRUE, TRUE},
+  #endif
+  #ifdef FEAT_PROFILE
+! 	    {EXPAND_PROFILE, get_profile_name, TRUE, TRUE},
+  #endif
+  #if (defined(HAVE_LOCALE_H) || defined(X_LOCALE)) \
+  	&& (defined(FEAT_GETTEXT) || defined(FEAT_MBYTE))
+! 	    {EXPAND_LANGUAGE, get_lang_arg, TRUE, FALSE},
+! 	    {EXPAND_LOCALES, get_locales, TRUE, FALSE},
+  #endif
+! 	    {EXPAND_ENV_VARS, get_env_name, TRUE, TRUE},
+  	};
+  	int	i;
+  
+***************
+*** 4626,4632 ****
+  	    {
+  		if (tab[i].ic)
+  		    regmatch.rm_ic = TRUE;
+! 		ret = ExpandGeneric(xp, &regmatch, num_file, file, tab[i].func);
+  		break;
+  	    }
+      }
+--- 4628,4635 ----
+  	    {
+  		if (tab[i].ic)
+  		    regmatch.rm_ic = TRUE;
+! 		ret = ExpandGeneric(xp, &regmatch, num_file, file,
+!                                                 tab[i].func, tab[i].escaped);
+  		break;
+  	    }
+      }
+***************
+*** 4648,4660 ****
+   * Returns OK when no problems encountered, FAIL for error (out of memory).
+   */
+      int
+! ExpandGeneric(xp, regmatch, num_file, file, func)
+      expand_T	*xp;
+      regmatch_T	*regmatch;
+      int		*num_file;
+      char_u	***file;
+      char_u	*((*func)__ARGS((expand_T *, int)));
+  					  /* returns a string from the list */
+  {
+      int		i;
+      int		count = 0;
+--- 4651,4664 ----
+   * Returns OK when no problems encountered, FAIL for error (out of memory).
+   */
+      int
+! ExpandGeneric(xp, regmatch, num_file, file, func, escaped)
+      expand_T	*xp;
+      regmatch_T	*regmatch;
+      int		*num_file;
+      char_u	***file;
+      char_u	*((*func)__ARGS((expand_T *, int)));
+  					  /* returns a string from the list */
++     int		escaped;
+  {
+      int		i;
+      int		count = 0;
+***************
+*** 4679,4685 ****
+  	    {
+  		if (round)
+  		{
+! 		    str = vim_strsave_escaped(str, (char_u *)" \t\\.");
+  		    (*file)[count] = str;
+  #ifdef FEAT_MENU
+  		    if (func == get_menu_names && str != NULL)
+--- 4683,4692 ----
+  	    {
+  		if (round)
+  		{
+! 		    if (escaped)
+! 			str = vim_strsave_escaped(str, (char_u *)" \t\\.");
+! 		    else
+! 			str = vim_strsave(str);
+  		    (*file)[count] = str;
+  #ifdef FEAT_MENU
+  		    if (func == get_menu_names && str != NULL)
+*** ../mercurial/vim73/src/proto/ex_cmds2.pro	2010-05-15 21:22:11.000000000 +0200
+--- src/proto/ex_cmds2.pro	2011-05-19 17:53:52.000000000 +0200
+***************
+*** 83,87 ****
+--- 83,89 ----
+  char_u *get_mess_lang __ARGS((void));
+  void set_lang_var __ARGS((void));
+  void ex_language __ARGS((exarg_T *eap));
++ void free_locales __ARGS((void));
+  char_u *get_lang_arg __ARGS((expand_T *xp, int idx));
++ char_u *get_locales __ARGS((expand_T *xp, int idx));
+  /* vim: set ft=c : */
+*** ../mercurial/vim73/src/proto/ex_getln.pro	2010-08-16 21:23:30.000000000 +0200
+--- src/proto/ex_getln.pro	2011-05-19 17:54:00.000000000 +0200
+***************
+*** 31,37 ****
+  char_u *addstar __ARGS((char_u *fname, int len, int context));
+  void set_cmd_context __ARGS((expand_T *xp, char_u *str, int len, int col));
+  int expand_cmdline __ARGS((expand_T *xp, char_u *str, int col, int *matchcount, char_u ***matches));
+! int ExpandGeneric __ARGS((expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***file, char_u *((*func)(expand_T *, int))));
+  char_u *globpath __ARGS((char_u *path, char_u *file, int expand_options));
+  void init_history __ARGS((void));
+  int get_histtype __ARGS((char_u *name));
+--- 31,37 ----
+  char_u *addstar __ARGS((char_u *fname, int len, int context));
+  void set_cmd_context __ARGS((expand_T *xp, char_u *str, int len, int col));
+  int expand_cmdline __ARGS((expand_T *xp, char_u *str, int col, int *matchcount, char_u ***matches));
+! int ExpandGeneric __ARGS((expand_T *xp, regmatch_T *regmatch, int *num_file, char_u ***file, char_u *((*func)(expand_T *, int)), int escaped));
+  char_u *globpath __ARGS((char_u *path, char_u *file, int expand_options));
+  void init_history __ARGS((void));
+  int get_histtype __ARGS((char_u *name));
+*** ../mercurial/vim73/src/vim.h	2011-05-19 17:25:36.000000000 +0200
+--- src/vim.h	2011-05-19 17:52:02.000000000 +0200
+***************
+*** 779,784 ****
+--- 779,785 ----
+  #define EXPAND_FILETYPE		37
+  #define EXPAND_FILES_IN_PATH	38
+  #define EXPAND_OWNSYNTAX	39
++ #define EXPAND_LOCALES		40
+  
+  /* Values for exmode_active (0 is no exmode) */
+  #define EXMODE_NORMAL		1
+*** ../vim-7.3.197/src/version.c	2011-05-19 17:42:54.000000000 +0200
+--- src/version.c	2011-05-19 18:24:58.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     198,
+  /**/
+
+-- 
+The primary purpose of the DATA statement is to give names to constants;
+instead of referring to pi as 3.141592653589793 at every appearance, the
+variable PI can be given that value with a DATA statement and used instead
+of the longer form of the constant.  This also simplifies modifying the
+program, should the value of pi change.
+	-- FORTRAN manual for Xerox Computers
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

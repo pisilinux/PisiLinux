@@ -1,0 +1,107 @@
+#!/bin/sh
+# gfilt: Unix shell script driver for gcc / STL Error Decryptor
+#
+# Leor Zolman leor@bdsoft.com
+# BD Software www.bdsoft.com
+# Updated: 1/30/2008
+#
+# Installation: Place this file and gSTLFilt.pl somewhere in your PATH
+#               (Make sure Perl is also in your PATH)
+#
+# Usage: gfilt [mixture of compiler and Decryptor options] file(s)
+#
+# Purpose: Serve as a substitute for the g++ compiler driver, in-
+#          corporating STLFilt functionality transparently.
+#          Distinguishes compiler options/args from Decryptor options,
+#          makes sure all recognized Decryptor options are passed on
+#          the Decryptor script command line while other options/
+#          args are passed on the compiler command line.
+#          Filter all compiler output, and send results to stdout.
+#
+#          (Note: stdout and stderr output streams from the compiler
+#          are combined by this process, so the two can no longer be
+#          individually redirected afterwards. If this is an issue
+#          for anyone, please let me know.)
+#
+# Exit status: The status code returned by the compiler
+#
+# Contents of the environment variable GFILTOPTS are passed as
+# options to the STLFILT script (see the setting of DOPTS below.)
+#
+# 01/30/08 - Gets gSTLFilt.pl from same dir as this script
+#            Expanded the usage message a bit
+# 06/29/05 - added more explanatory comments, fixed COPTS handling
+# 02/16/05 - fixed multi-line case statement to work for freeBSD
+# 12/17/04 - Added recognition of several script options that
+#            were missing from the case: with, meta, nullarg
+#            Added more comments.
+# 02/21/03 - Exit status is now status of compilation
+#
+# Note: If packaged in a ZIP file, this file uses CR-LF line termination.
+#       If packaged in a .tar file, it'll have Unix-style termination.
+#########################################################################
+# Configuration section:
+
+COMPILER=c++                            # Your g++ compiler command
+STLFILT="`dirname $0`/gSTLFilt.pl"      # Assumes gSTLFilt.pl is in same dir as gfilt
+
+                                        # default options to Decryptor script:
+DOPTS="/hdr:m /cand:s /iter:L ${GFILTOPTS:-}"
+PAGER=less                              # pager of choice, or leave blank for no paging
+COPTS=                                  # compiler options
+
+# End of configuration section
+#########################################################################
+
+
+if $COMPILER --version | grep " 3\." >/dev/null      # if gcc 3.x...
+then
+    COPTS="-fmessage-length=0 $COPTS"     # ...this option is needed.
+fi
+
+if [ $# -eq 0 ]; then
+ echo "gfilt: wrapper for gcc/c++ compiler with STL Error Decryptor"
+ echo "usage: $0 [all-options] [compiler-arguments]"
+ echo "       [NOTE: compiler and decryptor options may be mixed]"
+ exit 0
+fi
+ 
+
+
+GCC_ARGS=
+DECRYPTOR_ARGS=
+
+for arg
+do
+    case $arg in
+        [-/]iter:* | [-/]cand:* | [/-]hdr:* | \
+        [-/]with:* | [-/]path:* | [/-]showback:* | \
+        [/-]width:* | [-/]lognative | [-/]banner:* | [-/]nullarg:* | \
+        [-/]break:* | [-/]cbreak:* | [-/]closewrap:* | [-/]meta | [-/]meta:*)
+            DECRYPTOR_ARGS="$DECRYPTOR_ARGS $arg";;
+        *)
+            GCC_ARGS="$GCC_ARGS $arg";;
+    esac
+done
+
+
+#
+# Note that there are several options the Perl script accepts.
+# see the comments at the top of gSTLFilt.pl for details.
+#
+
+TMPFILE=/tmp/gfilt$$.tmp
+touch $TMPFILE
+trap "rm $TMPFILE; exit 1" 1 2 3 15
+
+$COMPILER $COPTS $GCC_ARGS >$TMPFILE 2>&1
+STATUS=$?
+
+if [ "$PAGER" != "" ]; then
+    perl $STLFILT $DOPTS $DECRYPTOR_ARGS < $TMPFILE | $PAGER
+else
+    perl $STLFILT $DOPTS $DECRYPTOR_ARGS < $TMPFILE
+fi
+
+rm $TMPFILE
+exit $STATUS

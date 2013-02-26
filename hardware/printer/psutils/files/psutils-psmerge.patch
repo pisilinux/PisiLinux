@@ -1,0 +1,153 @@
+--- psutils/psmerge.pl.new	2006-06-12 09:53:37.000000000 +0200
++++ psutils/psmerge.pl	2006-06-12 09:53:47.000000000 +0200
+@@ -1,11 +1,19 @@
+-@PERL@
++#!/usr/bin/perl
++eval 'exec perl -S $0 "$@"'
++	if (1 == 0);
++
+ # psmerge: merge PostScript files produced by same application and setup
+-# usage: psmerge [-oout.ps] [-thorough] file1.ps file2.ps ...
++# usage: psmerge [-oout.ps] file1.ps file2.ps ...
+ #
+ # Copyright (C) Angus J. C. Duggan 1991-1995
+ # See file LICENSE for details.
++# 
++# Unbroken (or, broken in a different way that at least sometimes
++# works) by Peter Williams 2003 <peter@newton.cx>
++
+ 
+-$prog = ($0 =~ s=.*/==);
++$prog = $0;
++$prog =~ s=.*/==;
+ 
+ while ($ARGV[0] =~ /^-/) {
+    $_ = shift;
+@@ -14,72 +22,75 @@
+ 	 print STDERR "$prog: can't open $1 for output\n";
+ 	 exit 1;
+       }
+-   } elsif (/^-t(horough)?$/) {
+-      $thorough = 1;
+    } else {
+-      print STDERR "Usage: $prog [-oout] [-thorough] file...\n";
++      print STDERR "Usage: $prog [-oout] file1 file2...\n";
+       exit 1;
+    }
+ }
+ 
+ $page = 0;
+ $first = 1;
++$seenpages = 0;
+ $nesting = 0;
+ 
+-@header = ();
+-$header = 1;
+-
+ @trailer = ();
+-$trailer = 0;
+-
+-@pages = ();
+-@body = ();
+-
+-@resources = ();
+-$inresource = 0;
++$trailermode = 0;
+ 
+ while (<>) {
+-   if (/^%%BeginFont:/ || /^%%BeginResource:/ || /^%%BeginProcSet:/) {
+-      $inresource = 1;
+-      push(@resources, $_);
+-   } elsif ($inresource) {
+-      push(@resources, $_);
+-      $inresource = 0 if /^%%EndFont/ || /^%%EndResource/ || /^%%EndProcSet/;
+-   } elsif (/^%%Page:/ && $nesting == 0) {
+-      $header = $trailer = 0;
+-      push(@pages, join("", @body)) if @body;
+-      $page++;
+-      @body = ("%%Page: ($page) $page\n");
+-   } elsif (/^%%Trailer/ && $nesting == 0) {
+-      push(@trailer, $_);
+-      push(@pages, join("", @body)) if @body;
+-      @body = ();
+-      $trailer = 1;
+-      $header = 0;
+-   } elsif ($header) {
+-      push(@trailer, $_);
+-      push(@pages, join("", @body)) if @body;
+-      @body = ();
+-      $trailer = 1;
+-      $header = 0;
+-   } elsif ($trailer) {
+-      if (/^%!/ || /%%EOF/) {
+-	 $trailer = $first = 0;
+-      } elsif ($first) {
+-	 push(@trailer, $_);
+-      }
+-   } elsif (/^%%BeginDocument/ || /^%%BeginBinary/ || /^%%BeginFile/) {
+-      push(@body, $_);
+-      $nesting++;
+-   } elsif (/^%%EndDocument/ || /^%%EndBinary/ || /^%%EndFile/) {
+-      push(@body, $_);
+-      $nesting--;
+-   } else {
+-      print $_ if $print;
+-   }
++    if ($seenpages == 0) {
++	if (/^%%Page:/) {
++	    if ($nesting == 0) {
++		$seenpages = 1;
++		$page++;
++		print "%%Page: ($page) $page\n";
++	    } else {
++		print $_;
++	    }
++	} elsif ($first) {
++	    if (/^%%Pages: /) {
++		print "%%Pages: (atend)\n";
++	    } else {
++		print $_;
++	    }
++	}
++    } elsif ($trailermode) {
++	if (/^%!/ || /%%EOF/) {
++	    $seenpages = 0;
++	    $first = 0;
++	    $trailermode = 0;
++	} elsif ($first) {
++	    push (@trailer, $_)
++		unless (/^%%Pages/);
++	}
++    } else {
++	if (/^%%Page:/) {
++	    if ($nesting == 0) {
++		$seenpages = 1;
++		$page++;
++		print "%%Page: ($page) $page\n";
++	    } else {
++		print $_;
++	    }
++	} elsif (/^%%Trailer/ && $nesting == 0) {
++	    $trailermode = 1;
++	} elsif (/^%%BeginDocument/ || /^%%BeginBinary/ || /^%%BeginFile/) {
++	    push(@body, $_);
++	    $nesting++;
++	    print $_;
++	} elsif (/^%%EndDocument/ || /^%%EndBinary/ || /^%%EndFile/) {
++	    push(@body, $_);
++	    $nesting--;
++	    print $_;
++	} else {
++	    print $_;
++	}
++    }
+ }
+ 
++print "%%Trailer\n";
+ print @trailer;
++print "%%Pages: $page\n";
++print "%%EOF\n";
+ 
+ exit 0;
+-@END@
++

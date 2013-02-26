@@ -1,0 +1,364 @@
+--- examples/Makefile.am	9 Sep 2003 09:50:04 -0000	1.39
++++ examples/Makefile.am	12 Nov 2006 22:05:50 -0000
+@@ -57,6 +57,7 @@
+ 	coolwave2		\
+ 	template		\
+ 	scribble-gl		\
++	font-pango              \
+ 	font-pangoft2		\
+ 	font-pangoft2-tex
+ 
+@@ -150,6 +151,10 @@
+ scribble_gl_DEPENDENCIES = $(DEPS)
+ scribble_gl_LDADD = $(LDADDS)
+ 
++font_pango_SOURCES = font-pango.c
++font_pango_DEPENDENCIES = $(DEPS)
++font_pango_LDADD = $(LDADDS)
++
+ font_pangoft2_SOURCES = font-pangoft2.c
+ font_pangoft2_DEPENDENCIES = $(DEPS)
+ font_pangoft2_LDADD = $(LDADDS_WITH_PANGOFT2)
+
+--- gdk/gdkglpixmap.c	20 Feb 2004 09:38:12 -0000	1.38
++++ gdk/gdkglpixmap.c	12 Nov 2006 22:05:50 -0000
+@@ -104,7 +104,7 @@
+                                                           GdkColormap *cmap);
+ static GdkColormap *gdk_gl_pixmap_get_colormap           (GdkDrawable *drawable);
+ static GdkVisual   *gdk_gl_pixmap_get_visual             (GdkDrawable *drawable);
+-#if !(GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0)
++#if GTK_CHECK_VERSION(2,2,0)
+ static GdkScreen   *gdk_gl_pixmap_get_screen             (GdkDrawable *drawable);
+ #endif
+ static GdkImage    *gdk_gl_pixmap_get_image              (GdkDrawable *drawable,
+@@ -141,6 +141,22 @@
+                                                  gint         dest_y,
+                                                  gint         width,
+                                                  gint         height);
++#if GTK_CHECK_VERSION(2,6,0)
++static void gdk_gl_pixmap_draw_glyphs_transformed (GdkDrawable      *drawable,
++                                                   GdkGC            *gc,
++                                                   PangoMatrix      *matrix,
++                                                   PangoFont        *font,
++                                                   gint              x,
++                                                   gint              y,
++                                                   PangoGlyphString *glyphs);
++static void gdk_gl_pixmap_draw_trapezoids (GdkDrawable     *drawable,
++                                           GdkGC	          *gc,
++                                           GdkTrapezoid    *trapezoids,
++                                           gint             n_trapezoids);
++#endif
++#if GTK_CHECK_VERSION(2,8,0)
++static cairo_surface_t *gdk_gl_pixmap_ref_cairo_surface (GdkDrawable *drawable);
++#endif
+ 
+ static void gdk_gl_pixmap_class_init (GdkGLPixmapClass *klass);
+ static void gdk_gl_pixmap_finalize   (GObject          *object);
+@@ -203,19 +219,26 @@
+   drawable_class->set_colormap           = gdk_gl_pixmap_set_colormap;
+   drawable_class->get_colormap           = gdk_gl_pixmap_get_colormap;
+   drawable_class->get_visual             = gdk_gl_pixmap_get_visual;
+-#if !(GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0)
++#if GTK_CHECK_VERSION(2,2,0)
+   drawable_class->get_screen             = gdk_gl_pixmap_get_screen;
+ #endif
+   drawable_class->get_image              = gdk_gl_pixmap_get_image;
+   drawable_class->get_clip_region        = gdk_gl_pixmap_get_clip_region;
+   drawable_class->get_visible_region     = gdk_gl_pixmap_get_visible_region;
+   drawable_class->get_composite_drawable = gdk_gl_pixmap_get_composite_drawable;
+-#if GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0
+-  drawable_class->_draw_pixbuf           = gdk_gl_pixmap_draw_pixbuf;
+-#else
++#if GTK_CHECK_VERSION(2,2,0)
+   drawable_class->draw_pixbuf            = gdk_gl_pixmap_draw_pixbuf;
++#else
++  drawable_class->_draw_pixbuf           = gdk_gl_pixmap_draw_pixbuf;
+ #endif
+   drawable_class->_copy_to_image         = gdk_gl_pixmap_copy_to_image;
++#if GTK_CHECK_VERSION(2,6,0)
++  drawable_class->draw_glyphs_transformed = gdk_gl_pixmap_draw_glyphs_transformed;
++  drawable_class->draw_trapezoids        = gdk_gl_pixmap_draw_trapezoids;
++#endif
++#if GTK_CHECK_VERSION(2,8,0)
++  drawable_class->ref_cairo_surface      = gdk_gl_pixmap_ref_cairo_surface;
++#endif
+ }
+ 
+ static void
+@@ -498,7 +521,7 @@
+   return GDK_DRAWABLE_GET_CLASS (real_drawable)->get_visual (real_drawable);
+ }
+ 
+-#if !(GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0)
++#if GTK_CHECK_VERSION(2,2,0)
+ 
+ static GdkScreen *
+ gdk_gl_pixmap_get_screen (GdkDrawable *drawable)
+@@ -578,20 +601,7 @@
+ {
+   GdkDrawable *real_drawable = ((GdkGLPixmap *) drawable)->drawable;
+ 
+-#if GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0
+-  GDK_DRAWABLE_GET_CLASS (real_drawable)->_draw_pixbuf (real_drawable,
+-                                                        gc,
+-                                                        pixbuf,
+-                                                        src_x,
+-                                                        src_y,
+-                                                        dest_x,
+-                                                        dest_y,
+-                                                        width,
+-                                                        height,
+-                                                        dither,
+-                                                        x_dither,
+-                                                        y_dither);
+-#else
++#if GTK_CHECK_VERSION(2,2,0)
+   GDK_DRAWABLE_GET_CLASS (real_drawable)->draw_pixbuf (real_drawable,
+                                                        gc,
+                                                        pixbuf,
+@@ -604,6 +614,19 @@
+                                                        dither,
+                                                        x_dither,
+                                                        y_dither);
++#else
++  GDK_DRAWABLE_GET_CLASS (real_drawable)->_draw_pixbuf (real_drawable,
++                                                        gc,
++                                                        pixbuf,
++                                                        src_x,
++                                                        src_y,
++                                                        dest_x,
++                                                        dest_y,
++                                                        width,
++                                                        height,
++                                                        dither,
++                                                        x_dither,
++                                                        y_dither);
+ #endif
+ }
+ 
+@@ -629,6 +652,52 @@
+                                                                  height);
+ }
+ 
++#if GTK_CHECK_VERSION(2,6,0)
++static void
++gdk_gl_pixmap_draw_glyphs_transformed (GdkDrawable      *drawable,
++                                       GdkGC            *gc,
++                                       PangoMatrix      *matrix,
++                                       PangoFont        *font,
++                                       gint              x,
++                                       gint              y,
++                                       PangoGlyphString *glyphs)
++{
++  GdkDrawable *real_drawable = ((GdkGLPixmap *) drawable)->drawable;
++
++  GDK_DRAWABLE_GET_CLASS (real_drawable)->draw_glyphs_transformed (real_drawable,
++                                                                   gc,
++                                                                   matrix,
++                                                                   font,
++                                                                   x,
++                                                                   y,
++                                                                   glyphs);
++}
++
++static void
++gdk_gl_pixmap_draw_trapezoids (GdkDrawable     *drawable,
++                               GdkGC	       *gc,
++                               GdkTrapezoid    *trapezoids,
++                               gint             n_trapezoids)
++{
++  GdkDrawable *real_drawable = ((GdkGLPixmap *) drawable)->drawable;
++
++  GDK_DRAWABLE_GET_CLASS (real_drawable)->draw_trapezoids (real_drawable,
++                                                           gc,
++                                                           trapezoids,
++                                                           n_trapezoids);
++}
++#endif
++
++#if GTK_CHECK_VERSION(2,8,0)
++static cairo_surface_t *
++gdk_gl_pixmap_ref_cairo_surface (GdkDrawable *drawable)
++{
++  GdkDrawable *real_drawable = ((GdkGLPixmap *) drawable)->drawable;
++
++  return GDK_DRAWABLE_GET_CLASS (real_drawable)->ref_cairo_surface (real_drawable);
++}
++#endif
++
+ /*< private >*/
+ void
+ _gdk_gl_pixmap_get_size (GdkGLDrawable *gldrawable,
+
+--- gdk/gdkglwindow.c	20 Feb 2004 09:38:12 -0000	1.46
++++ gdk/gdkglwindow.c	12 Nov 2006 22:05:50 -0000
+@@ -104,7 +104,7 @@
+                                                           GdkColormap *cmap);
+ static GdkColormap *gdk_gl_window_get_colormap           (GdkDrawable *drawable);
+ static GdkVisual   *gdk_gl_window_get_visual             (GdkDrawable *drawable);
+-#if !(GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0)
++#if GTK_CHECK_VERSION(2,2,0)
+ static GdkScreen   *gdk_gl_window_get_screen             (GdkDrawable *drawable);
+ #endif
+ static GdkImage    *gdk_gl_window_get_image              (GdkDrawable *drawable,
+@@ -141,6 +141,22 @@
+                                                  gint         dest_y,
+                                                  gint         width,
+                                                  gint         height);
++#if GTK_CHECK_VERSION(2,6,0)
++static void gdk_gl_window_draw_glyphs_transformed (GdkDrawable      *drawable,
++                                                   GdkGC            *gc,
++                                                   PangoMatrix      *matrix,
++                                                   PangoFont        *font,
++                                                   gint              x,
++                                                   gint              y,
++                                                   PangoGlyphString *glyphs);
++static void gdk_gl_window_draw_trapezoids (GdkDrawable     *drawable,
++                                           GdkGC	          *gc,
++                                           GdkTrapezoid    *trapezoids,
++                                           gint             n_trapezoids);
++#endif
++#if GTK_CHECK_VERSION(2,8,0)
++static cairo_surface_t *gdk_gl_window_ref_cairo_surface (GdkDrawable *drawable);
++#endif
+ 
+ static void gdk_gl_window_class_init (GdkGLWindowClass *klass);
+ static void gdk_gl_window_finalize   (GObject          *object);
+@@ -203,19 +219,26 @@
+   drawable_class->set_colormap           = gdk_gl_window_set_colormap;
+   drawable_class->get_colormap           = gdk_gl_window_get_colormap;
+   drawable_class->get_visual             = gdk_gl_window_get_visual;
+-#if !(GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0)
++#if GTK_CHECK_VERSION(2,2,0)
+   drawable_class->get_screen             = gdk_gl_window_get_screen;
+ #endif
+   drawable_class->get_image              = gdk_gl_window_get_image;
+   drawable_class->get_clip_region        = gdk_gl_window_get_clip_region;
+   drawable_class->get_visible_region     = gdk_gl_window_get_visible_region;
+   drawable_class->get_composite_drawable = gdk_gl_window_get_composite_drawable;
+-#if GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0
+-  drawable_class->_draw_pixbuf           = gdk_gl_window_draw_pixbuf;
+-#else
++#if GTK_CHECK_VERSION(2,2,0)
+   drawable_class->draw_pixbuf            = gdk_gl_window_draw_pixbuf;
++#else
++  drawable_class->_draw_pixbuf           = gdk_gl_window_draw_pixbuf;
+ #endif
+   drawable_class->_copy_to_image         = gdk_gl_window_copy_to_image;
++#if GTK_CHECK_VERSION(2,6,0)
++  drawable_class->draw_glyphs_transformed = gdk_gl_window_draw_glyphs_transformed;
++  drawable_class->draw_trapezoids        = gdk_gl_window_draw_trapezoids;
++#endif
++#if GTK_CHECK_VERSION(2,8,0)
++  drawable_class->ref_cairo_surface      = gdk_gl_window_ref_cairo_surface;
++#endif
+ }
+ 
+ static void
+@@ -498,7 +521,7 @@
+   return GDK_DRAWABLE_GET_CLASS (real_drawable)->get_visual (real_drawable);
+ }
+ 
+-#if !(GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0)
++#if GTK_CHECK_VERSION(2,2,0)
+ 
+ static GdkScreen *
+ gdk_gl_window_get_screen (GdkDrawable *drawable)
+@@ -578,20 +601,7 @@
+ {
+   GdkDrawable *real_drawable = ((GdkGLWindow *) drawable)->drawable;
+ 
+-#if GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION == 0
+-  GDK_DRAWABLE_GET_CLASS (real_drawable)->_draw_pixbuf (real_drawable,
+-                                                        gc,
+-                                                        pixbuf,
+-                                                        src_x,
+-                                                        src_y,
+-                                                        dest_x,
+-                                                        dest_y,
+-                                                        width,
+-                                                        height,
+-                                                        dither,
+-                                                        x_dither,
+-                                                        y_dither);
+-#else
++#if GTK_CHECK_VERSION(2,2,0)
+   GDK_DRAWABLE_GET_CLASS (real_drawable)->draw_pixbuf (real_drawable,
+                                                        gc,
+                                                        pixbuf,
+@@ -604,6 +614,19 @@
+                                                        dither,
+                                                        x_dither,
+                                                        y_dither);
++#else
++  GDK_DRAWABLE_GET_CLASS (real_drawable)->_draw_pixbuf (real_drawable,
++                                                        gc,
++                                                        pixbuf,
++                                                        src_x,
++                                                        src_y,
++                                                        dest_x,
++                                                        dest_y,
++                                                        width,
++                                                        height,
++                                                        dither,
++                                                        x_dither,
++                                                        y_dither);
+ #endif
+ }
+ 
+@@ -629,6 +652,53 @@
+                                                                  height);
+ }
+ 
++#if GTK_CHECK_VERSION(2,6,0)
++static void
++gdk_gl_window_draw_glyphs_transformed (GdkDrawable      *drawable,
++                                       GdkGC            *gc,
++                                       PangoMatrix      *matrix,
++                                       PangoFont        *font,
++                                       gint              x,
++                                       gint              y,
++                                       PangoGlyphString *glyphs)
++{
++  GdkDrawable *real_drawable = ((GdkGLWindow *) drawable)->drawable;
++
++  GDK_DRAWABLE_GET_CLASS (real_drawable)->draw_glyphs_transformed (real_drawable,
++                                                                   gc,
++                                                                   matrix,
++                                                                   font,
++                                                                   x,
++                                                                   y,
++                                                                   glyphs);
++}
++
++static void
++gdk_gl_window_draw_trapezoids (GdkDrawable     *drawable,
++                               GdkGC	       *gc,
++                               GdkTrapezoid    *trapezoids,
++                               gint             n_trapezoids)
++{
++  GdkDrawable *real_drawable = ((GdkGLWindow *) drawable)->drawable;
++
++  GDK_DRAWABLE_GET_CLASS (real_drawable)->draw_trapezoids (real_drawable,
++                                                           gc,
++                                                           trapezoids,
++                                                           n_trapezoids);
++}
++#endif
++
++#if GTK_CHECK_VERSION(2,8,0)
++static cairo_surface_t *
++gdk_gl_window_ref_cairo_surface (GdkDrawable *drawable)
++{
++  GdkDrawable *real_drawable = ((GdkGLWindow *) drawable)->drawable;
++
++  return GDK_DRAWABLE_GET_CLASS (real_drawable)->ref_cairo_surface (real_drawable);
++}
++#endif
++
++
+ /*< private >*/
+ void
+ _gdk_gl_window_get_size (GdkGLDrawable *gldrawable,
+
+ 	  	 

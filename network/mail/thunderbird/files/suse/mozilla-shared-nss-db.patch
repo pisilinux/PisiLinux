@@ -1,0 +1,144 @@
+From: Hans Petter Jansson <hpj@copyleft.no>
+      Wolfgang Rosenauer <wr@rosenauer.org>
+Subject: use libnsssharedhelper if available at compile time
+         (can be disabled by exporting MOZ_XRE_NO_NSSHELPER=1)
+References:
+
+diff --git a/configure.in b/configure.in
+--- a/configure.in
++++ b/configure.in
+@@ -7987,16 +7987,31 @@ AC_SUBST(QCMS_LIBS)
+ 
+ dnl ========================================================
+ dnl HarfBuzz
+ dnl ========================================================
+ MOZ_HARFBUZZ_LIBS='$(DEPTH)/gfx/harfbuzz/src/$(LIB_PREFIX)mozharfbuzz.$(LIB_SUFFIX)'
+ AC_SUBST(MOZ_HARFBUZZ_LIBS)
+ 
+ dnl ========================================================
++dnl Check for nss-shared-helper
++dnl ========================================================
++
++  PKG_CHECK_MODULES(NSSHELPER, nss-shared-helper,
++    [MOZ_ENABLE_NSSHELPER=1],
++    [MOZ_ENABLE_NSSHELPER=])
++
++if test "$MOZ_ENABLE_NSSHELPER"; then
++  AC_DEFINE(MOZ_ENABLE_NSSHELPER)
++fi
++AC_SUBST(MOZ_ENABLE_NSSHELPER)
++AC_SUBST(NSSHELPER_CFLAGS)
++AC_SUBST(NSSHELPER_LIBS)
++
++dnl ========================================================
+ dnl SIL Graphite
+ dnl ========================================================
+ if test "$MOZ_GRAPHITE"; then
+   MOZ_GRAPHITE_LIBS='$(DEPTH)/gfx/graphite2/src/$(LIB_PREFIX)mozgraphite2.$(LIB_SUFFIX)'
+   AC_DEFINE(MOZ_GRAPHITE)
+ else
+   MOZ_GRAPHITE_LIBS=
+ fi
+diff --git a/security/manager/ssl/src/Makefile.in b/security/manager/ssl/src/Makefile.in
+--- a/security/manager/ssl/src/Makefile.in
++++ b/security/manager/ssl/src/Makefile.in
+@@ -90,12 +90,14 @@ DEFINES += \
+   $(NULL)
+ 
+ EXPORTS += \
+   nsNSSShutDown.h \
+   $(NULL)
+ 
+ # Use local includes because they are inserted before INCLUDES
+ # so that Mozilla's nss.h is used, not glibc's
+-LOCAL_INCLUDES += $(NSS_CFLAGS)
++LOCAL_INCLUDES += $(NSS_CFLAGS) $(NSSHELPER_CFLAGS)
++
++EXTRA_DSO_LDOPTS += $(NSSHELPER_LIBS)
+ 
+ include $(topsrcdir)/config/rules.mk
+ 
+diff --git a/security/manager/ssl/src/nsNSSComponent.cpp b/security/manager/ssl/src/nsNSSComponent.cpp
+--- a/security/manager/ssl/src/nsNSSComponent.cpp
++++ b/security/manager/ssl/src/nsNSSComponent.cpp
+@@ -1,14 +1,21 @@
+ /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+  *
+  * This Source Code Form is subject to the terms of the Mozilla Public
+  * License, v. 2.0. If a copy of the MPL was not distributed with this
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
++#ifdef MOZ_ENABLE_NSSHELPER
++#pragma GCC visibility push(default)
++#include <nss-shared-helper.h>
++#pragma GCC visibility pop
++#include "prenv.h"
++#endif
++
+ #include "nsNSSComponent.h"
+ #include "nsNSSCallbacks.h"
+ #include "nsNSSIOLayer.h"
+ #include "nsCertVerificationThread.h"
+ 
+ #include "nsNetUtil.h"
+ #include "nsAppDirectoryServiceDefs.h"
+ #include "nsDirectoryService.h"
+@@ -1731,18 +1738,34 @@ nsNSSComponent::InitializeNSS(bool showW
+     ConfigureInternalPKCS11Token();
+ 
+     // The NSS_INIT_NOROOTINIT flag turns off the loading of the root certs
+     // module by NSS_Initialize because we will load it in InstallLoadableRoots
+     // later.  It also allows us to work around a bug in the system NSS in
+     // Ubuntu 8.04, which loads any nonexistent "<configdir>/libnssckbi.so" as
+     // "/usr/lib/nss/libnssckbi.so".
+     uint32_t init_flags = NSS_INIT_NOROOTINIT | NSS_INIT_OPTIMIZESPACE;
+-    SECStatus init_rv = ::NSS_Initialize(profileStr.get(), "", "",
+-                                         SECMOD_DB, init_flags);
++    SECStatus init_rv = SECFailure;
++#ifdef MOZ_ENABLE_NSSHELPER
++    if (PR_GetEnv("MOZ_TB_NO_NSSHELPER")) {
++      init_rv = ::NSS_Initialize(profileStr.get(), "", "",
++                                 SECMOD_DB, init_flags);
++    } else {
++      init_rv = ::nsshelp_open_db ("Thunderbird", profileStr.get(), init_flags);
++
++      if (init_rv != SECSuccess) {
++        PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("can not init NSS using nsshelp_open_db in %s\n", profileStr.get()));
++        init_rv = ::NSS_Initialize(profileStr.get(), "", "",
++                                   SECMOD_DB, init_flags);
++      }
++    }
++#else
++    init_rv = ::NSS_Initialize(profileStr.get(), "", "",
++                               SECMOD_DB, init_flags);
++#endif
+ 
+     if (init_rv != SECSuccess) {
+       PR_LOG(gPIPNSSLog, PR_LOG_DEBUG, ("can not init NSS r/w in %s\n", profileStr.get()));
+ 
+       if (supress_warning_preference) {
+         which_nss_problem = problem_none;
+       }
+       else {
+diff --git a/toolkit/library/Makefile.in b/toolkit/library/Makefile.in
+--- a/toolkit/library/Makefile.in
++++ b/toolkit/library/Makefile.in
+@@ -443,17 +443,17 @@ EXTRA_DSO_LDOPTS += -INCREMENTAL:NO
+ endif
+ endif
+ endif
+ 
+ EXTRA_DSO_LDOPTS += $(LIBS_DIR) $(EXTRA_DSO_LIBS)
+ 
+ DEFINES += -DIMPL_XREAPI
+ 
+-EXTRA_DSO_LDOPTS += $(NSPR_LIBS) $(MOZALLOC_LIB)
++EXTRA_DSO_LDOPTS += $(NSPR_LIBS) $(MOZALLOC_LIB) $(NSSHELPER_LIBS)
+ 
+ ifeq ($(MOZ_WIDGET_TOOLKIT),cocoa)
+ CXXFLAGS += $(TK_CFLAGS)
+ OS_LIBS += \
+   -framework SystemConfiguration \
+   -framework QTKit \
+   -framework IOKit \
+   -F/System/Library/PrivateFrameworks -framework CoreUI \

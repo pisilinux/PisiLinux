@@ -1,0 +1,64 @@
+diff -up man-pages-3.22/man2/sched_setaffinity.2.orig man-pages-3.22/man2/sched_setaffinity.2
+--- man-pages-3.22/man2/sched_setaffinity.2.orig	2009-07-25 08:53:26.000000000 +0200
++++ man-pages-3.22/man2/sched_setaffinity.2	2009-12-02 15:29:17.000000000 +0100
+@@ -212,6 +212,60 @@ system call returns the size (in bytes) 
+ .I cpumask_t
+ data type that is used internally by the kernel to
+ represent the CPU set bit mask.
++
++The \fBcpu_set_t\fR affinity mask size provided by glibc only allows for upto
++1024 CPUs. It is possible to build Linux kernels with greater than 1024
++CPUs. Any application using the statically sized \fBcpu_set_t\fR will fail
++with \fBEINVAL\fR on such kernels. It is thus recommended that applications
++avoid using the statically sized \fBcpu_set_t\fR type, and instead dynamically
++allocate a mask using the CPU_*_S macros described in the \fBCPU_SET(3)\fR man
++page. Since it is not possible to determine ahead of time what \fBNR_CPUS\fR
++value the kernel was built with, applications must be prepared to catch
++\fBEINVAL\fR, and retry the command with a larger dynamically allocated mask.
++The example that follows illustrates portable usage.
++
++.SH EXAMPLE
++.nf
++   #define _GNU_SOURCE
++
++   #include <sched.h>
++   #include <stdio.h>
++   #include <errno.h>
++
++   int main(void)
++   {
++        cpu_set_t *mask;
++        size_t size;
++        int i;
++        int nrcpus = 1024;
++
++realloc:
++        mask = CPU_ALLOC(nrcpus);
++        size = CPU_ALLOC_SIZE(nrcpus);
++        CPU_ZERO_S(size, mask);
++        if ( sched_getaffinity(0, size, mask) == -1 ) {
++                CPU_FREE(mask);
++                if (errno == EINVAL &&
++                    nrcpus < (1024 << 8)) {
++                       nrcpus = nrcpus << 2;
++                       goto realloc;
++                }
++                perror("sched_getaffinity");
++                return -1;
++        }
++
++        for ( i = 0; i < nrcpus; i++ ) {
++                if ( CPU_ISSET_S(i, size, mask) ) {
++                        printf("CPU %d is set\\n", (i+1));
++                }
++        }
++
++        CPU_FREE(mask);
++
++        return 0;
++   }
++.fi
++
+ .SH "SEE ALSO"
+ .BR clone (2),
+ .BR getcpu (2),

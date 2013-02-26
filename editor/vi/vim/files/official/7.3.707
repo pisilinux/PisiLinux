@@ -1,0 +1,127 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.707
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.707 (after 7.3.701)
+Problem:    Problems loading a library for a file name with non-latin
+            characters.
+Solution:   Use wide system functions when possible. (Ken Takata)
+Files:      src/os_win32.c, src/os_win32.h
+
+
+*** ../vim-7.3.706/src/os_win32.c	2012-10-21 02:37:02.000000000 +0200
+--- src/os_win32.c	2012-10-21 21:33:58.000000000 +0200
+***************
+*** 287,313 ****
+      HINSTANCE
+  vimLoadLib(char *name)
+  {
+!     HINSTANCE dll = NULL;
+!     TCHAR old_dir[MAXPATHL];
+  
+      /* NOTE: Do not use mch_dirname() and mch_chdir() here, they may call
+       * vimLoadLib() recursively, which causes a stack overflow. */
+      if (exe_path == NULL)
+  	get_exe_name();
+!     if (exe_path != NULL && GetCurrentDirectory(MAXPATHL, old_dir) != 0)
+      {
+! 	/* Change directory to where the executable is, both to make sure we
+! 	 * find a .dll there and to avoid looking for a .dll in the current
+! 	 * directory. */
+! 	SetCurrentDirectory(exe_path);
+! 	dll = LoadLibrary(name);
+! 	SetCurrentDirectory(old_dir);
+!     }
+!     else
+!     {
+! 	/* We are not able to change directory to where the executable is, try
+! 	 * to load library anyway. */
+! 	dll = LoadLibrary(name);
+      }
+      return dll;
+  }
+--- 287,326 ----
+      HINSTANCE
+  vimLoadLib(char *name)
+  {
+!     HINSTANCE	dll = NULL;
+!     char	old_dir[MAXPATHL];
+  
+      /* NOTE: Do not use mch_dirname() and mch_chdir() here, they may call
+       * vimLoadLib() recursively, which causes a stack overflow. */
+      if (exe_path == NULL)
+  	get_exe_name();
+!     if (exe_path != NULL)
+      {
+! #ifdef FEAT_MBYTE
+! 	WCHAR old_dirw[MAXPATHL];
+! 
+! 	if (GetCurrentDirectoryW(MAXPATHL, old_dirw) != 0)
+! 	{
+! 	    /* Change directory to where the executable is, both to make
+! 	     * sure we find a .dll there and to avoid looking for a .dll
+! 	     * in the current directory. */
+! 	    SetCurrentDirectory(exe_path);
+! 	    dll = LoadLibrary(name);
+! 	    SetCurrentDirectoryW(old_dirw);
+! 	    return dll;
+! 	}
+! 	/* Retry with non-wide function (for Windows 98). */
+! 	if (GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
+! #endif
+! 	    if (GetCurrentDirectory(MAXPATHL, old_dir) != 0)
+! 	    {
+! 		/* Change directory to where the executable is, both to make
+! 		 * sure we find a .dll there and to avoid looking for a .dll
+! 		 * in the current directory. */
+! 		SetCurrentDirectory(exe_path);
+! 		dll = LoadLibrary(name);
+! 		SetCurrentDirectory(old_dir);
+! 	    }
+      }
+      return dll;
+  }
+*** ../vim-7.3.706/src/os_win32.h	2011-08-10 17:07:56.000000000 +0200
+--- src/os_win32.h	2012-10-21 21:33:30.000000000 +0200
+***************
+*** 108,114 ****
+   */
+  #define CMDBUFFSIZE 1024	/* size of the command processing buffer */
+  
+! /* _MAX_PATH is only 256 (stdlib.h), but we want more for the 'path' option,
+   * thus use a larger number. */
+  #define MAXPATHL	1024
+  
+--- 108,114 ----
+   */
+  #define CMDBUFFSIZE 1024	/* size of the command processing buffer */
+  
+! /* _MAX_PATH is only 260 (stdlib.h), but we want more for the 'path' option,
+   * thus use a larger number. */
+  #define MAXPATHL	1024
+  
+*** ../vim-7.3.706/src/version.c	2012-10-21 21:25:17.000000000 +0200
+--- src/version.c	2012-10-21 21:37:52.000000000 +0200
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     707,
+  /**/
+
+-- 
+Our job was to build a computer information system for the branch banks.  We
+were the perfect people for the job: Dean had seen a computer once, and I had
+heard Dean talk about it.
+				(Scott Adams - The Dilbert principle)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

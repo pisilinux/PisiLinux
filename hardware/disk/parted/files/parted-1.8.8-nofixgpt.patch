@@ -1,0 +1,322 @@
+diff -up parted-1.8.8/libparted/labels/gpt.c.nofixgpt parted-1.8.8/libparted/labels/gpt.c
+--- parted-1.8.8/libparted/labels/gpt.c.nofixgpt	2007-07-31 13:36:57.000000000 -0400
++++ parted-1.8.8/libparted/labels/gpt.c	2008-04-10 14:20:05.000000000 -0400
+@@ -233,6 +233,7 @@ struct __attribute__ ((packed)) _LegacyM
+ /* uses libparted's disk_specific field in PedDisk, to store our info */
+ struct __attribute__ ((packed)) _GPTDiskData {
+ 	PedGeometry	data_area;
++	PedSector	agpt_location;
+ 	int		entry_count;
+ 	efi_guid_t	uuid;
+ };
+@@ -542,6 +543,7 @@ gpt_alloc (const PedDevice * dev)
+ 	ped_geometry_init (&gpt_disk_data->data_area, dev, data_start,
+ 			   data_end - data_start + 1);
+ 	gpt_disk_data->entry_count = GPT_DEFAULT_PARTITION_ENTRIES;
++	gpt_disk_data->agpt_location = disk->dev->length - 1;
+ 	uuid_generate ((unsigned char*) &gpt_disk_data->uuid);
+ 	swap_uuid_and_efi_guid((unsigned char*)(&gpt_disk_data->uuid));
+ 	return disk;
+@@ -571,6 +573,7 @@ gpt_duplicate (const PedDisk* disk)
+ 			   old_disk_data->data_area.length);
+ 	new_disk_data->entry_count = old_disk_data->entry_count;
+ 	new_disk_data->uuid = old_disk_data->uuid;
++	new_disk_data->agpt_location = old_disk_data->agpt_location;
+ 	return new_disk;
+ }
+ 
+@@ -632,12 +635,13 @@ _read_header (const PedDevice* dev, Guid
+ 
+ static int
+ _parse_header (PedDisk* disk, GuidPartitionTableHeader_t* gpt, 
+-	       int *update_needed)
++	       int *update_needed, int alternate, PedSector agpt_location)
+ { 
+ 	GPTDiskData* gpt_disk_data = disk->disk_specific;
+ 	PedSector first_usable;
+ 	PedSector last_usable;
+ 	PedSector last_usable_if_grown, last_usable_min_default;
++	PedSector last_within_agpt;
+ 	static int asked_already;
+ 
+ 	PED_ASSERT (_header_is_valid (disk->dev, gpt), return 0);
+@@ -670,26 +674,28 @@ _parse_header (PedDisk* disk, GuidPartit
+    parted invocation.
+ */
+    
+-	last_usable_if_grown 
+-		= PED_CPU_TO_LE64 (disk->dev->length - 2 - 
++	last_within_agpt = PED_LE64_TO_CPU ( gpt->AlternateLBA ) - 1;
++	if (alternate)
++		last_within_agpt = agpt_location - 1;	    
++	PED_ASSERT (last_within_agpt <= disk->dev->length - 2, return 0);
++
++	last_usable_if_grown = PED_CPU_TO_LE64 ( last_within_agpt -
+ 		((PedSector)(PED_LE32_TO_CPU(gpt->NumberOfPartitionEntries)) * 
+ 		(PedSector)(PED_LE32_TO_CPU(gpt->SizeOfPartitionEntry)) / 
+ 		disk->dev->sector_size));
+ 
+-	last_usable_min_default = disk->dev->length - 2 - 
++	last_usable_min_default = last_within_agpt -
+ 		GPT_DEFAULT_PARTITION_ENTRY_ARRAY_SIZE / disk->dev->sector_size;
+ 
+-	if ( last_usable_if_grown > last_usable_min_default ) {
+-
++	if ( last_usable_if_grown > last_usable_min_default )
+ 		last_usable_if_grown = last_usable_min_default;
+-	}
+-
+ 
+ 	PED_ASSERT (last_usable > first_usable, return 0);
+-	PED_ASSERT (last_usable <= disk->dev->length, return 0);
++	PED_ASSERT (last_within_agpt <= disk->dev->length - 2, return 0);
++	PED_ASSERT (last_usable <= disk->dev->length - 2, return 0);
+ 
+ 	PED_ASSERT (last_usable_if_grown > first_usable, return 0);
+-	PED_ASSERT (last_usable_if_grown <= disk->dev->length, return 0);
++	PED_ASSERT (last_usable_if_grown <= disk->dev->length - 2, return 0);
+ 
+ 	if ( !asked_already && last_usable < last_usable_if_grown ) {
+ 
+@@ -719,7 +725,7 @@ _parse_header (PedDisk* disk, GuidPartit
+ 	ped_geometry_init (&gpt_disk_data->data_area, disk->dev,
+ 			   first_usable, last_usable - first_usable + 1);
+ 
+-
++	gpt_disk_data->agpt_location = PED_LE64_TO_CPU(gpt->AlternateLBA);
+ 	gpt_disk_data->entry_count
+ 		= PED_LE32_TO_CPU (gpt->NumberOfPartitionEntries);
+ 	PED_ASSERT (gpt_disk_data->entry_count > 0, return 0);
+@@ -794,18 +800,23 @@ _parse_part_entry (PedDisk* disk, GuidPa
+  *  for users to use Parted to "fix up" their disk if they
+  *  really want it to be considered GPT.
+  ************************************************************/
++/************************************************************
++ *  Right now, we have no infrastructure for per-disklabel
++ *  commands, so we can't really directly offer to fix this
++ *  interactively.  I'm leaving the code around anyway in
++ *  hopes it'll become useful someday.  -- pjones
++ ************************************************************/
++#if 0
+ static int
+-gpt_read (PedDisk * disk)
++gpt_is_small(PedDisk * disk)
+ {
+-	GPTDiskData *gpt_disk_data = disk->disk_specific;
+ 	GuidPartitionTableHeader_t* gpt;
+-	GuidPartitionEntry_t* ptes;
+-	int ptes_size;
+-	int i;
++	int ret = 0;
++
+ #ifndef DISCOVER_ONLY
+-	int write_back = 0;
++	int write_back;
+ #endif
+-
++	
+ 	ped_disk_delete_all (disk);
+ 
+         /* 
+@@ -813,78 +824,131 @@ gpt_read (PedDisk * disk)
+          * ped_disk_probe(), they probably didn't get a choice...
+          */
+ 	if (!gpt_probe (disk->dev))
+-		goto error;
++		return 0;
+ 
+ 	if (_read_header (disk->dev, &gpt, 1)) {
+ 		PED_ASSERT ((PedSector) PED_LE64_TO_CPU (gpt->AlternateLBA)
+ 				<= disk->dev->length - 1, goto error_free_gpt);
+ 		if ((PedSector) PED_LE64_TO_CPU (gpt->AlternateLBA)
+ 				< disk->dev->length - 1) {
+-			char* zeros = ped_malloc (pth_get_size (disk->dev));
+ 
+-#ifndef DISCOVER_ONLY
++#ifdef DISCOVER_ONLY
++			if (ped_exception_throw (
++				PED_EXCEPTION_ERROR,
++				PED_EXCEPTION_CANCEL,
++		_("The backup GPT table is not at the end of the disk, as it "
++		  "should be.  This might means that operating systems may "
++		  "believe the disk is of a smaller size."))
++					== PED_EXCEPTION_CANCEL)
++				goto error_free_gpt;
++#else
+ 			if (ped_exception_throw (
+ 				PED_EXCEPTION_ERROR,
+ 				PED_EXCEPTION_FIX | PED_EXCEPTION_CANCEL,
+ 		_("The backup GPT table is not at the end of the disk, as it "
+-		  "should be.  This might mean that another operating system "
+-		  "believes the disk is smaller.  Fix, by moving the backup "
+-		  "to the end (and removing the old backup)?"))
++		  "should be.  This might means that operating systems may "
++		  "believe the disk is of a smaller size.  Fix, by moving the "
++		  "backup to the end?"))
+ 					== PED_EXCEPTION_CANCEL)
+ 				goto error_free_gpt;
+ 
++			gpt->AlternateLBA =
++				PED_CPU_TO_LE64(disk->dev->length - 1);
+ 			write_back = 1;
+-			memset (zeros, 0, disk->dev->sector_size);
+-			ped_device_write (disk->dev, zeros,
+-					  PED_LE64_TO_CPU (gpt->AlternateLBA),
+-					  1);
+-#endif /* !DISCOVER_ONLY */
++#endif
+ 		}
+-	} else { /* primary GPT *not* ok */
+-		int alternate_ok = 0;
++	}
++
++	if (write_back)
++		ped_disk_commit_to_dev (disk);
++
++	ret = 1;
++
++error_delete_all:
++	ped_disk_delete_all (disk);
++error_free_gpt:
++	pth_free (gpt);
++	return ret;
++}
++#endif
++
++static int
++gpt_read (PedDisk * disk)
++{
++	GPTDiskData *gpt_disk_data = disk->disk_specific;
++	GuidPartitionTableHeader_t* pgpt = NULL;
++	GuidPartitionTableHeader_t* agpt = NULL;
++	GuidPartitionEntry_t* ptes;
++	PedSector agpt_location = 0;
++	int ptes_size;
++	int i;
++	int primary_ok = 0;
++	int alternate_ok = 0;
+ 
+ #ifndef DISCOVER_ONLY
+-		write_back = 1;
++	int write_back = 0;
+ #endif
+ 
+-		if ((PedSector) PED_LE64_TO_CPU (gpt->AlternateLBA)
+-				< disk->dev->length - 1) {
+-			alternate_ok = _read_header (disk->dev, &gpt,
+-					    PED_LE64_TO_CPU(gpt->AlternateLBA));
+-		}
+-		if (!alternate_ok) {
+-			alternate_ok = _read_header (disk->dev, &gpt,
+-						     disk->dev->length - 1);
+-		}
++	ped_disk_delete_all (disk);
+ 
+-		if (alternate_ok) {
+-			if (ped_exception_throw (
+-				PED_EXCEPTION_ERROR,
+-				PED_EXCEPTION_OK_CANCEL,
+-				_("The primary GPT table is corrupt, but the "
+-				  "backup appears OK, so that will be used."))
+-				    == PED_EXCEPTION_CANCEL)
+-				goto error_free_gpt;
+-		} else {
+-			ped_exception_throw (
+-				PED_EXCEPTION_ERROR,
+-				PED_EXCEPTION_CANCEL,
+-				_("Both the primary and backup GPT tables "
+-				  "are corrupt.  Try making a fresh table, "
+-				  "and using Parted's rescue feature to "
+-				  "recover partitions."));
+-			goto error;
++	if (!gpt_probe (disk->dev))
++		return 0;
++
++	if (_read_header (disk->dev, &pgpt, 1)) {
++		primary_ok = 1;
++		if ((PedSector) PED_LE64_TO_CPU (pgpt->AlternateLBA)
++				<= disk->dev->length - 1) {
++			agpt_location = PED_LE64_TO_CPU (pgpt->AlternateLBA);
++			alternate_ok = _read_header (disk->dev, &agpt,
++						     agpt_location);
+ 		}
+ 	}
+ 
+-	if (!_parse_header (disk, gpt, &write_back))
+-		goto error_free_gpt;
++	if (!alternate_ok) {
++		agpt_location = disk->dev->length - 1;
++		alternate_ok = _read_header (disk->dev, &agpt,
++					     disk->dev->length - 1);
++	}
++
++	if (alternate_ok && !_parse_header (disk, agpt, &write_back, 1,
++					    agpt_location))
++		alternate_ok = 0;
+ 
++	if (primary_ok && !_parse_header (disk, pgpt, &write_back, 0, 0))
++		primary_ok = 0;
++
++#ifndef DISCOVER_ONLY
++	if (!primary_ok || !alternate_ok)
++		write_back = 1;
++#endif
++	
++	if (!primary_ok && !alternate_ok) {
++		ped_exception_throw (
++			PED_EXCEPTION_ERROR,
++			PED_EXCEPTION_CANCEL,
++			_("Both the primary and backup GPT tables "
++			  "are corrupt.  Try making a fresh table, "
++			  "and using Parted's rescue feature to "
++			  "recover partitions."));
++		goto error_free_gpts;
++	}
++
++	if (!primary_ok) {
++		if (pgpt)
++			pth_free (pgpt);
++		pgpt = agpt;
++		agpt = NULL;
++
++		pgpt->AlternateLBA = PED_CPU_TO_LE64 (disk->dev->length - 1);
++	}
++
++	if (!alternate_ok && agpt)
++		pth_free (agpt);
+ 
+ 	ptes_size = sizeof (GuidPartitionEntry_t) * gpt_disk_data->entry_count;
+ 	ptes = (GuidPartitionEntry_t*) ped_malloc (ptes_size);
+ 	if (!ped_device_read (disk->dev, ptes,
+-			      PED_LE64_TO_CPU(gpt->PartitionEntryLBA),
++			      PED_LE64_TO_CPU(pgpt->PartitionEntryLBA),
+ 			      ptes_size / disk->dev->sector_size))
+ 		goto error_free_ptes;
+ 
+@@ -922,9 +986,12 @@ error_delete_all:
+ 	ped_disk_delete_all (disk);
+ error_free_ptes:
+ 	ped_free (ptes);
+-error_free_gpt:
+-        pth_free (gpt);
+-error:
++error_free_gpts:
++	if (pgpt)
++	        pth_free (pgpt);
++	if (agpt)
++		pth_free (agpt);
++
+ 	return 0;
+ }
+ 
+@@ -980,7 +1047,9 @@ _generate_header (const PedDisk* disk, i
+ 			= PED_CPU_TO_LE64 (disk->dev->length - 1 - ptes_size);
+ 	} else {
+ 		gpt->MyLBA = PED_CPU_TO_LE64 (1);
+-		gpt->AlternateLBA = PED_CPU_TO_LE64 (disk->dev->length - 1);
++		gpt->AlternateLBA = gpt_disk_data->agpt_location
++				? PED_CPU_TO_LE64 (gpt_disk_data->agpt_location)
++				: PED_CPU_TO_LE64 (disk->dev->length - 1);
+ 		gpt->PartitionEntryLBA = PED_CPU_TO_LE64 (2);
+ 	}
+ 

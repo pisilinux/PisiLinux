@@ -1,0 +1,139 @@
+From 21d56469fd4b4558d640ad82c78f2b9748341c11 Mon Sep 17 00:00:00 2001
+From: "Vojtech Vitek (V-Teq)" <vvitek@redhat.com>
+Date: Mon, 14 May 2012 17:31:20 +0200
+Subject: [PATCH] Fix -F option behavior
+
+Original patch written by Jindrich Novy <jnovy@redhat.com>.
+
+Changes and improvements by Zdenek Prikryl <zprikryl@redhat.com>,
+Vojtech Vitek <vvitek@redhat.com> and Colin Guthrie <colin@mageia.org>.
+---
+ forwback.c |   20 ++++++++++++++++++++
+ funcs.h    |    1 +
+ main.c     |   16 ++++++++++++++++
+ screen.c   |    9 +++++++--
+ 4 files changed, 44 insertions(+), 2 deletions(-)
+
+diff --git a/forwback.c b/forwback.c
+index ebe422d..687355f 100644
+--- a/forwback.c
++++ b/forwback.c
+@@ -422,3 +422,23 @@ get_back_scroll()
+ 		return (sc_height - 2);
+ 	return (10000); /* infinity */
+ }
++
++/*
++ * Get line count of file up to the screen height + 1 char
++ */
++	public int
++get_line_count()
++{
++	int nlines = 0;
++	POSITION pos;
++
++	pos = ch_zero();
++
++	while (pos != NULL_POSITION && nlines <= sc_height)
++	{
++		pos = forw_line(pos);
++		nlines++;
++	}
++
++	return nlines;
++}
+diff --git a/funcs.h b/funcs.h
+index 6595232..8ca4656 100644
+--- a/funcs.h
++++ b/funcs.h
+@@ -136,6 +136,7 @@
+ 	public void forward ();
+ 	public void backward ();
+ 	public int get_back_scroll ();
++	public int get_line_count ();
+ 	public void del_ifile ();
+ 	public IFILE next_ifile ();
+ 	public IFILE prev_ifile ();
+diff --git a/main.c b/main.c
+index 0af1762..ef69440 100644
+--- a/main.c
++++ b/main.c
+@@ -55,6 +55,7 @@ static char consoleTitle[256];
+ #endif
+ 
+ extern int	less_is_more;
++public int	line_count;
+ extern int	missing_cap;
+ extern int	know_dumb;
+ extern int	quit_if_one_screen;
+@@ -277,10 +278,25 @@ main(argc, argv)
+ 	{
+ 		if (edit_stdin())  /* Edit standard input */
+ 			quit(QUIT_ERROR);
++		if (quit_if_one_screen)
++			line_count = get_line_count();
+ 	} else 
+ 	{
+ 		if (edit_first())  /* Edit first valid file in cmd line */
+ 			quit(QUIT_ERROR);
++		/*
++		 * In case that we have only one file and -F, have to get a line
++		 * count fot init(). If the line count is less then a height of a term,
++		 * the content of the file is printed out and then less quits. Otherwise
++		 * -F can not be used
++		 */
++		if (quit_if_one_screen)
++		{
++			if (nifile() == 1)
++				line_count = get_line_count();
++			else /* In case more than one file, -F can not be used */
++				quit_if_one_screen = FALSE;
++		}
+ 	}
+ 
+ 	init();
+diff --git a/screen.c b/screen.c
+index b8bc666..1883e3e 100644
+--- a/screen.c
++++ b/screen.c
+@@ -204,6 +204,7 @@ public int missing_cap = 0;	/* Some capability is missing */
+ 
+ static int attrmode = AT_NORMAL;
+ extern int binattr;
++extern int line_count;
+ 
+ #if !MSDOS_COMPILER
+ static char *cheaper();
+@@ -233,6 +234,7 @@ extern int wscroll;
+ extern int screen_trashed;
+ extern int tty;
+ extern int top_scroll;
++extern int quit_if_one_screen;
+ extern int oldbot;
+ #if HILITE_SEARCH
+ extern int hilite_search;
+@@ -1534,7 +1536,9 @@ win32_deinit_term()
+ init()
+ {
+ #if !MSDOS_COMPILER
+-	if (!no_init)
++	if (quit_if_one_screen && line_count >= sc_height)
++		quit_if_one_screen = FALSE;
++	if (!no_init && !quit_if_one_screen)
+ 		tputs(sc_init, sc_height, putchr);
+ 	if (!no_keypad)
+ 		tputs(sc_s_keypad, sc_height, putchr);
+@@ -1574,8 +1578,9 @@ deinit()
+ #if !MSDOS_COMPILER
+ 	if (!no_keypad)
+ 		tputs(sc_e_keypad, sc_height, putchr);
+-	if (!no_init)
++	if (!no_init && !quit_if_one_screen)
+ 		tputs(sc_deinit, sc_height, putchr);
++
+ #else
+ 	/* Restore system colors. */
+ 	SETCOLORS(sy_fg_color, sy_bg_color);
+-- 
+1.7.7.6
+

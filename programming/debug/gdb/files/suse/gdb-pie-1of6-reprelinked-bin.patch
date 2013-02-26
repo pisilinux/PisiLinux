@@ -1,0 +1,443 @@
+http://sourceware.org/ml/gdb-patches/2010-03/msg01008.html
+Subject: [patch 1/6]: PIE: Attach binary even after re-prelinked underneath
+
+Hi,
+
+there is a regression (against previous unreleased commits) by:
+	Re: RFC: Verify AT_ENTRY before using it
+	http://sourceware.org/ml/gdb-patches/2010-03/msg00395.html
+
+for loading PIE executables which have changed on the disk since started.
+There are in fact 3 different addresses one has to properly deal with.
+
+This patch uses explicit "file" so it is not dependent on pending:
+	[patch] Attach to running but deleted executable
+	http://sourceware.org/ml/gdb-patches/2010-03/msg00950.html
+
+The two copy-pasted blocks for elf32 and elf64 are "not nice" but this is the
+current style in GDB.
+
+No regressions on {x86_64,x86_64-m32,i686}-fedora12-linux-gnu for the whole
+patch series together.
+
+
+Thanks,
+Jan
+
+
+gdb/
+2010-03-29  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Fix attaching to PIEs prelinked on the disk since their start.
+	* solib-svr4.c (svr4_exec_displacement): New variable arch_size.
+	Verify it against bfd_get_arch_size.  Try to match arbitrary
+	displacement for the phdrs comparison.
+
+gdb/testsuite/
+2010-03-29  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/break-interp.exp: Run $binpie with new value "ATTACH", new
+	code for it.  New variable relink_args.
+	(prelinkYES): Call prelinkNO.
+	(test_attach): Accept new parameter relink_args.  Re-prelink the binary
+	in such case.  Move the core code to ...
+	(test_attach_gdb): ... a new function.  Send GDB command "file".
+	Extend expected "Attaching to " string.
+
+--- a/gdb/solib-svr4.c
++++ b/gdb/solib-svr4.c
+@@ -1750,13 +1750,183 @@ svr4_exec_displacement (CORE_ADDR *displacementp)
+ 	 really do not match.  */
+       int phdrs_size, phdrs2_size, ok = 1;
+       gdb_byte *buf, *buf2;
++      int arch_size;
+ 
+-      buf = read_program_header (-1, &phdrs_size, NULL);
++      buf = read_program_header (-1, &phdrs_size, &arch_size);
+       buf2 = read_program_headers_from_bfd (exec_bfd, &phdrs2_size);
+-      if (buf != NULL && buf2 != NULL
+-	  && (phdrs_size != phdrs2_size
+-	      || memcmp (buf, buf2, phdrs_size) != 0))
+-	ok = 0;
++      if (buf != NULL && buf2 != NULL)
++	{
++	  enum bfd_endian byte_order = gdbarch_byte_order (target_gdbarch);
++
++	  /* We are dealing with three different addresses.  EXEC_BFD
++	     represents current address in on-disk file.  target memory content
++	     may be different from EXEC_BFD as the file may have been prelinked
++	     to a different address since the executable has been loaded.
++	     Moreover the address of placement in target memory can be
++	     different from what say the target memory program headers - this
++	     is the goal of PIE.
++
++	     Detected DISPLACEMENT covers both the offsets of PIE placement and
++	     possible new prelink since start of the program.  Here relocate
++	     BUF and BUF2 just by the EXEC_BFD vs. target memory content offset
++	     for the verification purpose.  */
++
++	  if (phdrs_size != phdrs2_size
++	      || bfd_get_arch_size (exec_bfd) != arch_size)
++	    ok = 0;
++	  else if (arch_size == 32 && phdrs_size >= sizeof (Elf32_External_Phdr)
++	           && phdrs_size % sizeof (Elf32_External_Phdr) == 0)
++	    {
++	      Elf_Internal_Ehdr *ehdr2 = elf_tdata (exec_bfd)->elf_header;
++	      Elf_Internal_Phdr *phdr2 = elf_tdata (exec_bfd)->phdr;
++	      CORE_ADDR displacement = 0;
++	      int i;
++
++	      /* DISPLACEMENT could be found easier by the difference of
++	         ehdr2->e_entry but already read BUF does not contain ehdr.  */
++
++	      for (i = 0; i < ehdr2->e_phnum; i++)
++		if (phdr2[i].p_type == PT_LOAD)
++		  {
++		    Elf32_External_Phdr *phdrp;
++		    gdb_byte *buf_vaddr_p, *buf_paddr_p;
++		    CORE_ADDR vaddr, paddr;
++		    CORE_ADDR displacement_vaddr = 0;
++		    CORE_ADDR displacement_paddr = 0;
++
++		    phdrp = &((Elf32_External_Phdr *) buf)[i];
++		    buf_vaddr_p = (gdb_byte *) &phdrp->p_vaddr;
++		    buf_paddr_p = (gdb_byte *) &phdrp->p_paddr;
++
++		    vaddr = extract_unsigned_integer (buf_vaddr_p, 4,
++						      byte_order);
++		    displacement_vaddr = vaddr - phdr2[i].p_vaddr;
++
++		    paddr = extract_unsigned_integer (buf_paddr_p, 4,
++						      byte_order);
++		    displacement_paddr = paddr - phdr2[i].p_paddr;
++
++		    if (displacement_vaddr == displacement_paddr)
++		      displacement = displacement_vaddr;
++
++		    break;
++		  }
++
++	      /* Now compare BUF and BUF2 with optional DISPLACEMENT.  */
++
++	      for (i = 0; i < phdrs_size / sizeof (Elf32_External_Phdr); i++)
++		{
++		  Elf32_External_Phdr *phdrp;
++		  Elf32_External_Phdr *phdr2p;
++		  gdb_byte *buf_vaddr_p, *buf_paddr_p;
++		  CORE_ADDR vaddr, paddr;
++
++		  phdrp = &((Elf32_External_Phdr *) buf)[i];
++		  buf_vaddr_p = (gdb_byte *) &phdrp->p_vaddr;
++		  buf_paddr_p = (gdb_byte *) &phdrp->p_paddr;
++		  phdr2p = &((Elf32_External_Phdr *) buf2)[i];
++
++		  /* PT_GNU_STACK addresses are left as zero not being
++		     relocated by prelink, their displacing would create false
++		     verification failure.  Feel free to test the unrelocated
++		     comparison for any segment type.  */
++
++		  if (memcmp (phdrp, phdr2p, sizeof (*phdrp)) == 0)
++		    continue;
++
++		  vaddr = extract_unsigned_integer (buf_vaddr_p, 4, byte_order);
++		  vaddr -= displacement;
++		  store_unsigned_integer (buf_vaddr_p, 4, byte_order, vaddr);
++
++		  paddr = extract_unsigned_integer (buf_paddr_p, 4, byte_order);
++		  paddr -= displacement;
++		  store_unsigned_integer (buf_paddr_p, 4, byte_order, paddr);
++
++		  if (memcmp (phdrp, phdr2p, sizeof (*phdrp)) == 0)
++		    continue;
++
++		  ok = 0;
++		  break;
++		}
++	    }
++	  else if (arch_size == 64 && phdrs_size >= sizeof (Elf64_External_Phdr)
++	           && phdrs_size % sizeof (Elf64_External_Phdr) == 0)
++	    {
++	      Elf_Internal_Ehdr *ehdr2 = elf_tdata (exec_bfd)->elf_header;
++	      Elf_Internal_Phdr *phdr2 = elf_tdata (exec_bfd)->phdr;
++	      CORE_ADDR displacement = 0;
++	      int i;
++
++	      /* DISPLACEMENT could be found easier by the difference of
++	         ehdr2->e_entry but already read BUF does not contain ehdr.  */
++
++	      for (i = 0; i < ehdr2->e_phnum; i++)
++		if (phdr2[i].p_type == PT_LOAD)
++		  {
++		    Elf64_External_Phdr *phdrp;
++		    gdb_byte *buf_vaddr_p, *buf_paddr_p;
++		    CORE_ADDR vaddr, paddr;
++		    CORE_ADDR displacement_vaddr = 0;
++		    CORE_ADDR displacement_paddr = 0;
++
++		    phdrp = &((Elf64_External_Phdr *) buf)[i];
++		    buf_vaddr_p = (gdb_byte *) &phdrp->p_vaddr;
++		    buf_paddr_p = (gdb_byte *) &phdrp->p_paddr;
++
++		    vaddr = extract_unsigned_integer (buf_vaddr_p, 8,
++						      byte_order);
++		    displacement_vaddr = vaddr - phdr2[i].p_vaddr;
++
++		    paddr = extract_unsigned_integer (buf_paddr_p, 8,
++						      byte_order);
++		    displacement_paddr = paddr - phdr2[i].p_paddr;
++
++		    if (displacement_vaddr == displacement_paddr)
++		      displacement = displacement_vaddr;
++
++		    break;
++		  }
++
++	      /* Now compare BUF and BUF2 with optional DISPLACEMENT.  */
++
++	      for (i = 0; i < phdrs_size / sizeof (Elf64_External_Phdr); i++)
++		{
++		  Elf64_External_Phdr *phdrp;
++		  Elf64_External_Phdr *phdr2p;
++		  gdb_byte *buf_vaddr_p, *buf_paddr_p;
++		  CORE_ADDR vaddr, paddr;
++
++		  phdrp = &((Elf64_External_Phdr *) buf)[i];
++		  buf_vaddr_p = (gdb_byte *) &phdrp->p_vaddr;
++		  buf_paddr_p = (gdb_byte *) &phdrp->p_paddr;
++		  phdr2p = &((Elf64_External_Phdr *) buf2)[i];
++
++		  /* PT_GNU_STACK addresses are left as zero not being
++		     relocated by prelink, their displacing would create false
++		     verification failure.  Feel free to test the unrelocated
++		     comparison for any segment type.  */
++
++		  if (memcmp (phdrp, phdr2p, sizeof (*phdrp)) == 0)
++		    continue;
++
++		  vaddr = extract_unsigned_integer (buf_vaddr_p, 8, byte_order);
++		  vaddr -= displacement;
++		  store_unsigned_integer (buf_vaddr_p, 8, byte_order, vaddr);
++
++		  paddr = extract_unsigned_integer (buf_paddr_p, 8, byte_order);
++		  paddr -= displacement;
++		  store_unsigned_integer (buf_paddr_p, 8, byte_order, paddr);
++
++		  if (memcmp (phdrp, phdr2p, sizeof (*phdrp)) == 0)
++		    continue;
++
++		  ok = 0;
++		  break;
++		}
++	    }
++	  else
++	    ok = 0;
++	}
+ 
+       xfree (buf);
+       xfree (buf2);
+--- a/gdb/testsuite/gdb.base/break-interp.exp
++++ b/gdb/testsuite/gdb.base/break-interp.exp
+@@ -154,6 +154,12 @@ proc prelinkYES {arg {name ""}} {
+     if {$name == ""} {
+ 	set name [file tail $arg]
+     }
++
++    # Try to unprelink it first so that if it has been already prelinked before
++    # we get different address now and the result is not affected by the
++    # previous $arg state..
++    prelinkNO $arg "$name pre-unprelink"
++
+     set test "prelink $name"
+     set command "exec /usr/sbin/prelink -qNR --no-exec-shield $arg"
+     verbose -log "command is $command"
+@@ -319,38 +325,12 @@ proc test_core {file displacement} {
+     set pf_prefix $old_ldprefix
+ }
+ 
+-proc test_attach {file displacement} {
+-    global board_info gdb_prompt expect_out
+-
+-    gdb_exit
+-
+-    set test "sleep function started"
+-
+-    set command "${file} sleep"
+-    set res [remote_spawn host $command];
+-    if { $res < 0 || $res == "" } {
+-	perror "Spawning $command failed."
+-	fail $test
+-	return
+-    }
+-    set pid [exp_pid -i $res]
+-    gdb_expect {
+-	-re "sleeping\r\n" {
+-	    pass $test
+-	}
+-	eof {
+-	    fail "$test (eof)"
+-	    return
+-	}
+-	timeout {
+-	    fail "$test (timeout)"
+-	    return
+-	}
+-    }
++proc test_attach_gdb {file pid displacement prefix} {
++    global gdb_prompt expect_out
+ 
+     global pf_prefix
+     set old_ldprefix $pf_prefix
+-    lappend pf_prefix "attach:"
++    lappend pf_prefix "$prefix:"
+ 
+     gdb_exit
+     gdb_start
+@@ -358,9 +338,13 @@ proc test_attach {file displacement} {
+     # Print the "PIE (Position Independent Executable) displacement" message.
+     gdb_test "set verbose on"
+ 
++    if {$file != ""} {
++	gdb_test "file $file" "Reading symbols from .*done\\." "file"
++    }
++
+     set test "attach"
+     gdb_test_multiple "attach $pid" $test {
+-	-re "Attaching to process $pid\r\n" {
++	-re "Attaching to (program: .*, )?process $pid\r\n" {
+ 	    # Missing "$gdb_prompt $" is intentional.
+ 	    pass $test
+ 	}
+@@ -396,11 +380,56 @@ proc test_attach {file displacement} {
+     gdb_test "bt" "#\[0-9\]+ +\[^\r\n\]*\\mlibfunc\\M\[^\r\n\]*\r\n#\[0-9\]+ +\[^\r\n\]*\\mmain\\M.*" "attach main bt"
+     gdb_exit
+ 
+-    remote_exec host "kill -9 $pid"
+-
+     set pf_prefix $old_ldprefix
+ }
+ 
++proc test_attach {file displacement {relink_args ""}} {
++    global board_info
++
++    gdb_exit
++
++    set test "sleep function started"
++
++    set command "${file} sleep"
++    set res [remote_spawn host $command];
++    if { $res < 0 || $res == "" } {
++	perror "Spawning $command failed."
++	fail $test
++	return
++    }
++    set pid [exp_pid -i $res]
++    gdb_expect {
++	-re "sleeping\r\n" {
++	    pass $test
++	}
++	eof {
++	    fail "$test (eof)"
++	    return
++	}
++	timeout {
++	    fail "$test (timeout)"
++	    return
++	}
++    }
++
++    if {$relink_args == ""} {
++	test_attach_gdb "" $pid $displacement "attach"
++    } else {
++	# These could be rather passed as arguments.
++	global exec interp_saved interp
++
++	foreach relink {YES NO} {
++	    if {[prelink$relink $relink_args [file tail $exec]]
++	        && [copy $interp_saved $interp]} {
++		# /proc/PID/exe cannot be loaded as it is "EXECNAME (deleted)".
++		test_attach_gdb $exec $pid $displacement "attach-relink$relink"
++	    }
++	}
++    }
++
++    remote_exec host "kill -9 $pid"
++}
++
+ proc test_ld {file ifmain trynosym displacement} {
+     global srcdir subdir gdb_prompt expect_out
+ 
+@@ -609,7 +638,10 @@ foreach ldprelink {NO YES} {
+ 	set old_binprefix $pf_prefix
+ 	foreach binprelink {NO YES} {
+ 	    foreach binsepdebug {NO IN SEP} {
+-		foreach binpie {NO YES} {
++		# "ATTACH" is like "YES" but it is modified during run.
++		# It cannot be used for problem reproducibility after the
++		# testcase ends.
++		foreach binpie {NO YES ATTACH} {
+ 		    # This combination is not possible, non-PIE (fixed address)
+ 		    # binary cannot be prelinked to any (other) address.
+ 		    if {$binprelink == "YES" && $binpie == "NO"} {
+@@ -628,7 +660,7 @@ foreach ldprelink {NO YES} {
+ 		    if {$binsepdebug != "NO"} {
+ 			lappend opts {debug}
+ 		    }
+-		    if {$binpie == "YES"} {
++		    if {$binpie != "NO"} {
+ 			lappend opts {additional_flags=-fPIE -pie}
+ 		    }
+ 		    if {[build_executable ${test}.exp [file tail $exec] $srcfile $opts] == -1} {
+@@ -680,16 +712,45 @@ foreach ldprelink {NO YES} {
+ 			lappend dests $dest
+ 		    }
+ 
+-		    if {[prelink$binprelink "--dynamic-linker=$interp --ld-library-path=$dir $exec $interp [concat $dests]" [file tail $exec]]
++		    if {$binpie == "NO"} {
++			set displacement "NONE"
++		    } elseif {$binprelink == "NO"} {
++			set displacement "NONZERO"
++		    } else {
++			set displacement "ZERO"
++		    }
++
++		    set relink_args "--dynamic-linker=$interp --ld-library-path=$dir $exec $interp [concat $dests]"
++		    if {[prelink$binprelink $relink_args [file tail $exec]]
+ 		        && [copy $interp_saved $interp]} {
+-			if {$binpie == "NO"} {
+-			    set displacement "NONE"
+-			} elseif {$binprelink == "NO"} {
+-			    set displacement "NONZERO"
++			if {$binpie != "ATTACH"} {
++			    test_ld $exec 1 [expr {$binsepdebug == "NO"}] $displacement
+ 			} else {
+-			    set displacement "ZERO"
++			    # If the file has been randomly prelinked it must
++			    # be "NONZERO".  We could see "ZERO" only if it was
++			    # unprelinked na it is now running at the same
++			    # address - which is 0 but executable can never run
++			    # at address 0.
++
++			    set displacement "NONZERO"
++			    test_attach $exec $displacement $relink_args
++
++			    # ATTACH executables + libraries get modified since
++			    # they have been run.  They cannot be used for
++			    # problem reproducibility after the testcase ends.
++			    set exec_debug [system_debug_get $exec]
++			    if {$exec_debug != ""} {
++				# `file delete [glob "${exec_debug}*"]' does not work.
++				foreach f [glob "${exec_debug}*"] {
++				    file delete $f
++				}
++			    }
++			    file delete -force $dir
++			    # `file delete [glob "${exec}*"]' does not work.
++			    foreach f [glob "${exec}*"] {
++				file delete $f
++			    }
+ 			}
+-			test_ld $exec 1 [expr {$binsepdebug == "NO"}] $displacement
+ 		    }
+ 		}
+ 	    }
+

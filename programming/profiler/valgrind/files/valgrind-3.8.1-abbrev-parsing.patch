@@ -1,0 +1,65 @@
+Index: coregrind/m_debuginfo/readdwarf.c
+===================================================================
+--- valgrind/coregrind/m_debuginfo/readdwarf.c	(revision 12871)
++++ valgrind/coregrind/m_debuginfo/readdwarf.c	(working copy)
+@@ -945,11 +945,11 @@
+ /* Return abbrev for given code 
+  * Returned pointer points to the tag
+  * */
+-static UChar* lookup_abbrev( UChar* p, UInt acode )
++static UChar* lookup_abbrev( UChar* p, UInt acode, UChar* end_img )
+ {
+    UInt code;
+    UInt name;
+-   for( ; ; ) {
++   while( p < end_img ) {
+       code = read_leb128U( &p );
+       if ( code == acode )
+          return p;
+@@ -959,7 +959,7 @@
+          name = read_leb128U( &p ); /* name */
+          read_leb128U( &p );   /* form */
+       }
+-      while( name != 0 ); /* until name == form == 0 */
++      while( name != 0 && p < end_img ); /* until name == form == 0 */
+    }
+    return NULL;
+ }
+@@ -985,6 +985,7 @@
+ void read_unitinfo_dwarf2( /*OUT*/UnitInfo* ui,
+                                   UChar*    unitblock_img,
+                                   UChar*    debugabbrev_img,
++                                  Word      debug_abbv_sz,
+                                   UChar*    debugstr_img,
+                                   UChar*    debugstr_alt_img )
+ {
+@@ -1046,7 +1047,12 @@
+           * not triggered since we shortcut the parsing once we have
+           * read the compile_unit block.  This should only occur when
+           * level > 0 */
+-         abbrev_img = lookup_abbrev( debugabbrev_img + atoffs, acode );
++         abbrev_img = lookup_abbrev( debugabbrev_img + atoffs, acode,
++				     debugabbrev_img + debug_abbv_sz );
++	 if ( abbrev_img == NULL ) {
++	     VG_(printf)( "### unknown abbrev 0x%x\n", acode );
++	     break;
++	 }
+       }
+ 
+       tag = read_leb128U( &abbrev_img );
+@@ -1056,7 +1062,7 @@
+          level++;
+ 
+       /* And loop on entries */
+-      for ( ; ; ) {
++      while( p < end_img ) {
+          /* Read entry definition */
+          UInt  name, form;
+          ULong cval = -1LL;  /* Constant value read */
+@@ -1221,4 +1227,4 @@
+       read_unitinfo_dwarf2( &ui, block_img, 
+-                                 debug_abbv_img, debug_str_img,
++                                 debug_abbv_img, debug_abbv_sz, debug_str_img,
+                                  debug_str_alt_img );
+       if (0)
+          VG_(printf)( "   => LINES=0x%llx    NAME=%s     DIR=%s\n", 

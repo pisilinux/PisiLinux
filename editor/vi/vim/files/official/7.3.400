@@ -1,0 +1,1762 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.400
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.400
+Problem:    Compiler warnings for shadowed variables.
+Solution:   Remove or rename the variables.
+Files:	    src/charset.c, src/digraph.c, src/edit.c, src/eval.c, src/fold.c,
+	    src/getchar.c, src/message.c, src/misc2.c, src/move.c,
+	    src/netbeans.c, src/option.c, src/os_unix.c, src/screen.c,
+	    src/search.c, src/spell.c, src/syntax.c, src/tag.c, src/window.c
+
+
+*** ../vim-7.3.399/src/charset.c	2010-08-15 21:57:25.000000000 +0200
+--- src/charset.c	2012-01-10 21:55:50.000000000 +0100
+***************
+*** 463,503 ****
+  	    if (enc_utf8)
+  	    {
+  		int	c = utf_ptr2char(STR_PTR(i));
+! 		int	ol = utf_ptr2len(STR_PTR(i));
+  		int	lc = utf_tolower(c);
+  
+  		/* Only replace the character when it is not an invalid
+  		 * sequence (ASCII character or more than one byte) and
+  		 * utf_tolower() doesn't return the original character. */
+! 		if ((c < 0x80 || ol > 1) && c != lc)
+  		{
+! 		    int	    nl = utf_char2len(lc);
+  
+  		    /* If the byte length changes need to shift the following
+  		     * characters forward or backward. */
+! 		    if (ol != nl)
+  		    {
+! 			if (nl > ol)
+  			{
+! 			    if (buf == NULL ? ga_grow(&ga, nl - ol + 1) == FAIL
+! 						    : len + nl - ol >= buflen)
+  			    {
+  				/* out of memory, keep old char */
+  				lc = c;
+! 				nl = ol;
+  			    }
+  			}
+! 			if (ol != nl)
+  			{
+  			    if (buf == NULL)
+  			    {
+! 				STRMOVE(GA_PTR(i) + nl, GA_PTR(i) + ol);
+! 				ga.ga_len += nl - ol;
+  			    }
+  			    else
+  			    {
+! 				STRMOVE(buf + i + nl, buf + i + ol);
+! 				len += nl - ol;
+  			    }
+  			}
+  		    }
+--- 463,504 ----
+  	    if (enc_utf8)
+  	    {
+  		int	c = utf_ptr2char(STR_PTR(i));
+! 		int	olen = utf_ptr2len(STR_PTR(i));
+  		int	lc = utf_tolower(c);
+  
+  		/* Only replace the character when it is not an invalid
+  		 * sequence (ASCII character or more than one byte) and
+  		 * utf_tolower() doesn't return the original character. */
+! 		if ((c < 0x80 || olen > 1) && c != lc)
+  		{
+! 		    int	    nlen = utf_char2len(lc);
+  
+  		    /* If the byte length changes need to shift the following
+  		     * characters forward or backward. */
+! 		    if (olen != nlen)
+  		    {
+! 			if (nlen > olen)
+  			{
+! 			    if (buf == NULL
+! 				    ? ga_grow(&ga, nlen - olen + 1) == FAIL
+! 				    : len + nlen - olen >= buflen)
+  			    {
+  				/* out of memory, keep old char */
+  				lc = c;
+! 				nlen = olen;
+  			    }
+  			}
+! 			if (olen != nlen)
+  			{
+  			    if (buf == NULL)
+  			    {
+! 				STRMOVE(GA_PTR(i) + nlen, GA_PTR(i) + olen);
+! 				ga.ga_len += nlen - olen;
+  			    }
+  			    else
+  			    {
+! 				STRMOVE(buf + i + nlen, buf + i + olen);
+! 				len += nlen - olen;
+  			    }
+  			}
+  		    }
+*** ../vim-7.3.399/src/digraph.c	2010-08-15 21:57:28.000000000 +0200
+--- src/digraph.c	2012-01-10 21:57:16.000000000 +0100
+***************
+*** 2080,2092 ****
+  /*
+   * Lookup the pair "char1", "char2" in the digraph tables.
+   * If no match, return "char2".
+!  * If "meta" is TRUE and "char1" is a space, return "char2" | 0x80.
+   */
+      static int
+! getexactdigraph(char1, char2, meta)
+      int		char1;
+      int		char2;
+!     int		meta;
+  {
+      int		i;
+      int		retval = 0;
+--- 2080,2092 ----
+  /*
+   * Lookup the pair "char1", "char2" in the digraph tables.
+   * If no match, return "char2".
+!  * If "meta_char" is TRUE and "char1" is a space, return "char2" | 0x80.
+   */
+      static int
+! getexactdigraph(char1, char2, meta_char)
+      int		char1;
+      int		char2;
+!     int		meta_char;
+  {
+      int		i;
+      int		retval = 0;
+***************
+*** 2159,2165 ****
+  
+      if (retval == 0)		/* digraph deleted or not found */
+      {
+! 	if (char1 == ' ' && meta)	/* <space> <char> --> meta-char */
+  	    return (char2 | 0x80);
+  	return char2;
+      }
+--- 2159,2165 ----
+  
+      if (retval == 0)		/* digraph deleted or not found */
+      {
+! 	if (char1 == ' ' && meta_char)	/* <space> <char> --> meta-char */
+  	    return (char2 | 0x80);
+  	return char2;
+      }
+***************
+*** 2171,2186 ****
+   * Allow for both char1-char2 and char2-char1
+   */
+      int
+! getdigraph(char1, char2, meta)
+      int	char1;
+      int	char2;
+!     int	meta;
+  {
+      int	    retval;
+  
+!     if (((retval = getexactdigraph(char1, char2, meta)) == char2)
+  	    && (char1 != char2)
+! 	    && ((retval = getexactdigraph(char2, char1, meta)) == char1))
+  	return char2;
+      return retval;
+  }
+--- 2171,2186 ----
+   * Allow for both char1-char2 and char2-char1
+   */
+      int
+! getdigraph(char1, char2, meta_char)
+      int	char1;
+      int	char2;
+!     int	meta_char;
+  {
+      int	    retval;
+  
+!     if (((retval = getexactdigraph(char1, char2, meta_char)) == char2)
+  	    && (char1 != char2)
+! 	    && ((retval = getexactdigraph(char2, char1, meta_char)) == char1))
+  	return char2;
+      return retval;
+  }
+*** ../vim-7.3.399/src/edit.c	2011-12-23 13:14:58.000000000 +0100
+--- src/edit.c	2012-01-10 21:58:28.000000000 +0100
+***************
+*** 4003,4026 ****
+  ins_compl_add_dict(dict)
+      dict_T	*dict;
+  {
+!     dictitem_T	*refresh;
+!     dictitem_T	*words;
+  
+      /* Check for optional "refresh" item. */
+      compl_opt_refresh_always = FALSE;
+!     refresh = dict_find(dict, (char_u *)"refresh", 7);
+!     if (refresh != NULL && refresh->di_tv.v_type == VAR_STRING)
+      {
+! 	char_u	*v = refresh->di_tv.vval.v_string;
+  
+  	if (v != NULL && STRCMP(v, (char_u *)"always") == 0)
+  	    compl_opt_refresh_always = TRUE;
+      }
+  
+      /* Add completions from a "words" list. */
+!     words = dict_find(dict, (char_u *)"words", 5);
+!     if (words != NULL && words->di_tv.v_type == VAR_LIST)
+! 	ins_compl_add_list(words->di_tv.vval.v_list);
+  }
+  
+  /*
+--- 4003,4026 ----
+  ins_compl_add_dict(dict)
+      dict_T	*dict;
+  {
+!     dictitem_T	*di_refresh;
+!     dictitem_T	*di_words;
+  
+      /* Check for optional "refresh" item. */
+      compl_opt_refresh_always = FALSE;
+!     di_refresh = dict_find(dict, (char_u *)"refresh", 7);
+!     if (di_refresh != NULL && di_refresh->di_tv.v_type == VAR_STRING)
+      {
+! 	char_u	*v = di_refresh->di_tv.vval.v_string;
+  
+  	if (v != NULL && STRCMP(v, (char_u *)"always") == 0)
+  	    compl_opt_refresh_always = TRUE;
+      }
+  
+      /* Add completions from a "words" list. */
+!     di_words = dict_find(dict, (char_u *)"words", 5);
+!     if (di_words != NULL && di_words->di_tv.v_type == VAR_LIST)
+! 	ins_compl_add_list(di_words->di_tv.vval.v_list);
+  }
+  
+  /*
+*** ../vim-7.3.399/src/eval.c	2012-01-04 14:35:31.000000000 +0100
+--- src/eval.c	2012-01-10 22:00:50.000000000 +0100
+***************
+*** 6573,6587 ****
+  
+  /*
+   * Join list "l" into a string in "*gap", using separator "sep".
+!  * When "echo" is TRUE use String as echoed, otherwise as inside a List.
+   * Return FAIL or OK.
+   */
+      static int
+! list_join(gap, l, sep, echo, copyID)
+      garray_T	*gap;
+      list_T	*l;
+      char_u	*sep;
+!     int		echo;
+      int		copyID;
+  {
+      int		first = TRUE;
+--- 6573,6587 ----
+  
+  /*
+   * Join list "l" into a string in "*gap", using separator "sep".
+!  * When "echo_style" is TRUE use String as echoed, otherwise as inside a List.
+   * Return FAIL or OK.
+   */
+      static int
+! list_join(gap, l, sep, echo_style, copyID)
+      garray_T	*gap;
+      list_T	*l;
+      char_u	*sep;
+!     int		echo_style;
+      int		copyID;
+  {
+      int		first = TRUE;
+***************
+*** 6597,6603 ****
+  	else
+  	    ga_concat(gap, sep);
+  
+! 	if (echo)
+  	    s = echo_string(&item->li_tv, &tofree, numbuf, copyID);
+  	else
+  	    s = tv2string(&item->li_tv, &tofree, numbuf, copyID);
+--- 6597,6603 ----
+  	else
+  	    ga_concat(gap, sep);
+  
+! 	if (echo_style)
+  	    s = echo_string(&item->li_tv, &tofree, numbuf, copyID);
+  	else
+  	    s = tv2string(&item->li_tv, &tofree, numbuf, copyID);
+***************
+*** 17893,17899 ****
+      typval_T	*argvars;
+      typval_T	*rettv;
+  {
+!     char_u	*instr;
+      char_u	*fromstr;
+      char_u	*tostr;
+      char_u	*p;
+--- 17893,17899 ----
+      typval_T	*argvars;
+      typval_T	*rettv;
+  {
+!     char_u	*in_str;
+      char_u	*fromstr;
+      char_u	*tostr;
+      char_u	*p;
+***************
+*** 17910,17916 ****
+      char_u	buf2[NUMBUFLEN];
+      garray_T	ga;
+  
+!     instr = get_tv_string(&argvars[0]);
+      fromstr = get_tv_string_buf_chk(&argvars[1], buf);
+      tostr = get_tv_string_buf_chk(&argvars[2], buf2);
+  
+--- 17910,17916 ----
+      char_u	buf2[NUMBUFLEN];
+      garray_T	ga;
+  
+!     in_str = get_tv_string(&argvars[0]);
+      fromstr = get_tv_string_buf_chk(&argvars[1], buf);
+      tostr = get_tv_string_buf_chk(&argvars[2], buf2);
+  
+***************
+*** 17936,17954 ****
+  	}
+  
+      /* fromstr and tostr have to contain the same number of chars */
+!     while (*instr != NUL)
+      {
+  #ifdef FEAT_MBYTE
+  	if (has_mbyte)
+  	{
+! 	    inlen = (*mb_ptr2len)(instr);
+! 	    cpstr = instr;
+  	    cplen = inlen;
+  	    idx = 0;
+  	    for (p = fromstr; *p != NUL; p += fromlen)
+  	    {
+  		fromlen = (*mb_ptr2len)(p);
+! 		if (fromlen == inlen && STRNCMP(instr, p, inlen) == 0)
+  		{
+  		    for (p = tostr; *p != NUL; p += tolen)
+  		    {
+--- 17936,17954 ----
+  	}
+  
+      /* fromstr and tostr have to contain the same number of chars */
+!     while (*in_str != NUL)
+      {
+  #ifdef FEAT_MBYTE
+  	if (has_mbyte)
+  	{
+! 	    inlen = (*mb_ptr2len)(in_str);
+! 	    cpstr = in_str;
+  	    cplen = inlen;
+  	    idx = 0;
+  	    for (p = fromstr; *p != NUL; p += fromlen)
+  	    {
+  		fromlen = (*mb_ptr2len)(p);
+! 		if (fromlen == inlen && STRNCMP(in_str, p, inlen) == 0)
+  		{
+  		    for (p = tostr; *p != NUL; p += tolen)
+  		    {
+***************
+*** 17967,17977 ****
+  		++idx;
+  	    }
+  
+! 	    if (first && cpstr == instr)
+  	    {
+  		/* Check that fromstr and tostr have the same number of
+  		 * (multi-byte) characters.  Done only once when a character
+! 		 * of instr doesn't appear in fromstr. */
+  		first = FALSE;
+  		for (p = tostr; *p != NUL; p += tolen)
+  		{
+--- 17967,17977 ----
+  		++idx;
+  	    }
+  
+! 	    if (first && cpstr == in_str)
+  	    {
+  		/* Check that fromstr and tostr have the same number of
+  		 * (multi-byte) characters.  Done only once when a character
+! 		 * of in_str doesn't appear in fromstr. */
+  		first = FALSE;
+  		for (p = tostr; *p != NUL; p += tolen)
+  		{
+***************
+*** 17986,18003 ****
+  	    mch_memmove((char *)ga.ga_data + ga.ga_len, cpstr, (size_t)cplen);
+  	    ga.ga_len += cplen;
+  
+! 	    instr += inlen;
+  	}
+  	else
+  #endif
+  	{
+  	    /* When not using multi-byte chars we can do it faster. */
+! 	    p = vim_strchr(fromstr, *instr);
+  	    if (p != NULL)
+  		ga_append(&ga, tostr[p - fromstr]);
+  	    else
+! 		ga_append(&ga, *instr);
+! 	    ++instr;
+  	}
+      }
+  
+--- 17986,18003 ----
+  	    mch_memmove((char *)ga.ga_data + ga.ga_len, cpstr, (size_t)cplen);
+  	    ga.ga_len += cplen;
+  
+! 	    in_str += inlen;
+  	}
+  	else
+  #endif
+  	{
+  	    /* When not using multi-byte chars we can do it faster. */
+! 	    p = vim_strchr(fromstr, *in_str);
+  	    if (p != NULL)
+  		ga_append(&ga, tostr[p - fromstr]);
+  	    else
+! 		ga_append(&ga, *in_str);
+! 	    ++in_str;
+  	}
+      }
+  
+*** ../vim-7.3.399/src/fold.c	2011-08-26 16:12:55.000000000 +0200
+--- src/fold.c	2012-01-10 22:01:26.000000000 +0100
+***************
+*** 1033,1042 ****
+   * Init the fold info in a new window.
+   */
+      void
+! foldInitWin(newwin)
+!     win_T	*newwin;
+  {
+!     ga_init2(&newwin->w_folds, (int)sizeof(fold_T), 10);
+  }
+  
+  /* find_wl_entry() {{{2 */
+--- 1033,1042 ----
+   * Init the fold info in a new window.
+   */
+      void
+! foldInitWin(new_win)
+!     win_T	*new_win;
+  {
+!     ga_init2(&new_win->w_folds, (int)sizeof(fold_T), 10);
+  }
+  
+  /* find_wl_entry() {{{2 */
+*** ../vim-7.3.399/src/getchar.c	2011-12-23 14:54:01.000000000 +0100
+--- src/getchar.c	2012-01-10 22:02:30.000000000 +0100
+***************
+*** 418,429 ****
+  
+  /*
+   * Remove the contents of the stuff buffer and the mapped characters in the
+!  * typeahead buffer (used in case of an error).  If 'typeahead' is true,
+   * flush all typeahead characters (used when interrupted by a CTRL-C).
+   */
+      void
+! flush_buffers(typeahead)
+!     int typeahead;
+  {
+      init_typebuf();
+  
+--- 418,429 ----
+  
+  /*
+   * Remove the contents of the stuff buffer and the mapped characters in the
+!  * typeahead buffer (used in case of an error).  If "flush_typeahead" is true,
+   * flush all typeahead characters (used when interrupted by a CTRL-C).
+   */
+      void
+! flush_buffers(flush_typeahead)
+!     int flush_typeahead;
+  {
+      init_typebuf();
+  
+***************
+*** 431,437 ****
+      while (read_stuff(TRUE) != NUL)
+  	;
+  
+!     if (typeahead)	    /* remove all typeahead */
+      {
+  	/*
+  	 * We have to get all characters, because we may delete the first part
+--- 431,437 ----
+      while (read_stuff(TRUE) != NUL)
+  	;
+  
+!     if (flush_typeahead)	    /* remove all typeahead */
+      {
+  	/*
+  	 * We have to get all characters, because we may delete the first part
+*** ../vim-7.3.399/src/message.c	2011-12-30 14:14:16.000000000 +0100
+--- src/message.c	2012-01-10 22:03:56.000000000 +0100
+***************
+*** 2487,2493 ****
+  #ifdef FEAT_CON_DIALOG
+      int		retval = FALSE;
+  #endif
+!     int		scroll;
+      msgchunk_T	*mp_last = NULL;
+      msgchunk_T	*mp;
+      int		i;
+--- 2487,2493 ----
+  #ifdef FEAT_CON_DIALOG
+      int		retval = FALSE;
+  #endif
+!     int		toscroll;
+      msgchunk_T	*mp_last = NULL;
+      msgchunk_T	*mp;
+      int		i;
+***************
+*** 2538,2586 ****
+  	}
+  #endif
+  
+! 	scroll = 0;
+  	switch (c)
+  	{
+  	case BS:		/* scroll one line back */
+  	case K_BS:
+  	case 'k':
+  	case K_UP:
+! 	    scroll = -1;
+  	    break;
+  
+  	case CAR:		/* one extra line */
+  	case NL:
+  	case 'j':
+  	case K_DOWN:
+! 	    scroll = 1;
+  	    break;
+  
+  	case 'u':		/* Up half a page */
+! 	    scroll = -(Rows / 2);
+  	    break;
+  
+  	case 'd':		/* Down half a page */
+! 	    scroll = Rows / 2;
+  	    break;
+  
+  	case 'b':		/* one page back */
+  	case K_PAGEUP:
+! 	    scroll = -(Rows - 1);
+  	    break;
+  
+  	case ' ':		/* one extra page */
+  	case 'f':
+  	case K_PAGEDOWN:
+  	case K_LEFTMOUSE:
+! 	    scroll = Rows - 1;
+  	    break;
+  
+  	case 'g':		/* all the way back to the start */
+! 	    scroll = -999999;
+  	    break;
+  
+  	case 'G':		/* all the way to the end */
+! 	    scroll = 999999;
+  	    lines_left = 999999;
+  	    break;
+  
+--- 2538,2586 ----
+  	}
+  #endif
+  
+! 	toscroll = 0;
+  	switch (c)
+  	{
+  	case BS:		/* scroll one line back */
+  	case K_BS:
+  	case 'k':
+  	case K_UP:
+! 	    toscroll = -1;
+  	    break;
+  
+  	case CAR:		/* one extra line */
+  	case NL:
+  	case 'j':
+  	case K_DOWN:
+! 	    toscroll = 1;
+  	    break;
+  
+  	case 'u':		/* Up half a page */
+! 	    toscroll = -(Rows / 2);
+  	    break;
+  
+  	case 'd':		/* Down half a page */
+! 	    toscroll = Rows / 2;
+  	    break;
+  
+  	case 'b':		/* one page back */
+  	case K_PAGEUP:
+! 	    toscroll = -(Rows - 1);
+  	    break;
+  
+  	case ' ':		/* one extra page */
+  	case 'f':
+  	case K_PAGEDOWN:
+  	case K_LEFTMOUSE:
+! 	    toscroll = Rows - 1;
+  	    break;
+  
+  	case 'g':		/* all the way back to the start */
+! 	    toscroll = -999999;
+  	    break;
+  
+  	case 'G':		/* all the way to the end */
+! 	    toscroll = 999999;
+  	    lines_left = 999999;
+  	    break;
+  
+***************
+*** 2633,2641 ****
+  	    continue;
+  	}
+  
+! 	if (scroll != 0)
+  	{
+! 	    if (scroll < 0)
+  	    {
+  		/* go to start of last line */
+  		if (mp_last == NULL)
+--- 2633,2641 ----
+  	    continue;
+  	}
+  
+! 	if (toscroll != 0)
+  	{
+! 	    if (toscroll < 0)
+  	    {
+  		/* go to start of last line */
+  		if (mp_last == NULL)
+***************
+*** 2653,2659 ****
+  		if (mp != NULL && mp->sb_prev != NULL)
+  		{
+  		    /* Find line to be displayed at top. */
+! 		    for (i = 0; i > scroll; --i)
+  		    {
+  			if (mp == NULL || mp->sb_prev == NULL)
+  			    break;
+--- 2653,2659 ----
+  		if (mp != NULL && mp->sb_prev != NULL)
+  		{
+  		    /* Find line to be displayed at top. */
+! 		    for (i = 0; i > toscroll; --i)
+  		    {
+  			if (mp == NULL || mp->sb_prev == NULL)
+  			    break;
+***************
+*** 2664,2670 ****
+  			    mp_last = msg_sb_start(mp_last->sb_prev);
+  		    }
+  
+! 		    if (scroll == -1 && screen_ins_lines(0, 0, 1,
+  						       (int)Rows, NULL) == OK)
+  		    {
+  			/* display line at top */
+--- 2664,2670 ----
+  			    mp_last = msg_sb_start(mp_last->sb_prev);
+  		    }
+  
+! 		    if (toscroll == -1 && screen_ins_lines(0, 0, 1,
+  						       (int)Rows, NULL) == OK)
+  		    {
+  			/* display line at top */
+***************
+*** 2680,2692 ****
+  			    ++msg_scrolled;
+  			}
+  		    }
+! 		    scroll = 0;
+  		}
+  	    }
+  	    else
+  	    {
+  		/* First display any text that we scrolled back. */
+! 		while (scroll > 0 && mp_last != NULL)
+  		{
+  		    /* scroll up, display line at bottom */
+  		    msg_scroll_up();
+--- 2680,2692 ----
+  			    ++msg_scrolled;
+  			}
+  		    }
+! 		    toscroll = 0;
+  		}
+  	    }
+  	    else
+  	    {
+  		/* First display any text that we scrolled back. */
+! 		while (toscroll > 0 && mp_last != NULL)
+  		{
+  		    /* scroll up, display line at bottom */
+  		    msg_scroll_up();
+***************
+*** 2694,2704 ****
+  		    screen_fill((int)Rows - 2, (int)Rows - 1, 0,
+  						   (int)Columns, ' ', ' ', 0);
+  		    mp_last = disp_sb_line((int)Rows - 2, mp_last);
+! 		    --scroll;
+  		}
+  	    }
+  
+! 	    if (scroll <= 0)
+  	    {
+  		/* displayed the requested text, more prompt again */
+  		screen_fill((int)Rows - 1, (int)Rows, 0,
+--- 2694,2704 ----
+  		    screen_fill((int)Rows - 2, (int)Rows - 1, 0,
+  						   (int)Columns, ' ', ' ', 0);
+  		    mp_last = disp_sb_line((int)Rows - 2, mp_last);
+! 		    --toscroll;
+  		}
+  	    }
+  
+! 	    if (toscroll <= 0)
+  	    {
+  		/* displayed the requested text, more prompt again */
+  		screen_fill((int)Rows - 1, (int)Rows, 0,
+***************
+*** 2708,2714 ****
+  	    }
+  
+  	    /* display more text, return to caller */
+! 	    lines_left = scroll;
+  	}
+  
+  	break;
+--- 2708,2714 ----
+  	    }
+  
+  	    /* display more text, return to caller */
+! 	    lines_left = toscroll;
+  	}
+  
+  	break;
+*** ../vim-7.3.399/src/misc2.c	2012-01-10 16:28:41.000000000 +0100
+--- src/misc2.c	2012-01-10 22:04:25.000000000 +0100
+***************
+*** 1559,1565 ****
+  	    if (enc_utf8)
+  	    {
+  		int	c, uc;
+! 		int	nl;
+  		char_u	*s;
+  
+  		c = utf_ptr2char(p);
+--- 1559,1565 ----
+  	    if (enc_utf8)
+  	    {
+  		int	c, uc;
+! 		int	newl;
+  		char_u	*s;
+  
+  		c = utf_ptr2char(p);
+***************
+*** 1568,1588 ****
+  		/* Reallocate string when byte count changes.  This is rare,
+  		 * thus it's OK to do another malloc()/free(). */
+  		l = utf_ptr2len(p);
+! 		nl = utf_char2len(uc);
+! 		if (nl != l)
+  		{
+! 		    s = alloc((unsigned)STRLEN(res) + 1 + nl - l);
+  		    if (s == NULL)
+  			break;
+  		    mch_memmove(s, res, p - res);
+! 		    STRCPY(s + (p - res) + nl, p + l);
+  		    p = s + (p - res);
+  		    vim_free(res);
+  		    res = s;
+  		}
+  
+  		utf_char2bytes(uc, p);
+! 		p += nl;
+  	    }
+  	    else if (has_mbyte && (l = (*mb_ptr2len)(p)) > 1)
+  		p += l;		/* skip multi-byte character */
+--- 1568,1588 ----
+  		/* Reallocate string when byte count changes.  This is rare,
+  		 * thus it's OK to do another malloc()/free(). */
+  		l = utf_ptr2len(p);
+! 		newl = utf_char2len(uc);
+! 		if (newl != l)
+  		{
+! 		    s = alloc((unsigned)STRLEN(res) + 1 + newl - l);
+  		    if (s == NULL)
+  			break;
+  		    mch_memmove(s, res, p - res);
+! 		    STRCPY(s + (p - res) + newl, p + l);
+  		    p = s + (p - res);
+  		    vim_free(res);
+  		    res = s;
+  		}
+  
+  		utf_char2bytes(uc, p);
+! 		p += newl;
+  	    }
+  	    else if (has_mbyte && (l = (*mb_ptr2len)(p)) > 1)
+  		p += l;		/* skip multi-byte character */
+*** ../vim-7.3.399/src/move.c	2011-02-01 18:01:06.000000000 +0100
+--- src/move.c	2012-01-10 22:05:22.000000000 +0100
+***************
+*** 926,933 ****
+   * Also updates curwin->w_leftcol.
+   */
+      void
+! curs_columns(scroll)
+!     int		scroll;		/* when TRUE, may scroll horizontally */
+  {
+      int		diff;
+      int		extra;		/* offset for first screen line */
+--- 926,933 ----
+   * Also updates curwin->w_leftcol.
+   */
+      void
+! curs_columns(may_scroll)
+!     int		may_scroll;	/* when TRUE, may scroll horizontally */
+  {
+      int		diff;
+      int		extra;		/* offset for first screen line */
+***************
+*** 1014,1020 ****
+      /* No line wrapping: compute curwin->w_leftcol if scrolling is on and line
+       * is not folded.
+       * If scrolling is off, curwin->w_leftcol is assumed to be 0 */
+!     else if (scroll
+  #ifdef FEAT_FOLDING
+  	    && !curwin->w_cline_folded
+  #endif
+--- 1014,1020 ----
+      /* No line wrapping: compute curwin->w_leftcol if scrolling is on and line
+       * is not folded.
+       * If scrolling is off, curwin->w_leftcol is assumed to be 0 */
+!     else if (may_scroll
+  #ifdef FEAT_FOLDING
+  	    && !curwin->w_cline_folded
+  #endif
+*** ../vim-7.3.399/src/netbeans.c	2011-10-20 21:58:20.000000000 +0200
+--- src/netbeans.c	2012-01-10 22:16:26.000000000 +0100
+***************
+*** 1395,1401 ****
+      int		cmdno,
+      char_u	*args)	    /* points to space before arguments or NUL */
+  {
+!     int		doupdate = 0;
+      long	off = 0;
+      nbbuf_T	*buf = nb_get_buf(bufno);
+      static int	skip = 0;
+--- 1395,1401 ----
+      int		cmdno,
+      char_u	*args)	    /* points to space before arguments or NUL */
+  {
+!     int		do_update = 0;
+      long	off = 0;
+      nbbuf_T	*buf = nb_get_buf(bufno);
+      static int	skip = 0;
+***************
+*** 1600,1606 ****
+  							last.lnum, last.col));
+  		del_from_lnum = first.lnum;
+  		del_to_lnum = last.lnum;
+! 		doupdate = 1;
+  
+  		/* Get the position of the first byte after the deleted
+  		 * section.  "next" is NULL when deleting to the end of the
+--- 1600,1606 ----
+  							last.lnum, last.col));
+  		del_from_lnum = first.lnum;
+  		del_to_lnum = last.lnum;
+! 		do_update = 1;
+  
+  		/* Get the position of the first byte after the deleted
+  		 * section.  "next" is NULL when deleting to the end of the
+***************
+*** 1777,1783 ****
+  		lnum = lnum_start;
+  
+  		/* Loop over the "\n" separated lines of the argument. */
+! 		doupdate = 1;
+  		while (*args != NUL)
+  		{
+  		    nl = vim_strchr(args, '\n');
+--- 1777,1783 ----
+  		lnum = lnum_start;
+  
+  		/* Loop over the "\n" separated lines of the argument. */
+! 		do_update = 1;
+  		while (*args != NUL)
+  		{
+  		    nl = vim_strchr(args, '\n');
+***************
+*** 1992,1998 ****
+  		EMSG("E640: invalid buffer identifier in initDone");
+  		return FAIL;
+  	    }
+! 	    doupdate = 1;
+  	    buf->initDone = TRUE;
+  	    nb_set_curbuf(buf->bufp);
+  #if defined(FEAT_AUTOCMD)
+--- 1992,1998 ----
+  		EMSG("E640: invalid buffer identifier in initDone");
+  		return FAIL;
+  	    }
+! 	    do_update = 1;
+  	    buf->initDone = TRUE;
+  	    nb_set_curbuf(buf->bufp);
+  #if defined(FEAT_AUTOCMD)
+***************
+*** 2081,2087 ****
+  					     ECMD_HIDE + ECMD_OLDBUF, curwin);
+  	    buf->bufp = curbuf;
+  	    buf->initDone = TRUE;
+! 	    doupdate = 1;
+  #if defined(FEAT_TITLE)
+  	    maketitle();
+  #endif
+--- 2081,2087 ----
+  					     ECMD_HIDE + ECMD_OLDBUF, curwin);
+  	    buf->bufp = curbuf;
+  	    buf->initDone = TRUE;
+! 	    do_update = 1;
+  #if defined(FEAT_TITLE)
+  	    maketitle();
+  #endif
+***************
+*** 2109,2115 ****
+  		exarg.forceit = FALSE;
+  		dosetvisible = TRUE;
+  		goto_buffer(&exarg, DOBUF_FIRST, FORWARD, buf->bufp->b_fnum);
+! 		doupdate = 1;
+  		dosetvisible = FALSE;
+  
+  #ifdef FEAT_GUI
+--- 2109,2115 ----
+  		exarg.forceit = FALSE;
+  		dosetvisible = TRUE;
+  		goto_buffer(&exarg, DOBUF_FIRST, FORWARD, buf->bufp->b_fnum);
+! 		do_update = 1;
+  		dosetvisible = FALSE;
+  
+  #ifdef FEAT_GUI
+***************
+*** 2309,2315 ****
+  						     buf->bufp->b_fnum, TRUE);
+  	    buf->bufp = NULL;
+  	    buf->initDone = FALSE;
+! 	    doupdate = 1;
+  /* =====================================================================*/
+  	}
+  	else if (streq((char *)cmd, "setStyle")) /* obsolete... */
+--- 2309,2315 ----
+  						     buf->bufp->b_fnum, TRUE);
+  	    buf->bufp = NULL;
+  	    buf->initDone = FALSE;
+! 	    do_update = 1;
+  /* =====================================================================*/
+  	}
+  	else if (streq((char *)cmd, "setStyle")) /* obsolete... */
+***************
+*** 2400,2406 ****
+  		return FAIL;
+  	    }
+  
+! 	    doupdate = 1;
+  
+  	    cp = (char *)args;
+  	    serNum = strtol(cp, &cp, 10);
+--- 2400,2406 ----
+  		return FAIL;
+  	    }
+  
+! 	    do_update = 1;
+  
+  	    cp = (char *)args;
+  	    serNum = strtol(cp, &cp, 10);
+***************
+*** 2448,2454 ****
+  		nbdebug(("    invalid buffer identifier in removeAnno\n"));
+  		return FAIL;
+  	    }
+! 	    doupdate = 1;
+  	    cp = (char *)args;
+  	    serNum = strtol(cp, &cp, 10);
+  	    args = (char_u *)cp;
+--- 2448,2454 ----
+  		nbdebug(("    invalid buffer identifier in removeAnno\n"));
+  		return FAIL;
+  	    }
+! 	    do_update = 1;
+  	    cp = (char *)args;
+  	    serNum = strtol(cp, &cp, 10);
+  	    args = (char_u *)cp;
+***************
+*** 2493,2499 ****
+  	    len = strtol(cp, NULL, 10);
+  	    args = (char_u *)cp;
+  	    pos = off2pos(buf->bufp, off);
+! 	    doupdate = 1;
+  	    if (!pos)
+  		nbdebug(("    no such start pos in %s, %ld\n", cmd, off));
+  	    else
+--- 2493,2499 ----
+  	    len = strtol(cp, NULL, 10);
+  	    args = (char_u *)cp;
+  	    pos = off2pos(buf->bufp, off);
+! 	    do_update = 1;
+  	    if (!pos)
+  		nbdebug(("    no such start pos in %s, %ld\n", cmd, off));
+  	    else
+***************
+*** 2555,2561 ****
+  	    inAtomic = 0;
+  	    if (needupdate)
+  	    {
+! 		doupdate = 1;
+  		needupdate = 0;
+  	    }
+  /* =====================================================================*/
+--- 2555,2561 ----
+  	    inAtomic = 0;
+  	    if (needupdate)
+  	    {
+! 		do_update = 1;
+  		needupdate = 0;
+  	    }
+  /* =====================================================================*/
+***************
+*** 2636,2653 ****
+  	 * Unrecognized command is ignored.
+  	 */
+      }
+!     if (inAtomic && doupdate)
+      {
+  	needupdate = 1;
+! 	doupdate = 0;
+      }
+  
+      /*
+       * Is this needed? I moved the netbeans_Xt_connect() later during startup
+       * and it may no longer be necessary. If its not needed then needupdate
+!      * and doupdate can also be removed.
+       */
+!     if (buf != NULL && buf->initDone && doupdate)
+      {
+  	update_screen(NOT_VALID);
+  	setcursor();
+--- 2636,2653 ----
+  	 * Unrecognized command is ignored.
+  	 */
+      }
+!     if (inAtomic && do_update)
+      {
+  	needupdate = 1;
+! 	do_update = 0;
+      }
+  
+      /*
+       * Is this needed? I moved the netbeans_Xt_connect() later during startup
+       * and it may no longer be necessary. If its not needed then needupdate
+!      * and do_update can also be removed.
+       */
+!     if (buf != NULL && buf->initDone && do_update)
+      {
+  	update_screen(NOT_VALID);
+  	setcursor();
+*** ../vim-7.3.399/src/option.c	2012-01-04 19:34:32.000000000 +0100
+--- src/option.c	2012-01-10 22:06:03.000000000 +0100
+***************
+*** 8584,8591 ****
+      long_u	flags;
+  {
+      /* Careful: P_RCLR and P_RALL are a combination of other P_ flags */
+!     int		clear = (flags & P_RCLR) == P_RCLR;
+!     int		all = ((flags & P_RALL) == P_RALL || clear);
+  
+  #ifdef FEAT_WINDOWS
+      if ((flags & P_RSTAT) || all)	/* mark all status lines dirty */
+--- 8584,8591 ----
+      long_u	flags;
+  {
+      /* Careful: P_RCLR and P_RALL are a combination of other P_ flags */
+!     int		doclear = (flags & P_RCLR) == P_RCLR;
+!     int		all = ((flags & P_RALL) == P_RALL || doclear);
+  
+  #ifdef FEAT_WINDOWS
+      if ((flags & P_RSTAT) || all)	/* mark all status lines dirty */
+***************
+*** 8596,8602 ****
+  	changed_window_setting();
+      if (flags & P_RBUF)
+  	redraw_curbuf_later(NOT_VALID);
+!     if (clear)
+  	redraw_all_later(CLEAR);
+      else if (all)
+  	redraw_all_later(NOT_VALID);
+--- 8596,8602 ----
+  	changed_window_setting();
+      if (flags & P_RBUF)
+  	redraw_curbuf_later(NOT_VALID);
+!     if (doclear)
+  	redraw_all_later(CLEAR);
+      else if (all)
+  	redraw_all_later(NOT_VALID);
+*** ../vim-7.3.399/src/os_unix.c	2011-10-20 21:09:25.000000000 +0200
+--- src/os_unix.c	2012-01-10 21:48:49.000000000 +0100
+***************
+*** 3884,3890 ****
+      char_u	*p_shcf_copy = NULL;
+      int		i;
+      char_u	*p;
+-     char_u	*s;
+      int		inquote;
+      int		pty_master_fd = -1;	    /* for pty's */
+  # ifdef FEAT_GUI
+--- 3884,3889 ----
+***************
+*** 3963,3968 ****
+--- 3962,3969 ----
+      }
+      if (cmd != NULL)
+      {
++ 	char_u	*s;
++ 
+  	if (extra_shell_arg != NULL)
+  	    argv[argc++] = (char *)extra_shell_arg;
+  
+***************
+*** 4325,4331 ****
+  			linenr_T    lnum = curbuf->b_op_start.lnum;
+  			int	    written = 0;
+  			char_u	    *lp = ml_get(lnum);
+- 			char_u	    *s;
+  			size_t	    l;
+  
+  			close(fromshell_fd);
+--- 4326,4331 ----
+***************
+*** 4339,4345 ****
+  				len = write(toshell_fd, "", (size_t)1);
+  			    else
+  			    {
+! 				s = vim_strchr(lp + written, NL);
+  				len = write(toshell_fd, (char *)lp + written,
+  					   s == NULL ? l
+  					      : (size_t)(s - (lp + written)));
+--- 4339,4346 ----
+  				len = write(toshell_fd, "", (size_t)1);
+  			    else
+  			    {
+! 				char_u	*s = vim_strchr(lp + written, NL);
+! 
+  				len = write(toshell_fd, (char *)lp + written,
+  					   s == NULL ? l
+  					      : (size_t)(s - (lp + written)));
+*** ../vim-7.3.399/src/screen.c	2012-01-10 12:42:05.000000000 +0100
+--- src/screen.c	2012-01-10 22:06:51.000000000 +0100
+***************
+*** 7849,7863 ****
+  
+  /*
+   * screen_valid -  allocate screen buffers if size changed
+!  *   If "clear" is TRUE: clear screen if it has been resized.
+   *	Returns TRUE if there is a valid screen to write to.
+   *	Returns FALSE when starting up and screen not initialized yet.
+   */
+      int
+! screen_valid(clear)
+!     int	    clear;
+  {
+!     screenalloc(clear);	    /* allocate screen buffers if size changed */
+      return (ScreenLines != NULL);
+  }
+  
+--- 7849,7863 ----
+  
+  /*
+   * screen_valid -  allocate screen buffers if size changed
+!  *   If "doclear" is TRUE: clear screen if it has been resized.
+   *	Returns TRUE if there is a valid screen to write to.
+   *	Returns FALSE when starting up and screen not initialized yet.
+   */
+      int
+! screen_valid(doclear)
+!     int	    doclear;
+  {
+!     screenalloc(doclear);	   /* allocate screen buffers if size changed */
+      return (ScreenLines != NULL);
+  }
+  
+***************
+*** 7872,7879 ****
+   * final size of the shell is needed.
+   */
+      void
+! screenalloc(clear)
+!     int	    clear;
+  {
+      int		    new_row, old_row;
+  #ifdef FEAT_GUI
+--- 7872,7879 ----
+   * final size of the shell is needed.
+   */
+      void
+! screenalloc(doclear)
+!     int	    doclear;
+  {
+      int		    new_row, old_row;
+  #ifdef FEAT_GUI
+***************
+*** 8069,8075 ****
+  	     * (used when resizing the window at the "--more--" prompt or when
+  	     * executing an external command, for the GUI).
+  	     */
+! 	    if (!clear)
+  	    {
+  		(void)vim_memset(new_ScreenLines + new_row * Columns,
+  				      ' ', (size_t)Columns * sizeof(schar_T));
+--- 8069,8075 ----
+  	     * (used when resizing the window at the "--more--" prompt or when
+  	     * executing an external command, for the GUI).
+  	     */
+! 	    if (!doclear)
+  	    {
+  		(void)vim_memset(new_ScreenLines + new_row * Columns,
+  				      ' ', (size_t)Columns * sizeof(schar_T));
+***************
+*** 8159,8165 ****
+      screen_Columns = Columns;
+  
+      must_redraw = CLEAR;	/* need to clear the screen later */
+!     if (clear)
+  	screenclear2();
+  
+  #ifdef FEAT_GUI
+--- 8159,8165 ----
+      screen_Columns = Columns;
+  
+      must_redraw = CLEAR;	/* need to clear the screen later */
+!     if (doclear)
+  	screenclear2();
+  
+  #ifdef FEAT_GUI
+*** ../vim-7.3.399/src/search.c	2011-10-04 17:00:13.000000000 +0200
+--- src/search.c	2012-01-10 22:07:16.000000000 +0100
+***************
+*** 2402,2425 ****
+      {
+  	if (vim_strchr(p, ';') != NULL) /* there may be comments */
+  	{
+! 	    int instr = FALSE;	/* inside of string */
+  
+  	    p = line;		/* scan from start */
+  	    while ((p = vim_strpbrk(p, (char_u *)"\";")) != NULL)
+  	    {
+  		if (*p == '"')
+  		{
+! 		    if (instr)
+  		    {
+  			if (*(p - 1) != '\\') /* skip escaped quote */
+! 			    instr = FALSE;
+  		    }
+  		    else if (p == line || ((p - line) >= 2
+  				      /* skip #\" form */
+  				      && *(p - 1) != '\\' && *(p - 2) != '#'))
+! 			instr = TRUE;
+  		}
+! 		else if (!instr && ((p - line) < 2
+  				    || (*(p - 1) != '\\' && *(p - 2) != '#')))
+  		    break;	/* found! */
+  		++p;
+--- 2402,2425 ----
+      {
+  	if (vim_strchr(p, ';') != NULL) /* there may be comments */
+  	{
+! 	    int in_str = FALSE;	/* inside of string */
+  
+  	    p = line;		/* scan from start */
+  	    while ((p = vim_strpbrk(p, (char_u *)"\";")) != NULL)
+  	    {
+  		if (*p == '"')
+  		{
+! 		    if (in_str)
+  		    {
+  			if (*(p - 1) != '\\') /* skip escaped quote */
+! 			    in_str = FALSE;
+  		    }
+  		    else if (p == line || ((p - line) >= 2
+  				      /* skip #\" form */
+  				      && *(p - 1) != '\\' && *(p - 2) != '#'))
+! 			in_str = TRUE;
+  		}
+! 		else if (!in_str && ((p - line) < 2
+  				    || (*(p - 1) != '\\' && *(p - 2) != '#')))
+  		    break;	/* found! */
+  		++p;
+*** ../vim-7.3.399/src/spell.c	2012-01-10 16:28:41.000000000 +0100
+--- src/spell.c	2012-01-10 22:09:23.000000000 +0100
+***************
+*** 5049,5055 ****
+  static int offset2bytes __ARGS((int nr, char_u *buf));
+  static int bytes2offset __ARGS((char_u **pp));
+  static void sug_write __ARGS((spellinfo_T *spin, char_u *fname));
+! static void mkspell __ARGS((int fcount, char_u **fnames, int ascii, int overwrite, int added_word));
+  static void spell_message __ARGS((spellinfo_T *spin, char_u *str));
+  static void init_spellfile __ARGS((void));
+  
+--- 5049,5055 ----
+  static int offset2bytes __ARGS((int nr, char_u *buf));
+  static int bytes2offset __ARGS((char_u **pp));
+  static void sug_write __ARGS((spellinfo_T *spin, char_u *fname));
+! static void mkspell __ARGS((int fcount, char_u **fnames, int ascii, int over_write, int added_word));
+  static void spell_message __ARGS((spellinfo_T *spin, char_u *str));
+  static void init_spellfile __ARGS((void));
+  
+***************
+*** 9085,9095 ****
+   * and ".spl" is appended to make the output file name.
+   */
+      static void
+! mkspell(fcount, fnames, ascii, overwrite, added_word)
+      int		fcount;
+      char_u	**fnames;
+      int		ascii;		    /* -ascii argument given */
+!     int		overwrite;	    /* overwrite existing output file */
+      int		added_word;	    /* invoked through "zg" */
+  {
+      char_u	*fname = NULL;
+--- 9085,9095 ----
+   * and ".spl" is appended to make the output file name.
+   */
+      static void
+! mkspell(fcount, fnames, ascii, over_write, added_word)
+      int		fcount;
+      char_u	**fnames;
+      int		ascii;		    /* -ascii argument given */
+!     int		over_write;	    /* overwrite existing output file */
+      int		added_word;	    /* invoked through "zg" */
+  {
+      char_u	*fname = NULL;
+***************
+*** 9173,9179 ****
+      {
+  	/* Check for overwriting before doing things that may take a lot of
+  	 * time. */
+! 	if (!overwrite && mch_stat((char *)wfname, &st) >= 0)
+  	{
+  	    EMSG(_(e_exists));
+  	    goto theend;
+--- 9173,9179 ----
+      {
+  	/* Check for overwriting before doing things that may take a lot of
+  	 * time. */
+! 	if (!over_write && mch_stat((char *)wfname, &st) >= 0)
+  	{
+  	    EMSG(_(e_exists));
+  	    goto theend;
+*** ../vim-7.3.399/src/syntax.c	2011-06-19 04:54:17.000000000 +0200
+--- src/syntax.c	2012-01-10 22:10:23.000000000 +0100
+***************
+*** 4006,4022 ****
+  }
+  
+      static void
+! syn_list_flags(nl, flags, attr)
+!     struct name_list	*nl;
+      int			flags;
+      int			attr;
+  {
+      int		i;
+  
+!     for (i = 0; nl[i].flag != 0; ++i)
+! 	if (flags & nl[i].flag)
+  	{
+! 	    msg_puts_attr((char_u *)nl[i].name, attr);
+  	    msg_putchar(' ');
+  	}
+  }
+--- 4006,4022 ----
+  }
+  
+      static void
+! syn_list_flags(nlist, flags, attr)
+!     struct name_list	*nlist;
+      int			flags;
+      int			attr;
+  {
+      int		i;
+  
+!     for (i = 0; nlist[i].flag != 0; ++i)
+! 	if (flags & nlist[i].flag)
+  	{
+! 	    msg_puts_attr((char_u *)nlist[i].name, attr);
+  	    msg_putchar(' ');
+  	}
+  }
+*** ../vim-7.3.399/src/tag.c	2011-12-14 14:15:12.000000000 +0100
+--- src/tag.c	2012-01-10 21:51:05.000000000 +0100
+***************
+*** 1353,1359 ****
+      int		match_count = 0;		/* number of matches found */
+      char_u	**matches;
+      int		mtt;
+-     int		len;
+      int		help_save;
+  #ifdef FEAT_MULTI_LANG
+      int		help_pri = 0;
+--- 1353,1358 ----
+***************
+*** 2235,2240 ****
+--- 2234,2241 ----
+  		 */
+  		if (ga_grow(&ga_match[mtt], 1) == OK)
+  		{
++ 		    int len;
++ 
+  		    if (help_only)
+  		    {
+  #ifdef FEAT_MULTI_LANG
+*** ../vim-7.3.399/src/window.c	2011-12-30 15:01:55.000000000 +0100
+--- src/window.c	2012-01-10 22:11:41.000000000 +0100
+***************
+*** 683,701 ****
+  }
+  
+  /*
+!  * When "newwin" is NULL: split the current window in two.
+!  * When "newwin" is not NULL: insert this window at the far
+   * top/left/right/bottom.
+   * return FAIL for failure, OK otherwise
+   */
+      int
+! win_split_ins(size, flags, newwin, dir)
+      int		size;
+      int		flags;
+!     win_T	*newwin;
+      int		dir;
+  {
+!     win_T	*wp = newwin;
+      win_T	*oldwin;
+      int		new_size = size;
+      int		i;
+--- 683,701 ----
+  }
+  
+  /*
+!  * When "new_wp" is NULL: split the current window in two.
+!  * When "new_wp" is not NULL: insert this window at the far
+   * top/left/right/bottom.
+   * return FAIL for failure, OK otherwise
+   */
+      int
+! win_split_ins(size, flags, new_wp, dir)
+      int		size;
+      int		flags;
+!     win_T	*new_wp;
+      int		dir;
+  {
+!     win_T	*wp = new_wp;
+      win_T	*oldwin;
+      int		new_size = size;
+      int		i;
+***************
+*** 718,724 ****
+      /* add a status line when p_ls == 1 and splitting the first window */
+      if (lastwin == firstwin && p_ls == 1 && oldwin->w_status_height == 0)
+      {
+! 	if (oldwin->w_height <= p_wmh && newwin == NULL)
+  	{
+  	    EMSG(_(e_noroom));
+  	    return FAIL;
+--- 718,724 ----
+      /* add a status line when p_ls == 1 and splitting the first window */
+      if (lastwin == firstwin && p_ls == 1 && oldwin->w_status_height == 0)
+      {
+! 	if (oldwin->w_height <= p_wmh && new_wp == NULL)
+  	{
+  	    EMSG(_(e_noroom));
+  	    return FAIL;
+***************
+*** 751,757 ****
+  	}
+  	else
+  	    available = oldwin->w_width;
+! 	if (available < needed && newwin == NULL)
+  	{
+  	    EMSG(_(e_noroom));
+  	    return FAIL;
+--- 751,757 ----
+  	}
+  	else
+  	    available = oldwin->w_width;
+! 	if (available < needed && new_wp == NULL)
+  	{
+  	    EMSG(_(e_noroom));
+  	    return FAIL;
+***************
+*** 815,821 ****
+  	    available = oldwin->w_height;
+  	    needed += p_wmh;
+  	}
+! 	if (available < needed && newwin == NULL)
+  	{
+  	    EMSG(_(e_noroom));
+  	    return FAIL;
+--- 815,821 ----
+  	    available = oldwin->w_height;
+  	    needed += p_wmh;
+  	}
+! 	if (available < needed && new_wp == NULL)
+  	{
+  	    EMSG(_(e_noroom));
+  	    return FAIL;
+***************
+*** 888,907 ****
+  			p_sb))))
+      {
+  	/* new window below/right of current one */
+! 	if (newwin == NULL)
+  	    wp = win_alloc(oldwin, FALSE);
+  	else
+  	    win_append(oldwin, wp);
+      }
+      else
+      {
+! 	if (newwin == NULL)
+  	    wp = win_alloc(oldwin->w_prev, FALSE);
+  	else
+  	    win_append(oldwin->w_prev, wp);
+      }
+  
+!     if (newwin == NULL)
+      {
+  	if (wp == NULL)
+  	    return FAIL;
+--- 888,907 ----
+  			p_sb))))
+      {
+  	/* new window below/right of current one */
+! 	if (new_wp == NULL)
+  	    wp = win_alloc(oldwin, FALSE);
+  	else
+  	    win_append(oldwin, wp);
+      }
+      else
+      {
+! 	if (new_wp == NULL)
+  	    wp = win_alloc(oldwin->w_prev, FALSE);
+  	else
+  	    win_append(oldwin->w_prev, wp);
+      }
+  
+!     if (new_wp == NULL)
+      {
+  	if (wp == NULL)
+  	    return FAIL;
+***************
+*** 972,981 ****
+  		frp->fr_parent = curfrp;
+      }
+  
+!     if (newwin == NULL)
+  	frp = wp->w_frame;
+      else
+! 	frp = newwin->w_frame;
+      frp->fr_parent = curfrp->fr_parent;
+  
+      /* Insert the new frame at the right place in the frame list. */
+--- 972,981 ----
+  		frp->fr_parent = curfrp;
+      }
+  
+!     if (new_wp == NULL)
+  	frp = wp->w_frame;
+      else
+! 	frp = new_wp->w_frame;
+      frp->fr_parent = curfrp->fr_parent;
+  
+      /* Insert the new frame at the right place in the frame list. */
+***************
+*** 4284,4302 ****
+      win_T	*after UNUSED;
+      int		hidden UNUSED;
+  {
+!     win_T	*newwin;
+  
+      /*
+       * allocate window structure and linesizes arrays
+       */
+!     newwin = (win_T *)alloc_clear((unsigned)sizeof(win_T));
+!     if (newwin != NULL && win_alloc_lines(newwin) == FAIL)
+      {
+! 	vim_free(newwin);
+! 	newwin = NULL;
+      }
+  
+!     if (newwin != NULL)
+      {
+  #ifdef FEAT_AUTOCMD
+  	/* Don't execute autocommands while the window is not properly
+--- 4284,4302 ----
+      win_T	*after UNUSED;
+      int		hidden UNUSED;
+  {
+!     win_T	*new_wp;
+  
+      /*
+       * allocate window structure and linesizes arrays
+       */
+!     new_wp = (win_T *)alloc_clear((unsigned)sizeof(win_T));
+!     if (new_wp != NULL && win_alloc_lines(new_wp) == FAIL)
+      {
+! 	vim_free(new_wp);
+! 	new_wp = NULL;
+      }
+  
+!     if (new_wp != NULL)
+      {
+  #ifdef FEAT_AUTOCMD
+  	/* Don't execute autocommands while the window is not properly
+***************
+*** 4309,4361 ****
+  	 */
+  #ifdef FEAT_WINDOWS
+  	if (!hidden)
+! 	    win_append(after, newwin);
+  #endif
+  #ifdef FEAT_VERTSPLIT
+! 	newwin->w_wincol = 0;
+! 	newwin->w_width = Columns;
+  #endif
+  
+  	/* position the display and the cursor at the top of the file. */
+! 	newwin->w_topline = 1;
+  #ifdef FEAT_DIFF
+! 	newwin->w_topfill = 0;
+  #endif
+! 	newwin->w_botline = 2;
+! 	newwin->w_cursor.lnum = 1;
+  #ifdef FEAT_SCROLLBIND
+! 	newwin->w_scbind_pos = 1;
+  #endif
+  
+  	/* We won't calculate w_fraction until resizing the window */
+! 	newwin->w_fraction = 0;
+! 	newwin->w_prev_fraction_row = -1;
+  
+  #ifdef FEAT_GUI
+  	if (gui.in_use)
+  	{
+! 	    gui_create_scrollbar(&newwin->w_scrollbars[SBAR_LEFT],
+! 		    SBAR_LEFT, newwin);
+! 	    gui_create_scrollbar(&newwin->w_scrollbars[SBAR_RIGHT],
+! 		    SBAR_RIGHT, newwin);
+  	}
+  #endif
+  #ifdef FEAT_EVAL
+  	/* init w: variables */
+! 	init_var_dict(&newwin->w_vars, &newwin->w_winvar);
+  #endif
+  #ifdef FEAT_FOLDING
+! 	foldInitWin(newwin);
+  #endif
+  #ifdef FEAT_AUTOCMD
+  	unblock_autocmds();
+  #endif
+  #ifdef FEAT_SEARCH_EXTRA
+! 	newwin->w_match_head = NULL;
+! 	newwin->w_next_match_id = 4;
+  #endif
+      }
+!     return newwin;
+  }
+  
+  #if defined(FEAT_WINDOWS) || defined(PROTO)
+--- 4309,4361 ----
+  	 */
+  #ifdef FEAT_WINDOWS
+  	if (!hidden)
+! 	    win_append(after, new_wp);
+  #endif
+  #ifdef FEAT_VERTSPLIT
+! 	new_wp->w_wincol = 0;
+! 	new_wp->w_width = Columns;
+  #endif
+  
+  	/* position the display and the cursor at the top of the file. */
+! 	new_wp->w_topline = 1;
+  #ifdef FEAT_DIFF
+! 	new_wp->w_topfill = 0;
+  #endif
+! 	new_wp->w_botline = 2;
+! 	new_wp->w_cursor.lnum = 1;
+  #ifdef FEAT_SCROLLBIND
+! 	new_wp->w_scbind_pos = 1;
+  #endif
+  
+  	/* We won't calculate w_fraction until resizing the window */
+! 	new_wp->w_fraction = 0;
+! 	new_wp->w_prev_fraction_row = -1;
+  
+  #ifdef FEAT_GUI
+  	if (gui.in_use)
+  	{
+! 	    gui_create_scrollbar(&new_wp->w_scrollbars[SBAR_LEFT],
+! 		    SBAR_LEFT, new_wp);
+! 	    gui_create_scrollbar(&new_wp->w_scrollbars[SBAR_RIGHT],
+! 		    SBAR_RIGHT, new_wp);
+  	}
+  #endif
+  #ifdef FEAT_EVAL
+  	/* init w: variables */
+! 	init_var_dict(&new_wp->w_vars, &new_wp->w_winvar);
+  #endif
+  #ifdef FEAT_FOLDING
+! 	foldInitWin(new_wp);
+  #endif
+  #ifdef FEAT_AUTOCMD
+  	unblock_autocmds();
+  #endif
+  #ifdef FEAT_SEARCH_EXTRA
+! 	new_wp->w_match_head = NULL;
+! 	new_wp->w_next_match_id = 4;
+  #endif
+      }
+!     return new_wp;
+  }
+  
+  #if defined(FEAT_WINDOWS) || defined(PROTO)
+*** ../vim-7.3.399/src/version.c	2012-01-10 18:37:53.000000000 +0100
+--- src/version.c	2012-01-10 22:23:10.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     400,
+  /**/
+
+-- 
+A parent can be arrested if his child cannot hold back a burp during a church
+service.
+		[real standing law in Nebraska, United States of America]
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

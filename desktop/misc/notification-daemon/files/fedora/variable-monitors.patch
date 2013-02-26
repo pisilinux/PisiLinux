@@ -1,0 +1,93 @@
+--- notification-daemon-0.4.1/src/daemon/daemon.c	2009-10-15 21:22:24.598052888 -0400
++++ hacked-foo/src/daemon/daemon.c	2009-10-15 21:26:56.380290516 -0400
+@@ -162,44 +162,59 @@
+ }
+ 
+ static void
+-notify_daemon_init(NotifyDaemon *daemon)
++reallocate_stacks (NotifyDaemon *daemon)
+ {
+-	NotifyStackLocation location;
+-	GConfClient *client = get_gconf_client();
+ 	GdkDisplay *display;
+ 	GdkScreen *screen;
++        gint old_stacks_size;
++	GConfClient *client = get_gconf_client();
++	NotifyStackLocation location;
+ 	gchar *slocation;
+ 	gint i;
+ 
++	display = gdk_display_get_default();
++	screen = gdk_display_get_default_screen(display);
++
++	if (daemon->priv->stacks_size < gdk_screen_get_n_monitors (screen)) {
++		slocation = gconf_client_get_string(client, GCONF_KEY_POPUP_LOCATION,
++						    NULL);
++		location = get_stack_location_from_string(slocation);
++		g_free(slocation);
++
++		old_stacks_size = daemon->priv->stacks_size;
++		daemon->priv->stacks_size = gdk_screen_get_n_monitors(screen);
++		daemon->priv->stacks = g_renew(NotifyStack *, daemon->priv->stacks, daemon->priv->stacks_size);
++		for (i = old_stacks_size; i < daemon->priv->stacks_size; i++) {
++			daemon->priv->stacks[i] = notify_stack_new(daemon,
++                                                                   screen,
++						   	           i,
++                                                                   location);
++		}
++	}
++
++
++}
++
++static void
++notify_daemon_init(NotifyDaemon *daemon)
++{
+ 	daemon->priv = G_TYPE_INSTANCE_GET_PRIVATE(daemon, NOTIFY_TYPE_DAEMON,
+-											   NotifyDaemonPrivate);
++						   NotifyDaemonPrivate);
+ 
+ 	daemon->priv->next_id = 1;
+ 	daemon->priv->timeout_source = 0;
+ 
+-	slocation = gconf_client_get_string(client, GCONF_KEY_POPUP_LOCATION,
+-										NULL);
+-	location = get_stack_location_from_string(slocation);
+-	g_free(slocation);
++	daemon->priv->stacks_size = 0;
++	daemon->priv->stacks = NULL;
+ 
+-	display = gdk_display_get_default();
+-	screen = gdk_display_get_default_screen(display);
+-	daemon->priv->stacks_size = gdk_screen_get_n_monitors(screen);
+-	daemon->priv->stacks = g_new0(NotifyStack *, daemon->priv->stacks_size);
++	reallocate_stacks (daemon);
+ 
+ 	daemon->priv->idle_reposition_notify_ids = g_hash_table_new(NULL, NULL);
+ 	daemon->priv->monitored_window_hash = g_hash_table_new(NULL, NULL);
+ 	gdk_window_add_filter(NULL, _notify_x11_filter, daemon);
+-
+-	for (i = 0; i < daemon->priv->stacks_size; i++)
+-	{
+-		daemon->priv->stacks[i] = notify_stack_new(daemon, screen,
+-												   i, location);
+-	}
+-
+ 	daemon->priv->notification_hash =
+ 		g_hash_table_new_full(g_int_hash, g_int_equal, g_free,
+-							  (GDestroyNotify)_notify_timeout_destroy);
++				  (GDestroyNotify)_notify_timeout_destroy);
+ }
+ 
+ static void
+@@ -1308,7 +1323,9 @@
+ 		gdk_display_get_pointer(gdk_display_get_default(),
+ 								&screen, &x, &y, NULL);
+ 		monitor = gdk_screen_get_monitor_at_point(screen, x, y);
+-		g_assert(monitor >= 0 && monitor < priv->stacks_size);
++		if (monitor >= priv->stacks_size) {
++			reallocate_stacks (daemon);
++		}
+ 
+ 		notify_stack_add_window(priv->stacks[monitor], nw, new_notification);
+ 	}

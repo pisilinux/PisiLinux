@@ -1,0 +1,60 @@
+Index: gdb-6.8.50.20090811/gdb/linux-nat.c
+===================================================================
+--- gdb-6.8.50.20090811.orig/gdb/linux-nat.c	2009-08-12 07:21:20.000000000 +0200
++++ gdb-6.8.50.20090811/gdb/linux-nat.c	2009-08-12 08:11:25.000000000 +0200
+@@ -1656,16 +1656,18 @@ resume_set_callback (struct lwp_info *lp
+ 
+ static void
+ linux_nat_resume (struct target_ops *ops,
+-		  ptid_t ptid, int step, enum target_signal signo)
++		  ptid_t ptid, int step_int, enum target_signal signo)
+ {
+   sigset_t prev_mask;
+   struct lwp_info *lp;
+   int resume_many;
++  enum resume_step step = step_int;
+ 
+   if (debug_linux_nat)
+     fprintf_unfiltered (gdb_stdlog,
+ 			"LLR: Preparing to %s %s, %s, inferior_ptid %s\n",
+-			step ? "step" : "resume",
++			(step == RESUME_STEP_NEEDED
++			 ? "needed" : (step ? "step" : "resume")),
+ 			target_pid_to_str (ptid),
+ 			signo ? strsignal (signo) : "0",
+ 			target_pid_to_str (inferior_ptid));
+@@ -2625,10 +2627,34 @@ linux_nat_filter_event (int lwpid, int s
+ 
+       if (num_lwps (GET_PID (lp->ptid)) > 1)
+        {
++	enum resume_step step = lp->step;
++	pid_t pid = GET_PID (lp->ptid);
++
+ 	 /* If there is at least one more LWP, then the exit signal
+ 	    was not the end of the debugged application and should be
+ 	    ignored.  */
+ 	 exit_lwp (lp);
++
++	if (step == RESUME_STEP_USER)
++	  {
++	    /* Now stop the closest LWP's ...  */
++	    lp = find_lwp_pid (pid_to_ptid (pid));
++	    if (!lp)
++	      lp = lwp_list;
++	    gdb_assert (lp != NULL);
++	    errno = 0;
++	    ptrace (PTRACE_CONT, GET_LWP (lp->ptid), 0,
++		    (void *) (unsigned long) SIGSTOP);
++	    if (debug_linux_nat)
++	      fprintf_unfiltered (gdb_stdlog,
++				  "PTRACE_CONT %s, 0, 0 (%s)\n",
++				  target_pid_to_str (lp->ptid),
++				  errno ? safe_strerror (errno)
++					: "OK");
++	    /* Avoid the silent `delayed SIGSTOP' handling.  */
++	    lp->signalled = 0;
++	  }
++
+ 	 return NULL;
+        }
+     }

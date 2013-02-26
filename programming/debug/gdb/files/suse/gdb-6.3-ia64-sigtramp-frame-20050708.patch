@@ -1,0 +1,158 @@
+2005-07-08  Jeff Johnston  <jjohnstn@redhat.com>
+
+	* ia64-tdep.c (ia64_sigtramp_frame_prev_register): Build
+	pseudo-registers the same as ia64_pseudo_register_read.
+
+2008-04-16  Yi Zhan  <yi.zhan@intel.com>
+
+	* ia64-tdep.c (ia64_sigtramp_frame_prev_register): Fix an
+	ISO C compliance compilation error.
+
+2008-02-12  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Port to gdb-6.8.50.20081128, follow the upstream change:
+	http://sourceware.org/cgi-bin/cvsweb.cgi/src/gdb/ia64-tdep.c.diff?cvsroot=src&r1=1.176&r2=1.177
+
+Index: gdb-6.8.50.20081128/gdb/ia64-tdep.c
+===================================================================
+--- gdb-6.8.50.20081128.orig/gdb/ia64-tdep.c	2008-11-26 06:27:48.000000000 +0100
++++ gdb-6.8.50.20081128/gdb/ia64-tdep.c	2008-12-02 19:04:32.000000000 +0100
+@@ -2107,6 +2107,94 @@ ia64_sigtramp_frame_prev_register (struc
+       return frame_unwind_got_constant (this_frame, regnum, pc);
+     }
+ 
++  /* Red Hat patch begin.  */
++  else if (IA64_NAT0_REGNUM <= regnum && regnum <= IA64_NAT31_REGNUM)
++    {
++      /* NAT pseudo registers 0-31: get them from UNAT.
++       * "copied" from ia64_pseudo_register_read() */
++      ULONGEST unatN_val;
++      ULONGEST unat;
++      read_memory (cache->saved_regs[IA64_UNAT_REGNUM], (char *) &unat,
++		   register_size (target_gdbarch, IA64_UNAT_REGNUM));
++      unatN_val = (unat & (1LL << (regnum - IA64_NAT0_REGNUM))) != 0;
++      return frame_unwind_got_constant (this_frame, regnum, unatN_val);
++    }
++  else if (IA64_NAT32_REGNUM <= regnum && regnum <= IA64_NAT127_REGNUM)
++    {
++      /* NAT pseudo registers 32-127.
++       * "copied" from ia64_pseudo_register_read()
++       * FIXME: Not currently tested -- cannot get the frame to include
++       *        NAT32-NAT127.  */
++      ULONGEST bsp;
++      ULONGEST cfm;
++      ULONGEST natN_val = 0;
++      CORE_ADDR gr_addr = 0, nat_addr = 0;
++
++      read_memory (cache->saved_regs[IA64_BSP_REGNUM], (char *) &bsp,
++		   register_size (target_gdbarch, IA64_BSP_REGNUM));
++      read_memory (cache->saved_regs[IA64_CFM_REGNUM], (char *) &cfm,
++		   register_size (target_gdbarch, IA64_CFM_REGNUM));
++
++      /* The bsp points at the end of the register frame so we
++	 subtract the size of frame from it to get start of register frame.  */
++      bsp = rse_address_add (bsp, -(cfm & 0x7f));
++
++      if ((cfm & 0x7f) > regnum - V32_REGNUM)
++	gr_addr = rse_address_add (bsp, (regnum - V32_REGNUM));
++
++      if (gr_addr != 0)
++	{
++	  /* Compute address of nat collection bits */
++	  CORE_ADDR nat_collection;
++	  int nat_bit;
++	  nat_addr = gr_addr | 0x1f8;
++	  /* If our nat collection address is bigger than bsp, we have to get
++	     the nat collection from rnat.  Otherwise, we fetch the nat
++	     collection from the computed address. FIXME: Do not know if
++	     RNAT can be not stored in the frame--being extra cautious. */
++	  if (nat_addr >= bsp)
++	    {
++	      nat_addr = cache->saved_regs[IA64_RNAT_REGNUM];
++	      if (nat_addr != 0)
++		read_memory (nat_addr, (char *) &nat_collection,
++			     register_size (target_gdbarch, IA64_RNAT_REGNUM));
++	    }
++	  else
++	    nat_collection = read_memory_integer (nat_addr, 8, BFD_ENDIAN_LITTLE);
++	  if (nat_addr != 0)
++	    {
++	      nat_bit = (gr_addr >> 3) & 0x3f;
++	      natN_val = (nat_collection >> nat_bit) & 1;
++	      return frame_unwind_got_constant (this_frame, regnum, natN_val);
++	    }
++	}
++      warning (_("ia64_sigtramp_frame_prev_register: unhandled register %d"),
++	       regnum);
++    }
++  else if (regnum == VBOF_REGNUM)
++    {
++      /* BOF pseudo register.
++       * "copied" from ia64_pseudo_register_read()
++       *
++       * A virtual register frame start is provided for user convenience.
++       * It can be calculated as the bsp - sof (sizeof frame). */
++      ULONGEST bsp;
++      ULONGEST cfm;
++      ULONGEST bof;
++
++      read_memory (cache->saved_regs[IA64_BSP_REGNUM], (char *) &bsp,
++		   register_size (target_gdbarch, IA64_BSP_REGNUM));
++      read_memory (cache->saved_regs[IA64_CFM_REGNUM], (char *) &cfm,
++		   register_size (target_gdbarch, IA64_CFM_REGNUM));
++
++      /* The bsp points at the end of the register frame so we
++	 subtract the size of frame from it to get beginning of frame.  */
++      bof = rse_address_add (bsp, -(cfm & 0x7f));
++
++      return frame_unwind_got_constant (this_frame, regnum, bof);
++    }
++  /* Red Hat patch end.  */
++
+   else if ((regnum >= IA64_GR32_REGNUM && regnum <= IA64_GR127_REGNUM)
+            || (regnum >= V32_REGNUM && regnum <= V127_REGNUM))
+     {
+@@ -2121,7 +2209,42 @@ ia64_sigtramp_frame_prev_register (struc
+       return frame_unwind_got_constant (this_frame, regnum, 0);
+     }
+ 
+-  else  /* All other registers not listed above.  */
++  /* Red Hat patch begin.  */
++  else if (VP0_REGNUM <= regnum && regnum <= VP63_REGNUM)
++    {
++      /* VP 0-63.
++       * "copied" from ia64_pseudo_register_read()
++       *
++       * FIXME: Not currently tested--cannot get the frame to include PR. */
++      CORE_ADDR pr_addr = 0;
++
++      pr_addr = cache->saved_regs[IA64_PR_REGNUM];
++      if (pr_addr != 0)
++	{
++	  ULONGEST pr;
++	  ULONGEST cfm;
++	  ULONGEST prN_val;
++	  read_memory (pr_addr, (char *) &pr,
++		       register_size (target_gdbarch, IA64_PR_REGNUM));
++	  read_memory (cache->saved_regs[IA64_CFM_REGNUM], (char *) &cfm,
++		       register_size (target_gdbarch, IA64_CFM_REGNUM));
++
++	  /* Get the register rename base for this frame and adjust the
++	   * register name to take rotation into account. */
++	  if (VP16_REGNUM <= regnum && regnum <= VP63_REGNUM)
++	    {
++	      int rrb_pr = (cfm >> 32) & 0x3f;
++	      regnum = VP16_REGNUM + ((regnum - VP16_REGNUM) + rrb_pr) % 48;
++	    }
++	  prN_val = (pr & (1LL << (regnum - VP0_REGNUM))) != 0;
++	  return frame_unwind_got_constant (this_frame, regnum, prN_val);
++	}
++      warning (_("ia64_sigtramp_frame_prev_register: unhandled register %d"),
++	       regnum);
++    }
++  /* Red Hat patch end.  */
++
++  /* All other registers not listed above.  */
+     {
+       CORE_ADDR addr = cache->saved_regs[regnum];
+ 

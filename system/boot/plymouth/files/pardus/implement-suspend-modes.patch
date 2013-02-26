@@ -1,0 +1,121 @@
+Index: plymouth-0.8.3_20101125/src/main.c
+===================================================================
+--- plymouth-0.8.3_20101125.orig/src/main.c
++++ plymouth-0.8.3_20101125/src/main.c
+@@ -61,7 +61,9 @@
+ 
+ typedef enum {
+   PLY_MODE_BOOT,
+-  PLY_MODE_SHUTDOWN
++  PLY_MODE_SHUTDOWN,
++  PLY_MODE_RESUME,
++  PLY_MODE_SUSPEND
+ } ply_mode_t;
+ 
+ typedef struct 
+@@ -556,9 +558,11 @@ get_cache_file_for_mode (ply_mode_t mode
+   switch ((int)mode)
+     {
+     case PLY_MODE_BOOT:
++    case PLY_MODE_RESUME:
+       filename = BOOT_DURATION_FILE;
+       break;
+     case PLY_MODE_SHUTDOWN:
++    case PLY_MODE_SUSPEND:
+       filename = SHUTDOWN_DURATION_FILE;
+       break;
+     default:
+@@ -582,6 +586,8 @@ get_log_file_for_mode (ply_mode_t mode)
+       filename = PLYMOUTH_LOG_DIRECTORY "/boot.log";
+       break;
+     case PLY_MODE_SHUTDOWN:
++    case PLY_MODE_RESUME:
++    case PLY_MODE_SUSPEND:
+       filename = _PATH_DEVNULL;
+       break;
+     default:
+@@ -605,6 +611,8 @@ get_log_spool_file_for_mode (ply_mode_t
+       filename = PLYMOUTH_SPOOL_DIRECTORY "/boot.log";
+       break;
+     case PLY_MODE_SHUTDOWN:
++    case PLY_MODE_RESUME:
++    case PLY_MODE_SUSPEND:
+       filename = NULL;
+       break;
+     default:
+@@ -1556,10 +1564,20 @@ start_boot_splash (state_t    *state,
+   add_displays_and_keyboard_to_boot_splash (state, splash);
+ 
+   ply_trace ("showing plugin");
+-  if (state->mode == PLY_MODE_SHUTDOWN)
+-    splash_mode = PLY_BOOT_SPLASH_MODE_SHUTDOWN;
+-  else
+-    splash_mode = PLY_BOOT_SPLASH_MODE_BOOT_UP;
++  switch (state->mode) {
++      case PLY_MODE_SHUTDOWN:
++          splash_mode = PLY_BOOT_SPLASH_MODE_SHUTDOWN;
++          break;
++      case PLY_MODE_RESUME:
++          splash_mode = PLY_BOOT_SPLASH_MODE_RESUME;
++          break;
++      case PLY_MODE_SUSPEND:
++          splash_mode = PLY_BOOT_SPLASH_MODE_SUSPEND;
++          break;
++      default:
++          splash_mode = PLY_BOOT_SPLASH_MODE_BOOT_UP;
++          break;
++  }
+ 
+   if (!ply_boot_splash_show (splash, splash_mode))
+     {
+@@ -1892,12 +1910,16 @@ initialize_environment (state_t *state)
+ 
+   if (!state->default_tty)
+     {
+-      if (state->mode == PLY_MODE_SHUTDOWN)
+-        {
++      switch (state->mode) {
++        case PLY_MODE_SHUTDOWN:
++        case PLY_MODE_SUSPEND:
+           state->default_tty = SHUTDOWN_TTY;
+-        }
+-      else
+-        state->default_tty = BOOT_TTY;
++          break;
++        case PLY_MODE_RESUME:
++        default:
++          state->default_tty = BOOT_TTY;
++          break;
++      }
+ 
+       ply_trace ("checking if '%s' exists", state->default_tty);
+       if (!ply_character_device_exists (state->default_tty))
+@@ -2012,7 +2034,7 @@ main (int    argc,
+                                   "no-daemon", "Do not daemonize", PLY_COMMAND_OPTION_TYPE_FLAG,
+                                   "debug", "Output debugging information", PLY_COMMAND_OPTION_TYPE_FLAG,
+                                   "debug-file", "File to output debugging information to", PLY_COMMAND_OPTION_TYPE_STRING,
+-                                  "mode", "Mode is one of: boot, shutdown", PLY_COMMAND_OPTION_TYPE_STRING,
++                                  "mode", "Mode is one of: boot, shutdown, suspend, resume", PLY_COMMAND_OPTION_TYPE_STRING,
+                                   "pid-file", "Write the pid of the daemon to a file", PLY_COMMAND_OPTION_TYPE_STRING,
+                                   "tty", "TTY to use instead of default", PLY_COMMAND_OPTION_TYPE_STRING,
+                                   NULL);
+@@ -2062,6 +2084,10 @@ main (int    argc,
+     {
+       if (strcmp (mode_string, "shutdown") == 0)
+         state.mode = PLY_MODE_SHUTDOWN;
++      else if (strcmp (mode_string, "resume") == 0)
++        state.mode = PLY_MODE_RESUME;
++      else if (strcmp (mode_string, "suspend") == 0)
++        state.mode = PLY_MODE_SUSPEND;
+       else
+         state.mode = PLY_MODE_BOOT;
+ 
+@@ -2101,7 +2127,7 @@ main (int    argc,
+ 
+   /* If we're shutting down we don't want to die until killed
+    */
+-  if (state.mode == PLY_MODE_SHUTDOWN)
++  if (state.mode == PLY_MODE_SHUTDOWN || state.mode == PLY_MODE_SUSPEND)
+     signal (SIGTERM, SIG_IGN);
+ 
+   /* before do anything we need to make sure we have a working

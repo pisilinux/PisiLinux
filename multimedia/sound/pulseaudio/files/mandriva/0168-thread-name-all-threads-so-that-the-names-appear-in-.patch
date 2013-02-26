@@ -1,0 +1,486 @@
+From bc7314f14e934750194da5582e7317e8de74e504 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Mon, 3 May 2010 13:28:15 +0200
+Subject: [PATCH 168/170] thread: name all threads so that the names appear in /proc/$PID/task/$TID/comm
+
+---
+ src/modules/alsa/alsa-sink.c                    |    2 +-
+ src/modules/alsa/alsa-source.c                  |    2 +-
+ src/modules/bluetooth/module-bluetooth-device.c |    2 +-
+ src/modules/jack/module-jack-sink.c             |    7 +++-
+ src/modules/jack/module-jack-source.c           |    2 +-
+ src/modules/module-combine.c                    |    2 +-
+ src/modules/module-esound-sink.c                |    2 +-
+ src/modules/module-null-sink.c                  |    2 +-
+ src/modules/module-pipe-sink.c                  |    2 +-
+ src/modules/module-pipe-source.c                |    2 +-
+ src/modules/module-sine-source.c                |    2 +-
+ src/modules/module-tunnel.c                     |    2 +-
+ src/modules/oss/module-oss.c                    |    2 +-
+ src/modules/raop/module-raop-sink.c             |    2 +-
+ src/pulse/thread-mainloop.c                     |    2 +-
+ src/pulsecore/lock-autospawn.c                  |    2 +-
+ src/pulsecore/thread-posix.c                    |   48 ++++++++++++++++++++++-
+ src/pulsecore/thread.h                          |    5 ++-
+ src/tests/asyncmsgq-test.c                      |    2 +-
+ src/tests/asyncq-test.c                         |    4 +-
+ src/tests/flist-test.c                          |    2 +-
+ src/tests/lock-autospawn-test.c                 |    8 ++--
+ src/tests/thread-test.c                         |    2 +-
+ 23 files changed, 80 insertions(+), 28 deletions(-)
+
+diff --git a/src/modules/alsa/alsa-sink.c b/src/modules/alsa/alsa-sink.c
+index 60c10c4..02b5a02 100644
+--- a/src/modules/alsa/alsa-sink.c
++++ b/src/modules/alsa/alsa-sink.c
+@@ -1917,7 +1917,7 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
+ 
+     pa_alsa_dump(PA_LOG_DEBUG, u->pcm_handle);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("alsa-sink", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/alsa/alsa-source.c b/src/modules/alsa/alsa-source.c
+index f8b583e..5ecf6c6 100644
+--- a/src/modules/alsa/alsa-source.c
++++ b/src/modules/alsa/alsa-source.c
+@@ -1744,7 +1744,7 @@ pa_source *pa_alsa_source_new(pa_module *m, pa_modargs *ma, const char*driver, p
+ 
+     pa_alsa_dump(PA_LOG_DEBUG, u->pcm_handle);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("alsa-source", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/bluetooth/module-bluetooth-device.c b/src/modules/bluetooth/module-bluetooth-device.c
+index d6868b8..bb27078 100644
+--- a/src/modules/bluetooth/module-bluetooth-device.c
++++ b/src/modules/bluetooth/module-bluetooth-device.c
+@@ -2041,7 +2041,7 @@ static int start_thread(struct userdata *u) {
+     }
+ #endif
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("bluetooth", thread_func, u))) {
+         pa_log_error("Failed to create IO thread");
+         stop_thread(u);
+         return -1;
+diff --git a/src/modules/jack/module-jack-sink.c b/src/modules/jack/module-jack-sink.c
+index 9f3e071..4a0d384 100644
+--- a/src/modules/jack/module-jack-sink.c
++++ b/src/modules/jack/module-jack-sink.c
+@@ -197,6 +197,7 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
+     return pa_sink_process_msg(o, code, data, offset, memchunk);
+ }
+ 
++/* JACK Callback: This is called when JACK needs some data */
+ static int jack_process(jack_nframes_t nframes, void *arg) {
+     struct userdata *u = arg;
+     unsigned c;
+@@ -250,6 +251,7 @@ finish:
+     pa_log_debug("Thread shutting down");
+ }
+ 
++/* JACK Callback: This is called when JACK triggers an error */
+ static void jack_error_func(const char*t) {
+     char *s;
+ 
+@@ -258,6 +260,7 @@ static void jack_error_func(const char*t) {
+     pa_xfree(s);
+ }
+ 
++/* JACK Callback: This is called when JACK is set up */
+ static void jack_init(void *arg) {
+     struct userdata *u = arg;
+ 
+@@ -267,6 +270,7 @@ static void jack_init(void *arg) {
+         pa_make_realtime(u->core->realtime_priority+4);
+ }
+ 
++/* JACK Callback: This is called when JACK kicks us */
+ static void jack_shutdown(void* arg) {
+     struct userdata *u = arg;
+ 
+@@ -274,6 +278,7 @@ static void jack_shutdown(void* arg) {
+     pa_asyncmsgq_post(u->jack_msgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_ON_SHUTDOWN, NULL, 0, NULL, NULL);
+ }
+ 
++/* JACK Callback: This is called when JACK changes the buffer size */
+ static int jack_buffer_size(jack_nframes_t nframes, void *arg) {
+     struct userdata *u = arg;
+ 
+@@ -413,7 +418,7 @@ int pa__init(pa_module*m) {
+     jack_set_thread_init_callback(u->client, jack_init, u);
+     jack_set_buffer_size_callback(u->client, jack_buffer_size, u);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("jack-sink", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/jack/module-jack-source.c b/src/modules/jack/module-jack-source.c
+index 6c68527..2d152b3 100644
+--- a/src/modules/jack/module-jack-source.c
++++ b/src/modules/jack/module-jack-source.c
+@@ -363,7 +363,7 @@ int pa__init(pa_module*m) {
+     jack_on_shutdown(u->client, jack_shutdown, u);
+     jack_set_thread_init_callback(u->client, jack_init, u);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("jack-source", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/module-combine.c b/src/modules/module-combine.c
+index cffb901..5f94fdd 100644
+--- a/src/modules/module-combine.c
++++ b/src/modules/module-combine.c
+@@ -1304,7 +1304,7 @@ int pa__init(pa_module*m) {
+     u->sink_unlink_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_EARLY, (pa_hook_cb_t) sink_unlink_hook_cb, u);
+     u->sink_state_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_STATE_CHANGED], PA_HOOK_NORMAL, (pa_hook_cb_t) sink_state_changed_hook_cb, u);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("combine", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/module-esound-sink.c b/src/modules/module-esound-sink.c
+index d7c678c..02541e6 100644
+--- a/src/modules/module-esound-sink.c
++++ b/src/modules/module-esound-sink.c
+@@ -628,7 +628,7 @@ int pa__init(pa_module*m) {
+     /* Reserve space for the response */
+     u->read_data = pa_xmalloc(u->read_length = sizeof(int32_t));
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("esound-sink", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/module-null-sink.c b/src/modules/module-null-sink.c
+index 74a2ebb..eeb6f6c 100644
+--- a/src/modules/module-null-sink.c
++++ b/src/modules/module-null-sink.c
+@@ -317,7 +317,7 @@ int pa__init(pa_module*m) {
+     pa_sink_set_max_rewind(u->sink, nbytes);
+     pa_sink_set_max_request(u->sink, nbytes);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("null-sink", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/module-pipe-sink.c b/src/modules/module-pipe-sink.c
+index 9c16932..887681d 100644
+--- a/src/modules/module-pipe-sink.c
++++ b/src/modules/module-pipe-sink.c
+@@ -307,7 +307,7 @@ int pa__init(pa_module*m) {
+     pollfd->fd = u->fd;
+     pollfd->events = pollfd->revents = 0;
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("pipe-sink", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/module-pipe-source.c b/src/modules/module-pipe-source.c
+index 49104f8..ca8352f 100644
+--- a/src/modules/module-pipe-source.c
++++ b/src/modules/module-pipe-source.c
+@@ -291,7 +291,7 @@ int pa__init(pa_module*m) {
+     pollfd->fd = u->fd;
+     pollfd->events = pollfd->revents = 0;
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("pipe-source", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/module-sine-source.c b/src/modules/module-sine-source.c
+index 9826e5f..adb09fe 100644
+--- a/src/modules/module-sine-source.c
++++ b/src/modules/module-sine-source.c
+@@ -274,7 +274,7 @@ int pa__init(pa_module*m) {
+     pa_source_set_rtpoll(u->source, u->rtpoll);
+     pa_source_set_fixed_latency(u->source, u->block_usec);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("sine-source", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/module-tunnel.c b/src/modules/module-tunnel.c
+index c97de3a..ce5f8d5 100644
+--- a/src/modules/module-tunnel.c
++++ b/src/modules/module-tunnel.c
+@@ -2014,7 +2014,7 @@ int pa__init(pa_module*m) {
+     u->fragsize = (uint32_t) -1;
+ #endif
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("module-tunnel", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/oss/module-oss.c b/src/modules/oss/module-oss.c
+index 7153626..ba9b99e 100644
+--- a/src/modules/oss/module-oss.c
++++ b/src/modules/oss/module-oss.c
+@@ -1456,7 +1456,7 @@ go_on:
+ 
+     pa_memchunk_reset(&u->memchunk);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("oss", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/modules/raop/module-raop-sink.c b/src/modules/raop/module-raop-sink.c
+index ac48ab1..466488e 100644
+--- a/src/modules/raop/module-raop-sink.c
++++ b/src/modules/raop/module-raop-sink.c
+@@ -620,7 +620,7 @@ int pa__init(pa_module*m) {
+     pa_raop_client_set_callback(u->raop, on_connection, u);
+     pa_raop_client_set_closed_callback(u->raop, on_close, u);
+ 
+-    if (!(u->thread = pa_thread_new(thread_func, u))) {
++    if (!(u->thread = pa_thread_new("raop-sink", thread_func, u))) {
+         pa_log("Failed to create thread.");
+         goto fail;
+     }
+diff --git a/src/pulse/thread-mainloop.c b/src/pulse/thread-mainloop.c
+index 1693404..c3cf49c 100644
+--- a/src/pulse/thread-mainloop.c
++++ b/src/pulse/thread-mainloop.c
+@@ -146,7 +146,7 @@ int pa_threaded_mainloop_start(pa_threaded_mainloop *m) {
+ 
+     pa_assert(!m->thread || !pa_thread_is_running(m->thread));
+ 
+-    if (!(m->thread = pa_thread_new(thread, m)))
++    if (!(m->thread = pa_thread_new("threaded-ml", thread, m)))
+         return -1;
+ 
+     return 0;
+diff --git a/src/pulsecore/lock-autospawn.c b/src/pulsecore/lock-autospawn.c
+index c0df793..a702d35 100644
+--- a/src/pulsecore/lock-autospawn.c
++++ b/src/pulsecore/lock-autospawn.c
+@@ -246,7 +246,7 @@ finish:
+ static int start_thread(void) {
+ 
+     if (!thread)
+-        if (!(thread = pa_thread_new(thread_func, NULL)))
++        if (!(thread = pa_thread_new("autospawn", thread_func, NULL)))
+             return -1;
+ 
+     return 0;
+diff --git a/src/pulsecore/thread-posix.c b/src/pulsecore/thread-posix.c
+index bc0d6e3..7d5252d 100644
+--- a/src/pulsecore/thread-posix.c
++++ b/src/pulsecore/thread-posix.c
+@@ -28,6 +28,10 @@
+ #include <sched.h>
+ #include <errno.h>
+ 
++#ifdef __linux__
++#include <sys/prctl.h>
++#endif
++
+ #include <pulse/xmalloc.h>
+ #include <pulsecore/mutex.h>
+ #include <pulsecore/once.h>
+@@ -42,6 +46,7 @@ struct pa_thread {
+     void *userdata;
+     pa_atomic_t running;
+     pa_bool_t joined;
++    char *name;
+ };
+ 
+ struct pa_tls {
+@@ -53,9 +58,11 @@ static void thread_free_cb(void *p) {
+ 
+     pa_assert(t);
+ 
+-    if (!t->thread_func)
++    if (!t->thread_func) {
+         /* This is a foreign thread, we need to free the struct */
++        pa_xfree(t->name);
+         pa_xfree(t);
++    }
+ }
+ 
+ PA_STATIC_TLS_DECLARE(current_thread, thread_free_cb);
+@@ -64,6 +71,10 @@ static void* internal_thread_func(void *userdata) {
+     pa_thread *t = userdata;
+     pa_assert(t);
+ 
++#ifdef __linux__
++    prctl(PR_SET_NAME, t->name);
++#endif
++
+     t->id = pthread_self();
+ 
+     PA_STATIC_TLS_SET(current_thread, t);
+@@ -75,12 +86,13 @@ static void* internal_thread_func(void *userdata) {
+     return NULL;
+ }
+ 
+-pa_thread* pa_thread_new(pa_thread_func_t thread_func, void *userdata) {
++pa_thread* pa_thread_new(const char *name, pa_thread_func_t thread_func, void *userdata) {
+     pa_thread *t;
+ 
+     pa_assert(thread_func);
+ 
+     t = pa_xnew0(pa_thread, 1);
++    t->name = pa_xstrdup(name);
+     t->thread_func = thread_func;
+     t->userdata = userdata;
+ 
+@@ -110,6 +122,8 @@ void pa_thread_free(pa_thread *t) {
+     pa_assert(t);
+ 
+     pa_thread_join(t);
++
++    pa_xfree(t->name);
+     pa_xfree(t);
+ }
+ 
+@@ -155,6 +169,36 @@ void pa_thread_set_data(pa_thread *t, void *userdata) {
+     t->userdata = userdata;
+ }
+ 
++void pa_thread_set_name(pa_thread *t, const char *name) {
++    pa_assert(t);
++
++    pa_xfree(t->name);
++    t->name = pa_xstrdup(name);
++
++#ifdef __linux__
++    prctl(PR_SET_NAME, name);
++#endif
++}
++
++const char *pa_thread_get_name(pa_thread *t) {
++    pa_assert(t);
++
++#ifdef __linux__
++    if (!t->name) {
++        t->name = pa_xmalloc(17);
++
++        if (prctl(PR_GET_NAME, t->name) >= 0)
++            t->name[16] = 0;
++        else {
++            pa_xfree(t->name);
++            t->name = NULL;
++        }
++    }
++#endif
++
++    return t->name;
++}
++
+ void pa_thread_yield(void) {
+ #ifdef HAVE_PTHREAD_YIELD
+     pthread_yield();
+diff --git a/src/pulsecore/thread.h b/src/pulsecore/thread.h
+index 60c1267..aea0276 100644
+--- a/src/pulsecore/thread.h
++++ b/src/pulsecore/thread.h
+@@ -35,7 +35,7 @@ typedef struct pa_thread pa_thread;
+ 
+ typedef void (*pa_thread_func_t) (void *userdata);
+ 
+-pa_thread* pa_thread_new(pa_thread_func_t thread_func, void *userdata);
++pa_thread* pa_thread_new(const char *name, pa_thread_func_t thread_func, void *userdata);
+ void pa_thread_free(pa_thread *t);
+ int pa_thread_join(pa_thread *t);
+ int pa_thread_is_running(pa_thread *t);
+@@ -45,6 +45,9 @@ void pa_thread_yield(void);
+ void* pa_thread_get_data(pa_thread *t);
+ void pa_thread_set_data(pa_thread *t, void *userdata);
+ 
++const char *pa_thread_get_name(pa_thread *t);
++void pa_thread_set_name(pa_thread *t, const char *name);
++
+ typedef struct pa_tls pa_tls;
+ 
+ pa_tls* pa_tls_new(pa_free_cb_t free_cb);
+diff --git a/src/tests/asyncmsgq-test.c b/src/tests/asyncmsgq-test.c
+index 40c74f7..94bfcea 100644
+--- a/src/tests/asyncmsgq-test.c
++++ b/src/tests/asyncmsgq-test.c
+@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
+ 
+     pa_assert_se(q = pa_asyncmsgq_new(0));
+ 
+-    pa_assert_se(t = pa_thread_new(the_thread, q));
++    pa_assert_se(t = pa_thread_new("test", the_thread, q));
+ 
+     printf("Operation A post\n");
+     pa_asyncmsgq_post(q, NULL, OPERATION_A, NULL, 0, NULL, NULL);
+diff --git a/src/tests/asyncq-test.c b/src/tests/asyncq-test.c
+index a617e1a..538bbb1 100644
+--- a/src/tests/asyncq-test.c
++++ b/src/tests/asyncq-test.c
+@@ -73,8 +73,8 @@ int main(int argc, char *argv[]) {
+ 
+     pa_assert_se(q = pa_asyncq_new(0));
+ 
+-    pa_assert_se(t1 = pa_thread_new(producer, q));
+-    pa_assert_se(t2 = pa_thread_new(consumer, q));
++    pa_assert_se(t1 = pa_thread_new("producer", producer, q));
++    pa_assert_se(t2 = pa_thread_new("consumer", consumer, q));
+ 
+     pa_thread_free(t1);
+     pa_thread_free(t2);
+diff --git a/src/tests/flist-test.c b/src/tests/flist-test.c
+index 64c0add..6915204 100644
+--- a/src/tests/flist-test.c
++++ b/src/tests/flist-test.c
+@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
+     flist = pa_flist_new(0);
+ 
+     for (i = 0; i < THREADS_MAX; i++) {
+-        threads[i] = pa_thread_new(thread_func, pa_sprintf_malloc("Thread #%i", i+1));
++        threads[i] = pa_thread_new("test", thread_func, pa_sprintf_malloc("Thread #%i", i+1));
+         assert(threads[i]);
+     }
+ 
+diff --git a/src/tests/lock-autospawn-test.c b/src/tests/lock-autospawn-test.c
+index c754e23..4241b6a 100644
+--- a/src/tests/lock-autospawn-test.c
++++ b/src/tests/lock-autospawn-test.c
+@@ -88,10 +88,10 @@ static void thread_func2(void *k) {
+ int main(int argc, char**argv) {
+     pa_thread *a, *b, *c, *d;
+ 
+-    pa_assert_se((a = pa_thread_new(thread_func, PA_INT_TO_PTR(1))));
+-    pa_assert_se((b = pa_thread_new(thread_func2, PA_INT_TO_PTR(2))));
+-    pa_assert_se((c = pa_thread_new(thread_func2, PA_INT_TO_PTR(3))));
+-    pa_assert_se((d = pa_thread_new(thread_func, PA_INT_TO_PTR(4))));
++    pa_assert_se((a = pa_thread_new("test1", thread_func, PA_INT_TO_PTR(1))));
++    pa_assert_se((b = pa_thread_new("test2", thread_func2, PA_INT_TO_PTR(2))));
++    pa_assert_se((c = pa_thread_new("test3", thread_func2, PA_INT_TO_PTR(3))));
++    pa_assert_se((d = pa_thread_new("test4", thread_func, PA_INT_TO_PTR(4))));
+ 
+     pa_thread_join(a);
+     pa_thread_join(b);
+diff --git a/src/tests/thread-test.c b/src/tests/thread-test.c
+index 2c07b1c..4943a17 100644
+--- a/src/tests/thread-test.c
++++ b/src/tests/thread-test.c
+@@ -102,7 +102,7 @@ int main(int argc, char *argv[]) {
+     tls = pa_tls_new(pa_xfree);
+ 
+     for (i = 0; i < THREADS_MAX; i++) {
+-        t[i] = pa_thread_new(thread_func, pa_sprintf_malloc("Thread #%i", i+1));
++        t[i] = pa_thread_new("test", thread_func, pa_sprintf_malloc("Thread #%i", i+1));
+         assert(t[i]);
+     }
+ 
+-- 
+1.7.1
+

@@ -1,0 +1,153 @@
+--- a/gdb/f-exp.y
++++ b/gdb/f-exp.y
+@@ -196,6 +196,7 @@ static int parse_number (char *, int, int, YYSTYPE *);
+ /* Special type cases, put in to allow the parser to distinguish different
+    legal basetypes.  */
+ %token INT_KEYWORD INT_S2_KEYWORD LOGICAL_S1_KEYWORD LOGICAL_S2_KEYWORD 
++%token LOGICAL_S8_KEYWORD 
+ %token LOGICAL_KEYWORD REAL_KEYWORD REAL_S8_KEYWORD REAL_S16_KEYWORD 
+ %token COMPLEX_S8_KEYWORD COMPLEX_S16_KEYWORD COMPLEX_S32_KEYWORD 
+ %token BOOL_AND BOOL_OR BOOL_NOT   
+@@ -606,6 +607,8 @@ typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
+ 			{ $$ = parse_f_type->builtin_integer_s2; }
+ 	|	CHARACTER 
+ 			{ $$ = parse_f_type->builtin_character; }
++	|	LOGICAL_S8_KEYWORD
++			{ $$ = parse_f_type->builtin_logical_s8;}
+ 	|	LOGICAL_KEYWORD 
+ 			{ $$ = parse_f_type->builtin_logical; }
+ 	|	LOGICAL_S2_KEYWORD
+@@ -858,6 +861,7 @@ static const struct token f77_keywords[] =
+   { "integer_2", INT_S2_KEYWORD, BINOP_END },
+   { "logical_1", LOGICAL_S1_KEYWORD, BINOP_END },
+   { "logical_2", LOGICAL_S2_KEYWORD, BINOP_END },
++  { "logical_8", LOGICAL_S8_KEYWORD, BINOP_END },
+   { "complex_8", COMPLEX_S8_KEYWORD, BINOP_END },
+   { "integer", INT_KEYWORD, BINOP_END },
+   { "logical", LOGICAL_KEYWORD, BINOP_END },
+--- a/gdb/f-lang.c
++++ b/gdb/f-lang.c
+@@ -259,6 +245,7 @@ enum f_primitive_types {
+   f_primitive_type_logical,
+   f_primitive_type_logical_s1,
+   f_primitive_type_logical_s2,
++  f_primitive_type_logical_s8,
+   f_primitive_type_integer,
+   f_primitive_type_integer_s2,
+   f_primitive_type_real,
+@@ -289,6 +276,8 @@ f_language_arch_info (struct gdbarch *gdbarch,
+     = builtin->builtin_logical_s1;
+   lai->primitive_type_vector [f_primitive_type_logical_s2]
+     = builtin->builtin_logical_s2;
++  lai->primitive_type_vector [f_primitive_type_logical_s8]
++    = builtin->builtin_logical_s8;
+   lai->primitive_type_vector [f_primitive_type_real]
+     = builtin->builtin_real;
+   lai->primitive_type_vector [f_primitive_type_real_s8]
+@@ -372,6 +361,10 @@ build_fortran_types (struct gdbarch *gdbarch)
+     = arch_boolean_type (gdbarch, gdbarch_short_bit (gdbarch), 1,
+ 			 "logical*2");
+ 
++  builtin_f_type->builtin_logical_s8
++    = arch_boolean_type (gdbarch, gdbarch_long_long_bit (gdbarch), 1,
++			 "logical*8");
++
+   builtin_f_type->builtin_integer
+     = arch_integer_type (gdbarch, gdbarch_int_bit (gdbarch), 0,
+ 			 "integer");
+--- a/gdb/f-lang.h
++++ b/gdb/f-lang.h
+@@ -113,6 +80,7 @@ struct builtin_f_type
+   struct type *builtin_logical;
+   struct type *builtin_logical_s1;
+   struct type *builtin_logical_s2;
++  struct type *builtin_logical_s8;
+   struct type *builtin_real;
+   struct type *builtin_real_s8;
+   struct type *builtin_real_s16;
+--- /dev/null
++++ b/gdb/testsuite/gdb.fortran/logical.exp
+@@ -0,0 +1,44 @@
++# Copyright 2007 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# This file was written by Jan Kratochvil <jan.kratochvil@redhat.com>.
++
++set testfile "logical"
++set srcfile ${testfile}.f90
++set binfile ${objdir}/${subdir}/${testfile}
++
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug f77 quiet}] != "" } {
++    untested "Couldn't compile ${srcfile}"
++    return -1
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++if ![runto MAIN__] then {
++    perror "couldn't run to breakpoint MAIN__"
++    continue
++}
++
++gdb_breakpoint [gdb_get_line_number "stop-here"]
++gdb_continue_to_breakpoint "stop-here"
++gdb_test "p l" " = \\.TRUE\\."
++gdb_test "p l1" " = \\.TRUE\\."
++gdb_test "p l2" " = \\.TRUE\\."
++gdb_test "p l4" " = \\.TRUE\\."
++gdb_test "p l8" " = \\.TRUE\\."
+diff --git a/gdb/testsuite/gdb.fortran/logical.f90 b/gdb/testsuite/gdb.fortran/logical.f90
+new file mode 100644
+index 0000000..4229304
+--- /dev/null
++++ b/gdb/testsuite/gdb.fortran/logical.f90
+@@ -0,0 +1,33 @@
++! Copyright 2008 Free Software Foundation, Inc.
++!
++! This program is free software; you can redistribute it and/or modify
++! it under the terms of the GNU General Public License as published by
++! the Free Software Foundation; either version 2 of the License, or
++! (at your option) any later version.
++!
++! This program is distributed in the hope that it will be useful,
++! but WITHOUT ANY WARRANTY; without even the implied warranty of
++! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++! GNU General Public License for more details.
++!
++! You should have received a copy of the GNU General Public License
++! along with this program; if not, write to the Free Software
++! Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++!
++! Ihis file is the Fortran source file for dynamic.exp.
++! Original file written by Jakub Jelinek <jakub@redhat.com>.
++! Modified for the GDB testcase by Jan Kratochvil <jan.kratochvil@redhat.com>.
++
++program test
++  logical :: l
++  logical (kind=1) :: l1
++  logical (kind=2) :: l2
++  logical (kind=4) :: l4
++  logical (kind=8) :: l8
++  l = .TRUE.
++  l1 = .TRUE.
++  l2 = .TRUE.
++  l4 = .TRUE.
++  l8 = .TRUE.
++  l = .FALSE.					! stop-here
++end

@@ -1,0 +1,211 @@
+http://sourceware.org/ml/gdb-patches/2005-05/threads.html#00637
+Proposed upstream but never committed upstream.
+
+2005-06-09  Jeff Johnston  <jjohnstn@redhat.com>
+
+        * gdb.base/gdbinit.exp: New testcase.
+        * gdb.base/gdbinit.sample: Sample .gdbinit for gdbinit.exp.
+
+2005-06-08  Daniel Jacobowitz  <dan@codesourcery.com>
+            Jeff Johnston  <jjohnstn@redhat.com>
+
+        * Makefile.in (cli-cmds.o): Update.
+        * configure.in: Add check for getuid.
+        * configure: Regenerated.
+        * config.in: Ditto.
+        * main.c (captured_main): Pass -1 to source_command when loading
+        gdbinit files.
+        * cli/cli-cmds.c: Include "gdb_stat.h" and <fcntl.h>.
+        (source_command): Update documentation.  Check permissions if
+        FROM_TTY is -1.
+
+Index: gdb-7.0.50.20100121/gdb/cli/cli-cmds.c
+===================================================================
+--- gdb-7.0.50.20100121.orig/gdb/cli/cli-cmds.c	2010-01-18 07:25:22.000000000 +0100
++++ gdb-7.0.50.20100121/gdb/cli/cli-cmds.c	2010-01-21 15:12:28.000000000 +0100
+@@ -38,6 +38,7 @@
+ #include "objfiles.h"
+ #include "source.h"
+ #include "disasm.h"
++#include "gdb_stat.h"
+ extern void disconnect_or_stop_tracing (int from_tty);
+ 
+ #include "ui-out.h"
+@@ -488,6 +489,29 @@ find_and_open_script (int from_tty, char
+ 	      file, O_RDONLY, &full_pathname);
+   make_cleanup (xfree, full_pathname);
+ 
++#ifdef HAVE_GETUID
++  if (from_tty == -1)
++    {
++      struct stat statbuf;
++
++      if (fstat (fd, &statbuf) < 0)
++	{
++	  close (fd);
++	  /* Do not do_cleanups (old_cleanups) as FILE is allocated there.
++	     perror_with_name calls error which should call the cleanups.  */
++	  perror_with_name (file);
++	}
++      if (statbuf.st_uid != getuid () || (statbuf.st_mode & S_IWOTH))
++	{
++	  /* FILE gets freed by do_cleanups (old_cleanups).  */
++	  warning (_("not using untrusted file \"%s\""), file);
++	  close (fd);
++	  do_cleanups (old_cleanups);
++	  return 0;
++	}
++    }
++#endif
++
+   /* Use the full path name, if it is found.  */
+   if (full_pathname != NULL && fd != -1)
+     {
+@@ -496,7 +520,7 @@ find_and_open_script (int from_tty, char
+ 
+   if (fd == -1)
+     {
+-      if (from_tty)
++      if (from_tty > 0)
+ 	perror_with_name (file);
+       else
+ 	{
+@@ -554,6 +578,7 @@ source_script (char *file, int from_tty)
+   else
+     script_from_file (stream, file);
+ 
++  /* FILE gets freed by do_cleanups (old_cleanups).  */
+   do_cleanups (old_cleanups);
+ }
+ 
+Index: gdb-7.0.50.20100121/gdb/testsuite/gdb.base/gdbinit.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.0.50.20100121/gdb/testsuite/gdb.base/gdbinit.exp	2010-01-21 15:11:18.000000000 +0100
+@@ -0,0 +1,98 @@
++#   Copyright 2005
++#   Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++
++# Please email any bugs, comments, and/or additions to this file to:
++# bug-gdb@prep.ai.mit.edu
++
++# This file was written by Jeff Johnston <jjohnstn@redhat.com>.
++
++if $tracelevel then {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++# are we on a target board
++if [is_remote target] {
++    return
++}
++
++
++global verbose
++global GDB
++global GDBFLAGS
++global gdb_prompt
++global timeout
++global gdb_spawn_id;
++
++gdb_stop_suppressing_tests;
++
++verbose "Spawning $GDB -nw"
++
++if [info exists gdb_spawn_id] {
++    return 0;
++}
++
++if ![is_remote host] {
++   if { [which $GDB] == 0 } then {
++        perror "$GDB does not exist."
++        exit 1
++    }
++}
++
++set env(HOME) [pwd]
++remote_exec build "rm .gdbinit"
++remote_exec build "cp ${srcdir}/${subdir}/gdbinit.sample .gdbinit"
++remote_exec build "chmod 646 .gdbinit"
++
++set res [remote_spawn host "$GDB -nw [host_info gdb_opts]"];
++if { $res < 0 || $res == "" } {
++    perror "Spawning $GDB failed."
++    return 1;
++}
++gdb_expect 360 {
++    -re "warning: not using untrusted file.*\.gdbinit.*\[\r\n\]$gdb_prompt $" {
++        pass "untrusted .gdbinit caught."
++    }
++    -re "$gdb_prompt $"     {
++        fail "untrusted .gdbinit caught."
++    }
++    timeout {
++        fail "(timeout) untrusted .gdbinit caught."
++    }
++}
++
++remote_exec build "chmod 644 .gdbinit"
++set res [remote_spawn host "$GDB -nw [host_info gdb_opts]"];
++if { $res < 0 || $res == "" } {
++    perror "Spawning $GDB failed."
++    return 1;
++}
++gdb_expect 360 {
++    -re "warning: not using untrusted file.*\.gdbinit.*\[\r\n\]$gdb_prompt $" {
++        fail "trusted .gdbinit allowed."
++    }
++    -re "in gdbinit.*$gdb_prompt $"     {
++        pass "trusted .gdbinit allowed."
++    }
++    timeout {
++        fail "(timeout) trusted .gdbinit allowed."
++    }
++}
++
++remote_exec build "rm .gdbinit"
+Index: gdb-7.0.50.20100121/gdb/testsuite/gdb.base/gdbinit.sample
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.0.50.20100121/gdb/testsuite/gdb.base/gdbinit.sample	2010-01-21 15:11:18.000000000 +0100
+@@ -0,0 +1 @@
++echo "\nin gdbinit"
+Index: gdb-7.0.50.20100121/gdb/main.c
+===================================================================
+--- gdb-7.0.50.20100121.orig/gdb/main.c	2010-01-21 15:11:09.000000000 +0100
++++ gdb-7.0.50.20100121/gdb/main.c	2010-01-21 15:11:18.000000000 +0100
+@@ -818,7 +818,7 @@ Excess command line arguments ignored. (
+      debugging or what directory you are in.  */
+ 
+   if (home_gdbinit && !inhibit_gdbinit)
+-    catch_command_errors (source_script, home_gdbinit, 0, RETURN_MASK_ALL);
++    catch_command_errors (source_script, home_gdbinit, -1, RETURN_MASK_ALL);
+ 
+   /* Now perform all the actions indicated by the arguments.  */
+   if (cdarg != NULL)
+@@ -887,7 +887,7 @@ Can't attach to process and specify a co
+   /* Read the .gdbinit file in the current directory, *if* it isn't
+      the same as the $HOME/.gdbinit file (it should exist, also).  */
+   if (local_gdbinit && !inhibit_gdbinit)
+-    catch_command_errors (source_script, local_gdbinit, 0, RETURN_MASK_ALL);
++    catch_command_errors (source_script, local_gdbinit, -1, RETURN_MASK_ALL);
+ 
+   for (i = 0; i < ncmd; i++)
+     {

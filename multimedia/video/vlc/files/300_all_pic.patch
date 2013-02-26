@@ -1,0 +1,209 @@
+Index: vlc-1.1/libs/loader/module.c
+===================================================================
+--- vlc-1.1.orig/libs/loader/module.c
++++ vlc-1.1/libs/loader/module.c
+@@ -63,8 +63,8 @@
+ 
+ #ifdef EMU_QTX_API
+ #include "wrapper.h"
+-static int report_func(void *stack_base, int stack_size, reg386_t *reg, uint32_t *flags);
+-static int report_func_ret(void *stack_base, int stack_size, reg386_t *reg, uint32_t *flags);
++int report_func(void *stack_base, int stack_size, reg386_t *reg, uint32_t *flags);
++int report_func_ret(void *stack_base, int stack_size, reg386_t *reg, uint32_t *flags);
+ #endif
+ 
+ //#undef TRACE
+@@ -572,8 +572,6 @@ HMODULE WINAPI LoadLibraryExA(LPCSTR lib
+ 	    fprintf(stderr,"QuickTime.qts patched!!! old entry=%p\n",ptr[0]);
+ 
+ #ifdef EMU_QTX_API
+-	    report_entry = report_func;
+-	    report_ret   = report_func_ret;
+ 	    wrapper_target=ptr[0];
+ 	    ptr[0]=wrapper;
+ #endif
+@@ -754,7 +752,7 @@ static int dump_component(char* name,int
+ static uint32_t ret_array[4096];
+ static int ret_i=0;
+ 
+-static int report_func(void *stack_base, int stack_size, reg386_t *reg, uint32_t *flags)
++int report_func(void *stack_base, int stack_size, reg386_t *reg, uint32_t *flags)
+ {
+ #ifdef DEBUG_QTX_API
+   int i;
+@@ -953,7 +951,7 @@ static int report_func(void *stack_base,
+     return 0;
+ }
+ 
+-static int report_func_ret(void *stack_base, int stack_size, reg386_t *reg, uint32_t *flags)
++int report_func_ret(void *stack_base, int stack_size, reg386_t *reg, uint32_t *flags)
+ {
+   int i;
+   short err;
+@@ -1066,8 +1064,6 @@ FARPROC MODULE_GetProcAddress(
+ //      || !strcmp(function,"_CallComponent")
+       ){
+ 	fprintf(stderr,"theQuickTimeDispatcher catched -> %p\n",retproc);
+-      report_entry = report_func;
+-      report_ret   = report_func_ret;
+       wrapper_target=(void(*)(void))retproc;
+       retproc=(FARPROC)wrapper;
+     }
+Index: vlc-1.1/libs/loader/stubs.s
+===================================================================
+--- vlc-1.1.orig/libs/loader/stubs.s
++++ vlc-1.1/libs/loader/stubs.s
+@@ -33,3 +33,6 @@ exp_EH_prolog:
+ 	leal  12(%esp), %ebp
+ 	pushl %eax
+ 	ret
++
++.section .note.GNU-stack,"",@progbits
++
+Index: vlc-1.1/libs/loader/wrapper.S
+===================================================================
+--- vlc-1.1.orig/libs/loader/wrapper.S
++++ vlc-1.1/libs/loader/wrapper.S
+@@ -1,17 +1,19 @@
+ .section .data
+-.globl caller_return
+ caller_return:
+ 	.long 0
+-.globl report_entry
+-report_entry:
+-	.long null_call
+-.globl report_ret
+-report_ret:	
+-	.long null_call
+ .global wrapper_target
+ wrapper_target:	
+ 	.long null_call
+ 
++#undef __i686 /* gcc define gets in our way */
++	.section .gnu.linkonce.t.__i686.get_pc_thunk.bx,"ax",@progbits
++.globl __i686.get_pc_thunk.bx
++	.hidden	__i686.get_pc_thunk.bx
++	.type	__i686.get_pc_thunk.bx,@function
++__i686.get_pc_thunk.bx:
++	movl (%esp), %ebx
++	ret
++
+ .section .text
+ .globl null_call
+ 	.type null_call, @function
+@@ -22,46 +24,60 @@ null_call:
+ 	.type wrapper, @function
+ 	.balign 16,0x90
+ wrapper:
++	pushl $0
+ 	pusha			# store registers (EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI) 
+ 	pushf			# store flags
+ 	
+ 	push %ebp		# set up a stack frame 
+ 	movl %esp, %ebp
+ 
++	call __i686.get_pc_thunk.bx
++	addl $_GLOBAL_OFFSET_TABLE_, %ebx
++
+ 	leal 4(%ebp), %eax	# push flags addr
+ 	push %eax
+ 	leal 8(%ebp), %eax	# push registers addr
+ 	push %eax
+-	
+-	leal 40(%ebp), %edx	
++
++	leal 44(%ebp), %edx	
+ 	movl (%ebp), %eax
+ 	subl %edx, %eax
+ 	push %eax
+ 	push %edx
+-	
+-	call *report_entry	# report entry
+-	
++
++	call report_func@PLT	# report entry
++
+ 	test %eax, %eax
+ 	jnz .Ldone
+ 
++	movl 44(%ebp), %eax	# switch return addresses
++	movl %eax, caller_return@GOTOFF(%ebx)
++	leal .Lwrapper_return@GOTOFF(%ebx), %eax
++	movl %eax, 40(%ebp)
++
++	movl wrapper_target@GOTOFF(%ebx), %eax
++	mov %eax, 40(%ebp)	# wrapper_target should return at .Lwrapper_return
++
+ 	leave			# restore %esp, %ebp
+ 	popf			# restore flags
+ 	popa			# restore registers
+-	
+-	popl caller_return	# switch return addresses
+-	pushl $.Lwrapper_return 
+-	
+-	jmp *wrapper_target	# wrapper_target should return at .Lwrapper_return
++
++	ret
+ 
+ 	.balign 16, 0x90
+ .Lwrapper_return:	
+-	pushl caller_return	# restore the original return address
++	pushl $0		# restore the original return address
+ 	pusha			# more for reference sake here
+ 	pushf
+ 	
+ 	push %ebp		# set up a stack frame
+ 	movl %esp, %ebp
+ 
++	call __i686.get_pc_thunk.bx
++	addl $_GLOBAL_OFFSET_TABLE_, %ebx
++	movl caller_return@GOTOFF(%ebx), %eax
++	movl %eax, 40(%ebp)	# restore the original return address
++
+ 	leal 4(%ebp), %eax	# push flags addr
+ 	push %eax
+ 	leal 8(%ebp), %eax	# push registers addr
+@@ -73,11 +89,13 @@ wrapper:
+ 	push %eax
+ 	push %edx
+ 
+-	call *report_ret	# report the return information (same args)
++	call report_func_ret@PLT# report the return information (same args)
+ .Ldone:	
+ 
+ 	leave
+ 	popf
+ 	popa
+ 	ret
+-	
++
++.section .note.GNU-stack,"",@progbits
++
+Index: vlc-1.1/libs/loader/wrapper.h
+===================================================================
+--- vlc-1.1.orig/libs/loader/wrapper.h
++++ vlc-1.1/libs/loader/wrapper.h
+@@ -7,10 +7,6 @@ typedef struct {
+   uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
+ } reg386_t;
+ 
+-typedef int (*wrapper_func_t)(void *stack_base, int stack_size, reg386_t *reg,  uint32_t *flags);
+-
+-extern wrapper_func_t report_entry, report_ret;
+-
+ extern void (*wrapper_target)(void);
+ 
+ extern int wrapper(void);
+Index: vlc-1.1/libs/loader/Makefile.am
+===================================================================
+--- vlc-1.1.orig/libs/loader/Makefile.am
++++ vlc-1.1/libs/loader/Makefile.am
+@@ -14,7 +14,7 @@ noinst_LTLIBRARIES = libloader.la
+ # TODO: real check for vsscanf() and <sys/mmap.h>
+ AM_CPPFLAGS = -D__WINE__ -DHAVE_SYS_MMAN_H=1 -DHAVE_VSSCANF=1 \
+ 	-DWIN32_PATH=\"\" -DTRACE\(...\)=\(void\)0
+-AM_CFLAGS = -fno-PIC `$(top_builddir)/vlc-config --cflags libs` -U_FILE_OFFSET_BITS \
++AM_CFLAGS = -fPIC `$(top_builddir)/vlc-config --cflags libs` -U_FILE_OFFSET_BITS \
+ 	-fno-omit-frame-pointer -mno-omit-leaf-frame-pointer
+ 
+ noinst_HEADERS = com.h driver.h ext.h ldt_keeper.h loader.h registry.h \

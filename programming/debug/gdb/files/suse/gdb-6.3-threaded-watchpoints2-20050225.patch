@@ -1,0 +1,250 @@
+2005-02-28  Jeff Johnston  <jjohnstn@redhat.com>
+
+	* config/i386/nm-linux.h: Change dr register routines to
+	accept a ptid_t first argument.  Change all calling macros
+	to default the inferior_ptid for the first argument.
+	(i386_linux_insert_watchpoint): New prototype.
+	(i386_linux_remove_watchpoint, i386_linux_insert_hw_breakpoint): Ditto.
+	(i386_linux_remove_hw_breakpoint): Ditto.
+	(target_insert_watchpoint, target_remove_watchpoint): Undef and
+	override.
+	(target_insert_hw_breakpoint, target_remove_hw_breakpoint): Ditto.
+	* config/i386/nm-linux64.h: Ditto except add amd64 versions of
+	the watchpoint/hw-breakpoint insert/remove routines.
+	* i386-nat.c: Include "inferior.h" to define inferior_ptid.
+	* i386-linux-nat.c: Change all dr get/set routines to accept
+	ptid_t as first argument and to use this argument to determine
+	the tid for PTRACE.
+	(i386_linux_set_debug_regs_for_thread): New function.
+	(i386_linux_sync_debug_registers_callback): Ditto.
+	(i386_linux_sync_debug_registers_across_threads): Ditto.
+	(i386_linux_insert_watchpoint, i386_linux_remove_watchpoint): Ditto.
+	(i386_linux_hw_breakpoint, i386_linux_remove_hw_breakpoint): Ditto.
+	(i386_linux_new_thread): Ditto.
+	(_initialize_i386_linux_nat): Ditto.
+	* amd64-linux-nat.c: Change all dr get/set routines to accept
+	ptid_t as first argument and to use this argument to determine
+	the tid for PTRACE.
+	(amd64_linux_set_debug_regs_for_thread): New function.
+	(amd64_linux_sync_debug_registers_callback): Ditto.
+	(amd64_linux_sync_debug_registers_across_threads): Ditto.
+	(amd64_linux_insert_watchpoint, amd64_linux_remove_watchpoint): Ditto.
+	(amd64_linux_hw_breakpoint, amd64_linux_remove_hw_breakpoint): Ditto.
+	(amd64_linux_new_thread): Ditto.
+	(_initialize_amd64_linux_nat): Register linux new thread observer.
+	* testsuite/gdb.threads/watchthreads2.c: New test case.
+	* testsuite/gdb.threads/watchthreads2.exp: Ditto.
+
+[ With recent upstream GDB (6.8) reduced only to the testcase.  ]
+
+FIXME: The testcase does not expects multiple watchpoints hits per one stop.
+
+Index: gdb-6.5/gdb/testsuite/gdb.threads/watchthreads2.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.5/gdb/testsuite/gdb.threads/watchthreads-threaded.c	2006-07-12 01:54:29.000000000 -0300
+@@ -0,0 +1,66 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2002, 2003, 2004, 2005 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program; if not, write to the Free Software
++   Foundation, Inc., 59 Temple Place - Suite 330,
++   Boston, MA 02111-1307, USA.  
++ 
++   This file is copied from schedlock.c.  */
++
++#include <stdio.h>
++#include <unistd.h>
++#include <stdlib.h>
++#include <pthread.h>
++
++void *thread_function(void *arg); /* Pointer to function executed by each thread */
++
++#define NUM 5
++
++unsigned int args[NUM+1];
++
++int main() {
++    int res;
++    pthread_t threads[NUM];
++    void *thread_result;
++    long i;
++
++    for (i = 0; i < NUM; i++)
++      {
++	args[i] = 1; /* Init value.  */
++	res = pthread_create(&threads[i],
++		             NULL,
++			     thread_function,
++			     (void *) i);
++      }
++
++    args[i] = 1;
++    thread_function ((void *) i);
++
++    exit(EXIT_SUCCESS);
++}
++
++void *thread_function(void *arg) {
++    int my_number =  (long) arg;
++    int *myp = (int *) &args[my_number];
++
++    /* Don't run forever.  Run just short of it :)  */
++    while (*myp > 0)
++      {
++	(*myp) ++; usleep (1); /* Loop increment.  */
++      }
++
++    pthread_exit(NULL);
++}
++
+Index: gdb-6.5/gdb/testsuite/gdb.threads/watchthreads2.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.5/gdb/testsuite/gdb.threads/watchthreads-threaded.exp	2006-07-12 01:54:29.000000000 -0300
+@@ -0,0 +1,133 @@
++# This testcase is part of GDB, the GNU debugger.
++
++# Copyright 2005 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# Check that GDB can support multiple watchpoints across threads.
++
++if $tracelevel {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++# This test verifies that a watchpoint is detected in the proper thread
++# so the test is only meaningful on a system with hardware watchpoints.
++if [target_info exists gdb,no_hardware_watchpoints] {
++    return 0;
++}
++
++set testfile "watchthreads2"
++set srcfile ${testfile}.c
++set binfile ${objdir}/${subdir}/${testfile}
++if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug "incdir=${objdir}"]] != "" } {
++    return -1
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++gdb_test "set can-use-hw-watchpoints 1" "" ""
++
++#
++# Run to `main' where we begin our tests.
++#
++
++if ![runto_main] then {
++    gdb_suppress_tests
++}
++
++set args_2 0
++set args_3 0
++
++gdb_breakpoint "thread_function"
++gdb_continue_to_breakpoint "thread_function"
++gdb_test "disable 2" ""
++
++gdb_test_multiple "p args\[2\]" "get initial args2" {
++  -re "\\\$\[0-9\]* = (.*)$gdb_prompt $" {
++    set init_args_2 $expect_out(1,string)
++    pass "get initial args2"
++  }
++}
++
++gdb_test_multiple "p args\[3\]" "get initial args3" {
++  -re "\\\$\[0-9\]* = (.*)$gdb_prompt $" {
++    set init_args_3 $expect_out(1,string)
++    pass "get initial args3"
++  }
++}
++
++set args_2 $init_args_2
++set args_3 $init_args_3
++
++# Watch values that will be modified by distinct threads.
++gdb_test "watch args\[2\]" "Hardware watchpoint 3: args\\\[2\\\]"
++gdb_test "watch args\[3\]" "Hardware watchpoint 4: args\\\[3\\\]"
++
++set init_line [expr [gdb_get_line_number "Init value"]+1]
++set inc_line [gdb_get_line_number "Loop increment"]
++
++# Loop and continue to allow both watchpoints to be triggered.
++for {set i 0} {$i < 30} {incr i} {
++  set test_flag 0
++  gdb_test_multiple "continue" "threaded watch loop" {
++    -re "Hardware watchpoint 3: args\\\[2\\\].*Old value = 0.*New value = 1.*main \\\(\\\) at .*watchthreads2.c:$init_line.*$gdb_prompt $"
++       { set args_2 1; set test_flag 1 }
++    -re "Hardware watchpoint 4: args\\\[3\\\].*Old value = 0.*New value = 1.*main \\\(\\\) at .*watchthreads2.c:$init_line.*$gdb_prompt $"
++       { set args_3 1; set test_flag 1 }
++    -re "Hardware watchpoint 3: args\\\[2\\\].*Old value = $args_2.*New value = [expr $args_2+1].*in thread_function \\\(arg=0x2\\\) at .*watchthreads2.c:$inc_line.*$gdb_prompt $"
++       { set args_2 [expr $args_2+1]; set test_flag 1 }
++    -re "Hardware watchpoint 4: args\\\[3\\\].*Old value = $args_3.*New value = [expr $args_3+1].*in thread_function \\\(arg=0x3\\\) at .*watchthreads2.c:$inc_line.*$gdb_prompt $"
++       { set args_3 [expr $args_3+1]; set test_flag 1 }
++  }
++  # If we fail above, don't bother continuing loop
++  if { $test_flag == 0 } {
++    set i 30;
++  }
++}
++
++# Print success message if loop succeeded.
++if { $test_flag == 1 } {
++  pass "threaded watch loop"
++}
++
++# Verify that we hit first watchpoint in child thread.
++set message "watchpoint on args\[2\] hit in thread"
++if { $args_2 > 1 } {
++  pass $message 
++} else {
++  fail $message
++}
++
++# Verify that we hit second watchpoint in child thread.
++set message "watchpoint on args\[3\] hit in thread"
++if { $args_3 > 1 } {
++  pass $message 
++} else {
++  fail $message 
++}
++
++# Verify that all watchpoint hits are accounted for.
++set message "combination of threaded watchpoints = 30 + initial values"
++if { [expr $args_2+$args_3] == [expr [expr 30+$init_args_2]+$init_args_3] } {
++  pass $message 
++} else {
++  fail $message 
++}

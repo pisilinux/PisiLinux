@@ -1,0 +1,145 @@
+Index: gdb-7.0.90.20100306/gdb/dwarf2read.c
+===================================================================
+--- gdb-7.0.90.20100306.orig/gdb/dwarf2read.c	2010-03-06 23:27:30.000000000 +0100
++++ gdb-7.0.90.20100306/gdb/dwarf2read.c	2010-03-06 23:28:43.000000000 +0100
+@@ -5910,7 +5910,12 @@ read_common_block (struct die_info *die,
+ {
+   struct attribute *attr;
+   struct symbol *sym;
+-  CORE_ADDR base = (CORE_ADDR) 0;
++  struct objfile *objfile = cu->objfile;
++  CORE_ADDR baseaddr = ANOFFSET (objfile->section_offsets,
++				 SECT_OFF_TEXT (objfile));
++  /* This is used only for DW_AT_data_member_location entries.  */
++  CORE_ADDR base = 0;
++  int base_p = 0;
+ 
+   attr = dwarf2_attr (die, DW_AT_location, cu);
+   if (attr)
+@@ -5919,6 +5924,7 @@ read_common_block (struct die_info *die,
+       if (attr_form_is_block (attr))
+         {
+           base = decode_locdesc (DW_BLOCK (attr), cu);
++	  base_p = 1;
+         }
+       else if (attr_form_is_section_offset (attr))
+         {
+@@ -5980,12 +5986,15 @@ read_common_block (struct die_info *die,
+ 	      else
+ 		dwarf2_complex_location_expr_complaint ();
+ 
+-	      SYMBOL_VALUE_ADDRESS (sym) = base + byte_offset;
++	      if (!base_p)
++		dwarf2_invalid_attrib_class_complaint
++		  ("DW_AT_data_member_location", "common block member");
++	      SYMBOL_VALUE_ADDRESS (sym) = base + byte_offset + baseaddr;
+ 	      add_symbol_to_list (sym, &global_symbols);
+ 	    }
+ 
+ 	  if (SYMBOL_CLASS (sym) == LOC_STATIC)
+-	    SET_FIELD_PHYSADDR (*field, SYMBOL_VALUE_ADDRESS (sym));
++	    SET_FIELD_PHYSADDR (*field, SYMBOL_VALUE_ADDRESS (sym) - baseaddr);
+ 	  else
+ 	    SET_FIELD_PHYSNAME (*field, SYMBOL_LINKAGE_NAME (sym));
+ 	  FIELD_TYPE (*field) = SYMBOL_TYPE (sym);
+@@ -5999,7 +6008,7 @@ read_common_block (struct die_info *die,
+ 
+       sym = new_symbol (die, type, cu);
+       /* SYMBOL_VALUE_ADDRESS never gets used as all its fields are static.  */
+-      SYMBOL_VALUE_ADDRESS (sym) = base;
++      SYMBOL_VALUE_ADDRESS (sym) = base + baseaddr;
+ 
+       set_die_type (die, type, cu);
+     }
+Index: gdb-7.0.90.20100306/gdb/gdbtypes.h
+===================================================================
+--- gdb-7.0.90.20100306.orig/gdb/gdbtypes.h	2010-03-06 23:26:34.000000000 +0100
++++ gdb-7.0.90.20100306/gdb/gdbtypes.h	2010-03-06 23:28:43.000000000 +0100
+@@ -412,6 +412,7 @@ enum type_instance_flag_value
+ enum field_loc_kind
+   {
+     FIELD_LOC_KIND_BITPOS,	/* bitpos */
++    /* This address is unrelocated by the objfile's ANOFFSET.  */
+     FIELD_LOC_KIND_PHYSADDR,	/* physaddr */
+     FIELD_LOC_KIND_PHYSNAME	/* physname */
+   };
+@@ -591,6 +592,7 @@ struct main_type
+ 	   is the location (in the target) of the static field.
+ 	   Otherwise, physname is the mangled label of the static field. */
+ 
++	/* This address is unrelocated by the objfile's ANOFFSET.  */
+ 	CORE_ADDR physaddr;
+ 	char *physname;
+       }
+@@ -1091,6 +1093,7 @@ extern void allocate_gnat_aux_type (stru
+ #define FIELD_LOC_KIND(thisfld) ((thisfld).loc_kind)
+ #define FIELD_BITPOS(thisfld) ((thisfld).loc.bitpos)
+ #define FIELD_STATIC_PHYSNAME(thisfld) ((thisfld).loc.physname)
++/* This address is unrelocated by the objfile's ANOFFSET.  */
+ #define FIELD_STATIC_PHYSADDR(thisfld) ((thisfld).loc.physaddr)
+ #define SET_FIELD_BITPOS(thisfld, bitpos)			\
+   (FIELD_LOC_KIND (thisfld) = FIELD_LOC_KIND_BITPOS,		\
+@@ -1098,6 +1101,7 @@ extern void allocate_gnat_aux_type (stru
+ #define SET_FIELD_PHYSNAME(thisfld, name)			\
+   (FIELD_LOC_KIND (thisfld) = FIELD_LOC_KIND_PHYSNAME,		\
+    FIELD_STATIC_PHYSNAME (thisfld) = (name))
++/* This address is unrelocated by the objfile's ANOFFSET.  */
+ #define SET_FIELD_PHYSADDR(thisfld, addr)			\
+   (FIELD_LOC_KIND (thisfld) = FIELD_LOC_KIND_PHYSADDR,		\
+    FIELD_STATIC_PHYSADDR (thisfld) = (addr))
+@@ -1110,6 +1114,7 @@ extern void allocate_gnat_aux_type (stru
+ #define TYPE_FIELD_LOC_KIND(thistype, n) FIELD_LOC_KIND (TYPE_FIELD (thistype, n))
+ #define TYPE_FIELD_BITPOS(thistype, n) FIELD_BITPOS (TYPE_FIELD (thistype, n))
+ #define TYPE_FIELD_STATIC_PHYSNAME(thistype, n) FIELD_STATIC_PHYSNAME (TYPE_FIELD (thistype, n))
++/* This address is unrelocated by the objfile's ANOFFSET.  */
+ #define TYPE_FIELD_STATIC_PHYSADDR(thistype, n) FIELD_STATIC_PHYSADDR (TYPE_FIELD (thistype, n))
+ #define TYPE_FIELD_ARTIFICIAL(thistype, n) FIELD_ARTIFICIAL(TYPE_FIELD(thistype,n))
+ #define TYPE_FIELD_BITSIZE(thistype, n) FIELD_BITSIZE(TYPE_FIELD(thistype,n))
+Index: gdb-7.0.90.20100306/gdb/jv-lang.c
+===================================================================
+--- gdb-7.0.90.20100306.orig/gdb/jv-lang.c	2010-03-06 23:19:13.000000000 +0100
++++ gdb-7.0.90.20100306/gdb/jv-lang.c	2010-03-06 23:28:43.000000000 +0100
+@@ -416,7 +416,8 @@ java_link_class_type (struct gdbarch *gd
+ 
+   fields = NULL;
+   nfields--;			/* First set up dummy "class" field. */
+-  SET_FIELD_PHYSADDR (TYPE_FIELD (type, nfields), value_address (clas));
++  SET_FIELD_PHYSADDR (TYPE_FIELD (type, nfields), value_address (clas)
++    - (TYPE_OBJFILE (type) == NULL ? 0 : ANOFFSET (TYPE_OBJFILE (type)->section_offsets, SECT_OFF_TEXT (TYPE_OBJFILE (type)))));
+   TYPE_FIELD_NAME (type, nfields) = "class";
+   TYPE_FIELD_TYPE (type, nfields) = value_type (clas);
+   SET_TYPE_FIELD_PRIVATE (type, nfields);
+@@ -462,7 +463,8 @@ java_link_class_type (struct gdbarch *gd
+ 	  SET_TYPE_FIELD_PROTECTED (type, i);
+ 	}
+       if (accflags & 0x0008)	/* ACC_STATIC */
+-	SET_FIELD_PHYSADDR (TYPE_FIELD (type, i), boffset);
++	SET_FIELD_PHYSADDR (TYPE_FIELD (type, i), boffset
++	  - (TYPE_OBJFILE (type) == NULL ? 0 : ANOFFSET (TYPE_OBJFILE (type)->section_offsets, SECT_OFF_TEXT (TYPE_OBJFILE (type)))));
+       else
+ 	TYPE_FIELD_BITPOS (type, i) = 8 * boffset;
+       if (accflags & 0x8000)	/* FIELD_UNRESOLVED_FLAG */
+Index: gdb-7.0.90.20100306/gdb/value.c
+===================================================================
+--- gdb-7.0.90.20100306.orig/gdb/value.c	2010-03-06 23:19:13.000000000 +0100
++++ gdb-7.0.90.20100306/gdb/value.c	2010-03-06 23:28:43.000000000 +0100
+@@ -1897,7 +1897,8 @@ value_static_field (struct type *type, i
+   if (TYPE_FIELD_LOC_KIND (type, fieldno) == FIELD_LOC_KIND_PHYSADDR)
+     {
+       retval = value_at (TYPE_FIELD_TYPE (type, fieldno),
+-			 TYPE_FIELD_STATIC_PHYSADDR (type, fieldno));
++			 TYPE_FIELD_STATIC_PHYSADDR (type, fieldno)
++			   + (TYPE_OBJFILE (type) == NULL ? 0 : ANOFFSET (TYPE_OBJFILE (type)->section_offsets, SECT_OFF_TEXT (TYPE_OBJFILE (type)))));
+     }
+   else
+     {
+@@ -1927,7 +1928,8 @@ value_static_field (struct type *type, i
+  	}
+       if (retval && VALUE_LVAL (retval) == lval_memory)
+ 	SET_FIELD_PHYSADDR (TYPE_FIELD (type, fieldno),
+-			    value_address (retval));
++			    value_address (retval)
++			      - (TYPE_OBJFILE (type) == NULL ? 0 : ANOFFSET (TYPE_OBJFILE (type)->section_offsets, SECT_OFF_TEXT (TYPE_OBJFILE (type)))));
+     }
+   return retval;
+ }

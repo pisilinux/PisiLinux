@@ -1,0 +1,88 @@
+Subject: Patches needed to build on SLE11/11.1
+References:
+https://bugzilla.mozilla.org/show_bug.cgi?id=513422
+
+diff --git a/xpcom/glue/SSE.cpp b/xpcom/glue/SSE.cpp
+--- a/xpcom/glue/SSE.cpp
++++ b/xpcom/glue/SSE.cpp
+@@ -44,26 +44,77 @@ namespace {
+ // SSE.h has parallel #ifs which declare MOZILLA_SSE_HAVE_CPUID_DETECTION.
+ // We can't declare these functions in the header file, however, because
+ // <intrin.h> conflicts with <windows.h> on MSVC 2005, and some files want to
+ // include both SSE.h and <windows.h>.
+ 
+ #ifdef HAVE_CPUID_H
+ 
+ // cpuid.h is available on gcc 4.3 and higher on i386 and x86_64
+-#include <cpuid.h>
++//#include <cpuid.h>
+ 
+ enum CPUIDRegister { eax = 0, ebx = 1, ecx = 2, edx = 3 };
+ 
++#ifdef __i386__
++#define _my_cpuid(level, a, b, c, d)                    \
++  __asm__ ("xchg{l}\t{%%}ebx, %1\n\t"                   \
++           "cpuid\n\t"                                  \
++           "xchg{l}\t{%%}ebx, %1\n\t"                   \
++           : "=a" (a), "=r" (b), "=c" (c), "=d" (d)     \
++           : "0" (level))
++#else
++#define _my_cpuid(level, a, b, c, d)                    \
++  __asm__ ("cpuid\n\t"                                  \
++           : "=a" (a), "=b" (b), "=c" (c), "=d" (d)     \
++           : "0" (level))
++#endif
++
++static __inline unsigned int
++my_cpuid_max (unsigned int __ext, unsigned int *__sig)
++{
++  unsigned int __eax, __ebx, __ecx, __edx;
++
++#ifdef __i386__
++  __asm__ ("pushf{l|d}\n\t"
++           "pushf{l|d}\n\t"
++           "pop{l}\t%0\n\t"
++           "mov{l}\t{%0, %1|%1, %0}\n\t"
++           "xor{l}\t{%2, %0|%0, %2}\n\t"
++           "push{l}\t%0\n\t"
++           "popf{l|d}\n\t"
++           "pushf{l|d}\n\t"
++           "pop{l}\t%0\n\t"
++           "popf{l|d}\n\t"
++           : "=&r" (__eax), "=&r" (__ebx)
++           : "i" (0x00200000));
++
++  if (!((__eax ^ __ebx) & 0x00200000))
++    return 0;
++#endif
++
++  /* Host supports cpuid.  Return highest supported cpuid input value.  */
++  _my_cpuid (__ext, __eax, __ebx, __ecx, __edx);
++
++  if (__sig)
++    *__sig = __ebx;
++
++  return __eax;
++}
++
+ static bool
+ has_cpuid_bit(unsigned int level, CPUIDRegister reg, unsigned int bit)
+ {
+   unsigned int regs[4];
+-  return __get_cpuid(level, &regs[0], &regs[1], &regs[2], &regs[3]) &&
+-         (regs[reg] & bit);
++
++  unsigned int __ext = level & 0x80000000;
++  if (my_cpuid_max(__ext, 0) < level)
++    return false;
++
++  _my_cpuid(level, regs[0], regs[1], regs[2], regs[3]);
++  return !!(unsigned(regs[reg]) & bit);
+ }
+ 
+ #elif defined(_MSC_VER) && _MSC_VER >= 1400 && (defined(_M_IX86) || defined(_M_AMD64))
+ 
+ // MSVC 2005 or newer on x86-32 or x86-64
+ #include <intrin.h>
+ 
+ enum CPUIDRegister { eax = 0, ebx = 1, ecx = 2, edx = 3 };

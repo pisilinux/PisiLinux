@@ -1,0 +1,104 @@
+From 7d6d64a3d16ce387fc754ce7a577364be0f77a6f Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Wed, 10 Nov 2010 12:11:49 +0100
+Subject: [PATCH 08/12] config/13.per_ip_routing: we don't need locks in generate_table_id() anymore
+
+metze
+---
+ config/events.d/13.per_ip_routing |   66 -------------------------------------
+ 1 files changed, 0 insertions(+), 66 deletions(-)
+
+diff --git a/config/events.d/13.per_ip_routing b/config/events.d/13.per_ip_routing
+index feba75f..a3be238 100755
+--- a/config/events.d/13.per_ip_routing
++++ b/config/events.d/13.per_ip_routing
+@@ -43,66 +43,6 @@ test -z "$CTDB_PER_IP_ROUTING_RULE_PREF" && {
+ 	exit 1;
+ }
+ 
+-locknesting=0
+-lock_root="$CTDB_PER_IP_ROUTING_STATE"
+-host=`hostname`
+-
+-lock_debug()
+-{
+-	echo -n ""
+-}
+-
+-############################
+-# grab a lock file. Not atomic, but close :)
+-# tries to cope with NFS
+-lock_file() {
+-	if [ -z "$lock_root" ]; then
+-		lock_root=`pwd`;
+-	fi
+-	lckf="$lock_root/$1"
+-	machine=`cat "$lckf" 2> /dev/null | cut -d: -f1`
+-	pid=`cat "$lckf" 2> /dev/null | cut -d: -f2`
+-
+-	if [ "$pid" = "$$" ]; then
+-		locknesting=`expr $locknesting + 1`
+-		lock_debug "lock nesting now $locknesting"
+-		return 0
+-	fi
+-
+-	if test -f "$lckf"; then
+-		test $machine = $host || {
+-			lock_debug "lock file $lckf is valid for other machine $machine"
+-			stat -c%y "$lckf"
+-			return 1
+-		}
+-		/bin/kill -0 $pid && {
+-			lock_debug "lock file $lckf is valid for process $pid"
+-			stat -c%y "$lckf"
+-			return 1
+-		}
+-		lock_debug "stale lock file $lckf for $machine:$pid"
+-		cat "$lckf"
+-		/bin/rm -f "$lckf"
+-	fi
+-	echo "$host:$$" > "$lckf"
+-	return 0
+-}
+-
+-############################
+-# unlock a lock file
+-unlock_file() {
+-	if [ -z "$lock_root" ]; then
+-		lock_root=`pwd`;
+-	fi
+-	if [ "$locknesting" != "0" ]; then
+-		locknesting=`expr $locknesting - 1`
+-		lock_debug "lock nesting now $locknesting"
+-	else
+-		lckf="$lock_root/$1"
+-		/bin/rm -f "$lckf"
+-	fi
+-}
+-
+ runwith_lock() {
+ 	local lockfile="$INTERNAL_CTDB_PER_IP_ROUTING_LOCK_FILE"
+ 	[ ! -d "$CTDB_PER_IP_ROUTING_STATE" ] && {
+@@ -145,19 +85,13 @@ generate_table_id () {
+ 
+ 	local _newid=""
+ 	for _id in `seq $_low $_high | xargs`; do
+-		local _table_lck="table_id_$_id.lock"
+-		lock_file $_table_lck 2>/dev/null || {
+-			continue;
+-		}
+ 		local _taken=`grep "^$_id$" $_ipsdir/*/table_id 2>/dev/null| wc -l | xargs`
+ 		test x"$_taken" != x"0" && {
+-			unlock_file $_table_lck
+ 			#echo "tableid: $_id taken"
+ 			continue
+ 		}
+ 		_newid=$_id;
+ 		echo "$_newid" > $_ipdir/table_id
+-		unlock_file $_table_lck
+ 		break;
+ 	done
+ 
+-- 
+1.7.4
+

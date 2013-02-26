@@ -1,0 +1,1527 @@
+diff -Nuar extensions/spellcheck.orig/hunspell/src/mozHunspell.h extensions/spellcheck/hunspell/src/mozHunspell.h
+--- extensions/spellcheck.orig/hunspell/src/mozHunspell.h	2011-12-21 03:06:36.000000000 +0200
++++ extensions/spellcheck/hunspell/src/mozHunspell.h	2012-01-26 15:02:50.948754706 +0200
+@@ -73,7 +73,7 @@
+ #include "nsWeakReference.h"
+ #include "nsCycleCollectionParticipant.h"
+ 
+-#define MOZ_HUNSPELL_CONTRACTID "@mozilla.org/spellchecker/engine;1"
++#define MOZ_HUNSPELL_CONTRACTID "@mozilla.org/spellchecker/hunspell;1"
+ #define MOZ_HUNSPELL_CID         \
+ /* 56c778e4-1bee-45f3-a689-886692a97fe7 */   \
+ { 0x56c778e4, 0x1bee, 0x45f3, \
+diff -Nuar extensions/spellcheck.orig/Makefile.in extensions/spellcheck/Makefile.in
+--- extensions/spellcheck.orig/Makefile.in	2011-12-21 03:06:36.000000000 +0200
++++ extensions/spellcheck/Makefile.in	2012-01-26 15:02:50.969754706 +0200
+@@ -43,6 +43,7 @@
+ 
+ MODULE		= spellchecker
+ DIRS		= idl locales hunspell src
++DIRS		+= zemberek
+ 
+ ifdef ENABLE_TESTS
+ DIRS		+= tests
+diff -Nuar extensions/spellcheck.orig/src/Makefile.in extensions/spellcheck/src/Makefile.in
+--- extensions/spellcheck.orig/src/Makefile.in	2011-12-21 03:06:36.000000000 +0200
++++ extensions/spellcheck/src/Makefile.in	2012-01-26 15:02:50.947754706 +0200
+@@ -65,8 +65,14 @@
+ SHARED_LIBRARY_LIBS += ../hunspell/src/$(LIB_PREFIX)hunspell_s.$(LIB_SUFFIX)
+ LOCAL_INCLUDES += -I$(srcdir)/../hunspell/src
+ 
++SHARED_LIBRARY_LIBS += ../zemberek/src/$(LIB_PREFIX)zemberek_s.$(LIB_SUFFIX)
++LOCAL_INCLUDES += -I$(srcdir)/../zemberek/src
++
+ include $(topsrcdir)/config/rules.mk
+ 
+ LOCAL_INCLUDES += \
+ 	-I$(topsrcdir)/xpcom/io \
+ 	$(NULL)
++
++CXXFLAGS += $(TK_CFLAGS) $(MOZ_DBUS_GLIB_CFLAGS)
++CXXFLAGS := $(subst -pedantic,,$(CXXFLAGS))
+diff -Nuar extensions/spellcheck.orig/src/mozSpellChecker.cpp extensions/spellcheck/src/mozSpellChecker.cpp
+--- extensions/spellcheck.orig/src/mozSpellChecker.cpp	2011-12-21 03:06:36.000000000 +0200
++++ extensions/spellcheck/src/mozSpellChecker.cpp	2012-01-26 15:02:50.947754706 +0200
+@@ -42,7 +42,7 @@
+ #include "nsICategoryManager.h"
+ #include "nsISupportsPrimitives.h"
+ 
+-#define DEFAULT_SPELL_CHECKER "@mozilla.org/spellchecker/engine;1"
++#define DEFAULT_SPELL_CHECKER "@mozilla.org/spellchecker/hunspell;1"
+ 
+ NS_IMPL_CYCLE_COLLECTING_ADDREF(mozSpellChecker)
+ NS_IMPL_CYCLE_COLLECTING_RELEASE(mozSpellChecker)
+@@ -334,7 +334,11 @@
+       if (dictionaries.Get(dictName, NULL))
+         continue;
+ 
+-      dictionaries.Put(dictName, NULL);
++      // dictionaries.Put(dictName, NULL);
++      if (dictName.Equals(NS_LITERAL_STRING("tr-TR").get()))
++        dictionaries.Put(dictName, new nsCString("@mozilla.org/spellchecker/zemberek;1"));
++      else
++        dictionaries.Put(dictName, new nsCString(contractId));
+ 
+       if (!aDictionaryList->AppendElement(dictName)) {
+         NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(count, words);
+@@ -539,8 +543,14 @@
+ 
+     // Try to load spellchecker engine. Ignore errors silently
+     // except for the last one (HunSpell).
+-    nsCOMPtr<mozISpellCheckingEngine> engine =
+-      do_GetService(contractId.get(), &rv);
++    if (aDictionary.Equals(NS_LITERAL_STRING("tr-TR").get()))
++      engine = do_GetService("@mozilla.org/spellchecker/zemberek;1",&rv);
++    else
++      engine = do_GetService("@mozilla.org/spellchecker/hunspell;1", &rv);
++
++    engine->SetPersonalDictionary(mPersonalDictionary);
++
++
+     if (NS_SUCCEEDED(rv)) {
+       aSpellCheckingEngines->AppendObject(engine);
+     }
+diff -Nuar extensions/spellcheck.orig/src/mozSpellCheckerFactory.cpp extensions/spellcheck/src/mozSpellCheckerFactory.cpp
+--- extensions/spellcheck.orig/src/mozSpellCheckerFactory.cpp	2011-12-21 03:06:36.000000000 +0200
++++ extensions/spellcheck/src/mozSpellCheckerFactory.cpp	2012-01-26 15:02:50.947754706 +0200
+@@ -37,7 +37,9 @@
+ 
+ #include "mozilla/ModuleUtils.h"
+ #include "mozHunspell.h"
++#include "mozZemberek.h"
+ #include "mozHunspellDirProvider.h"
++#include "mozZemberekDirProvider.h"
+ #include "mozSpellChecker.h"
+ #include "mozInlineSpellChecker.h"
+ #include "nsTextServicesCID.h"
+@@ -55,14 +57,18 @@
+ { 0xa0, 0x1a, 0x66, 0x40, 0x2e, 0xa2, 0x86, 0x57} }
+ 
+ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(mozHunspell, Init)
++NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(mozZemberek, Init)
+ NS_GENERIC_FACTORY_CONSTRUCTOR(mozHunspellDirProvider)
++NS_GENERIC_FACTORY_CONSTRUCTOR(mozZemberekDirProvider)
+ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(mozSpellChecker, Init)
+ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(mozPersonalDictionary, Init)
+ NS_GENERIC_FACTORY_CONSTRUCTOR(mozSpellI18NManager)
+ NS_GENERIC_FACTORY_CONSTRUCTOR(mozInlineSpellChecker)
+ 
+ NS_DEFINE_NAMED_CID(MOZ_HUNSPELL_CID);
++NS_DEFINE_NAMED_CID(MOZ_ZEMBEREK_CID);
+ NS_DEFINE_NAMED_CID(HUNSPELLDIRPROVIDER_CID);
++NS_DEFINE_NAMED_CID(ZEMBEREKDIRPROVIDER_CID);
+ NS_DEFINE_NAMED_CID(NS_SPELLCHECKER_CID);
+ NS_DEFINE_NAMED_CID(MOZ_PERSONALDICTIONARY_CID);
+ NS_DEFINE_NAMED_CID(MOZ_SPELLI18NMANAGER_CID);
+@@ -71,6 +77,8 @@
+ static const mozilla::Module::CIDEntry kSpellcheckCIDs[] = {
+     { &kMOZ_HUNSPELL_CID, false, NULL, mozHunspellConstructor },
+     { &kHUNSPELLDIRPROVIDER_CID, false, NULL, mozHunspellDirProviderConstructor },
++    { &kMOZ_ZEMBEREK_CID, false, NULL, mozZemberekConstructor },
++    { &kZEMBEREKDIRPROVIDER_CID, false, NULL, mozZemberekDirProviderConstructor },
+     { &kNS_SPELLCHECKER_CID, false, NULL, mozSpellCheckerConstructor },
+     { &kMOZ_PERSONALDICTIONARY_CID, false, NULL, mozPersonalDictionaryConstructor },
+     { &kMOZ_SPELLI18NMANAGER_CID, false, NULL, mozSpellI18NManagerConstructor },
+@@ -81,6 +89,8 @@
+ static const mozilla::Module::ContractIDEntry kSpellcheckContracts[] = {
+     { MOZ_HUNSPELL_CONTRACTID, &kMOZ_HUNSPELL_CID },
+     { mozHunspellDirProvider::kContractID, &kHUNSPELLDIRPROVIDER_CID },
++    { MOZ_ZEMBEREK_CONTRACTID, &kMOZ_ZEMBEREK_CID },
++    { mozZemberekDirProvider::kContractID, &kZEMBEREKDIRPROVIDER_CID },
+     { NS_SPELLCHECKER_CONTRACTID, &kNS_SPELLCHECKER_CID },
+     { MOZ_PERSONALDICTIONARY_CONTRACTID, &kMOZ_PERSONALDICTIONARY_CID },
+     { MOZ_SPELLI18NMANAGER_CONTRACTID, &kMOZ_SPELLI18NMANAGER_CID },
+@@ -90,6 +100,7 @@
+ 
+ static const mozilla::Module::CategoryEntry kSpellcheckCategories[] = {
+     { XPCOM_DIRECTORY_PROVIDER_CATEGORY, "spellcheck-directory-provider", mozHunspellDirProvider::kContractID },
++    { XPCOM_DIRECTORY_PROVIDER_CATEGORY, "spellcheck-directory-provider", mozZemberekDirProvider::kContractID },
+     { NULL }
+ };
+ 
+diff -Nuar extensions/spellcheck.orig/zemberek/Makefile.in extensions/spellcheck/zemberek/Makefile.in
+--- extensions/spellcheck.orig/zemberek/Makefile.in	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/Makefile.in	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,51 @@
++# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is Mozilla Spellchecker Component.
++#
++# The Initial Developer of the Original Code is Faik Uygur.
++# Portions created by the Initial Developer are Copyright (C) 2006
++# TUBITAK/UEKAE. All Rights Reserved.
++#
++# Contributor(s): Faik Uygur <faik@pardus.org.tr>
++#
++# Mozilla Zemberek Client library is based on zpspell. The Initial Developer
++# of the zpspell code is Baris Metin. Portions created by the Initial Developer
++# Copyright (c) 2004, TUBITAK/UEKAE. All Rights Reserved.
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK *****
++
++DEPTH		= ../../..
++topsrcdir	= @top_srcdir@
++srcdir		= @srcdir@
++VPATH		= @srcdir@
++
++include $(DEPTH)/config/autoconf.mk
++
++MODULE		= zemberek
++DIRS		= src
++
++include $(topsrcdir)/config/rules.mk
++
+diff -Nuar extensions/spellcheck.orig/zemberek/src/Makefile.in extensions/spellcheck/zemberek/src/Makefile.in
+--- extensions/spellcheck.orig/zemberek/src/Makefile.in	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/Makefile.in	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,80 @@
++# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is Mozilla Spellchecker Component.
++#
++# The Initial Developer of the Original Code is Faik Uygur.
++# Portions created by the Initial Developer are Copyright (C) 2006
++# TUBITAK/UEKAE. All Rights Reserved.
++#
++# Contributor(s): Faik Uygur <faik@pardus.org.tr>
++#
++# Mozilla Zemberek Client library is based on zpspell. The Initial Developer
++# of the zpspell code is Baris Metin. Portions created by the Initial Developer
++# Copyright (c) 2004, TUBITAK/UEKAE. All Rights Reserved.
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK *****
++
++DEPTH		= ../../../..
++topsrcdir	= @top_srcdir@
++srcdir		= @srcdir@
++VPATH		= @srcdir@
++
++include $(DEPTH)/config/autoconf.mk
++
++MODULE		= zemberek
++LIBRARY_NAME	= zemberek_s
++FORCE_STATIC_LIB = 1
++LIBXUL_LIBRARY	= 1
++
++REQUIRES	= xpcom \
++		  string \
++		  uconv \
++		  unicharutil \
++		  spellchecker \
++		  xulapp \
++		  $(NULL)
++
++CPPSRCS = zsconn.cpp \
++	  zstring.cpp \
++	  zemberek.cpp \
++	  mozZemberek.cpp \
++          $(NULL)
++
++CPPSRCS += mozZemberekDirProvider.cpp
++
++EXTRA_DSO_LDOPTS = \
++		$(LIBS_DIR) \
++        $(MOZ_DBUS_GLIB_LIBS) \
++		$(XPCOM_LIBS) \
++		$(NSPR_LIBS) \
++		$(MOZ_UNICHARUTIL_LIBS) \
++		$(NULL)
++
++include $(topsrcdir)/config/rules.mk
++
++CXXFLAGS += $(TK_CFLAGS) $(MOZ_DBUS_GLIB_CFLAGS)
++CXXFLAGS := $(subst -pedantic,,$(CXXFLAGS))
++
+diff -Nuar extensions/spellcheck.orig/zemberek/src/mozZemberek.cpp extensions/spellcheck/zemberek/src/mozZemberek.cpp
+--- extensions/spellcheck.orig/zemberek/src/mozZemberek.cpp	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/mozZemberek.cpp	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,494 @@
++/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
++/*# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is Mozilla Spellchecker Component.
++#
++# The Initial Developer of the Original Code is Faik Uygur.
++# Portions created by the Initial Developer are Copyright (C) 2006
++# TUBITAK/UEKAE. All Rights Reserved.
++#
++# Contributor(s): Faik Uygur <faik@pardus.org.tr>
++#
++# Mozilla Zemberek Client library is based on zpspell. The Initial Developer
++# of the zpspell code is Baris Metin. Portions created by the Initial Developer
++# Copyright (c) 2004, TUBITAK/UEKAE. All Rights Reserved.
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK ***** */
++
++#include "mozZemberek.h"
++#include "nsReadableUtils.h"
++#include "nsXPIDLString.h"
++#include "nsIObserverService.h"
++#include "nsISimpleEnumerator.h"
++#include "nsIDirectoryEnumerator.h"
++#include "nsIFile.h"
++#include "nsDirectoryServiceUtils.h"
++#include "nsDirectoryServiceDefs.h"
++#include "mozISpellI18NManager.h"
++#include "nsICharsetConverterManager.h"
++#include "nsUnicharUtilCIID.h"
++#include "nsUnicharUtils.h"
++#include "nsCRT.h"
++#include <stdlib.h>
++
++static NS_DEFINE_CID(kCharsetConverterManagerCID, NS_ICHARSETCONVERTERMANAGER_CID);
++static NS_DEFINE_CID(kUnicharUtilCID, NS_UNICHARUTIL_CID);
++
++NS_IMPL_CYCLE_COLLECTING_ADDREF(mozZemberek)
++NS_IMPL_CYCLE_COLLECTING_RELEASE(mozZemberek)
++
++NS_INTERFACE_MAP_BEGIN(mozZemberek)
++  NS_INTERFACE_MAP_ENTRY(mozISpellCheckingEngine)
++  NS_INTERFACE_MAP_ENTRY(nsIObserver)
++  NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
++  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, mozISpellCheckingEngine)
++  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(mozZemberek)
++NS_INTERFACE_MAP_END
++
++NS_IMPL_CYCLE_COLLECTION_3(mozZemberek,
++                           mPersonalDictionary,
++                           mEncoder,
++                           mDecoder)
++
++nsresult
++mozZemberek::Init()
++{
++  if (!mDictionaries.Init())
++    return NS_ERROR_OUT_OF_MEMORY;
++
++  LoadDictionaryList();
++
++  nsCOMPtr<nsIObserverService> obs =
++    do_GetService("@mozilla.org/observer-service;1");
++  if (obs) {
++    obs->AddObserver(this, "profile-do-change", PR_TRUE);
++  }
++
++  return NS_OK;
++}
++
++mozZemberek::~mozZemberek()
++{
++  mPersonalDictionary = nsnull;
++  delete mZemberek;
++}
++
++/* attribute wstring dictionary; */
++NS_IMETHODIMP mozZemberek::GetDictionary(PRUnichar **aDictionary)
++{
++  NS_ENSURE_ARG_POINTER(aDictionary);
++
++  if (mDictionary.IsEmpty())
++    return NS_ERROR_NOT_INITIALIZED;
++
++  *aDictionary = ToNewUnicode(mDictionary);
++  return *aDictionary ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
++}
++
++/* set the Dictionary.
++ * This also Loads the dictionary and initializes the converter using the dictionaries converter
++ */
++NS_IMETHODIMP mozZemberek::SetDictionary(const PRUnichar *aDictionary)
++{
++  NS_ENSURE_ARG_POINTER(aDictionary);
++
++  if (mDictionary.Equals(aDictionary))
++    return NS_OK;
++
++  nsIFile* affFile = mDictionaries.GetWeak(nsDependentString(aDictionary));
++  if (!affFile)
++    return NS_ERROR_FILE_NOT_FOUND;
++
++  nsCAutoString dictFileName, affFileName;
++
++  // XXX This isn't really good. nsIFile->NativePath isn't safe for all
++  // character sets on Windows.
++  // A better way would be to QI to nsILocalFile, and get a filehandle
++  // from there. Only problem is that myspell wants a path
++
++  nsresult rv = affFile->GetNativePath(affFileName);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  dictFileName = affFileName;
++  PRInt32 dotPos = dictFileName.RFindChar('.');
++  if (dotPos == -1)
++    return NS_ERROR_FAILURE;
++
++  dictFileName.SetLength(dotPos);
++  dictFileName.AppendLiteral(".dic");
++
++  // SetDictionary can be called multiple times, so we might have a
++  // valid mZemberek instance which needs cleaned up.
++  delete mZemberek;
++
++  mDictionary = aDictionary;
++
++  mZemberek = new Zemberek();
++  if (!mZemberek)
++    return NS_ERROR_OUT_OF_MEMORY;
++
++  nsCOMPtr<nsICharsetConverterManager> ccm =
++    do_GetService(NS_CHARSETCONVERTERMANAGER_CONTRACTID, &rv);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  rv = ccm->GetUnicodeDecoder(mZemberek->get_dic_encoding(),
++                              getter_AddRefs(mDecoder));
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  rv = ccm->GetUnicodeEncoder(mZemberek->get_dic_encoding(),
++                              getter_AddRefs(mEncoder));
++  NS_ENSURE_SUCCESS(rv, rv);
++
++
++  if (mEncoder)
++    mEncoder->SetOutputErrorBehavior(mEncoder->kOnError_Signal, nsnull, '?');
++
++  PRInt32 pos = mDictionary.FindChar('-');
++  if (pos == -1)
++    pos = mDictionary.FindChar('_');
++
++  if (pos == -1)
++    mLanguage.Assign(mDictionary);
++  else
++    mLanguage = Substring(mDictionary, 0, pos);
++
++  return NS_OK;
++}
++
++/* readonly attribute wstring language; */
++NS_IMETHODIMP mozZemberek::GetLanguage(PRUnichar **aLanguage)
++{
++  NS_ENSURE_ARG_POINTER(aLanguage);
++
++  if (mDictionary.IsEmpty())
++    return NS_ERROR_NOT_INITIALIZED;
++
++  *aLanguage = ToNewUnicode(mLanguage);
++  return *aLanguage ? NS_OK : NS_ERROR_OUT_OF_MEMORY;
++}
++
++/* readonly attribute boolean providesPersonalDictionary; */
++NS_IMETHODIMP mozZemberek::GetProvidesPersonalDictionary(PRBool *aProvidesPersonalDictionary)
++{
++  NS_ENSURE_ARG_POINTER(aProvidesPersonalDictionary);
++
++  *aProvidesPersonalDictionary = PR_FALSE;
++  return NS_OK;
++}
++
++/* readonly attribute boolean providesWordUtils; */
++NS_IMETHODIMP mozZemberek::GetProvidesWordUtils(PRBool *aProvidesWordUtils)
++{
++  NS_ENSURE_ARG_POINTER(aProvidesWordUtils);
++
++  *aProvidesWordUtils = PR_FALSE;
++  return NS_OK;
++}
++
++/* readonly attribute wstring name; */
++NS_IMETHODIMP mozZemberek::GetName(PRUnichar * *aName)
++{
++  return NS_ERROR_NOT_IMPLEMENTED;
++}
++
++/* readonly attribute wstring copyright; */
++NS_IMETHODIMP mozZemberek::GetCopyright(PRUnichar * *aCopyright)
++{
++  return NS_ERROR_NOT_IMPLEMENTED;
++}
++
++/* attribute mozIPersonalDictionary personalDictionary; */
++NS_IMETHODIMP mozZemberek::GetPersonalDictionary(mozIPersonalDictionary * *aPersonalDictionary)
++{
++  *aPersonalDictionary = mPersonalDictionary;
++  NS_IF_ADDREF(*aPersonalDictionary);
++  return NS_OK;
++}
++
++NS_IMETHODIMP mozZemberek::SetPersonalDictionary(mozIPersonalDictionary * aPersonalDictionary)
++{
++  mPersonalDictionary = aPersonalDictionary;
++  return NS_OK;
++}
++
++struct AppendNewStruct
++{
++  PRUnichar **dics;
++  PRUint32 count;
++  PRBool failed;
++};
++
++static PLDHashOperator
++AppendNewString(const nsAString& aString, nsIFile* aFile, void* aClosure)
++{
++  AppendNewStruct *ans = (AppendNewStruct*) aClosure;
++  ans->dics[ans->count] = ToNewUnicode(aString);
++  if (!ans->dics[ans->count]) {
++    ans->failed = PR_TRUE;
++    return PL_DHASH_STOP;
++  }
++
++  ++ans->count;
++  return PL_DHASH_NEXT;
++}
++
++/* void GetDictionaryList ([array, size_is (count)] out wstring dictionaries, out PRUint32 count); */
++NS_IMETHODIMP mozZemberek::GetDictionaryList(PRUnichar ***aDictionaries,
++                                            PRUint32 *aCount)
++{
++  if (!aDictionaries || !aCount)
++    return NS_ERROR_NULL_POINTER;
++
++  AppendNewStruct ans = {
++    (PRUnichar**) NS_Alloc(sizeof(PRUnichar*) * mDictionaries.Count()),
++    0,
++    PR_FALSE
++  };
++
++  // This pointer is used during enumeration
++  mDictionaries.EnumerateRead(AppendNewString, &ans);
++
++  if (ans.failed) {
++    while (ans.count) {
++      --ans.count;
++      NS_Free(ans.dics[ans.count]);
++    }
++    NS_Free(ans.dics);
++    return NS_ERROR_OUT_OF_MEMORY;
++  }
++
++  *aDictionaries = ans.dics;
++  *aCount = ans.count;
++
++  return NS_OK;
++}
++
++void
++mozZemberek::LoadDictionaryList()
++{
++  mDictionaries.Clear();
++
++  nsresult rv;
++
++  nsCOMPtr<nsIProperties> dirSvc =
++    do_GetService(NS_DIRECTORY_SERVICE_CONTRACTID);
++  if (!dirSvc)
++    return;
++
++  nsCOMPtr<nsIFile> dictDir;
++  rv = dirSvc->Get(DICTIONARY_SEARCH_DIRECTORY,
++                   NS_GET_IID(nsIFile), getter_AddRefs(dictDir));
++  if (NS_SUCCEEDED(rv)) {
++    LoadDictionariesFromDir(dictDir);
++  }
++  else {
++    // try to load gredir/dictionaries
++    nsCOMPtr<nsIFile> greDir;
++    rv = dirSvc->Get(NS_GRE_DIR,
++                     NS_GET_IID(nsIFile), getter_AddRefs(greDir));
++    if (NS_SUCCEEDED(rv)) {
++      greDir->AppendNative(NS_LITERAL_CSTRING("dictionaries"));
++      LoadDictionariesFromDir(greDir);
++    }
++
++    // try to load appdir/dictionaries only if different than gredir
++    nsCOMPtr<nsIFile> appDir;
++    rv = dirSvc->Get(NS_XPCOM_CURRENT_PROCESS_DIR,
++                     NS_GET_IID(nsIFile), getter_AddRefs(appDir));
++    PRBool equals;
++    if (NS_SUCCEEDED(rv) && NS_SUCCEEDED(appDir->Equals(greDir, &equals)) && !equals) {
++      appDir->AppendNative(NS_LITERAL_CSTRING("dictionaries"));
++      LoadDictionariesFromDir(appDir);
++    }
++  }
++
++  nsCOMPtr<nsISimpleEnumerator> dictDirs;
++  rv = dirSvc->Get(DICTIONARY_SEARCH_DIRECTORY_LIST,
++                   NS_GET_IID(nsISimpleEnumerator), getter_AddRefs(dictDirs));
++  if (NS_FAILED(rv))
++    return;
++
++  PRBool hasMore;
++  while (NS_SUCCEEDED(dictDirs->HasMoreElements(&hasMore)) && hasMore) {
++    nsCOMPtr<nsISupports> elem;
++    dictDirs->GetNext(getter_AddRefs(elem));
++
++    dictDir = do_QueryInterface(elem);
++    if (dictDir)
++      LoadDictionariesFromDir(dictDir);
++  }
++}
++
++void
++mozZemberek::LoadDictionariesFromDir(nsIFile* aDir)
++{
++  nsresult rv;
++
++  PRBool check = PR_FALSE;
++  rv = aDir->Exists(&check);
++  if (NS_FAILED(rv) || !check)
++    return;
++
++  rv = aDir->IsDirectory(&check);
++  if (NS_FAILED(rv) || !check)
++    return;
++
++  nsCOMPtr<nsISimpleEnumerator> e;
++  rv = aDir->GetDirectoryEntries(getter_AddRefs(e));
++  if (NS_FAILED(rv))
++    return;
++
++  nsCOMPtr<nsIDirectoryEnumerator> files(do_QueryInterface(e));
++  if (!files)
++    return;
++
++  nsCOMPtr<nsIFile> file;
++  while (NS_SUCCEEDED(files->GetNextFile(getter_AddRefs(file))) && file) {
++    nsAutoString leafName;
++    file->GetLeafName(leafName);
++    if (!StringEndsWith(leafName, NS_LITERAL_STRING(".dic")))
++      continue;
++
++    nsAutoString dict(leafName);
++    dict.SetLength(dict.Length() - 4); // magic length of ".dic"
++
++    // check for the presence of the .aff file
++    leafName = dict;
++    leafName.AppendLiteral(".aff");
++    file->SetLeafName(leafName);
++    rv = file->Exists(&check);
++    if (NS_FAILED(rv) || !check)
++      continue;
++
++#ifdef DEBUG_bsmedberg
++    printf("Adding dictionary: %s\n", NS_ConvertUTF16toUTF8(dict).get());
++#endif
++
++    mDictionaries.Put(dict, file);
++  }
++}
++
++nsresult mozZemberek::ConvertCharset(const PRUnichar* aStr, char ** aDst)
++{
++  NS_ENSURE_ARG_POINTER(aDst);
++  NS_ENSURE_TRUE(mEncoder, NS_ERROR_NULL_POINTER);
++
++  PRInt32 outLength;
++  PRInt32 inLength = nsCRT::strlen(aStr);
++  nsresult rv = mEncoder->GetMaxLength(aStr, inLength, &outLength);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  *aDst = (char *) nsMemory::Alloc(sizeof(char) * (outLength+1));
++  NS_ENSURE_TRUE(*aDst, NS_ERROR_OUT_OF_MEMORY);
++
++  rv = mEncoder->Convert(aStr, &inLength, *aDst, &outLength);
++  if (NS_SUCCEEDED(rv))
++    (*aDst)[outLength] = '\0'; 
++
++  return rv;
++}
++
++/* boolean Check (in wstring word); */
++NS_IMETHODIMP mozZemberek::Check(const PRUnichar *aWord, PRBool *aResult)
++{
++  NS_ENSURE_ARG_POINTER(aWord);
++  NS_ENSURE_ARG_POINTER(aResult);
++  NS_ENSURE_TRUE(mZemberek, NS_ERROR_FAILURE);
++
++  nsXPIDLCString charsetWord;
++  nsresult rv = ConvertCharset(aWord, getter_Copies(charsetWord));
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  *aResult = mZemberek->spellCheck(charsetWord);
++
++  if (!*aResult && mPersonalDictionary) 
++    rv = mPersonalDictionary->Check(aWord, mLanguage.get(), aResult);
++  
++  return rv;
++}
++
++/* void Suggest (in wstring word, [array, size_is (count)] out wstring suggestions, out PRUint32 count); */
++NS_IMETHODIMP mozZemberek::Suggest(const PRUnichar *aWord, PRUnichar ***aSuggestions, PRUint32 *aSuggestionCount)
++{
++  NS_ENSURE_ARG_POINTER(aSuggestions);
++  NS_ENSURE_ARG_POINTER(aSuggestionCount);
++  NS_ENSURE_TRUE(mZemberek, NS_ERROR_FAILURE);
++
++  nsresult rv;
++  *aSuggestionCount = 0;
++  
++  nsXPIDLCString charsetWord;
++  rv = ConvertCharset(aWord, getter_Copies(charsetWord));
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  char ** wlst;
++  *aSuggestionCount = mZemberek->getSuggestions(&wlst, charsetWord);
++
++  if (*aSuggestionCount) {    
++    *aSuggestions  = (PRUnichar **)nsMemory::Alloc(*aSuggestionCount * sizeof(PRUnichar *));    
++    if (*aSuggestions) {
++      PRUint32 index = 0;
++      for (index = 0; index < *aSuggestionCount && NS_SUCCEEDED(rv); ++index) {
++        // Convert the suggestion to utf16     
++        PRInt32 inLength = nsCRT::strlen(wlst[index]);
++        PRInt32 outLength;
++        rv = mDecoder->GetMaxLength(wlst[index], inLength, &outLength);
++        if (NS_SUCCEEDED(rv))
++        {
++          (*aSuggestions)[index] = (PRUnichar *) nsMemory::Alloc(sizeof(PRUnichar) * (outLength+1));
++          if ((*aSuggestions)[index])
++          {
++            rv = mDecoder->Convert(wlst[index], &inLength, (*aSuggestions)[index], &outLength);
++            if (NS_SUCCEEDED(rv))
++              (*aSuggestions)[index][outLength] = 0;
++          } 
++          else
++            rv = NS_ERROR_OUT_OF_MEMORY;
++        }
++      }
++
++      if (NS_FAILED(rv))
++        NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(index, *aSuggestions); // free the PRUnichar strings up to the point at which the error occurred
++    }
++    else // if (*aSuggestions)
++      rv = NS_ERROR_OUT_OF_MEMORY;
++  }
++  
++  NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(*aSuggestionCount, wlst);
++  return rv;
++}
++
++NS_IMETHODIMP
++mozZemberek::Observe(nsISupports* aSubj, const char *aTopic,
++                    const PRUnichar *aData)
++{
++  NS_ASSERTION(!strcmp(aTopic, "profile-do-change"),
++               "Unexpected observer topic");
++
++  LoadDictionaryList();
++
++  return NS_OK;
++}
+diff -Nuar extensions/spellcheck.orig/zemberek/src/mozZemberekDirProvider.cpp extensions/spellcheck/zemberek/src/mozZemberekDirProvider.cpp
+--- extensions/spellcheck.orig/zemberek/src/mozZemberekDirProvider.cpp	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/mozZemberekDirProvider.cpp	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,144 @@
++/*# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is Mozilla Spellchecker Component.
++#
++# The Initial Developer of the Original Code is Faik Uygur.
++# Portions created by the Initial Developer are Copyright (C) 2006
++# TUBITAK/UEKAE. All Rights Reserved.
++#
++# Contributor(s): Faik Uygur <faik@pardus.org.tr>
++#
++# Mozilla Zemberek Client library is based on zpspell. The Initial Developer
++# of the zpspell code is Baris Metin. Portions created by the Initial Developer
++# Copyright (c) 2004, TUBITAK/UEKAE. All Rights Reserved.
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK ***** */
++
++#include "mozZemberekDirProvider.h"
++#include "nsXULAppAPI.h"
++#include "nsString.h"
++
++#include "mozISpellCheckingEngine.h"
++#include "nsICategoryManager.h"
++
++NS_IMPL_ISUPPORTS2(mozZemberekDirProvider,
++		   nsIDirectoryServiceProvider,
++		   nsIDirectoryServiceProvider2)
++
++NS_IMETHODIMP
++mozZemberekDirProvider::GetFile(const char *aKey, PRBool *aPersist,
++			       nsIFile* *aResult)
++{
++  return NS_ERROR_FAILURE;
++}
++
++NS_IMETHODIMP
++mozZemberekDirProvider::GetFiles(const char *aKey,
++				nsISimpleEnumerator* *aResult)
++{
++  if (strcmp(aKey, DICTIONARY_SEARCH_DIRECTORY_LIST) != 0) {
++    return NS_ERROR_FAILURE;
++  }
++
++  nsCOMPtr<nsIProperties> dirSvc =
++    do_GetService(NS_DIRECTORY_SERVICE_CONTRACTID);
++  if (!dirSvc)
++    return NS_ERROR_FAILURE;
++
++  nsCOMPtr<nsISimpleEnumerator> list;
++  nsresult rv = dirSvc->Get(XRE_EXTENSIONS_DIR_LIST,
++			    NS_GET_IID(nsISimpleEnumerator),
++			    getter_AddRefs(list));
++  if (NS_FAILED(rv))
++    return rv;
++
++  nsCOMPtr<nsISimpleEnumerator> e = new AppendingEnumerator(list);
++  if (!e)
++    return NS_ERROR_OUT_OF_MEMORY;
++
++  *aResult = nsnull;
++  e.swap(*aResult);
++  return NS_SUCCESS_AGGREGATE_RESULT;
++}
++
++NS_IMPL_ISUPPORTS1(mozZemberekDirProvider::AppendingEnumerator,
++		   nsISimpleEnumerator)
++
++NS_IMETHODIMP
++mozZemberekDirProvider::AppendingEnumerator::HasMoreElements(PRBool *aResult)
++{
++  *aResult = mNext ? PR_TRUE : PR_FALSE;
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++mozZemberekDirProvider::AppendingEnumerator::GetNext(nsISupports* *aResult)
++{
++  if (aResult)
++    NS_ADDREF(*aResult = mNext);
++
++  mNext = nsnull;
++
++  nsresult rv;
++
++  // Ignore all errors
++
++  PRBool more;
++  while (NS_SUCCEEDED(mBase->HasMoreElements(&more)) && more) {
++    nsCOMPtr<nsISupports> nextbasesupp;
++    mBase->GetNext(getter_AddRefs(nextbasesupp));
++
++    nsCOMPtr<nsIFile> nextbase(do_QueryInterface(nextbasesupp));
++    if (!nextbase)
++      continue;
++
++    nextbase->Clone(getter_AddRefs(mNext));
++    if (!mNext)
++      continue;
++
++    mNext->AppendNative(NS_LITERAL_CSTRING("dictionaries"));
++
++    PRBool exists;
++    rv = mNext->Exists(&exists);
++    if (NS_SUCCEEDED(rv) && exists)
++      break;
++
++    mNext = nsnull;
++  }
++
++  return NS_OK;
++}
++
++mozZemberekDirProvider::AppendingEnumerator::AppendingEnumerator
++    (nsISimpleEnumerator* aBase) :
++  mBase(aBase)
++{
++  // Initialize mNext to begin
++  GetNext(nsnull);
++}
++
++char const *const
++mozZemberekDirProvider::kContractID = "@mozilla.org/spellcheck/dir-provider;1";
+diff -Nuar extensions/spellcheck.orig/zemberek/src/mozZemberekDirProvider.h extensions/spellcheck/zemberek/src/mozZemberekDirProvider.h
+--- extensions/spellcheck.orig/zemberek/src/mozZemberekDirProvider.h	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/mozZemberekDirProvider.h	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,75 @@
++/*# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is Mozilla Spellchecker Component.
++#
++# The Initial Developer of the Original Code is Faik Uygur.
++# Portions created by the Initial Developer are Copyright (C) 2006
++# TUBITAK/UEKAE. All Rights Reserved.
++#
++# Contributor(s): Faik Uygur <faik@pardus.org.tr>
++#
++# Mozilla Zemberek Client library is based on zpspell. The Initial Developer
++# of the zpspell code is Baris Metin. Portions created by the Initial Developer
++# Copyright (c) 2004, TUBITAK/UEKAE. All Rights Reserved.
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK ***** */
++
++#ifndef mozZemberekDirProvider_h__
++#define mozZemberekDirProvider_h__
++
++#include "nsIDirectoryService.h"
++#include "nsISimpleEnumerator.h"
++
++class mozZemberekDirProvider :
++  public nsIDirectoryServiceProvider2
++{
++public:
++  NS_DECL_ISUPPORTS
++  NS_DECL_NSIDIRECTORYSERVICEPROVIDER
++  NS_DECL_NSIDIRECTORYSERVICEPROVIDER2
++
++  static char const *const kContractID;
++
++private:
++  class AppendingEnumerator : public nsISimpleEnumerator
++  {
++  public:
++    NS_DECL_ISUPPORTS
++    NS_DECL_NSISIMPLEENUMERATOR
++
++    AppendingEnumerator(nsISimpleEnumerator* aBase);
++
++  private:
++    nsCOMPtr<nsISimpleEnumerator> mBase;
++    nsCOMPtr<nsIFile>             mNext;
++  };
++};
++
++#define ZEMBEREKDIRPROVIDER_CID \
++{ 0x2aa60653, 0x653c, 0x45ca, \
++  { 0xb7, 0x64, 0xaa, 0x3d, 0xcf, 0x27, 0xe4, 0x7d } }
++
++#endif // mozZemberekDirProvider
+diff -Nuar extensions/spellcheck.orig/zemberek/src/mozZemberek.h extensions/spellcheck/zemberek/src/mozZemberek.h
+--- extensions/spellcheck.orig/zemberek/src/mozZemberek.h	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/mozZemberek.h	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,97 @@
++/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
++/*# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is Mozilla Spellchecker Component.
++#
++# The Initial Developer of the Original Code is Faik Uygur.
++# Portions created by the Initial Developer are Copyright (C) 2006
++# TUBITAK/UEKAE. All Rights Reserved.
++#
++# Contributor(s): Faik Uygur <faik@pardus.org.tr>
++#
++# Mozilla Zemberek Client library is based on zpspell. The Initial Developer
++# of the zpspell code is Baris Metin. Portions created by the Initial Developer
++# Copyright (c) 2004, TUBITAK/UEKAE. All Rights Reserved.
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK ***** */
++
++#ifndef mozZemberek_h__
++#define mozZemberek_h__
++
++#include "zemberek.h"
++#include "mozISpellCheckingEngine.h"
++#include "mozIPersonalDictionary.h"
++#include "nsString.h"
++#include "nsCOMPtr.h"
++#include "nsIObserver.h"
++#include "nsIUnicodeEncoder.h"
++#include "nsIUnicodeDecoder.h"
++#include "nsInterfaceHashtable.h"
++#include "nsWeakReference.h"
++#include "nsCycleCollectionParticipant.h"
++
++#define MOZ_ZEMBEREK_CONTRACTID "@mozilla.org/spellchecker/zemberek;1"
++#define MOZ_ZEMBEREK_CID         \
++{ /* 15DDAC0D-D94C-4fc1-8F48-E1BB04A6F380} */  \
++0x15DDAC0D, 0xD94C, 0x4fc1,                    \
++{ 0x8F, 0x48, 0xE1, 0xBB, 0x04, 0xA6, 0xF3, 0x80} }
++
++class mozZemberek : public mozISpellCheckingEngine,
++                   public nsIObserver,
++                   public nsSupportsWeakReference
++{
++public:
++  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
++  NS_DECL_MOZISPELLCHECKINGENGINE
++  NS_DECL_NSIOBSERVER
++  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(mozZemberek, mozISpellCheckingEngine)
++
++  mozZemberek() : mZemberek(nsnull) { }
++  virtual ~mozZemberek();
++
++  nsresult Init();
++
++  void LoadDictionaryList();
++  void LoadDictionariesFromDir(nsIFile* aDir);
++
++  // helper method for converting a word to the charset of the dictionary
++  nsresult ConvertCharset(const PRUnichar* aStr, char ** aDst);
++
++protected:
++ 
++  nsCOMPtr<mozIPersonalDictionary> mPersonalDictionary;
++  nsCOMPtr<nsIUnicodeEncoder>      mEncoder; 
++  nsCOMPtr<nsIUnicodeDecoder>      mDecoder; 
++
++  // Hashtable matches dictionary name to .aff file
++  nsInterfaceHashtable<nsStringHashKey, nsIFile> mDictionaries;
++  nsString  mDictionary;
++  nsString  mLanguage;
++
++  Zemberek  *mZemberek;
++};
++
++#endif
+diff -Nuar extensions/spellcheck.orig/zemberek/src/zemberek.cpp extensions/spellcheck/zemberek/src/zemberek.cpp
+--- extensions/spellcheck.orig/zemberek/src/zemberek.cpp	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/zemberek.cpp	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,79 @@
++/*
++  Copyright (c) 2004, TUBITAK/UEKAE
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 2 of the License, or
++  (at your option) any later version.
++
++  Mozilla Zemberek Client library is based on zpspell. The Initial Developer
++  of the zpspell code is Baris Metin.
++*/
++
++#include <iostream>
++#include <vector>
++
++#include "stdio.h"
++#include "string.h"
++#include "stdlib.h"
++
++#include "zsconn.h"
++#include "zstring.h"
++#include "zemberek.h"
++
++/* use myspell's limit for maxSug */
++Zemberek::Zemberek() : maxSug(25)
++{
++    zsconn = new ZSConn();
++}
++
++Zemberek::~Zemberek()
++{
++    delete zsconn;
++}
++
++int Zemberek::spellCheck(const char *word) const
++{
++    ZString zstr = zsconn->checkString(word, 0);
++    return (zstr.status() == Z_TRUE);
++}
++
++int Zemberek::getSuggestions(char ***suggestions, const char *word) const
++{
++    int ns = 0;
++    //XXX: This check is unnecessary. we call this method only for misspelled words.
++    ZString zstr = zsconn->checkString(word, 0);
++
++    if ( zstr.status() == Z_FALSE ) {
++        zstr.setSuggestions( zsconn->getSuggestions( zstr.str() ) );
++        if ( zstr.suggestionCount() != 0 ) {
++            zstr.setStatus( Z_SUGGESTION );
++        }
++    }
++
++    *suggestions = NULL;
++
++    if (zstr.status() != Z_SUGGESTION)
++	return 0;
++
++    char **wlst = (char **)calloc(maxSug, sizeof(char *));
++    if (wlst == NULL) 
++      return 0;
++    
++    vector<string>::const_iterator words_iter;
++    const vector<string> &words = zstr.suggestions();
++
++    for (words_iter = words.begin(); words_iter != words.end() && ns < maxSug; words_iter++, ns++) {
++	wlst[ns] = strdup((*words_iter).c_str());
++    }
++
++    if (ns > 0)
++	*suggestions = wlst;
++
++    return ns;
++}
++
++char *Zemberek::get_dic_encoding()
++{
++    return strdup("UTF-8");
++}
+diff -Nuar extensions/spellcheck.orig/zemberek/src/zemberek.h extensions/spellcheck/zemberek/src/zemberek.h
+--- extensions/spellcheck.orig/zemberek/src/zemberek.h	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/zemberek.h	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,34 @@
++/*
++  Copyright (c) 2004, TUBITAK/UEKAE
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 2 of the License, or
++  (at your option) any later version.
++
++  Please read the COPYING file.
++*/
++
++#ifndef ZEMBEREK_H
++#define ZEMBEREK_H
++
++#include "zsconn.h"
++
++using namespace std;
++
++class Zemberek
++{
++public:
++    Zemberek();
++    ~Zemberek();
++
++    int getSuggestions(char ***suggestions, const char *word) const;
++    int spellCheck(const char *word) const;
++    char *get_dic_encoding();
++
++private:
++    const short maxSug;
++    ZSConn *zsconn;
++};
++
++#endif
+diff -Nuar extensions/spellcheck.orig/zemberek/src/zsconn.cpp extensions/spellcheck/zemberek/src/zsconn.cpp
+--- extensions/spellcheck.orig/zemberek/src/zsconn.cpp	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/zsconn.cpp	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,110 @@
++/*
++  Copyright (c) 2004, TUBITAK/UEKAE
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 2 of the License, or
++  (at your option) any later version.
++
++  Please read the COPYING file.
++*/
++
++#include <iostream>
++#include <glib.h>
++
++#include "zsconn.h"
++
++ZSConn::ZSConn()
++{
++    GError *gerror = 0;
++    g_type_init();
++
++    connection = dbus_g_bus_get(DBUS_BUS_SYSTEM, &gerror);
++    if (!connection)
++    {
++        g_error_free(gerror);
++        perror("dbus_g_bus_get()");
++    }
++    proxy = dbus_g_proxy_new_for_name(connection,
++                                      "net.zemberekserver.server.dbus",
++                                      "/net/zemberekserver/server/dbus/ZemberekDbus",
++                                      "net.zemberekserver.server.dbus.ZemberekDbusInterface");
++}
++
++ZSConn::~ZSConn()
++{
++    if (proxy)
++        g_object_unref(proxy);
++}
++
++
++ZString ZSConn::checkString( const string& str, int offset ) const
++{
++    ZString zstr( str, offset );
++
++    // pislikleri temizle, bunlar ispell'e gönderilen komutlar.
++    // şimdilik işimiz yok bunlarla
++    // bir de ^ var ama o kullanılıyor bizim için...
++    string flags( "*&@+-~#!%`" );
++    string::iterator it = flags.begin();
++    string::iterator end = flags.end();
++    for ( ; it != end; ++it ) {
++        if ( str[0] == *it ) {
++            zstr.setStatus( Z_UNKNOWN );
++            return zstr;
++        }
++    }
++
++
++    zstr.setStatus( spellCheck( zstr.str() ) );
++
++    if ( zstr.status() == Z_FALSE ) {
++        zstr.setSuggestions( getSuggestions( zstr.str() ) );
++        if ( zstr.suggestionCount() != 0 ) {
++            zstr.setStatus( Z_SUGGESTION );
++        }
++    }
++
++    return zstr;
++}
++
++enum Z_CHECK_RESULT ZSConn::spellCheck( const string& str ) const
++{
++    gboolean result;
++    GError *gerror = 0;
++
++    if (!dbus_g_proxy_call(proxy, "kelimeDenetle", &gerror,
++                           G_TYPE_STRING, str.c_str() ,G_TYPE_INVALID,
++                           G_TYPE_BOOLEAN, &result, G_TYPE_INVALID))
++    {
++        g_error_free(gerror);
++        return Z_UNKNOWN;
++    }
++
++    if (result)
++        return Z_TRUE;
++    else
++        return Z_FALSE;
++}
++
++vector<string> ZSConn::getSuggestions(const string& str ) const
++{
++    char** suggs;
++    GError* gerror = 0;
++    vector<string> suggestions;
++
++    if (!dbus_g_proxy_call(proxy, "oner", &gerror,
++                           G_TYPE_STRING, str.c_str(), G_TYPE_INVALID,
++                           G_TYPE_STRV, &suggs, G_TYPE_INVALID))
++    {
++        g_error_free(gerror);
++        perror("getSuggestions()");
++    }
++    
++    int suggs_len = g_strv_length(suggs);
++    for (int i = 0; i < suggs_len; ++i)
++        suggestions.push_back(string(suggs[i]));
++
++    return suggestions;
++}
++
+diff -Nuar extensions/spellcheck.orig/zemberek/src/zsconn.h extensions/spellcheck/zemberek/src/zsconn.h
+--- extensions/spellcheck.orig/zemberek/src/zsconn.h	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/zsconn.h	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,44 @@
++/*
++  Copyright (c) 2004, TUBITAK/UEKAE
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 2 of the License, or
++  (at your option) any later version.
++
++  Please read the COPYING file.
++*/
++
++/*
++  ZemberekServer Connection.
++*/
++
++#ifndef ZSCONN_H
++#define ZSCONN_H
++
++#include <dbus/dbus-glib.h>
++#include "zstring.h"
++
++
++using namespace std;
++
++class ZSConn
++{
++public:
++    ZSConn();
++    ~ZSConn();
++
++    ZString checkString( const string& str, int offset ) const;
++    vector<string> getSuggestions (const string& str ) const;
++
++private:
++    DBusGConnection *connection;
++    DBusGProxy *proxy;
++    
++    enum Z_CHECK_RESULT spellCheck( const string& str ) const;
++    string recvResult() const;
++    
++};
++
++#endif
++
+diff -Nuar extensions/spellcheck.orig/zemberek/src/zstring.cpp extensions/spellcheck/zemberek/src/zstring.cpp
+--- extensions/spellcheck.orig/zemberek/src/zstring.cpp	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/zstring.cpp	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,80 @@
++/*
++  Copyright (c) 2004, TUBITAK/UEKAE
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 2 of the License, or
++  (at your option) any later version.
++
++  Please read the COPYING file.
++*/
++
++#include <iostream>
++#include <sstream>
++
++#include "zstring.h"
++
++ZString::ZString(const string& str, int offset )
++    : _str(str), _offset(offset),
++      _status(Z_UNKNOWN)
++{}
++
++
++/* set */
++void ZString::setStatus( enum Z_CHECK_RESULT status )
++{
++    _status = status;
++}
++
++void ZString::setSuggestions( const vector<string>& suggestions)
++{
++    _suggestions = suggestions;
++}
++
++void ZString::addSuggestion( const string& suggestion )
++{
++    _suggestions.push_back( suggestion );
++}
++
++/* get */
++int ZString::offset() const
++{
++    return _offset;
++}
++
++const string& ZString::str() const
++{
++    return _str;
++}
++
++enum Z_CHECK_RESULT ZString::status() const
++{
++    return _status;
++}
++
++int ZString::suggestionCount() const
++{
++    return _suggestions.size();
++}
++
++const string ZString::suggestionString() const
++{
++    stringstream sstr;
++
++    vector<string>::const_iterator it = _suggestions.begin();
++    int len = _suggestions.size();
++    for (int i=0 ; i < len ; ++i, ++it ) {
++        sstr << *it;
++        if ( i < len-1 ) {
++            sstr << ", ";
++        }
++    }
++
++    return sstr.str();
++}
++
++const vector<string>& ZString::suggestions() const
++{
++    return _suggestions;
++}
++
+diff -Nuar extensions/spellcheck.orig/zemberek/src/zstring.h extensions/spellcheck/zemberek/src/zstring.h
+--- extensions/spellcheck.orig/zemberek/src/zstring.h	1970-01-01 02:00:00.000000000 +0200
++++ extensions/spellcheck/zemberek/src/zstring.h	2012-01-26 15:02:50.969754706 +0200
+@@ -0,0 +1,50 @@
++/*
++  Copyright (c) 2004, TUBITAK/UEKAE
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 2 of the License, or
++  (at your option) any later version.
++
++  Please read the COPYING file.
++*/
++
++#ifndef ZSTRING_H
++#define ZSTRING_H
++
++#include <string>
++#include <vector>
++
++using namespace std;
++
++enum Z_CHECK_RESULT {
++    Z_TRUE = 0,
++    Z_FALSE,
++    Z_SUGGESTION,
++    Z_UNKNOWN
++};
++
++class ZString
++{
++public:
++    ZString(const string& str, int offset );
++
++    void setStatus( enum Z_CHECK_RESULT status );
++    void setSuggestions( const vector<string>& suggestions);
++    void addSuggestion( const string& suggestion );
++
++    int offset() const;
++    const string& str() const;
++    enum Z_CHECK_RESULT status() const;
++    const vector<string>& suggestions() const;
++    int suggestionCount() const;
++    const string suggestionString() const;
++
++private:
++    int _offset;
++    enum Z_CHECK_RESULT _status;
++    const string _str;
++    vector<string> _suggestions;
++};
++
++#endif // ZSTRING_H

@@ -1,0 +1,214 @@
+commit 78c144e8c3ae7bb36d632f6bfaaaad9c97199ce6
+Author: cmoller <cmoller>
+Date:   Tue Apr 20 20:22:09 2010 +0000
+
+    PR 10867
+    * cp-valprint.c (global): Adding new static array recursion
+    detection obstack.
+    (cp_print_value_fields, cp_print_static_field): Added new static
+    array recursion detection code.
+    * gdb.cp/Makefile.in  (EXECUTABLES): Added pr10687
+    * gdb.cp/pr10687.cc: New file.
+    * gdb.cp/pr10687.exp: New file
+
+### a/gdb/ChangeLog
+### b/gdb/ChangeLog
+## -1,3 +1,12 @@
++2010-04-20  Chris Moller  <cmoller@redhat.com>
++	
++	PR 10867
++
++	* cp-valprint.c (global): Adding new static array recursion
++	detection obstack.
++	(cp_print_value_fields, cp_print_static_field): Added new static
++	array recursion detection code.
++
+ 2010-04-20  Mark Kettenis  <kettenis@gnu.org>
+ 
+ 	* i386-linux-tdep.c (i386_linux_regset_sections): Size of the
+Index: gdb-7.1/gdb/cp-valprint.c
+===================================================================
+--- gdb-7.1.orig/gdb/cp-valprint.c	2010-02-08 19:04:16.000000000 +0100
++++ gdb-7.1/gdb/cp-valprint.c	2010-06-28 20:21:53.000000000 +0200
+@@ -71,6 +71,7 @@ show_static_field_print (struct ui_file 
+ 
+ static struct obstack dont_print_vb_obstack;
+ static struct obstack dont_print_statmem_obstack;
++static struct obstack dont_print_stat_array_obstack;
+ 
+ extern void _initialize_cp_valprint (void);
+ 
+@@ -155,12 +156,17 @@ cp_print_value_fields (struct type *type
+ {
+   int i, len, n_baseclasses;
+   int fields_seen = 0;
++  static int last_set_recurse = -1;
+ 
+   CHECK_TYPEDEF (type);
+   
+-  if (recurse == 0
+-      && obstack_object_size (&dont_print_statmem_obstack) > 0)
+-    obstack_free (&dont_print_statmem_obstack, NULL);
++  if (recurse == 0)
++    {
++      if (obstack_object_size (&dont_print_statmem_obstack) > 0)
++	obstack_free (&dont_print_statmem_obstack, NULL);
++      if (obstack_object_size (&dont_print_stat_array_obstack) > 0)
++	obstack_free (&dont_print_stat_array_obstack, NULL);
++    }
+ 
+   fprintf_filtered (stream, "{");
+   len = TYPE_NFIELDS (type);
+@@ -181,12 +187,20 @@ cp_print_value_fields (struct type *type
+   else
+     {
+       void *statmem_obstack_top = NULL;
++      void *stat_array_obstack_top = NULL;
+       
+       if (dont_print_statmem == 0)
+ 	{
+ 	  /* Set the current printed-statics stack top.  */
+ 	  statmem_obstack_top
+ 	    = obstack_next_free (&dont_print_statmem_obstack);
++
++	  if (last_set_recurse != recurse)
++	    {
++	      stat_array_obstack_top
++		= obstack_next_free (&dont_print_stat_array_obstack);
++	      last_set_recurse = recurse;
++	    }
+ 	}
+ 
+       for (i = n_baseclasses; i < len; i++)
+@@ -307,9 +321,16 @@ cp_print_value_fields (struct type *type
+ 
+       if (dont_print_statmem == 0)
+ 	{
+-	  /* In effect, a pop of the printed-statics stack.  */
+ 	  if (obstack_object_size (&dont_print_statmem_obstack) > 0) 
+ 	    obstack_free (&dont_print_statmem_obstack, statmem_obstack_top);
++
++	  if (last_set_recurse != recurse)
++	    {
++	      if (obstack_object_size (&dont_print_stat_array_obstack) > 0) 
++		obstack_free (&dont_print_stat_array_obstack,
++			      stat_array_obstack_top);
++	      last_set_recurse = -1;
++	    }
+ 	}
+ 
+       if (options->pretty)
+@@ -508,6 +529,7 @@ cp_print_static_field (struct type *type
+ 		       const struct value_print_options *options)
+ {
+   struct value_print_options opts;
++  
+   if (TYPE_CODE (type) == TYPE_CODE_STRUCT)
+     {
+       CORE_ADDR *first_dont_print;
+@@ -542,6 +564,32 @@ cp_print_static_field (struct type *type
+       return;
+     }
+ 
++  if (TYPE_CODE (type) == TYPE_CODE_ARRAY)
++    {
++      struct type **first_dont_print;
++      int i;
++      struct type *target_type = TYPE_TARGET_TYPE (type);
++
++      first_dont_print
++	= (struct type **) obstack_base (&dont_print_stat_array_obstack);
++      i = obstack_object_size (&dont_print_stat_array_obstack)
++	/ sizeof (CORE_ADDR);
++
++      while (--i >= 0)
++	{
++	  if (target_type == first_dont_print[i])
++	    {
++	      fputs_filtered ("<same as static member of an already"
++			      " seen type>",
++			      stream);
++	      return;
++	    }
++	}
++
++      obstack_grow (&dont_print_stat_array_obstack, (char *) &target_type,
++		    sizeof (struct type *));
++    }
++
+   opts = *options;
+   opts.deref_ref = 0;
+   val_print (type, value_contents_all (val), 
+@@ -672,6 +720,7 @@ Show printing of object's derived type b
+ 			   show_objectprint,
+ 			   &setprintlist, &showprintlist);
+ 
++  obstack_begin (&dont_print_stat_array_obstack, 32 * sizeof (CORE_ADDR));
+   obstack_begin (&dont_print_statmem_obstack, 32 * sizeof (CORE_ADDR));
+   obstack_begin (&dont_print_vb_obstack, 32 * sizeof (struct type *));
+ }
+Index: gdb-7.1/gdb/testsuite/gdb.cp/pr10687.cc
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.1/gdb/testsuite/gdb.cp/pr10687.cc	2010-06-28 20:21:53.000000000 +0200
+@@ -0,0 +1,24 @@
++class vec2 
++{
++  public:
++    vec2() { _v[0] = _v[1] = 0; }
++    vec2(int x, int y) { _v[0] = x; _v[1] = y; }
++    static vec2 axis[2];
++    static vec2 axis6[6];
++  private:
++    int _v[2];
++};
++
++vec2 vec2::axis[2] = { vec2(1,0), vec2(0,1) };
++vec2 vec2::axis6[6] = { 
++  vec2(1,0), vec2(0,1),
++  vec2(2,0), vec2(0,2),
++  vec2(3,0), vec2(0,3) 
++};
++
++int main(int argc, char*argv[])
++{
++  vec2 a;
++
++  return 0;  // marker
++}
+Index: gdb-7.1/gdb/testsuite/gdb.cp/pr10687.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.1/gdb/testsuite/gdb.cp/pr10687.exp	2010-06-28 20:21:53.000000000 +0200
+@@ -0,0 +1,31 @@
++#Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++set testfile pr10687
++set srcfile ${testfile}.cc
++if [prepare_for_testing $testfile.exp $testfile $srcfile {debug c++}] {
++    return -1
++}
++
++if ![runto_main] then {
++    fail "Can't run to main"
++    return
++}
++
++gdb_breakpoint [gdb_get_line_number "marker"]
++gdb_continue_to_breakpoint "marker"
++
++gdb_test "p a" "{static axis = {{static axis = <same as static member of an already.*"
++

@@ -1,0 +1,119 @@
+Fixup pkgconfig files for broken out NSPR and NSS.  Patch from Fedora.
+
+--- mozilla/config/autoconf.mk.in.orig	2006-06-14 22:16:08.000000000 +0200
++++ mozilla/config/autoconf.mk.in	2006-07-20 11:00:13.000000000 +0200
+@@ -57,13 +57,13 @@
+ prefix		= @prefix@
+ exec_prefix	= @exec_prefix@
+ bindir		= @bindir@
+-includedir	= @includedir@/$(MOZ_APP_NAME)-$(MOZ_APP_VERSION)
++includedir	= $(mozappdir)/include
+ libdir		= @libdir@
+ datadir		= @datadir@
+ mandir		= @mandir@
+-idldir		= @datadir@/idl/$(MOZ_APP_NAME)-$(MOZ_APP_VERSION)
++idldir		= $(mozappdir)/idl
+ 
+-mozappdir	= $(libdir)/$(MOZ_APP_NAME)-$(MOZ_APP_VERSION)
++mozappdir	= $(libdir)/MozillaFirefox
+ mredir		= $(libdir)/mre/mre-$(MOZ_APP_VERSION)
+ mrelibdir	= $(mredir)/lib
+ 
+--- mozilla/build/unix/Makefile.in.orig	2005-07-07 20:24:39.000000000 +0200
++++ mozilla/build/unix/Makefile.in	2006-07-20 11:00:13.000000000 +0200
+@@ -61,6 +61,19 @@
+ NSPR_VERSION=$(shell $(DEPTH)/nsprpub/config/nspr-config --version)
+ endif
+ 
++# Hack to make sure that mozilla-nss.pc has the proper nss dependencies
++ifdef MOZ_NATIVE_NSS
++FULL_NSS_CFLAGS=$(shell $(NSS_CONFIG) --cflags)
++FULL_NSS_LIBS=$(shell $(NSS_CONFIG) --libs)
++NSS_NAME=nss
++NSS_VERSION=$(shell $(NSS_CONFIG) --version)
++else
++FULL_NSS_CFLAGS=-I$(includedir)/nss
++FULL_NSS_LIBS=-L$(mozappdir)/nss -lnss3 -lsmime3 -lssl3 -lsoftokn3
++NSS_NAME=$(MOZ_APP_NAME)-nss
++NSS_VERSION=$(MOZ_APP_VERSION)
++endif
++
+ ifdef MOZ_ENABLE_GTK
+ SUPERWIN_LIBS=-lgtksuperwin
+ endif
+@@ -83,7 +96,8 @@
+ 	-e "s|%MOZILLA_VERSION%|$(MOZ_APP_VERSION)|" \
+ 	-e "s|%DEFS%|$(_DEFS)|" \
+ 	-e "s|%FULL_NSPR_LIBS%|$(FULL_NSPR_LIBS)|" \
+-	-e "s|%FULL_NSPR_CFLAGS%|$(FULL_NSPR_CFLAGS)|" > $@
++	-e 's|%FULL_NSPR_CFLAGS%|$(FULL_NSPR_CFLAGS)|' \
++	-e 's|\(echo -L.*\)\($$\)|\1 -Wl,-R$(mozappdir)\2|' > $@
+ 
+ $(MOZ_APP_NAME)-%.pc : mozilla-%.pc.in Makefile.in Makefile $(DEPTH)/config/autoconf.mk
+ 	cat $< | sed \
+@@ -99,7 +113,12 @@
+ 	-e "s|%FULL_NSPR_LIBS%|$(FULL_NSPR_LIBS)|" \
+ 	-e "s|%FULL_NSPR_CFLAGS%|$(FULL_NSPR_CFLAGS)|" \
+ 	-e "s|%NSPR_NAME%|$(NSPR_NAME)|" \
+-	-e "s|%NSPR_VERSION%|$(NSPR_VERSION)|" > $@
++	-e "s|%NSPR_VERSION%|$(NSPR_VERSION)|" \
++	-e "s|%FULL_NSS_LIBS%|$(FULL_NSS_LIBS)|" \
++	-e "s|%FULL_NSS_CFLAGS%|$(FULL_NSS_CFLAGS)|" \
++	-e "s|%NSS_NAME%|$(NSS_NAME)|" \
++	-e "s|%NSS_VERSION%|$(NSS_VERSION)|" \
++	-e "s|\(^Libs: -L.*\)|\1 -Wl,-R\$$\{libdir}|" > $@
+ 
+ libs:: $(MOZ_APP_NAME)-config
+ 	chmod 755 $<
+--- mozilla/build/unix/mozilla-js.pc.in.orig	2006-07-20 10:58:48.000000000 +0200
++++ mozilla/build/unix/mozilla-js.pc.in	2006-07-20 11:00:13.000000000 +0200
+@@ -6,6 +6,6 @@
+ Name: JavaScript
+ Description: The Mozilla JavaScript Library
+ Version: %MOZILLA_VERSION%
+-Requires: %NSPR_NAME% >= %NSPR_VERSION%
++Requires: %MOZ_APP_NAME%-%NSPR_NAME% >= %NSPR_VERSION%
+ Libs: -L${libdir} -lmozjs
+ Cflags: -I${includedir}/js -DXP_UNIX
+--- mozilla/build/unix/mozilla-nspr.pc.in.orig	2006-07-20 10:59:11.000000000 +0200
++++ mozilla/build/unix/mozilla-nspr.pc.in	2006-07-20 11:00:13.000000000 +0200
+@@ -1,12 +1,5 @@
+-prefix=%prefix%
+-exec_prefix=%exec_prefix%
+-libdir=%libdir%
+-includedir=%includedir%
+-
+ Name: NSPR
+ Description: The Netscape Portable Runtime
+ Version: %NSPR_VERSION%
+-Libs: %FULL_NSPR_LIBS%
+-Cflags: %FULL_NSPR_CFLAGS%
+-
++Requires: %NSPR_NAME% >= %NSPR_VERSION%
+ 
+--- mozilla/build/unix/mozilla-xpcom.pc.in.orig	2006-07-20 10:59:32.000000000 +0200
++++ mozilla/build/unix/mozilla-xpcom.pc.in	2006-07-20 11:00:13.000000000 +0200
+@@ -7,6 +7,6 @@
+ Name: XPCOM
+ Description: The Mozilla Cross Platform Component Library
+ Version: %MOZILLA_VERSION%
+-Requires: %NSPR_NAME% >= %NSPR_VERSION%
++Requires: %MOZ_APP_NAME%-%NSPR_NAME% >= %NSPR_VERSION%
+ Libs: -L${libdir} -lxpcom
+ Cflags: -I${includedir} -I${includedir}/xpcom -I${includedir}/string
+--- mozilla/build/unix/mozilla-nss.pc.in.orig	2006-07-20 10:59:41.000000000 +0200
++++ mozilla/build/unix/mozilla-nss.pc.in	2006-07-20 11:00:13.000000000 +0200
+@@ -1,11 +1,4 @@
+-prefix=%prefix%
+-exec_prefix=%exec_prefix%
+-libdir=%libdir%
+-includedir=%includedir%
+-
+ Name: NSS
+ Description: Mozilla Network Security Services
+-Version: %MOZILLA_VERSION%
+-Requires: %NSPR_NAME% >= %NSPR_VERSION%
+-Libs: -L${libdir} -lnss3 -lsmime3 -lssl3 -lsoftokn3
+-Cflags: -I${includedir}/nss
++Version: %NSS_VERSION%
++Requires: %NSS_NAME% >= %NSS_VERSION%

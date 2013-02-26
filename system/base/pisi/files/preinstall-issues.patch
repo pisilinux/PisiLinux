@@ -1,0 +1,63 @@
+--- pisi/archive.py~	2011-07-15 15:19:49.000000000 +0200
++++ pisi/archive.py	2013-01-11 18:05:29.779335204 +0100
+@@ -301,6 +301,7 @@
+             if callback:
+                 callback(tarinfo, extracted=False)
+ 
++            startservices = []
+             if tarinfo.issym() and \
+                     os.path.isdir(tarinfo.name) and \
+                     not os.path.islink(tarinfo.name):
+@@ -321,9 +322,41 @@
+                                 os.remove(old_path)
+                             continue
+ 
+-                        os.renames(old_path, new_path)
+-
+-                    os.rmdir(tarinfo.name)
++                        # try as up to this time
++                        try:
++                            os.renames(old_path, new_path)
++                        except OSError, e:
++                            # something gone wrong? [Errno 18] Invalid cross-device link?
++                            # try in other way
++                            if e.errno == errno.EXDEV:
++                                if tarinfo.linkname.startswith(".."):
++                                    new_path = util.join_path(os.path.normpath(os.path.join(os.path.dirname(tarinfo.name), tarinfo.linkname)), filename)
++                                if not old_path.startswith("/"):
++                                    old_path = "/" + old_path
++                                if not new_path.startswith("/"):
++                                    new_path = "/" + new_path
++                                print "Moving:", old_path, " -> ", new_path
++                                os.system("mv -f %s %s" % (old_path, new_path))
++                            else:
++                                raise
++                    try:
++                        os.rmdir(tarinfo.name)
++                    except OSError, e:
++                        # hmmm, not empty dir? try rename it adding .old extension.
++                        if e.errno == errno.ENOTEMPTY:
++                            # if directory with dbus/pid file was moved we have to restart dbus
++                            for (path, dirs, files) in os.walk(tarinfo.name):
++                                if path.endswith("dbus") and "pid" in files:
++                                    startservices.append("dbus")
++                                    for service in ("NetworkManager", "connman", "wicd"):
++                                        if os.path.isfile("/etc/mudur/services/enabled/%s" % service):
++                                            startservices.append(service)
++                                            os.system("service % stop" % service)
++                                    os.system("service dbus stop")
++                                    break
++                            os.system("mv -f %s %s.old" % (tarinfo.name, tarinfo.name))
++                        else:
++                            raise
+ 
+                 elif not os.path.lexists(tarinfo.linkname):
+                     # Symlink target does not exist. Assume the old
+@@ -342,6 +375,7 @@
+ 
+             try:
+                 self.tar.extract(tarinfo)
++                for service in startservices: os.system("service %s start" % service)
+             except OSError, e:
+                 # Handle the case where an upper directory cannot
+                 # be created because of a conflict with an existing

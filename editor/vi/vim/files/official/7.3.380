@@ -1,0 +1,318 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.380
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.380
+Problem:    C-indenting wrong for a function header.
+Solution:   Skip to the start paren. (Lech Lorens)
+Files:	    src/misc1.c, src/testdir/test3.in, src/testdir/test3.ok
+
+
+*** ../vim-7.3.379/src/misc1.c	2011-12-14 20:05:17.000000000 +0100
+--- src/misc1.c	2011-12-14 20:16:43.000000000 +0100
+***************
+*** 4943,4949 ****
+  static int	cin_islinecomment __ARGS((char_u *));
+  static int	cin_isterminated __ARGS((char_u *, int, int));
+  static int	cin_isinit __ARGS((void));
+! static int	cin_isfuncdecl __ARGS((char_u **, linenr_T));
+  static int	cin_isif __ARGS((char_u *));
+  static int	cin_iselse __ARGS((char_u *));
+  static int	cin_isdo __ARGS((char_u *));
+--- 4943,4949 ----
+  static int	cin_islinecomment __ARGS((char_u *));
+  static int	cin_isterminated __ARGS((char_u *, int, int));
+  static int	cin_isinit __ARGS((void));
+! static int	cin_isfuncdecl __ARGS((char_u **, linenr_T, linenr_T, int, int));
+  static int	cin_isif __ARGS((char_u *));
+  static int	cin_iselse __ARGS((char_u *));
+  static int	cin_isdo __ARGS((char_u *));
+***************
+*** 5585,5605 ****
+   * "sp" points to a string with the line.  When looking at other lines it must
+   * be restored to the line.  When it's NULL fetch lines here.
+   * "lnum" is where we start looking.
+   */
+      static int
+! cin_isfuncdecl(sp, first_lnum)
+      char_u	**sp;
+      linenr_T	first_lnum;
+  {
+      char_u	*s;
+      linenr_T	lnum = first_lnum;
+      int		retval = FALSE;
+  
+      if (sp == NULL)
+  	s = ml_get(lnum);
+      else
+  	s = *sp;
+  
+      /* Ignore line starting with #. */
+      if (cin_ispreproc(s))
+  	return FALSE;
+--- 5585,5621 ----
+   * "sp" points to a string with the line.  When looking at other lines it must
+   * be restored to the line.  When it's NULL fetch lines here.
+   * "lnum" is where we start looking.
++  * "min_lnum" is the line before which we will not be looking.
+   */
+      static int
+! cin_isfuncdecl(sp, first_lnum, min_lnum, ind_maxparen, ind_maxcomment)
+      char_u	**sp;
+      linenr_T	first_lnum;
++     linenr_T	min_lnum;
++     int		ind_maxparen;
++     int		ind_maxcomment;
+  {
+      char_u	*s;
+      linenr_T	lnum = first_lnum;
+      int		retval = FALSE;
++     pos_T	*trypos;
++     int		just_started = TRUE;
+  
+      if (sp == NULL)
+  	s = ml_get(lnum);
+      else
+  	s = *sp;
+  
++     if (find_last_paren(s, '(', ')')
++ 	&& (trypos = find_match_paren(ind_maxparen, ind_maxcomment)) != NULL)
++     {
++ 	lnum = trypos->lnum;
++ 	if (lnum < min_lnum)
++ 	    return FALSE;
++ 
++ 	s = ml_get(lnum);
++     }
++ 
+      /* Ignore line starting with #. */
+      if (cin_ispreproc(s))
+  	return FALSE;
+***************
+*** 5650,5662 ****
+  	    /* Require a comma at end of the line or a comma or ')' at the
+  	     * start of next line. */
+  	    s = skipwhite(s);
+! 	    if (!comma && *s != ',' && *s != ')')
+  		break;
+  	}
+  	else if (cin_iscomment(s))	/* ignore comments */
+  	    s = cin_skipcomment(s);
+  	else
+  	    ++s;
+      }
+  
+  done:
+--- 5666,5682 ----
+  	    /* Require a comma at end of the line or a comma or ')' at the
+  	     * start of next line. */
+  	    s = skipwhite(s);
+! 	    if (!just_started && (!comma && *s != ',' && *s != ')'))
+  		break;
++ 	    just_started = FALSE;
+  	}
+  	else if (cin_iscomment(s))	/* ignore comments */
+  	    s = cin_skipcomment(s);
+  	else
++ 	{
+  	    ++s;
++ 	    just_started = FALSE;
++ 	}
+      }
+  
+  done:
+***************
+*** 7158,7164 ****
+  			 * (it's a variable declaration).
+  			 */
+  			if (start_brace != BRACE_IN_COL0
+! 				|| !cin_isfuncdecl(&l, curwin->w_cursor.lnum))
+  			{
+  			    /* if the line is terminated with another ','
+  			     * it is a continued variable initialization.
+--- 7178,7185 ----
+  			 * (it's a variable declaration).
+  			 */
+  			if (start_brace != BRACE_IN_COL0
+! 				|| !cin_isfuncdecl(&l, curwin->w_cursor.lnum,
+! 					     0, ind_maxparen, ind_maxcomment))
+  			{
+  			    /* if the line is terminated with another ','
+  			     * it is a continued variable initialization.
+***************
+*** 8019,8025 ****
+  		&& vim_strchr(theline, '}') == NULL
+  		&& !cin_ends_in(theline, (char_u *)":", NULL)
+  		&& !cin_ends_in(theline, (char_u *)",", NULL)
+! 		&& cin_isfuncdecl(NULL, cur_curpos.lnum + 1)
+  		&& !cin_isterminated(theline, FALSE, TRUE))
+  	{
+  	    amount = ind_func_type;
+--- 8040,8048 ----
+  		&& vim_strchr(theline, '}') == NULL
+  		&& !cin_ends_in(theline, (char_u *)":", NULL)
+  		&& !cin_ends_in(theline, (char_u *)",", NULL)
+! 		&& cin_isfuncdecl(NULL, cur_curpos.lnum + 1,
+! 				  cur_curpos.lnum + 1,
+! 				  ind_maxparen, ind_maxcomment)
+  		&& !cin_isterminated(theline, FALSE, TRUE))
+  	{
+  	    amount = ind_func_type;
+***************
+*** 8125,8131 ****
+  		 * If the line looks like a function declaration, and we're
+  		 * not in a comment, put it the left margin.
+  		 */
+! 		if (cin_isfuncdecl(NULL, cur_curpos.lnum))  /* XXX */
+  		    break;
+  		l = ml_get_curline();
+  
+--- 8148,8155 ----
+  		 * If the line looks like a function declaration, and we're
+  		 * not in a comment, put it the left margin.
+  		 */
+! 		if (cin_isfuncdecl(NULL, cur_curpos.lnum, 0,
+! 				   ind_maxparen, ind_maxcomment))  /* XXX */
+  		    break;
+  		l = ml_get_curline();
+  
+***************
+*** 8173,8179 ****
+  		 * line (and the ones that follow) needs to be indented as
+  		 * parameters.
+  		 */
+! 		if (cin_isfuncdecl(&l, curwin->w_cursor.lnum))
+  		{
+  		    amount = ind_param;
+  		    break;
+--- 8197,8204 ----
+  		 * line (and the ones that follow) needs to be indented as
+  		 * parameters.
+  		 */
+! 		if (cin_isfuncdecl(&l, curwin->w_cursor.lnum, 0,
+! 				   ind_maxparen, ind_maxcomment))
+  		{
+  		    amount = ind_param;
+  		    break;
+*** ../vim-7.3.379/src/testdir/test3.in	2011-12-14 20:05:17.000000000 +0100
+--- src/testdir/test3.in	2011-12-14 20:11:24.000000000 +0100
+***************
+*** 1429,1435 ****
+  
+  STARTTEST
+  :set cino&
+! 2kdd=4][
+  ENDTEST
+  
+  void func(void)
+--- 1429,1435 ----
+  
+  STARTTEST
+  :set cino&
+! 2kdd=7][
+  ENDTEST
+  
+  void func(void)
+***************
+*** 1478,1484 ****
+  	3, 4,
+  	5, 6};
+  
+! printf("Don't you dare indent this line incorrectly!\n);
+  }
+  
+  STARTTEST
+--- 1478,1506 ----
+  	3, 4,
+  	5, 6};
+  
+! printf("Don't you dare indent this line incorrectly!\n");
+! }
+! 
+! void
+! func4(a, b,
+! 		c)
+! int a;
+! int b;
+! int c;
+! {
+! }
+! 
+! void
+! func5(
+! 		int a,
+! 		int b)
+! {
+! }
+! 
+! void
+! func6(
+! 		int a)
+! {
+  }
+  
+  STARTTEST
+*** ../vim-7.3.379/src/testdir/test3.ok	2011-12-14 20:05:17.000000000 +0100
+--- src/testdir/test3.ok	2011-12-14 20:11:24.000000000 +0100
+***************
+*** 1331,1337 ****
+  		3, 4,
+  		5, 6};
+  
+! 	printf("Don't you dare indent this line incorrectly!\n);
+  }
+  
+  
+--- 1331,1359 ----
+  		3, 4,
+  		5, 6};
+  
+! 	printf("Don't you dare indent this line incorrectly!\n");
+! }
+! 
+! 	void
+! func4(a, b,
+! 		c)
+! 	int a;
+! 	int b;
+! 	int c;
+! {
+! }
+! 
+! 	void
+! func5(
+! 		int a,
+! 		int b)
+! {
+! }
+! 
+! 	void
+! func6(
+! 		int a)
+! {
+  }
+  
+  
+*** ../vim-7.3.379/src/version.c	2011-12-14 20:05:17.000000000 +0100
+--- src/version.c	2011-12-14 20:20:50.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     380,
+  /**/
+
+-- 
+"Intelligence has much less practical application than you'd think."
+		  -- Scott Adams, Dilbert.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

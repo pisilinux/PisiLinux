@@ -1,0 +1,112 @@
+the goal of the patch is to fix the following problem:
+
+"Dan Nicholson" <dbn.lists@gmail.com> writes:
+
+[...]
+
+> And now I've come upon this old thread:
+>
+> http://rpm5.org/community/rpm-devel/1554.html
+>
+> This is definitely the problem. When --as-needed is used, libc is
+> bound first to tmire, causing regcomp and friends to be resolved
+> through libc rather than libpcreposix.
+
+the symbol conflict is a mess. pcreposix better be fixed
+(http://rpm5.org/community/rpm-devel/1562.html)
+
+it's hard to beat libc... here is what happens:
+
+% echo 'int f() { regcomp(); }' > liba.c
+% gcc -shared -o liba.so liba.c -lpcreposix 
+% ldd liba.so
+        libpcreposix.so.0 => /usr/lib/libpcreposix.so.0 (0xb7f76000)
+        libc.so.6 => /lib/i686/libc.so.6 (0xb7e28000)
+        libpcre.so.0 => /lib/libpcre.so.0 (0xb7e00000)
+% gcc -shared -o liba_.so liba.so
+% LD_LIBRARY_PATH=`pwd` ldd liba_.so
+        liba.so => /tmp/liba.so (0xb7f44000)
+        libc.so.6 => /lib/i686/libc.so.6 (0xb7de2000)
+        libpcreposix.so.0 => /usr/lib/libpcreposix.so.0 (0xb7de0000)
+        libpcre.so.0 => /lib/libpcre.so.0 (0xb7db8000)
+
+one can see -lc has been added. confirmed by:
+
+% gcc -nostdlib -shared -o liba_.so liba.so
+% LD_LIBRARY_PATH=`pwd` ldd liba_.so
+        liba.so => /tmp/liba.so (0xb7f19000)
+        libpcreposix.so.0 => /usr/lib/libpcreposix.so.0 (0xb7f03000)
+        libc.so.6 => /lib/i686/libc.so.6 (0xb7db5000)
+        libpcre.so.0 => /lib/libpcre.so.0 (0xb7d8d000)
+
+but using -nostdlib is harder when building a binary... hence the need
+to force -lpcreposix at each linking steps:
+
+% gcc -shared -o liba_.so liba.so -lpcreposix
+% LD_LIBRARY_PATH=`pwd` ldd liba_.so
+        liba.so => /tmp/liba.so (0xb7f9f000)
+        libpcreposix.so.0 => /usr/lib/libpcreposix.so.0 (0xb7f89000)
+        libc.so.6 => /lib/i686/libc.so.6 (0xb7e3b000)
+        libpcre.so.0 => /lib/libpcre.so.0 (0xb7e13000)
+
+
+which defeats the idea of DSO which should handle their deps themselves.
+and such hacks do not play well with --as-needed:
+
+export LD_LIBRARY_PATH=/tmp
+cd /tmp
+echo 'int f() { printf("fa "); }' > liba.c
+echo 'int f() { printf("fb "); }' > libb.c
+echo 'int g() { }' >> libb.c
+echo 'int h() { f(); g(); }' > libx.c
+echo 'main()  { h(); g(); printf("\n"); }' > t.c
+gcc -o liba.so -shared liba.c
+gcc -o libb.so -shared libb.c
+gcc -o libx.so -shared libx.c -L. -la -lb
+gcc                 t.c -L. -lx    ; ./a.out # fb
+gcc                 t.c -L. -lx -la; ./a.out # fa
+gcc -Wl,--as-needed t.c -L. -lx -la; ./a.out # fb
+
+
+i wonder if ld could have a warning to detect about multiple symbols
+in DSO and so tell about possible issues with --as-needed.
+
+diff -Naurp pcre-8.31/configure.ac pcre-8.31.oden/configure.ac
+--- pcre-8.31/configure.ac	2012-07-06 11:01:42.000000000 +0200
++++ pcre-8.31.oden/configure.ac	2012-07-09 11:22:03.000000000 +0200
+@@ -19,7 +19,7 @@ m4_define(pcre_date, [2012-07-06])
+ m4_define(libpcre_version, [3:0:2])
+ m4_define(libpcre16_version, [2:0:2])
+ m4_define(libpcre32_version, [0:0:0])
+-m4_define(libpcreposix_version, [0:1:0])
++m4_define(libpcreposix_version, [1:0:0])
+ m4_define(libpcrecpp_version, [0:0:0])
+ 
+ AC_PREREQ(2.57)
+diff -Naurp pcre-8.31/pcreposix.h pcre-8.31.oden/pcreposix.h
+--- pcre-8.31/pcreposix.h	2012-07-09 11:22:23.000000000 +0200
++++ pcre-8.31.oden/pcreposix.h	2012-07-09 11:21:24.000000000 +0200
+@@ -133,14 +133,19 @@ file. */
+ 
+ /* The functions */
+ 
+-PCREPOSIX_EXP_DECL int regcomp(regex_t *, const char *, int);
+-PCREPOSIX_EXP_DECL int regexec(const regex_t *, const char *, size_t,
++PCREPOSIX_EXP_DECL int pcreposix_regcomp(regex_t *, const char *, int);
++PCREPOSIX_EXP_DECL int pcreposix_regexec(const regex_t *, const char *, size_t,
+                      regmatch_t *, int);
+-PCREPOSIX_EXP_DECL size_t regerror(int, const regex_t *, char *, size_t);
+-PCREPOSIX_EXP_DECL void regfree(regex_t *);
++PCREPOSIX_EXP_DECL size_t pcreposix_regerror(int, const regex_t *, char *, size_t);
++PCREPOSIX_EXP_DECL void pcreposix_regfree(regex_t *);
+ 
+ #ifdef __cplusplus
+ }   /* extern "C" */
+ #endif
+ 
++#define regcomp pcreposix_regcomp
++#define regexec pcreposix_regexec
++#define regerror pcreposix_regerror
++#define regfree pcreposix_regfree
++
+ #endif /* End of pcreposix.h */

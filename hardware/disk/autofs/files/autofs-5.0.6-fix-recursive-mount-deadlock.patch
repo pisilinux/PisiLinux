@@ -1,0 +1,38 @@
+--- a/daemon/direct.c
++++ b/daemon/direct.c
+@@ -1285,6 +1285,8 @@ int handle_packet_missing_direct(struct autofs_point *ap, autofs_packet_missing_
+ 	struct timespec wait;
+ 	struct timeval now;
+ 	int ioctlfd, len, state;
++	unsigned int kver_major = get_kver_major();
++	unsigned int kver_minor = get_kver_minor();
+ 
+ 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &state);
+ 
+@@ -1297,8 +1299,16 @@ int handle_packet_missing_direct(struct autofs_point *ap, autofs_packet_missing_
+ 	 * cache entry we will not be able to find the mapent. So
+ 	 * we must take the source writelock to ensure the parent
+ 	 * has mount is complete before we look for the entry.
++	 *
++	 * Since the vfs-automount kernel changes we can now block
++	 * on covered mounts during mount tree construction so a
++	 * write lock is no longer needed. So we now can handle a
++	 * wider class of recursively define mount lookups.
+ 	 */
+-	master_source_writelock(ap->entry);
++	if (kver_major > 5 || (kver_major == 5 && kver_minor > 1))
++		master_source_readlock(ap->entry);
++	else
++		master_source_writelock(ap->entry);
+ 	map = ap->entry->maps;
+ 	while (map) {
+ 		/*
+@@ -1311,7 +1321,7 @@ int handle_packet_missing_direct(struct autofs_point *ap, autofs_packet_missing_
+ 		}
+ 
+ 		mc = map->mc;
+-		cache_writelock(mc);
++		cache_readlock(mc);
+ 		me = cache_lookup_ino(mc, pkt->dev, pkt->ino);
+ 		if (me)
+ 			break;

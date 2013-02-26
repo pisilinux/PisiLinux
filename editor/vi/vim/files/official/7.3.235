@@ -1,0 +1,360 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.235
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.235
+Problem:    ";" gets stuck on a "t" command, it's not useful.
+Solution:   Add the ';' flag in 'cpo'. (Christian Brabandt)
+Files:      runtime/doc/motion.txt, runtime/doc/options.txt, src/option.h,
+            src/search.c src/testdir/test81.in, src/testdir/test81.ok,
+            src/testdir/Makefile, src/testdir/Make_amiga.mak,
+            src/testdir/Make_dos.mak, src/testdir/Make_ming.mak,
+            src/testdir/Make_os2.mak, src/testdir/Make_vms.mms
+
+
+*** ../vim-7.3.234/runtime/doc/motion.txt	2010-08-15 21:57:17.000000000 +0200
+--- runtime/doc/motion.txt	2011-06-26 05:15:58.000000000 +0200
+***************
+*** 269,279 ****
+  			{char} can be entered like with the |f| command.
+  
+  							*;*
+! ;			Repeat latest f, t, F or T [count] times.
+  
+  							*,*
+  ,			Repeat latest f, t, F or T in opposite direction
+! 			[count] times.
+  
+  ==============================================================================
+  3. Up-down motions					*up-down-motions*
+--- 269,279 ----
+  			{char} can be entered like with the |f| command.
+  
+  							*;*
+! ;			Repeat latest f, t, F or T [count] times. See |cpo-;|
+  
+  							*,*
+  ,			Repeat latest f, t, F or T in opposite direction
+! 			[count] times. See also |cpo-;|
+  
+  ==============================================================================
+  3. Up-down motions					*up-down-motions*
+*** ../vim-7.3.234/runtime/doc/options.txt	2011-06-12 20:42:17.000000000 +0200
+--- runtime/doc/options.txt	2011-06-26 05:15:58.000000000 +0200
+***************
+*** 2090,2095 ****
+--- 2117,2128 ----
+  								*cpo->*
+  		>	When appending to a register, put a line break before
+  			the appended text.
++ 								*cpo-;*
++ 		;	When using |,| or |;| to repeat the last |t| search
++ 			and the cursor is right in front of the searched
++ 			character, the cursor won't move. When not included,
++ 			the cursor would skip over it and jump to the
++ 			following occurence.
+  
+  	POSIX flags.  These are not included in the Vi default value, except
+  	when $VIM_POSIX was set on startup. |posix|
+*** ../vim-7.3.234/src/option.h	2011-06-12 22:13:37.000000000 +0200
+--- src/option.h	2011-06-26 05:17:58.000000000 +0200
+***************
+*** 169,178 ****
+  #define CPO_SUBPERCENT	'/'	/* % in :s string uses previous one */
+  #define CPO_BACKSL	'\\'	/* \ is not special in [] */
+  #define CPO_CHDIR	'.'	/* don't chdir if buffer is modified */
+  /* default values for Vim, Vi and POSIX */
+  #define CPO_VIM		"aABceFs"
+! #define CPO_VI		"aAbBcCdDeEfFgHiIjJkKlLmMnoOpPqrRsStuvwWxXyZ$!%*-+<>"
+! #define CPO_ALL		"aAbBcCdDeEfFgHiIjJkKlLmMnoOpPqrRsStuvwWxXyZ$!%*-+<>#{|&/\\."
+  
+  /* characters for p_ww option: */
+  #define WW_ALL		"bshl<>[],~"
+--- 169,180 ----
+  #define CPO_SUBPERCENT	'/'	/* % in :s string uses previous one */
+  #define CPO_BACKSL	'\\'	/* \ is not special in [] */
+  #define CPO_CHDIR	'.'	/* don't chdir if buffer is modified */
++ #define CPO_SCOLON	';'	/* using "," and ";" will skip over char if
++ 				 * cursor would not move */
+  /* default values for Vim, Vi and POSIX */
+  #define CPO_VIM		"aABceFs"
+! #define CPO_VI		"aAbBcCdDeEfFgHiIjJkKlLmMnoOpPqrRsStuvwWxXyZ$!%*-+<>;"
+! #define CPO_ALL		"aAbBcCdDeEfFgHiIjJkKlLmMnoOpPqrRsStuvwWxXyZ$!%*-+<>#{|&/\\.;"
+  
+  /* characters for p_ww option: */
+  #define WW_ALL		"bshl<>[],~"
+*** ../vim-7.3.234/src/search.c	2011-05-10 16:41:13.000000000 +0200
+--- src/search.c	2011-06-26 05:20:45.000000000 +0200
+***************
+*** 1546,1551 ****
+--- 1546,1552 ----
+      int			col;
+      char_u		*p;
+      int			len;
++     int			stop = TRUE;
+  #ifdef FEAT_MBYTE
+      static char_u	bytes[MB_MAXBYTES];
+      static int		bytelen = 1;	/* >1 for multi-byte char */
+***************
+*** 1580,1585 ****
+--- 1581,1592 ----
+  	t_cmd = last_t_cmd;
+  	c = lastc;
+  	/* For multi-byte re-use last bytes[] and bytelen. */
++ 
++ 	/* Force a move of at least one char, so ";" and "," will move the
++ 	 * cursor, even if the cursor is right in front of char we are looking
++ 	 * at. */
++ 	if (vim_strchr(p_cpo, CPO_SCOLON) == NULL && count == 1)
++ 	    stop = FALSE;
+      }
+  
+      if (dir == BACKWARD)
+***************
+*** 1612,1625 ****
+  		}
+  		if (bytelen == 1)
+  		{
+! 		    if (p[col] == c)
+  			break;
+  		}
+  		else
+  		{
+! 		    if (vim_memcmp(p + col, bytes, bytelen) == 0)
+  			break;
+  		}
+  	    }
+  	}
+  	else
+--- 1619,1633 ----
+  		}
+  		if (bytelen == 1)
+  		{
+! 		    if (p[col] == c && stop)
+  			break;
+  		}
+  		else
+  		{
+! 		    if (vim_memcmp(p + col, bytes, bytelen) == 0 && stop)
+  			break;
+  		}
++ 		stop = TRUE;
+  	    }
+  	}
+  	else
+***************
+*** 1629,1636 ****
+  	    {
+  		if ((col += dir) < 0 || col >= len)
+  		    return FAIL;
+! 		if (p[col] == c)
+  		    break;
+  	    }
+  	}
+      }
+--- 1637,1645 ----
+  	    {
+  		if ((col += dir) < 0 || col >= len)
+  		    return FAIL;
+! 		if (p[col] == c && stop)
+  		    break;
++ 		stop = TRUE;
+  	    }
+  	}
+      }
+*** ../vim-7.3.234/src/testdir/test81.in	2011-06-26 05:34:33.000000000 +0200
+--- src/testdir/test81.in	2011-06-26 05:30:31.000000000 +0200
+***************
+*** 0 ****
+--- 1,18 ----
++ Test for t movement command and 'cpo-;' setting
++ 
++ STARTTEST
++ :set nocompatible
++ :set cpo-=;
++ /firstline/
++ j0tt;D
++ $Ty;D:set cpo+=;
++ j0tt;;D
++ $Ty;;D:?firstline?+1,$w! test.out
++ :qa!
++ ENDTEST
++ 
++ firstline
++ aaa two three four
++ bbb yee yoo four
++ ccc two three four
++ ddd yee yoo four
+*** ../vim-7.3.234/src/testdir/test81.ok	2011-06-26 05:34:33.000000000 +0200
+--- src/testdir/test81.ok	2011-06-26 05:31:33.000000000 +0200
+***************
+*** 0 ****
+--- 1,4 ----
++ aaa two
++ bbb y
++ ccc
++ ddd yee y
+*** ../vim-7.3.234/src/testdir/Makefile	2011-06-19 04:31:54.000000000 +0200
+--- src/testdir/Makefile	2011-06-26 05:09:56.000000000 +0200
+***************
+*** 26,32 ****
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 26,32 ----
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out
+  
+  SCRIPTS_GUI = test16.out
+  
+*** ../vim-7.3.234/src/testdir/Make_amiga.mak	2011-06-19 04:31:54.000000000 +0200
+--- src/testdir/Make_amiga.mak	2011-06-26 05:09:07.000000000 +0200
+***************
+*** 28,34 ****
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out test78.out test79.out test80.out
+  
+  .SUFFIXES: .in .out
+  
+--- 28,35 ----
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 128,130 ****
+--- 129,132 ----
+  test78.out: test78.in
+  test79.out: test79.in
+  test80.out: test80.in
++ test81.out: test81.in
+*** ../vim-7.3.234/src/testdir/Make_dos.mak	2011-06-19 04:31:54.000000000 +0200
+--- src/testdir/Make_dos.mak	2011-06-26 05:09:16.000000000 +0200
+***************
+*** 29,35 ****
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 29,35 ----
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.234/src/testdir/Make_ming.mak	2011-06-19 04:31:54.000000000 +0200
+--- src/testdir/Make_ming.mak	2011-06-26 05:09:24.000000000 +0200
+***************
+*** 49,55 ****
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 49,55 ----
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.234/src/testdir/Make_os2.mak	2011-06-19 04:31:54.000000000 +0200
+--- src/testdir/Make_os2.mak	2011-06-26 05:09:33.000000000 +0200
+***************
+*** 28,34 ****
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out test78.out test79.out test80.out
+  
+  .SUFFIXES: .in .out
+  
+--- 28,35 ----
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../vim-7.3.234/src/testdir/Make_vms.mms	2011-06-19 04:31:54.000000000 +0200
+--- src/testdir/Make_vms.mms	2011-06-26 05:09:42.000000000 +0200
+***************
+*** 4,10 ****
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2011 Jun 19
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+--- 4,10 ----
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2011 Jun 26
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+***************
+*** 75,81 ****
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+! 	 test77.out test78.out test79.out test80.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+--- 75,81 ----
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+! 	 test77.out test78.out test79.out test80.out test81.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+*** ../vim-7.3.234/src/version.c	2011-06-26 04:48:56.000000000 +0200
+--- src/version.c	2011-06-26 05:33:53.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     235,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+226. You sit down at the computer right after dinner and your spouse
+     says "See you in the morning."
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

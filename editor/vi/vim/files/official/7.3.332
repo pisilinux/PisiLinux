@@ -1,0 +1,206 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.332
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.332 (after 7.3.202)
+Problem:    Indent after "public:" is not increased in C++ code. (Lech Lorens)
+Solution:   Check for namespace after the regular checks. (partly by Martin
+	    Gieseking)
+Files:	    src/misc1.c, src/testdir/test3.in, src/testdir/test3.ok
+
+
+*** ../vim-7.3.331/src/misc1.c	2011-09-07 19:58:04.000000000 +0200
+--- src/misc1.c	2011-10-04 17:59:52.000000000 +0200
+***************
+*** 6389,6394 ****
+--- 6389,6395 ----
+      int		lookfor_cpp_namespace = FALSE;
+      int		cont_amount = 0;    /* amount for continuation line */
+      int		original_line_islabel;
++     int		added_to_amount = 0;
+  
+      for (options = curbuf->b_p_cino; *options; )
+      {
+***************
+*** 7216,7267 ****
+  			else
+  			    amount += ind_continuation;
+  		    }
+! 		    else if (lookfor_cpp_namespace)
+  		    {
+! 			if (curwin->w_cursor.lnum == ourscope)
+! 			    continue;
+  
+! 			if (curwin->w_cursor.lnum == 0
+! 				|| curwin->w_cursor.lnum
+  					      < ourscope - FIND_NAMESPACE_LIM)
+! 			    break;
+  
+! 			l = ml_get_curline();
+  
+! 			/*
+! 			 * If we're in a comment now, skip to the start of the
+! 			 * comment.
+! 			 */
+! 			trypos = find_start_comment(ind_maxcomment);
+! 			if (trypos != NULL)
+! 			{
+! 			    curwin->w_cursor.lnum = trypos->lnum + 1;
+! 			    curwin->w_cursor.col = 0;
+! 			    continue;
+! 			}
+! 
+! 			/*
+! 			 * Skip preprocessor directives and blank lines.
+! 			 */
+! 			if (cin_ispreproc_cont(&l, &curwin->w_cursor.lnum))
+! 			    continue;
+  
+! 			if (cin_is_cpp_namespace(l))
+! 			{
+! 			    amount += ind_cpp_namespace;
+! 			    break;
+! 			}
+  
+! 			if (cin_nocode(l))
+! 			    continue;
+  
+! 		    }
+! 		    else if (lookfor != LOOKFOR_TERM
+! 					  && lookfor != LOOKFOR_CPP_BASECLASS)
+! 		    {
+! 			amount = scope_amount;
+! 			if (theline[0] == '{')
+! 			    amount += ind_open_extra;
+  		    }
+  		    break;
+  		}
+--- 7217,7275 ----
+  			else
+  			    amount += ind_continuation;
+  		    }
+! 		    else
+  		    {
+! 			if (lookfor != LOOKFOR_TERM
+! 					  && lookfor != LOOKFOR_CPP_BASECLASS)
+! 			{
+! 			    amount = scope_amount;
+! 			    if (theline[0] == '{')
+! 			    {
+! 				amount += ind_open_extra;
+! 				added_to_amount = ind_open_extra;
+! 			    }
+! 			}
+  
+! 			if (lookfor_cpp_namespace)
+! 			{
+! 			    /*
+! 			     * Looking for C++ namespace, need to look further
+! 			     * back.
+! 			     */
+! 			    if (curwin->w_cursor.lnum == ourscope)
+! 				continue;
+! 
+! 			    if (curwin->w_cursor.lnum == 0
+! 				    || curwin->w_cursor.lnum
+  					      < ourscope - FIND_NAMESPACE_LIM)
+! 				break;
+  
+! 			    l = ml_get_curline();
+  
+! 			    /* If we're in a comment now, skip to the start of
+! 			     * the comment. */
+! 			    trypos = find_start_comment(ind_maxcomment);
+! 			    if (trypos != NULL)
+! 			    {
+! 				curwin->w_cursor.lnum = trypos->lnum + 1;
+! 				curwin->w_cursor.col = 0;
+! 				continue;
+! 			    }
+  
+! 			    /* Skip preprocessor directives and blank lines. */
+! 			    if (cin_ispreproc_cont(&l, &curwin->w_cursor.lnum))
+! 				continue;
+  
+! 			    /* Finally the actual check for "namespace". */
+! 			    if (cin_is_cpp_namespace(l))
+! 			    {
+! 				amount += ind_cpp_namespace - added_to_amount;
+! 				break;
+! 			    }
+  
+! 			    if (cin_nocode(l))
+! 				continue;
+! 			}
+  		    }
+  		    break;
+  		}
+*** ../vim-7.3.331/src/testdir/test3.in	2011-07-20 15:09:38.000000000 +0200
+--- src/testdir/test3.in	2011-10-04 17:45:20.000000000 +0200
+***************
+*** 1309,1314 ****
+--- 1309,1328 ----
+  };
+  
+  STARTTEST
++ :set cino=(0,gs,hs
++ 2kdd]]=][
++ ENDTEST
++ 
++ class Foo : public Bar
++ {
++ public:
++ virtual void method1(void) = 0;
++ virtual void method2(int arg1,
++ int arg2,
++ int arg3) = 0;
++ };
++ 
++ STARTTEST
+  :set cino=+20
+  2kdd]]=][
+  ENDTEST
+*** ../vim-7.3.331/src/testdir/test3.ok	2011-07-20 15:09:38.000000000 +0200
+--- src/testdir/test3.ok	2011-10-04 17:47:25.000000000 +0200
+***************
+*** 1190,1195 ****
+--- 1190,1205 ----
+  };
+  
+  
++ class Foo : public Bar
++ {
++ 	public:
++ 		virtual void method1(void) = 0;
++ 		virtual void method2(int arg1,
++ 							 int arg2,
++ 							 int arg3) = 0;
++ };
++ 
++ 
+  	void
+  foo()
+  {
+*** ../vim-7.3.331/src/version.c	2011-10-04 17:00:13.000000000 +0200
+--- src/version.c	2011-10-04 18:02:17.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     332,
+  /**/
+
+-- 
+Latest survey shows that 3 out of 4 people make up 75% of the
+world's population.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

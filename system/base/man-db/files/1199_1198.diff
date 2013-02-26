@@ -1,0 +1,102 @@
+--- lib/pipeline.c	2010-02-01 20:19:39 +0000
++++ lib/pipeline.c	2010-03-02 10:10:31 +0000
+@@ -329,6 +329,25 @@
+ 	return cmd;
+ }
+ 
++static void passthrough (void *data ATTRIBUTE_UNUSED)
++{
++	for (;;) {
++		char buffer[4096];
++		int r = read (STDIN_FILENO, buffer, 4096);
++		if (r <= 0)
++			break;
++		if (fwrite (buffer, 1, (size_t) r, stdout) < (size_t) r)
++			break;
++	}
++
++	return;
++}
++
++command *command_new_passthrough (void)
++{
++	return command_new_function ("cat", &passthrough, NULL, NULL);
++}
++
+ command *command_dup (command *cmd)
+ {
+ 	command *newcmd = XMALLOC (command);
+@@ -831,20 +850,6 @@
+ 	return p;
+ }
+ 
+-static void passthrough (void *data ATTRIBUTE_UNUSED)
+-{
+-	for (;;) {
+-		char buffer[4096];
+-		int r = read (STDIN_FILENO, buffer, 4096);
+-		if (r <= 0)
+-			break;
+-		if (fwrite (buffer, 1, (size_t) r, stdout) < (size_t) r)
+-			break;
+-	}
+-
+-	return;
+-}
+-
+ void pipeline_connect (pipeline *source, pipeline *sink, ...)
+ {
+ 	va_list argv;
+@@ -876,11 +881,8 @@
+ 		 * because it has nowhere to send output. Until this is
+ 		 * fixed, this kludge is necessary.
+ 		 */
+-		if (arg->ncommands == 0) {
+-			command *cmd = command_new_function
+-				("cat", &passthrough, NULL, NULL);
+-			pipeline_command (arg, cmd);
+-		}
++		if (arg->ncommands == 0)
++			pipeline_command (arg, command_new_passthrough ());
+ 	}
+ 	va_end (argv);
+ }
+
+=== modified file 'lib/pipeline.h'
+--- lib/pipeline.h	2009-08-23 16:35:21 +0000
++++ lib/pipeline.h	2010-03-02 10:10:31 +0000
+@@ -172,6 +172,9 @@
+  */
+ command *command_new_sequence (const char *name, ...) ATTRIBUTE_SENTINEL;
+ 
++/* Return a new command that just passes data from its input to its output. */
++command *command_new_passthrough (void);
++
+ /* Return a duplicate of a command. */
+ command *command_dup (command *cmd);
+ 
+
+=== modified file 'src/man.c'
+--- src/man.c	2010-02-18 01:39:15 +0000
++++ src/man.c	2010-03-02 10:10:31 +0000
+@@ -2400,9 +2400,16 @@
+ #endif /* TROFF_IS_GROFF */
+ 
+ 		if (seq->u.sequence.ncommands) {
+-			assert (decomp->ncommands == 1);
+-			command_sequence_command (seq, decomp->commands[0]);
+-			decomp->commands[0] = seq;
++			assert (decomp->ncommands <= 1);
++			if (decomp->ncommands) {
++				command_sequence_command
++					(seq, decomp->commands[0]);
++				decomp->commands[0] = seq;
++			} else {
++				command_sequence_command
++					(seq, command_new_passthrough ());
++				pipeline_command (decomp, seq);
++			}
+ 		} else
+ 			command_free (seq);
+ 	}
+

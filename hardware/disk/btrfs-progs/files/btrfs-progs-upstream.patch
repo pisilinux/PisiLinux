@@ -1,0 +1,3752 @@
+diff --git a/Makefile b/Makefile
+index 8097b5a..525676e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -4,7 +4,7 @@ CFLAGS = -g -Werror -Os
+ objects = ctree.o disk-io.o radix-tree.o extent-tree.o print-tree.o \
+ 	  root-tree.o dir-item.o file-item.o inode-item.o \
+ 	  inode-map.o crc32c.o rbtree.o extent-cache.o extent_io.o \
+-	  volumes.o utils.o
++	  volumes.o utils.o btrfs-list.o
+ 
+ #
+ CHECKFLAGS=-D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ -Wbitwise \
+@@ -16,7 +16,9 @@ prefix ?= /usr/local
+ bindir = $(prefix)/bin
+ LIBS=-luuid
+ 
+-progs = btrfsctl mkfs.btrfs btrfs-debug-tree btrfs-show btrfs-vol btrfsck
++progs = btrfsctl mkfs.btrfs btrfs-debug-tree btrfs-show btrfs-vol btrfsck \
++	btrfs \
++	btrfs-map-logical
+ 
+ # make C=1 to enable sparse
+ ifdef C
+@@ -35,6 +37,10 @@ all: version $(progs) manpages
+ version:
+ 	bash version.sh
+ 
++btrfs: $(objects) btrfs.o btrfs_cmds.o
++	gcc $(CFLAGS) -o btrfs btrfs.o btrfs_cmds.o \
++		$(objects) $(LDFLAGS) $(LIBS)
++
+ btrfsctl: $(objects) btrfsctl.o
+ 	gcc $(CFLAGS) -o btrfsctl btrfsctl.o $(objects) $(LDFLAGS) $(LIBS)
+ 
+@@ -56,6 +62,9 @@ btrfs-debug-tree: $(objects) debug-tree.o
+ btrfstune: $(objects) btrfstune.o
+ 	gcc $(CFLAGS) -o btrfstune $(objects) btrfstune.o $(LDFLAGS) $(LIBS)
+ 
++btrfs-map-logical: $(objects) btrfs-map-logical.o
++	gcc $(CFLAGS) -o btrfs-map-logical $(objects) btrfs-map-logical.o $(LDFLAGS) $(LIBS)
++
+ btrfs-image: $(objects) btrfs-image.o
+ 	gcc $(CFLAGS) -o btrfs-image $(objects) btrfs-image.o -lpthread -lz $(LDFLAGS) $(LIBS)
+ 
+@@ -68,6 +77,9 @@ quick-test: $(objects) quick-test.o
+ convert: $(objects) convert.o
+ 	gcc $(CFLAGS) -o btrfs-convert $(objects) convert.o -lext2fs $(LDFLAGS) $(LIBS)
+ 
++ioctl-test: $(objects) ioctl-test.o
++	gcc $(CFLAGS) -o ioctl-test $(objects) ioctl-test.o $(LDFLAGS) $(LIBS)
++
+ manpages:
+ 	cd man; make
+ 
+diff --git a/btrfs-defrag.c b/btrfs-defrag.c
+new file mode 100644
+index 0000000..8f1525a
+--- /dev/null
++++ b/btrfs-defrag.c
+@@ -0,0 +1,39 @@
++/*
++ * Copyright (C) 2010 Oracle.  All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License v2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this program; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 021110-1307, USA.
++ */
++
++#ifndef __CHECKER__
++#include <sys/ioctl.h>
++#include <sys/mount.h>
++#include "ioctl.h"
++#endif
++#include <stdio.h>
++#include <stdlib.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <ctype.h>
++#include <unistd.h>
++#include <dirent.h>
++#include <libgen.h>
++#include <getopt.h>
++#include "kerncompat.h"
++#include "ctree.h"
++#include "transaction.h"
++#include "utils.h"
++#include "version.h"
++
+diff --git a/btrfs-list.c b/btrfs-list.c
+new file mode 100644
+index 0000000..7741705
+--- /dev/null
++++ b/btrfs-list.c
+@@ -0,0 +1,825 @@
++/*
++ * Copyright (C) 2010 Oracle.  All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License v2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this program; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 021110-1307, USA.
++ */
++
++#ifndef __CHECKER__
++#include <sys/ioctl.h>
++#include <sys/mount.h>
++#include "ioctl.h"
++#endif
++#include <stdio.h>
++#include <stdlib.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <dirent.h>
++#include <libgen.h>
++#include "kerncompat.h"
++#include "ctree.h"
++#include "transaction.h"
++#include "utils.h"
++#include "version.h"
++
++/* we store all the roots we find in an rbtree so that we can
++ * search for them later.
++ */
++struct root_lookup {
++	struct rb_root root;
++};
++
++/*
++ * one of these for each root we find.
++ */
++struct root_info {
++	struct rb_node rb_node;
++
++	/* this root's id */
++	u64 root_id;
++
++	/* the id of the root that references this one */
++	u64 ref_tree;
++
++	/* the dir id we're in from ref_tree */
++	u64 dir_id;
++
++	/* path from the subvol we live in to this root, including the
++	 * root's name.  This is null until we do the extra lookup ioctl.
++	 */
++	char *path;
++
++	/* the name of this root in the directory it lives in */
++	char name[];
++};
++
++static void root_lookup_init(struct root_lookup *tree)
++{
++	tree->root.rb_node = NULL;
++}
++
++static int comp_entry(struct root_info *entry, u64 root_id, u64 ref_tree)
++{
++	if (entry->root_id > root_id)
++		return 1;
++	if (entry->root_id < root_id)
++		return -1;
++	if (entry->ref_tree > ref_tree)
++		return 1;
++	if (entry->ref_tree < ref_tree)
++		return -1;
++	return 0;
++}
++
++/*
++ * insert a new root into the tree.  returns the existing root entry
++ * if one is already there.  Both root_id and ref_tree are used
++ * as the key
++ */
++static struct rb_node *tree_insert(struct rb_root *root, u64 root_id,
++				   u64 ref_tree, struct rb_node *node)
++{
++	struct rb_node ** p = &root->rb_node;
++	struct rb_node * parent = NULL;
++	struct root_info *entry;
++	int comp;
++
++	while(*p) {
++		parent = *p;
++		entry = rb_entry(parent, struct root_info, rb_node);
++
++		comp = comp_entry(entry, root_id, ref_tree);
++
++		if (comp < 0)
++			p = &(*p)->rb_left;
++		else if (comp > 0)
++			p = &(*p)->rb_right;
++		else
++			return parent;
++	}
++
++	entry = rb_entry(parent, struct root_info, rb_node);
++	rb_link_node(node, parent, p);
++	rb_insert_color(node, root);
++	return NULL;
++}
++
++/*
++ * find a given root id in the tree.  We return the smallest one,
++ * rb_next can be used to move forward looking for more if required
++ */
++static struct root_info *tree_search(struct rb_root *root, u64 root_id)
++{
++	struct rb_node * n = root->rb_node;
++	struct root_info *entry;
++
++	while(n) {
++		entry = rb_entry(n, struct root_info, rb_node);
++
++		if (entry->root_id < root_id)
++			n = n->rb_left;
++		else if (entry->root_id > root_id)
++			n = n->rb_right;
++		else {
++			struct root_info *prev;
++			struct rb_node *prev_n;
++			while (1) {
++				prev_n = rb_prev(n);
++				if (!prev_n)
++					break;
++				prev = rb_entry(prev_n, struct root_info,
++						      rb_node);
++				if (prev->root_id != root_id)
++					break;
++				entry = prev;
++				n = prev_n;
++			}
++			return entry;
++		}
++	}
++	return NULL;
++}
++
++/*
++ * this allocates a new root in the lookup tree.
++ *
++ * root_id should be the object id of the root
++ *
++ * ref_tree is the objectid of the referring root.
++ *
++ * dir_id is the directory in ref_tree where this root_id can be found.
++ *
++ * name is the name of root_id in that directory
++ *
++ * name_len is the length of name
++ */
++static int add_root(struct root_lookup *root_lookup,
++		    u64 root_id, u64 ref_tree, u64 dir_id, char *name,
++		    int name_len)
++{
++	struct root_info *ri;
++	struct rb_node *ret;
++	ri = malloc(sizeof(*ri) + name_len + 1);
++	if (!ri) {
++		printf("memory allocation failed\n");
++		exit(1);
++	}
++	memset(ri, 0, sizeof(*ri) + name_len + 1);
++	ri->path = NULL;
++	ri->dir_id = dir_id;
++	ri->root_id = root_id;
++	ri->ref_tree = ref_tree;
++	strncpy(ri->name, name, name_len);
++
++	ret = tree_insert(&root_lookup->root, root_id, ref_tree, &ri->rb_node);
++	if (ret) {
++		printf("failed to insert tree %llu\n", (unsigned long long)root_id);
++		exit(1);
++	}
++	return 0;
++}
++
++/*
++ * for a given root_info, search through the root_lookup tree to construct
++ * the full path name to it.
++ *
++ * This can't be called until all the root_info->path fields are filled
++ * in by lookup_ino_path
++ */
++static int resolve_root(struct root_lookup *rl, struct root_info *ri)
++{
++	u64 top_id;
++	char *full_path = NULL;
++	int len = 0;
++	struct root_info *found;
++
++	/*
++	 * we go backwards from the root_info object and add pathnames
++	 * from parent directories as we go.
++	 */
++	found = ri;
++	while (1) {
++		char *tmp;
++		u64 next;
++		int add_len = strlen(found->path);
++
++		/* room for / and for null */
++		tmp = malloc(add_len + 2 + len);
++		if (full_path) {
++			memcpy(tmp + add_len + 1, full_path, len);
++			tmp[add_len] = '/';
++			memcpy(tmp, found->path, add_len);
++			tmp [add_len + len + 1] = '\0';
++			free(full_path);
++			full_path = tmp;
++			len += add_len + 1;
++		} else {
++			full_path = strdup(found->path);
++			len = add_len;
++		}
++
++		next = found->ref_tree;
++		/* if the ref_tree refers to ourselves, we're at the top */
++		if (next == found->root_id) {
++			top_id = next;
++			break;
++		}
++
++		/*
++		 * if the ref_tree wasn't in our tree of roots, we're
++		 * at the top
++		 */
++		found = tree_search(&rl->root, next);
++		if (!found) {
++			top_id = next;
++			break;
++		}
++	}
++	printf("ID %llu top level %llu path %s\n", ri->root_id, top_id,
++	       full_path);
++	free(full_path);
++	return 0;
++}
++
++/*
++ * for a single root_info, ask the kernel to give us a path name
++ * inside it's ref_root for the dir_id where it lives.
++ *
++ * This fills in root_info->path with the path to the directory and and
++ * appends this root's name.
++ */
++static int lookup_ino_path(int fd, struct root_info *ri)
++{
++	struct btrfs_ioctl_ino_lookup_args args;
++	int ret;
++
++	if (ri->path)
++		return 0;
++
++	memset(&args, 0, sizeof(args));
++	args.treeid = ri->ref_tree;
++	args.objectid = ri->dir_id;
++
++	ret = ioctl(fd, BTRFS_IOC_INO_LOOKUP, &args);
++	if (ret) {
++		fprintf(stderr, "ERROR: Failed to lookup path for root %llu\n",
++			(unsigned long long)ri->ref_tree);
++		return ret;
++	}
++
++	if (args.name[0]) {
++		/*
++		 * we're in a subdirectory of ref_tree, the kernel ioctl
++		 * puts a / in there for us
++		 */
++		ri->path = malloc(strlen(ri->name) + strlen(args.name) + 1);
++		if (!ri->path) {
++			perror("malloc failed");
++			exit(1);
++		}
++		strcpy(ri->path, args.name);
++		strcat(ri->path, ri->name);
++	} else {
++		/* we're at the root of ref_tree */
++		ri->path = strdup(ri->name);
++		if (!ri->path) {
++			perror("strdup failed");
++			exit(1);
++		}
++	}
++	return 0;
++}
++
++/* finding the generation for a given path is a two step process.
++ * First we use the inode loookup routine to find out the root id
++ *
++ * Then we use the tree search ioctl to scan all the root items for a
++ * given root id and spit out the latest generation we can find
++ */
++static u64 find_root_gen(int fd)
++{
++	struct btrfs_ioctl_ino_lookup_args ino_args;
++	int ret;
++	struct btrfs_ioctl_search_args args;
++	struct btrfs_ioctl_search_key *sk = &args.key;
++	struct btrfs_ioctl_search_header *sh;
++	unsigned long off = 0;
++	u64 max_found = 0;
++	int i;
++
++	memset(&ino_args, 0, sizeof(ino_args));
++	ino_args.objectid = BTRFS_FIRST_FREE_OBJECTID;
++
++	/* this ioctl fills in ino_args->treeid */
++	ret = ioctl(fd, BTRFS_IOC_INO_LOOKUP, &ino_args);
++	if (ret) {
++		fprintf(stderr, "ERROR: Failed to lookup path for dirid %llu\n",
++			(unsigned long long)BTRFS_FIRST_FREE_OBJECTID);
++		return 0;
++	}
++
++	memset(&args, 0, sizeof(args));
++
++	sk->tree_id = 1;
++
++	/*
++	 * there may be more than one ROOT_ITEM key if there are
++	 * snapshots pending deletion, we have to loop through
++	 * them.
++	 */
++	sk->min_objectid = ino_args.treeid;
++	sk->max_objectid = ino_args.treeid;
++	sk->max_type = BTRFS_ROOT_ITEM_KEY;
++	sk->min_type = BTRFS_ROOT_ITEM_KEY;
++	sk->max_offset = (u64)-1;
++	sk->max_transid = (u64)-1;
++	sk->nr_items = 4096;
++
++	while (1) {
++		ret = ioctl(fd, BTRFS_IOC_TREE_SEARCH, &args);
++		if (ret < 0) {
++			fprintf(stderr, "ERROR: can't perform the search\n");
++			return 0;
++		}
++		/* the ioctl returns the number of item it found in nr_items */
++		if (sk->nr_items == 0)
++			break;
++
++		off = 0;
++		for (i = 0; i < sk->nr_items; i++) {
++			struct btrfs_root_item *item;
++			sh = (struct btrfs_ioctl_search_header *)(args.buf +
++								  off);
++
++			off += sizeof(*sh);
++			item = (struct btrfs_root_item *)(args.buf + off);
++			off += sh->len;
++
++			sk->min_objectid = sh->objectid;
++			sk->min_type = sh->type;
++			sk->min_offset = sh->offset;
++
++			if (sh->objectid > ino_args.treeid)
++				break;
++
++			if (sh->objectid == ino_args.treeid &&
++			    sh->type == BTRFS_ROOT_ITEM_KEY) {
++				max_found = max(max_found,
++						btrfs_root_generation(item));
++			}
++		}
++		if (sk->min_offset < (u64)-1)
++			sk->min_offset++;
++		else
++			break;
++
++		if (sk->min_type != BTRFS_ROOT_ITEM_KEY)
++			break;
++		if (sk->min_objectid != BTRFS_ROOT_ITEM_KEY)
++			break;
++	}
++	return max_found;
++}
++
++/* pass in a directory id and this will return
++ * the full path of the parent directory inside its
++ * subvolume root.
++ *
++ * It may return NULL if it is in the root, or an ERR_PTR if things
++ * go badly.
++ */
++static char *__ino_resolve(int fd, u64 dirid)
++{
++	struct btrfs_ioctl_ino_lookup_args args;
++	int ret;
++	char *full;
++
++	memset(&args, 0, sizeof(args));
++	args.objectid = dirid;
++
++	ret = ioctl(fd, BTRFS_IOC_INO_LOOKUP, &args);
++	if (ret) {
++		fprintf(stderr, "ERROR: Failed to lookup path for dirid %llu\n",
++			(unsigned long long)dirid);
++		return ERR_PTR(ret);
++	}
++
++	if (args.name[0]) {
++		/*
++		 * we're in a subdirectory of ref_tree, the kernel ioctl
++		 * puts a / in there for us
++		 */
++		full = strdup(args.name);
++		if (!full) {
++			perror("malloc failed");
++			return ERR_PTR(-ENOMEM);
++		}
++	} else {
++		/* we're at the root of ref_tree */
++		full = NULL;
++	}
++	return full;
++}
++
++/*
++ * simple string builder, returning a new string with both
++ * dirid and name
++ */
++char *build_name(char *dirid, char *name)
++{
++	char *full;
++	if (!dirid)
++		return strdup(name);
++
++	full = malloc(strlen(dirid) + strlen(name) + 1);
++	if (!full)
++		return NULL;
++	strcpy(full, dirid);
++	strcat(full, name);
++	return full;
++}
++
++/*
++ * given an inode number, this returns the full path name inside the subvolume
++ * to that file/directory.  cache_dirid and cache_name are used to
++ * cache the results so we can avoid tree searches if a later call goes
++ * to the same directory or file name
++ */
++static char *ino_resolve(int fd, u64 ino, u64 *cache_dirid, char **cache_name)
++
++{
++	u64 dirid;
++	char *dirname;
++	char *name;
++	char *full;
++	int ret;
++	struct btrfs_ioctl_search_args args;
++	struct btrfs_ioctl_search_key *sk = &args.key;
++	struct btrfs_ioctl_search_header *sh;
++	unsigned long off = 0;
++	int namelen;
++
++	memset(&args, 0, sizeof(args));
++
++	sk->tree_id = 0;
++
++	/*
++	 * step one, we search for the inode back ref.  We just use the first
++	 * one
++	 */
++	sk->min_objectid = ino;
++	sk->max_objectid = ino;
++	sk->max_type = BTRFS_INODE_REF_KEY;
++	sk->max_offset = (u64)-1;
++	sk->min_type = BTRFS_INODE_REF_KEY;
++	sk->max_transid = (u64)-1;
++	sk->nr_items = 1;
++
++	ret = ioctl(fd, BTRFS_IOC_TREE_SEARCH, &args);
++	if (ret < 0) {
++		fprintf(stderr, "ERROR: can't perform the search\n");
++		return NULL;
++	}
++	/* the ioctl returns the number of item it found in nr_items */
++	if (sk->nr_items == 0)
++		return NULL;
++
++	off = 0;
++	sh = (struct btrfs_ioctl_search_header *)(args.buf + off);
++
++	if (sh->type == BTRFS_INODE_REF_KEY) {
++		struct btrfs_inode_ref *ref;
++		dirid = sh->offset;
++
++		ref = (struct btrfs_inode_ref *)(sh + 1);
++		namelen = btrfs_stack_inode_ref_name_len(ref);
++
++		name = (char *)(ref + 1);
++		name = strndup(name, namelen);
++
++		/* use our cached value */
++		if (dirid == *cache_dirid && *cache_name) {
++			dirname = *cache_name;
++			goto build;
++		}
++	} else {
++		return NULL;
++	}
++	/*
++	 * the inode backref gives us the file name and the parent directory id.
++	 * From here we use __ino_resolve to get the path to the parent
++	 */
++	dirname = __ino_resolve(fd, dirid);
++build:
++	full = build_name(dirname, name);
++	if (*cache_name && dirname != *cache_name)
++		free(*cache_name);
++
++	*cache_name = dirname;
++	*cache_dirid = dirid;
++	free(name);
++
++	return full;
++}
++
++int list_subvols(int fd)
++{
++	struct root_lookup root_lookup;
++	struct rb_node *n;
++	int ret;
++	struct btrfs_ioctl_search_args args;
++	struct btrfs_ioctl_search_key *sk = &args.key;
++	struct btrfs_ioctl_search_header *sh;
++	struct btrfs_root_ref *ref;
++	unsigned long off = 0;
++	int name_len;
++	char *name;
++	u64 dir_id;
++	int i;
++
++	root_lookup_init(&root_lookup);
++
++	memset(&args, 0, sizeof(args));
++
++	/* search in the tree of tree roots */
++	sk->tree_id = 1;
++
++	/*
++	 * set the min and max to backref keys.  The search will
++	 * only send back this type of key now.
++	 */
++	sk->max_type = BTRFS_ROOT_BACKREF_KEY;
++	sk->min_type = BTRFS_ROOT_BACKREF_KEY;
++
++	/*
++	 * set all the other params to the max, we'll take any objectid
++	 * and any trans
++	 */
++	sk->max_objectid = (u64)-1;
++	sk->max_offset = (u64)-1;
++	sk->max_transid = (u64)-1;
++
++	/* just a big number, doesn't matter much */
++	sk->nr_items = 4096;
++
++	while(1) {
++		ret = ioctl(fd, BTRFS_IOC_TREE_SEARCH, &args);
++		if (ret < 0) {
++			fprintf(stderr, "ERROR: can't perform the search\n");
++			return ret;
++		}
++		/* the ioctl returns the number of item it found in nr_items */
++		if (sk->nr_items == 0)
++			break;
++
++		off = 0;
++
++		/*
++		 * for each item, pull the key out of the header and then
++		 * read the root_ref item it contains
++		 */
++		for (i = 0; i < sk->nr_items; i++) {
++			sh = (struct btrfs_ioctl_search_header *)(args.buf +
++								  off);
++			off += sizeof(*sh);
++			if (sh->type == BTRFS_ROOT_BACKREF_KEY) {
++				ref = (struct btrfs_root_ref *)(args.buf + off);
++				name_len = btrfs_stack_root_ref_name_len(ref);
++				name = (char *)(ref + 1);
++				dir_id = btrfs_stack_root_ref_dirid(ref);
++
++				add_root(&root_lookup, sh->objectid, sh->offset,
++					 dir_id, name, name_len);
++			}
++
++			off += sh->len;
++
++			/*
++			 * record the mins in sk so we can make sure the
++			 * next search doesn't repeat this root
++			 */
++			sk->min_objectid = sh->objectid;
++			sk->min_type = sh->type;
++			sk->min_offset = sh->offset;
++		}
++		sk->nr_items = 4096;
++		/* this iteration is done, step forward one root for the next
++		 * ioctl
++		 */
++		if (sk->min_objectid < (u64)-1) {
++			sk->min_objectid++;
++			sk->min_type = BTRFS_ROOT_BACKREF_KEY;
++			sk->min_offset = 0;
++		} else
++			break;
++	}
++	/*
++	 * now we have an rbtree full of root_info objects, but we need to fill
++	 * in their path names within the subvol that is referencing each one.
++	 */
++	n = rb_first(&root_lookup.root);
++	while (n) {
++		struct root_info *entry;
++		int ret;
++		entry = rb_entry(n, struct root_info, rb_node);
++		ret = lookup_ino_path(fd, entry);
++		if(ret < 0)
++			return ret;
++		n = rb_next(n);
++	}
++
++	/* now that we have all the subvol-relative paths filled in,
++	 * we have to string the subvols together so that we can get
++	 * a path all the way back to the FS root
++	 */
++	n = rb_last(&root_lookup.root);
++	while (n) {
++		struct root_info *entry;
++		entry = rb_entry(n, struct root_info, rb_node);
++		resolve_root(&root_lookup, entry);
++		n = rb_prev(n);
++	}
++
++	return ret;
++}
++
++static int print_one_extent(int fd, struct btrfs_ioctl_search_header *sh,
++			    struct btrfs_file_extent_item *item,
++			    u64 found_gen, u64 *cache_dirid,
++			    char **cache_dir_name, u64 *cache_ino,
++			    char **cache_full_name)
++{
++	u64 len;
++	u64 disk_start;
++	u64 disk_offset;
++	u8 type;
++	int compressed = 0;
++	int flags = 0;
++	char *name = NULL;
++
++	if (sh->objectid == *cache_ino) {
++		name = *cache_full_name;
++	} else if (*cache_full_name) {
++		free(*cache_full_name);
++		*cache_full_name = NULL;
++	}
++	if (!name) {
++		name = ino_resolve(fd, sh->objectid, cache_dirid,
++				   cache_dir_name);
++		*cache_full_name = name;
++		*cache_ino = sh->objectid;
++	}
++	if (!name)
++		return -EIO;
++
++	type = btrfs_stack_file_extent_type(item);
++	compressed = btrfs_stack_file_extent_compression(item);
++
++	if (type == BTRFS_FILE_EXTENT_REG ||
++	    type == BTRFS_FILE_EXTENT_PREALLOC) {
++		disk_start = btrfs_stack_file_extent_disk_bytenr(item);
++		disk_offset = btrfs_stack_file_extent_offset(item);
++		len = btrfs_stack_file_extent_num_bytes(item);
++	} else if (type == BTRFS_FILE_EXTENT_INLINE) {
++		disk_start = 0;
++		disk_offset = 0;
++		len = btrfs_stack_file_extent_ram_bytes(item);
++	}
++	printf("inode %llu file offset %llu len %llu disk start %llu "
++	       "offset %llu gen %llu flags ",
++	       (unsigned long long)sh->objectid,
++	       (unsigned long long)sh->offset,
++	       (unsigned long long)len,
++	       (unsigned long long)disk_start,
++	       (unsigned long long)disk_offset,
++	       (unsigned long long)found_gen);
++
++	if (compressed) {
++		printf("COMPRESS");
++		flags++;
++	}
++	if (type == BTRFS_FILE_EXTENT_PREALLOC) {
++		printf("%sPREALLOC", flags ? "|" : "");
++		flags++;
++	}
++	if (type == BTRFS_FILE_EXTENT_INLINE) {
++		printf("%sINLINE", flags ? "|" : "");
++		flags++;
++	}
++	if (!flags)
++		printf("NONE");
++
++	printf(" %s\n", name);
++	return 0;
++}
++
++int find_updated_files(int fd, u64 root_id, u64 oldest_gen)
++{
++	int ret;
++	struct btrfs_ioctl_search_args args;
++	struct btrfs_ioctl_search_key *sk = &args.key;
++	struct btrfs_ioctl_search_header *sh;
++	struct btrfs_file_extent_item *item;
++	unsigned long off = 0;
++	u64 found_gen;
++	u64 max_found = 0;
++	int i;
++	u64 cache_dirid = 0;
++	u64 cache_ino = 0;
++	char *cache_dir_name = NULL;
++	char *cache_full_name = NULL;
++	struct btrfs_file_extent_item backup;
++
++	memset(&backup, 0, sizeof(backup));
++	memset(&args, 0, sizeof(args));
++
++	sk->tree_id = root_id;
++
++	/*
++	 * set all the other params to the max, we'll take any objectid
++	 * and any trans
++	 */
++	sk->max_objectid = (u64)-1;
++	sk->max_offset = (u64)-1;
++	sk->max_transid = (u64)-1;
++	sk->max_type = BTRFS_EXTENT_DATA_KEY;
++	sk->min_transid = oldest_gen;
++	/* just a big number, doesn't matter much */
++	sk->nr_items = 4096;
++
++	max_found = find_root_gen(fd);
++	while(1) {
++		ret = ioctl(fd, BTRFS_IOC_TREE_SEARCH, &args);
++		if (ret < 0) {
++			fprintf(stderr, "ERROR: can't perform the search\n");
++			return ret;
++		}
++		/* the ioctl returns the number of item it found in nr_items */
++		if (sk->nr_items == 0)
++			break;
++
++		off = 0;
++
++		/*
++		 * for each item, pull the key out of the header and then
++		 * read the root_ref item it contains
++		 */
++		for (i = 0; i < sk->nr_items; i++) {
++			sh = (struct btrfs_ioctl_search_header *)(args.buf +
++								  off);
++			off += sizeof(*sh);
++
++			/*
++			 * just in case the item was too big, pass something other
++			 * than garbage
++			 */
++			if (sh->len == 0)
++				item = &backup;
++			else
++				item = (struct btrfs_file_extent_item *)(args.buf +
++								 off);
++			found_gen = btrfs_stack_file_extent_generation(item);
++			if (sh->type == BTRFS_EXTENT_DATA_KEY &&
++			    found_gen >= oldest_gen) {
++				print_one_extent(fd, sh, item, found_gen,
++						 &cache_dirid, &cache_dir_name,
++						 &cache_ino, &cache_full_name);
++			}
++			off += sh->len;
++
++			/*
++			 * record the mins in sk so we can make sure the
++			 * next search doesn't repeat this root
++			 */
++			sk->min_objectid = sh->objectid;
++			sk->min_offset = sh->offset;
++			sk->min_type = sh->type;
++		}
++		sk->nr_items = 4096;
++		if (sk->min_offset < (u64)-1)
++			sk->min_offset++;
++		else if (sk->min_objectid < (u64)-1) {
++			sk->min_objectid++;
++			sk->min_offset = 0;
++			sk->min_type = 0;
++		} else
++			break;
++	}
++	free(cache_dir_name);
++	free(cache_full_name);
++	printf("transid marker was %llu\n", (unsigned long long)max_found);
++	return ret;
++}
+diff --git a/btrfs-map-logical.c b/btrfs-map-logical.c
+new file mode 100644
+index 0000000..a109c6a
+--- /dev/null
++++ b/btrfs-map-logical.c
+@@ -0,0 +1,221 @@
++/*
++ * Copyright (C) 2009 Oracle.  All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License v2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this program; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 021110-1307, USA.
++ */
++
++#define _XOPEN_SOURCE 500
++#define _GNU_SOURCE 1
++#include <stdio.h>
++#include <stdlib.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <getopt.h>
++#include "kerncompat.h"
++#include "ctree.h"
++#include "volumes.h"
++#include "disk-io.h"
++#include "print-tree.h"
++#include "transaction.h"
++#include "list.h"
++#include "version.h"
++
++/* we write the mirror info to stdout unless they are dumping the data
++ * to stdout
++ * */
++static FILE *info_file;
++
++struct extent_buffer *debug_read_block(struct btrfs_root *root, u64 bytenr,
++				     u32 blocksize, int copy)
++{
++	int ret;
++	int dev_nr;
++	struct extent_buffer *eb;
++	u64 length;
++	struct btrfs_multi_bio *multi = NULL;
++	struct btrfs_device *device;
++	int num_copies;
++	int mirror_num = 1;
++
++	eb = btrfs_find_create_tree_block(root, bytenr, blocksize);
++	if (!eb)
++		return NULL;
++
++	dev_nr = 0;
++	length = blocksize;
++	while (1) {
++		ret = btrfs_map_block(&root->fs_info->mapping_tree, READ,
++				      eb->start, &length, &multi, mirror_num);
++		BUG_ON(ret);
++		device = multi->stripes[0].dev;
++		eb->fd = device->fd;
++		device->total_ios++;
++		eb->dev_bytenr = multi->stripes[0].physical;
++
++		fprintf(info_file, "mirror %d logical %Lu physical %Lu "
++			"device %s\n", mirror_num, bytenr, eb->dev_bytenr,
++			device->name);
++		kfree(multi);
++
++		if (!copy || mirror_num == copy)
++			ret = read_extent_from_disk(eb);
++
++		num_copies = btrfs_num_copies(&root->fs_info->mapping_tree,
++					      eb->start, eb->len);
++		if (num_copies == 1)
++			break;
++
++		mirror_num++;
++		if (mirror_num > num_copies)
++			break;
++	}
++	return eb;
++}
++
++static void print_usage(void)
++{
++	fprintf(stderr, "usage: btrfs-map-logical [options] mount_point\n");
++	fprintf(stderr, "\t-l Logical extent to map\n");
++	fprintf(stderr, "\t-c Copy of the extent to read (usually 1 or 2)\n");
++	fprintf(stderr, "\t-o Output file to hold the extent\n");
++	fprintf(stderr, "\t-s Number of bytes to read\n");
++	exit(1);
++}
++
++static struct option long_options[] = {
++	/* { "byte-count", 1, NULL, 'b' }, */
++	{ "logical", 1, NULL, 'l' },
++	{ "copy", 1, NULL, 'c' },
++	{ "output", 1, NULL, 'c' },
++	{ "bytes", 1, NULL, 'b' },
++	{ 0, 0, 0, 0}
++};
++
++int main(int ac, char **av)
++{
++	struct cache_tree root_cache;
++	struct btrfs_root *root;
++	struct extent_buffer *eb;
++	char *dev;
++	char *output_file = NULL;
++	u64 logical = 0;
++	int ret = 0;
++	int option_index = 0;
++	int copy = 0;
++	u64 bytes = 0;
++	int out_fd = 0;
++	int err;
++
++	while(1) {
++		int c;
++		c = getopt_long(ac, av, "l:c:o:b:", long_options,
++				&option_index);
++		if (c < 0)
++			break;
++		switch(c) {
++			case 'l':
++				logical = atoll(optarg);
++				if (logical == 0) {
++					fprintf(stderr,
++						"invalid extent number\n");
++					print_usage();
++				}
++				break;
++			case 'c':
++				copy = atoi(optarg);
++				if (copy == 0) {
++					fprintf(stderr,
++						"invalid copy number\n");
++					print_usage();
++				}
++				break;
++			case 'b':
++				bytes = atoll(optarg);
++				if (bytes == 0) {
++					fprintf(stderr,
++						"invalid byte count\n");
++					print_usage();
++				}
++				break;
++			case 'o':
++				output_file = strdup(optarg);
++				break;
++			default:
++				print_usage();
++		}
++	}
++	ac = ac - optind;
++	if (ac == 0)
++		print_usage();
++	if (logical == 0)
++		print_usage();
++	if (copy < 0)
++		print_usage();
++
++	dev = av[optind];
++
++	radix_tree_init();
++	cache_tree_init(&root_cache);
++
++	root = open_ctree(dev, 0, 0);
++	if (!root) {
++		fprintf(stderr, "Open ctree failed\n");
++		exit(1);
++	}
++
++	if (output_file) {
++		if (strcmp(output_file, "-") == 0) {
++			out_fd = 1;
++			info_file = stderr;
++		} else {
++			out_fd = open(output_file, O_RDWR | O_CREAT, 0600);
++			if (out_fd < 0)
++				goto close;
++			err = ftruncate(out_fd, 0);
++			if (err) {
++				close(out_fd);
++				goto close;
++			}
++			info_file = stdout;
++		}
++	}
++
++	if (bytes == 0)
++		bytes = root->sectorsize;
++
++	bytes = (bytes + root->sectorsize - 1) / root->sectorsize;
++	bytes *= root->sectorsize;
++
++	while (bytes > 0) {
++		eb = debug_read_block(root, logical, root->sectorsize, copy);
++		if (eb && output_file) {
++			err = write(out_fd, eb->data, eb->len);
++			if (err < 0 || err != eb->len) {
++				fprintf(stderr, "output file write failed\n");
++				goto out_close_fd;
++			}
++		}
++		free_extent_buffer(eb);
++		logical += root->sectorsize;
++		bytes -= root->sectorsize;
++	}
++
++out_close_fd:
++	if (output_file && out_fd != 1)
++		close(out_fd);
++close:
++	close_ctree(root);
++	return ret;
++}
+diff --git a/btrfs.c b/btrfs.c
+new file mode 100644
+index 0000000..ab5e57f
+--- /dev/null
++++ b/btrfs.c
+@@ -0,0 +1,387 @@
++/*
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License v2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this program; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 021110-1307, USA.
++ */
++
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "kerncompat.h"
++#include "btrfs_cmds.h"
++#include "version.h"
++
++typedef int (*CommandFunction)(int argc, char **argv);
++
++struct Command {
++	CommandFunction	func;	/* function which implements the command */
++	int	nargs;		/* if == 999, any number of arguments
++				   if >= 0, number of arguments,
++				   if < 0, _minimum_ number of arguments */
++	char	*verb;		/* verb */
++	char	*help;		/* help lines; form the 2nd onward they are
++				   indented */
++
++	/* the following fields are run-time filled by the program */
++	char	**cmds;		/* array of subcommands */
++	int	ncmds;		/* number of subcommand */
++};
++
++static struct Command commands[] = {
++
++	/*
++		avoid short commands different for the case only
++	*/
++	{ do_clone, 2,
++	  "subvolume snapshot", "<source> [<dest>/]<name>\n"
++		"Create a writable snapshot of the subvolume <source> with\n"
++		"the name <name> in the <dest> directory."
++	},
++	{ do_delete_subvolume, 1,
++	  "subvolume delete", "<subvolume>\n"
++		"Delete the subvolume <subvolume>."
++	},
++	{ do_create_subvol, 1,
++	  "subvolume create", "[<dest>/]<name>\n"
++		"Create a subvolume in <dest> (or the current directory if\n"
++		"not passed)."
++	},
++	{ do_subvol_list, 1, "subvolume list", "<path>\n"
++		"List the snapshot/subvolume of a filesystem."
++	},
++	{ do_find_newer, 2, "subvolume find-new", "<path> <last_gen>\n"
++		"List the recently modified files in a filesystem."
++	},
++	{ do_defrag, -1,
++	  "filesystem defragment", "[-vcf] [-s start] [-l len] [-t size] <file>|<dir> [<file>|<dir>...]\n"
++		"Defragment a file or a directory."
++	},
++	{ do_set_default_subvol, 2,
++	  "subvolume set-default", "<id> <path>\n"
++		"Set the subvolume of the filesystem <path> which will be mounted\n"
++		"as default."
++	},
++	{ do_fssync, 1,
++	  "filesystem sync", "<path>\n"
++		"Force a sync on the filesystem <path>."
++	},
++	{ do_resize, 2,
++	  "filesystem resize", "[+/-]<newsize>[gkm]|max <filesystem>\n"
++		"Resize the file system. If 'max' is passed, the filesystem\n"
++		"will occupe all available space on the device."
++	},
++	{ do_show_filesystem, 999,
++	  "filesystem show", "[<uuid>|<label>]\n"
++		"Show the info of a btrfs filesystem. If no <uuid> or <label>\n"
++		"is passed, info of all the btrfs filesystem are shown."
++	},
++	{ do_df_filesystem, 1,
++	  "filesystem df", "<path>\n"
++		"Show space usage information for a mount point\n."
++	},
++	{ do_balance, 1,
++	  "filesystem balance", "<path>\n"
++		"Balance the chunks across the device."
++	},
++	{ do_scan,
++	  999, "device scan", "[<device> [<device>..]\n"
++		"Scan all device for or the passed device for a btrfs\n"
++		"filesystem."
++	},
++	{ do_add_volume, -2,
++	  "device add", "<dev> [<dev>..] <path>\n"
++		"Add a device to a filesystem."
++	},
++	{ do_remove_volume, -2,
++	  "device delete", "<dev> [<dev>..] <path>\n"
++		"Remove a device from a filesystem."
++	},
++	/* coming soon
++	{ 2, "filesystem label", "<label> <path>\n"
++		"Set the label of a filesystem"
++	}
++	*/
++	{ 0, 0 , 0 }
++};
++
++static char *get_prgname(char *programname)
++{
++	char	*np;
++	np = strrchr(programname,'/');
++	if(!np)
++		np = programname;
++	else
++		np++;
++
++	return np;
++}
++
++static void print_help(char *programname, struct Command *cmd)
++{
++	char	*pc;
++
++	printf("\t%s %s ", programname, cmd->verb );
++
++	for(pc = cmd->help; *pc; pc++){
++		putchar(*pc);
++		if(*pc == '\n')
++			printf("\t\t");
++	}
++	putchar('\n');
++}
++
++static void help(char *np)
++{
++	struct Command *cp;
++
++	printf("Usage:\n");
++	for( cp = commands; cp->verb; cp++ )
++		print_help(np, cp);
++
++	printf("\n\t%s help|--help|-h\n\t\tShow the help.\n",np);
++	printf("\n%s\n", BTRFS_BUILD_VERSION);
++}
++
++static int split_command(char *cmd, char ***commands)
++{
++	int	c, l;
++	char	*p, *s;
++
++	for( *commands = 0, l = c = 0, p = s = cmd ; ; p++, l++ ){
++		if ( *p && *p != ' ' )
++			continue;
++
++		/* c + 2 so that we have room for the null */
++		(*commands) = realloc( (*commands), sizeof(char *)*(c + 2));
++		(*commands)[c] = strndup(s, l);
++		c++;
++		l = 0;
++		s = p+1;
++		if( !*p ) break;
++	}
++
++	(*commands)[c] = 0;
++	return c;
++}
++
++/*
++	This function checks if the passed command is ambiguous
++*/
++static int check_ambiguity(struct Command *cmd, char **argv){
++	int		i;
++	struct Command	*cp;
++	/* check for ambiguity */
++	for( i = 0 ; i < cmd->ncmds ; i++ ){
++		int match;
++		for( match = 0, cp = commands; cp->verb; cp++ ){
++			int	j, skip;
++			char	*s1, *s2;
++
++			if( cp->ncmds < i )
++				continue;
++
++			for( skip = 0, j = 0 ; j < i ; j++ )
++				if( strcmp(cmd->cmds[j], cp->cmds[j])){
++					skip=1;
++					break;
++				}
++			if(skip)
++				continue;
++
++			if( !strcmp(cmd->cmds[i], cp->cmds[i]))
++				continue;
++			for(s2 = cp->cmds[i], s1 = argv[i+1];
++				*s1 == *s2 && *s1; s1++, s2++ ) ;
++			if( !*s1 )
++				match++;
++		}
++		if(match){
++			int j;
++			fprintf(stderr, "ERROR: in command '");
++			for( j = 0 ; j <= i ; j++ )
++				fprintf(stderr, "%s%s",j?" ":"", argv[j+1]);
++			fprintf(stderr, "', '%s' is ambiguous\n",argv[j]);
++			return -2;
++		}
++	}
++	return 0;
++}
++
++/*
++ * This function, compacts the program name and the command in the first
++ * element of the '*av' array
++ */
++static int prepare_args(int *ac, char ***av, char *prgname, struct Command *cmd ){
++
++	char	**ret;
++	int	i;
++	char	*newname;
++
++	ret = (char **)malloc(sizeof(char*)*(*ac+1));
++	newname = (char*)malloc(strlen(prgname)+strlen(cmd->verb)+2);
++	if( !ret || !newname ){
++		free(ret);
++		free(newname);
++		return -1;
++	}
++
++	ret[0] = newname;
++	for(i=0; i < *ac ; i++ )
++		ret[i+1] = (*av)[i];
++
++	strcpy(newname, prgname);
++	strcat(newname, " ");
++	strcat(newname, cmd->verb);
++
++	(*ac)++;
++	*av = ret;
++
++	return 0;
++
++}
++
++
++
++/*
++
++	This function perform the following jobs:
++	- show the help if '--help' or 'help' or '-h' are passed
++	- verify that a command is not ambiguous, otherwise show which
++	  part of the command is ambiguous
++	- if after a (even partial) command there is '--help' show the help
++	  for all the matching commands
++	- if the command doesn't' match show an error
++	- finally, if a command match, they return which command is matched and
++	  the arguments
++
++	The function return 0 in case of help is requested; <0 in case
++	of uncorrect command; >0 in case of matching commands
++	argc, argv are the arg-counter and arg-vector (input)
++	*nargs_ is the number of the arguments after the command (output)
++	**cmd_  is the invoked command (output)
++	***args_ are the arguments after the command
++
++*/
++static int parse_args(int argc, char **argv,
++		      CommandFunction *func_,
++		      int *nargs_, char **cmd_, char ***args_ )
++{
++	struct Command	*cp;
++	struct Command	*matchcmd=0;
++	char		*prgname = get_prgname(argv[0]);
++	int		i=0, helprequested=0;
++
++	if( argc < 2 || !strcmp(argv[1], "help") ||
++		!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help")){
++		help(prgname);
++		return 0;
++	}
++
++	for( cp = commands; cp->verb; cp++ )
++		if( !cp->ncmds)
++			cp->ncmds = split_command(cp->verb, &(cp->cmds));
++
++	for( cp = commands; cp->verb; cp++ ){
++		int     match;
++
++		if( argc-1 < cp->ncmds )
++			continue;
++		for( match = 1, i = 0 ; i < cp->ncmds ; i++ ){
++			char	*s1, *s2;
++			s1 = cp->cmds[i];
++			s2 = argv[i+1];
++
++			for(s2 = cp->cmds[i], s1 = argv[i+1];
++				*s1 == *s2 && *s1;
++				s1++, s2++ ) ;
++			if( *s1 ){
++				match=0;
++				break;
++			}
++		}
++
++		/* If you understand why this code works ...
++			you are a genious !! */
++		if(argc>i+1 && !strcmp(argv[i+1],"--help")){
++			if(!helprequested)
++				printf("Usage:\n");
++			print_help(prgname, cp);
++			helprequested=1;
++			continue;
++		}
++
++		if(!match)
++			continue;
++
++		matchcmd = cp;
++		*nargs_  = argc-matchcmd->ncmds-1;
++		*cmd_ = matchcmd->verb;
++		*args_ = argv+matchcmd->ncmds+1;
++		*func_ = cp->func;
++
++		break;
++	}
++
++	if(helprequested){
++		printf("\n%s\n", BTRFS_BUILD_VERSION);
++		return 0;
++	}
++
++	if(!matchcmd){
++		fprintf( stderr, "ERROR: unknown command '%s'\n",argv[1]);
++		help(prgname);
++		return -1;
++	}
++
++	if(check_ambiguity(matchcmd, argv))
++		return -2;
++
++	/* check the number of argument */
++	if (matchcmd->nargs < 0 && matchcmd->nargs < -*nargs_ ){
++		fprintf(stderr, "ERROR: '%s' requires minimum %d arg(s)\n",
++			matchcmd->verb, -matchcmd->nargs);
++			return -2;
++	}
++	if(matchcmd->nargs >= 0 && matchcmd->nargs != *nargs_ && matchcmd->nargs != 999){
++		fprintf(stderr, "ERROR: '%s' requires %d arg(s)\n",
++			matchcmd->verb, matchcmd->nargs);
++			return -2;
++	}
++	
++        if (prepare_args( nargs_, args_, prgname, matchcmd )){
++                fprintf(stderr, "ERROR: not enough memory\\n");
++		return -20;
++        }
++
++
++	return 1;
++}
++int main(int ac, char **av )
++{
++
++	char		*cmd=0, **args=0;
++	int		nargs=0, r;
++	CommandFunction func=0;
++
++	r = parse_args(ac, av, &func, &nargs, &cmd, &args);
++	if( r <= 0 ){
++		/* error or no command to parse*/
++		exit(-r);
++	}
++
++	exit(func(nargs, args));
++
++}
++
+diff --git a/btrfs_cmds.c b/btrfs_cmds.c
+new file mode 100644
+index 0000000..8031c58
+--- /dev/null
++++ b/btrfs_cmds.c
+@@ -0,0 +1,924 @@
++/*
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License v2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this program; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 021110-1307, USA.
++ */
++
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/ioctl.h>
++#include <sys/types.h>
++#include <dirent.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <libgen.h>
++#include <limits.h>
++#include <uuid/uuid.h>
++#include <ctype.h>
++
++#undef ULONG_MAX
++
++#include "kerncompat.h"
++#include "ctree.h"
++#include "transaction.h"
++#include "utils.h"
++#include "version.h"
++#include "ioctl.h"
++#include "volumes.h"
++
++#include "btrfs_cmds.h"
++
++#ifdef __CHECKER__
++#define BLKGETSIZE64 0
++#define BTRFS_IOC_SNAP_CREATE 0
++#define BTRFS_VOL_NAME_MAX 255
++struct btrfs_ioctl_vol_args { char name[BTRFS_VOL_NAME_MAX]; };
++static inline int ioctl(int fd, int define, void *arg) { return 0; }
++#endif
++
++/*
++ * test if path is a subvolume:
++ * this function return
++ * 0-> path exists but it is not a subvolume
++ * 1-> path exists and it is  a subvolume
++ * -1 -> path is unaccessible
++ */
++static int test_issubvolume(char *path)
++{
++
++	struct stat	st;
++	int		res;
++
++	res = stat(path, &st);
++	if(res < 0 )
++		return -1;
++
++	return (st.st_ino == 256) && S_ISDIR(st.st_mode);
++
++}
++
++/*
++ * test if path is a directory
++ * this function return
++ * 0-> path exists but it is not a directory
++ * 1-> path exists and it is  a directory
++ * -1 -> path is unaccessible
++ */
++static int test_isdir(char *path)
++{
++	struct stat	st;
++	int		res;
++
++	res = stat(path, &st);
++	if(res < 0 )
++		return -1;
++
++	return S_ISDIR(st.st_mode);
++
++}
++
++static int open_file_or_dir(const char *fname)
++{
++	int ret;
++	struct stat st;
++	DIR *dirstream;
++	int fd;
++
++	ret = stat(fname, &st);
++	if (ret < 0) {
++		return -1;
++	}
++	if (S_ISDIR(st.st_mode)) {
++		dirstream = opendir(fname);
++		if (!dirstream) {
++			return -2;
++		}
++		fd = dirfd(dirstream);
++	} else {
++		fd = open(fname, O_RDWR);
++	}
++	if (fd < 0) {
++		return -3;
++	}
++	return fd;
++}
++
++static u64 parse_size(char *s)
++{
++	int len = strlen(s);
++	char c;
++	u64 mult = 1;
++
++	if (!isdigit(s[len - 1])) {
++		c = tolower(s[len - 1]);
++		switch (c) {
++		case 'g':
++			mult *= 1024;
++		case 'm':
++			mult *= 1024;
++		case 'k':
++			mult *= 1024;
++		case 'b':
++			break;
++		default:
++			fprintf(stderr, "Unknown size descriptor %c\n", c);
++			exit(1);
++		}
++		s[len - 1] = '\0';
++	}
++	return atoll(s) * mult;
++}
++
++int do_defrag(int ac, char **av)
++{
++	int fd;
++	int compress = 0;
++	int flush = 0;
++	u64 start = 0;
++	u64 len = (u64)-1;
++	u32 thresh = 0;
++	int i;
++	int errors = 0;
++	int ret = 0;
++	int verbose = 0;
++	int fancy_ioctl = 0;
++	struct btrfs_ioctl_defrag_range_args range;
++
++	optind = 1;
++	while(1) {
++		int c = getopt(ac, av, "vcfs:l:t:");
++		if (c < 0)
++			break;
++		switch(c) {
++		case 'c':
++			compress = 1;
++			fancy_ioctl = 1;
++			break;
++		case 'f':
++			flush = 1;
++			fancy_ioctl = 1;
++			break;
++		case 'v':
++			verbose = 1;
++			break;
++		case 's':
++			start = parse_size(optarg);
++			fancy_ioctl = 1;
++			break;
++		case 'l':
++			len = parse_size(optarg);
++			fancy_ioctl = 1;
++			break;
++		case 't':
++			thresh = parse_size(optarg);
++			fancy_ioctl = 1;
++			break;
++		default:
++			fprintf(stderr, "Invalid arguments for defragment\n");
++			free(av);
++			return 1;
++		}
++	}
++	if (ac - optind == 0) {
++		fprintf(stderr, "Invalid arguments for defragment\n");
++		free(av);
++		return 1;
++	}
++
++	memset(&range, 0, sizeof(range));
++	range.start = start;
++	range.len = len;
++	range.extent_thresh = thresh;
++	if (compress)
++		range.flags |= BTRFS_DEFRAG_RANGE_COMPRESS;
++	if (flush)
++		range.flags |= BTRFS_DEFRAG_RANGE_START_IO;
++
++	for (i = optind; i < ac; i++) {
++		if (verbose)
++			printf("%s\n", av[i]);
++		fd = open_file_or_dir(av[i]);
++		if (fd < 0) {
++			fprintf(stderr, "failed to open %s\n", av[i]);
++			perror("open:");
++			errors++;
++			continue;
++		}
++		if (!fancy_ioctl) {
++			ret = ioctl(fd, BTRFS_IOC_DEFRAG, NULL);
++		} else {
++			ret = ioctl(fd, BTRFS_IOC_DEFRAG_RANGE, &range);
++			if (ret && errno == ENOTTY) {
++				fprintf(stderr, "defrag range ioctl not "
++					"supported in this kernel, please try "
++					"without any options.\n");
++				errors++;
++				break;
++			}
++		}
++		if (ret) {
++			fprintf(stderr, "ioctl failed on %s ret %d errno %d\n",
++				av[i], ret, errno);
++			errors++;
++		}
++		close(fd);
++	}
++	if (verbose)
++		printf("%s\n", BTRFS_BUILD_VERSION);
++	if (errors) {
++		fprintf(stderr, "total %d failures\n", errors);
++		exit(1);
++	}
++
++	free(av);
++	return errors + 20;
++}
++
++int do_find_newer(int argc, char **argv)
++{
++	int fd;
++	int ret;
++	char *subvol;
++	u64 last_gen;
++
++	subvol = argv[1];
++	last_gen = atoll(argv[2]);
++
++	ret = test_issubvolume(subvol);
++	if (ret < 0) {
++		fprintf(stderr, "ERROR: error accessing '%s'\n", subvol);
++		return 12;
++	}
++	if (!ret) {
++		fprintf(stderr, "ERROR: '%s' is not a subvolume\n", subvol);
++		return 13;
++	}
++
++	fd = open_file_or_dir(subvol);
++	if (fd < 0) {
++		fprintf(stderr, "ERROR: can't access '%s'\n", subvol);
++		return 12;
++	}
++	ret = find_updated_files(fd, 0, last_gen);
++	if (ret)
++		return 19;
++	return 0;
++}
++
++int do_subvol_list(int argc, char **argv)
++{
++	int fd;
++	int ret;
++	char *subvol;
++
++	subvol = argv[1];
++
++	ret = test_issubvolume(subvol);
++	if (ret < 0) {
++		fprintf(stderr, "ERROR: error accessing '%s'\n", subvol);
++		return 12;
++	}
++	if (!ret) {
++		fprintf(stderr, "ERROR: '%s' is not a subvolume\n", subvol);
++		return 13;
++	}
++
++	fd = open_file_or_dir(subvol);
++	if (fd < 0) {
++		fprintf(stderr, "ERROR: can't access '%s'\n", subvol);
++		return 12;
++	}
++	ret = list_subvols(fd);
++	if (ret)
++		return 19;
++	return 0;
++}
++
++int do_clone(int argc, char **argv)
++{
++	char	*subvol, *dst;
++	int	res, fd, fddst, len;
++	char	*newname;
++	char	*dstdir;
++
++	subvol = argv[1];
++	dst = argv[2];
++	struct btrfs_ioctl_vol_args	args;
++
++	res = test_issubvolume(subvol);
++	if(res<0){
++		fprintf(stderr, "ERROR: error accessing '%s'\n", subvol);
++		return 12;
++	}
++	if(!res){
++		fprintf(stderr, "ERROR: '%s' is not a subvolume\n", subvol);
++		return 13;
++	}
++
++	res = test_isdir(dst);
++	if(res == 0 ){
++		fprintf(stderr, "ERROR: '%s' exists and it is not a directory\n", dst);
++		return 12;
++	}
++
++	if(res>0){
++		newname = strdup(subvol);
++		newname = basename(newname);
++		dstdir = dst;
++	}else{
++		newname = strdup(dst);
++		newname = basename(newname);
++		dstdir = strdup(dst);
++		dstdir = dirname(dstdir);
++	}
++
++	if( !strcmp(newname,".") || !strcmp(newname,"..") ||
++	     strchr(newname, '/') ){
++		fprintf(stderr, "ERROR: incorrect snapshot name ('%s')\n",
++			newname);
++		return 14;
++	}
++
++	len = strlen(newname);
++	if (len == 0 || len >= BTRFS_VOL_NAME_MAX) {
++		fprintf(stderr, "ERROR: snapshot name too long ('%s)\n",
++			newname);
++		return 14;
++	}
++
++	fddst = open_file_or_dir(dstdir);
++	if (fddst < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", dstdir);
++		return 12;
++	}
++
++	fd = open_file_or_dir(subvol);
++	if (fd < 0) {
++		close(fddst);
++		fprintf(stderr, "ERROR: can't access to '%s'\n", dstdir);
++		return 12;
++	}
++
++	printf("Create a snapshot of '%s' in '%s/%s'\n",
++	       subvol, dstdir, newname);
++	args.fd = fd;
++	strcpy(args.name, newname);
++	res = ioctl(fddst, BTRFS_IOC_SNAP_CREATE, &args);
++
++	close(fd);
++	close(fddst);
++
++	if(res < 0 ){
++		fprintf( stderr, "ERROR: cannot snapshot '%s'\n",subvol);
++		return 11;
++	}
++
++	return 0;
++
++}
++
++int do_delete_subvolume(int argc, char **argv)
++{
++	int	res, fd, len;
++	struct btrfs_ioctl_vol_args	args;
++	char	*dname, *vname, *cpath;
++	char	*path = argv[1];
++
++	res = test_issubvolume(path);
++	if(res<0){
++		fprintf(stderr, "ERROR: error accessing '%s'\n", path);
++		return 12;
++	}
++	if(!res){
++		fprintf(stderr, "ERROR: '%s' is not a subvolume\n", path);
++		return 13;
++	}
++
++	cpath = realpath(path, 0);
++	dname = strdup(cpath);
++	dname = dirname(dname);
++	vname = strdup(cpath);
++	vname = basename(vname);
++	free(cpath);
++
++	if( !strcmp(vname,".") || !strcmp(vname,"..") ||
++	     strchr(vname, '/') ){
++		fprintf(stderr, "ERROR: incorrect subvolume name ('%s')\n",
++			vname);
++		return 14;
++	}
++
++	len = strlen(vname);
++	if (len == 0 || len >= BTRFS_VOL_NAME_MAX) {
++		fprintf(stderr, "ERROR: snapshot name too long ('%s)\n",
++			vname);
++		return 14;
++	}
++
++	fd = open_file_or_dir(dname);
++	if (fd < 0) {
++		close(fd);
++		fprintf(stderr, "ERROR: can't access to '%s'\n", dname);
++		return 12;
++	}
++
++	printf("Delete subvolume '%s/%s'\n", dname, vname);
++	strcpy(args.name, vname);
++	res = ioctl(fd, BTRFS_IOC_SNAP_DESTROY, &args);
++
++	close(fd);
++
++	if(res < 0 ){
++		fprintf( stderr, "ERROR: cannot delete '%s/%s'\n",dname, vname);
++		return 11;
++	}
++
++	return 0;
++
++}
++
++int do_create_subvol(int argc, char **argv)
++{
++	int	res, fddst, len;
++	char	*newname;
++	char	*dstdir;
++	struct btrfs_ioctl_vol_args	args;
++	char	*dst = argv[1];
++
++	res = test_isdir(dst);
++	if(res >= 0 ){
++		fprintf(stderr, "ERROR: '%s' exists\n", dst);
++		return 12;
++	}
++
++	newname = strdup(dst);
++	newname = basename(newname);
++	dstdir = strdup(dst);
++	dstdir = dirname(dstdir);
++
++	if( !strcmp(newname,".") || !strcmp(newname,"..") ||
++	     strchr(newname, '/') ){
++		fprintf(stderr, "ERROR: uncorrect subvolume name ('%s')\n",
++			newname);
++		return 14;
++	}
++
++	len = strlen(newname);
++	if (len == 0 || len >= BTRFS_VOL_NAME_MAX) {
++		fprintf(stderr, "ERROR: subvolume name too long ('%s)\n",
++			newname);
++		return 14;
++	}
++
++	fddst = open_file_or_dir(dstdir);
++	if (fddst < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", dstdir);
++		return 12;
++	}
++
++	printf("Create subvolume '%s/%s'\n", dstdir, newname);
++	strcpy(args.name, newname);
++	res = ioctl(fddst, BTRFS_IOC_SUBVOL_CREATE, &args);
++
++	close(fddst);
++
++	if(res < 0 ){
++		fprintf( stderr, "ERROR: cannot create subvolume\n");
++		return 11;
++	}
++
++	return 0;
++
++}
++
++int do_fssync(int argc, char **argv)
++{
++	int fd, res;
++	char	*path = argv[1];
++
++	fd = open_file_or_dir(path);
++	if (fd < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", path);
++		return 12;
++	}
++
++	printf("FSSync '%s'\n", path);
++	res = ioctl(fd, BTRFS_IOC_SYNC);
++	close(fd);
++	if( res < 0 ){
++		fprintf(stderr, "ERROR: unable to fs-syncing '%s'\n", path);
++		return 16;
++	}
++
++	return 0;
++}
++
++int do_scan(int argc, char **argv)
++{
++	int	i, fd;
++	if(argc<=1){
++		int ret;
++
++		printf("Scanning for Btrfs filesystems\n");
++		ret = btrfs_scan_one_dir("/dev", 1);
++		if (ret){
++			fprintf(stderr, "ERROR: error %d while scanning\n", ret);
++			return 18;
++		}
++		return 0;
++	}
++
++	fd = open("/dev/btrfs-control", O_RDWR);
++	if (fd < 0) {
++		perror("failed to open /dev/btrfs-control");
++		return 10;
++	}
++
++	for( i = 1 ; i < argc ; i++ ){
++		struct btrfs_ioctl_vol_args args;
++		int ret;
++
++		printf("Scanning for Btrfs filesystems in '%s'\n", argv[i]);
++
++		strcpy(args.name, argv[i]);
++		/*
++		 * FIXME: which are the error code returned by this ioctl ?
++		 * it seems that is impossible to understand if there no is
++		 * a btrfs filesystem from an I/O error !!!
++		 */
++		ret = ioctl(fd, BTRFS_IOC_SCAN_DEV, &args);
++
++		if( ret < 0 ){
++			close(fd);
++			fprintf(stderr, "ERROR: unable to scan the device '%s'\n", argv[i]);
++			return 11;
++		}
++	}
++
++	close(fd);
++	return 0;
++
++}
++
++int do_resize(int argc, char **argv)
++{
++
++	struct btrfs_ioctl_vol_args	args;
++	int	fd, res, len;
++	char	*amount=argv[1], *path=argv[2];
++
++	fd = open_file_or_dir(path);
++	if (fd < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", path);
++		return 12;
++	}
++	len = strlen(amount);
++	if (len == 0 || len >= BTRFS_VOL_NAME_MAX) {
++		fprintf(stderr, "ERROR: size value too long ('%s)\n",
++			amount);
++		return 14;
++	}
++
++	printf("Resize '%s' of '%s'\n", path, amount);
++	strcpy(args.name, amount);
++	res = ioctl(fd, BTRFS_IOC_RESIZE, &args);
++	close(fd);
++	if( res < 0 ){
++		fprintf(stderr, "ERROR: unable to resize '%s'\n", path);
++		return 30;
++	}
++	return 0;
++}
++
++static int uuid_search(struct btrfs_fs_devices *fs_devices, char *search)
++{
++	struct list_head *cur;
++	struct btrfs_device *device;
++
++	list_for_each(cur, &fs_devices->devices) {
++		device = list_entry(cur, struct btrfs_device, dev_list);
++		if ((device->label && strcmp(device->label, search) == 0) ||
++		    strcmp(device->name, search) == 0)
++			return 1;
++	}
++	return 0;
++}
++
++static void print_one_uuid(struct btrfs_fs_devices *fs_devices)
++{
++	char uuidbuf[37];
++	struct list_head *cur;
++	struct btrfs_device *device;
++	char *super_bytes_used;
++	u64 devs_found = 0;
++	u64 total;
++
++	uuid_unparse(fs_devices->fsid, uuidbuf);
++	device = list_entry(fs_devices->devices.next, struct btrfs_device,
++			    dev_list);
++	if (device->label && device->label[0])
++		printf("Label: '%s' ", device->label);
++	else
++		printf("Label: none ");
++
++	super_bytes_used = pretty_sizes(device->super_bytes_used);
++
++	total = device->total_devs;
++	printf(" uuid: %s\n\tTotal devices %llu FS bytes used %s\n", uuidbuf,
++	       (unsigned long long)total, super_bytes_used);
++
++	free(super_bytes_used);
++
++	list_for_each(cur, &fs_devices->devices) {
++		char *total_bytes;
++		char *bytes_used;
++		device = list_entry(cur, struct btrfs_device, dev_list);
++		total_bytes = pretty_sizes(device->total_bytes);
++		bytes_used = pretty_sizes(device->bytes_used);
++		printf("\tdevid %4llu size %s used %s path %s\n",
++		       (unsigned long long)device->devid,
++		       total_bytes, bytes_used, device->name);
++		free(total_bytes);
++		free(bytes_used);
++		devs_found++;
++	}
++	if (devs_found < total) {
++		printf("\t*** Some devices missing\n");
++	}
++	printf("\n");
++}
++
++int do_show_filesystem(int argc, char **argv)
++{
++	struct list_head *all_uuids;
++	struct btrfs_fs_devices *fs_devices;
++	struct list_head *cur_uuid;
++	char *search = argv[1];
++	int ret;
++
++	ret = btrfs_scan_one_dir("/dev", 0);
++	if (ret){
++		fprintf(stderr, "ERROR: error %d while scanning\n", ret);
++		return 18;
++	}
++
++	all_uuids = btrfs_scanned_uuids();
++	list_for_each(cur_uuid, all_uuids) {
++		fs_devices = list_entry(cur_uuid, struct btrfs_fs_devices,
++					list);
++		if (search && uuid_search(fs_devices, search) == 0)
++			continue;
++		print_one_uuid(fs_devices);
++	}
++	printf("%s\n", BTRFS_BUILD_VERSION);
++	return 0;
++}
++
++int do_add_volume(int nargs, char **args)
++{
++
++	char	*mntpnt = args[nargs-1];
++	int	i, fdmnt, ret=0;
++
++
++	fdmnt = open_file_or_dir(mntpnt);
++	if (fdmnt < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", mntpnt);
++		return 12;
++	}
++
++	for(i=1 ; i < (nargs-1) ; i++ ){
++		struct btrfs_ioctl_vol_args ioctl_args;
++		int	devfd, res;
++		u64 dev_block_count = 0;
++		struct stat st;
++
++		devfd = open(args[i], O_RDWR);
++		if (!devfd) {
++			fprintf(stderr, "ERROR: Unable to open device '%s'\n", args[i]);
++			close(devfd);
++			ret++;
++			continue;
++		}
++		ret = fstat(devfd, &st);
++		if (ret) {
++			fprintf(stderr, "ERROR: Unable to stat '%s'\n", args[i]);
++			close(devfd);
++			ret++;
++			continue;
++		}
++		if (!S_ISBLK(st.st_mode)) {
++			fprintf(stderr, "ERROR: '%s' is not a block device\n", args[i]);
++			close(devfd);
++			ret++;
++			continue;
++		}
++
++		res = btrfs_prepare_device(devfd, args[i], 1, &dev_block_count);
++		if (res) {
++			fprintf(stderr, "ERROR: Unable to init '%s'\n", args[i]);
++			close(devfd);
++			ret++;
++			continue;
++		}
++		close(devfd);
++
++		strcpy(ioctl_args.name, args[i]);
++		res = ioctl(fdmnt, BTRFS_IOC_ADD_DEV, &ioctl_args);
++		if(res<0){
++			fprintf(stderr, "ERROR: error adding the device '%s'\n", args[i]);
++			ret++;
++		}
++
++	}
++
++	close(fdmnt);
++	if( ret)
++		return ret+20;
++	else
++		return 0;
++
++}
++
++int do_balance(int argc, char **argv)
++{
++
++	int	fdmnt, ret=0;
++	struct btrfs_ioctl_vol_args args;
++	char	*path = argv[1];
++
++	fdmnt = open_file_or_dir(path);
++	if (fdmnt < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", path);
++		return 12;
++	}
++
++	memset(&args, 0, sizeof(args));
++	ret = ioctl(fdmnt, BTRFS_IOC_BALANCE, &args);
++	close(fdmnt);
++	if(ret<0){
++		fprintf(stderr, "ERROR: balancing '%s'\n", path);
++
++		return 19;
++	}
++	return 0;
++}
++int do_remove_volume(int nargs, char **args)
++{
++
++	char	*mntpnt = args[nargs-1];
++	int	i, fdmnt, ret=0;
++
++	fdmnt = open_file_or_dir(mntpnt);
++	if (fdmnt < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", mntpnt);
++		return 12;
++	}
++
++	for(i=1 ; i < (nargs-1) ; i++ ){
++		struct	btrfs_ioctl_vol_args arg;
++		int	res;
++
++		strcpy(arg.name, args[i]);
++		res = ioctl(fdmnt, BTRFS_IOC_RM_DEV, &arg);
++		if(res<0){
++			fprintf(stderr, "ERROR: error removing the device '%s'\n", args[i]);
++			ret++;
++		}
++	}
++
++	close(fdmnt);
++	if( ret)
++		return ret+20;
++	else
++		return 0;
++}
++
++int do_set_default_subvol(int nargs, char **argv)
++{
++	int	ret=0, fd;
++	u64	objectid;
++	char	*path = argv[2];
++	char	*subvolid = argv[1];
++
++	fd = open_file_or_dir(path);
++	if (fd < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", path);
++		return 12;
++	}
++
++	objectid = (unsigned long long)strtoll(subvolid, NULL, 0);
++	if (errno == ERANGE) {
++		fprintf(stderr, "ERROR: invalid tree id (%s)\n",subvolid);
++		return 30;
++	}
++	ret = ioctl(fd, BTRFS_IOC_DEFAULT_SUBVOL, &objectid);
++	close(fd);
++	if( ret < 0 ){
++		fprintf(stderr, "ERROR: unable to set a new default subvolume\n");
++		return 30;
++	}
++	return 0;
++}
++
++int do_df_filesystem(int nargs, char **argv)
++{
++	struct btrfs_ioctl_space_args *sargs;
++	u64 count = 0, i;
++	int ret;
++	int fd;
++	char *path = argv[1];
++
++	fd = open_file_or_dir(path);
++	if (fd < 0) {
++		fprintf(stderr, "ERROR: can't access to '%s'\n", path);
++		return 12;
++	}
++
++	sargs = malloc(sizeof(struct btrfs_ioctl_space_args));
++	if (!sargs)
++		return -ENOMEM;
++
++	sargs->space_slots = 0;
++	sargs->total_spaces = 0;
++
++	ret = ioctl(fd, BTRFS_IOC_SPACE_INFO, sargs);
++	if (ret) {
++		free(sargs);
++		return ret;
++	}
++	if (!sargs->total_spaces)
++		return 0;
++
++	count = sargs->total_spaces;
++
++	sargs = realloc(sargs, sizeof(struct btrfs_ioctl_space_args) +
++			(count * sizeof(struct btrfs_ioctl_space_info)));
++	if (!sargs)
++		return -ENOMEM;
++
++	sargs->space_slots = count;
++	sargs->total_spaces = 0;
++
++	ret = ioctl(fd, BTRFS_IOC_SPACE_INFO, sargs);
++	if (ret) {
++		free(sargs);
++		return ret;
++	}
++
++	for (i = 0; i < sargs->total_spaces; i++) {
++		char description[80];
++		char *total_bytes;
++		char *used_bytes;
++		int written = 0;
++		u64 flags = sargs->spaces[i].flags;
++
++		memset(description, 0, 80);
++
++		if (flags & BTRFS_BLOCK_GROUP_DATA) {
++			snprintf(description, 5, "%s", "Data");
++			written += 4;
++		} else if (flags & BTRFS_BLOCK_GROUP_SYSTEM) {
++			snprintf(description, 7, "%s", "System");
++			written += 6;
++		} else if (flags & BTRFS_BLOCK_GROUP_METADATA) {
++			snprintf(description, 9, "%s", "Metadata");
++			written += 8;
++		}
++
++		if (flags & BTRFS_BLOCK_GROUP_RAID0) {
++			snprintf(description+written, 8, "%s", ", RAID0");
++			written += 7;
++		} else if (flags & BTRFS_BLOCK_GROUP_RAID1) {
++			snprintf(description+written, 8, "%s", ", RAID1");
++			written += 7;
++		} else if (flags & BTRFS_BLOCK_GROUP_DUP) {
++			snprintf(description+written, 6, "%s", ", DUP");
++			written += 5;
++		} else if (flags & BTRFS_BLOCK_GROUP_RAID10) {
++			snprintf(description+written, 9, "%s", ", RAID10");
++			written += 8;
++		}
++
++		total_bytes = pretty_sizes(sargs->spaces[i].total_bytes);
++		used_bytes = pretty_sizes(sargs->spaces[i].used_bytes);
++		printf("%s: total=%s, used=%s\n", description, total_bytes,
++		       used_bytes);
++	}
++	free(sargs);
++
++	return 0;
++}
+diff --git a/btrfs_cmds.h b/btrfs_cmds.h
+new file mode 100644
+index 0000000..7bde191
+--- /dev/null
++++ b/btrfs_cmds.h
+@@ -0,0 +1,34 @@
++/*
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License v2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this program; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 021110-1307, USA.
++ */
++
++/* btrfs_cmds.c*/
++int do_clone(int nargs, char **argv);
++int do_delete_subvolume(int nargs, char **argv);
++int do_create_subvol(int nargs, char **argv);
++int do_fssync(int nargs, char **argv);
++int do_defrag(int argc, char **argv);
++int do_show_filesystem(int nargs, char **argv);
++int do_add_volume(int nargs, char **args);
++int do_balance(int nargs, char **argv);
++int do_remove_volume(int nargs, char **args);
++int do_scan(int nargs, char **argv);
++int do_resize(int nargs, char **argv);
++int do_subvol_list(int nargs, char **argv);
++int do_set_default_subvol(int nargs, char **argv);
++int list_subvols(int fd);
++int do_df_filesystem(int nargs, char **argv);
++int find_updated_files(int fd, u64 root_id, u64 oldest_gen);
++int do_find_newer(int argc, char **argv);
+diff --git a/btrfsck.c b/btrfsck.c
+index 40c90f8..73f1836 100644
+--- a/btrfsck.c
++++ b/btrfsck.c
+@@ -36,7 +36,7 @@ static u64 total_fs_tree_bytes = 0;
+ static u64 btree_space_waste = 0;
+ static u64 data_bytes_allocated = 0;
+ static u64 data_bytes_referenced = 0;
+-int found_old_backref = 0;
++static int found_old_backref = 0;
+ 
+ struct extent_backref {
+ 	struct list_head list;
+@@ -100,7 +100,11 @@ struct inode_backref {
+ #define REF_ERR_DUP_INODE_REF		(1 << 5)
+ #define REF_ERR_INDEX_UNMATCH		(1 << 6)
+ #define REF_ERR_FILETYPE_UNMATCH	(1 << 7)
+-#define REF_ERR_NAME_TOO_LONG		(1 << 8)
++#define REF_ERR_NAME_TOO_LONG		(1 << 8) // 100
++#define REF_ERR_NO_ROOT_REF		(1 << 9)
++#define REF_ERR_NO_ROOT_BACKREF		(1 << 10)
++#define REF_ERR_DUP_ROOT_REF		(1 << 11)
++#define REF_ERR_DUP_ROOT_BACKREF	(1 << 12)
+ 
+ struct inode_record {
+ 	struct list_head backrefs;
+@@ -144,6 +148,29 @@ struct inode_record {
+ #define I_ERR_SOME_CSUM_MISSING		(1 << 12)
+ #define I_ERR_LINK_COUNT_WRONG		(1 << 13)
+ 
++struct root_backref {
++	struct list_head list;
++	unsigned int found_dir_item:1;
++	unsigned int found_dir_index:1;
++	unsigned int found_back_ref:1;
++	unsigned int found_forward_ref:1;
++	unsigned int reachable:1;
++	int errors;
++	u64 ref_root;
++	u64 dir;
++	u64 index;
++	u16 namelen;
++	char name[0];
++};
++
++struct root_record {
++	struct list_head backrefs;
++	struct cache_extent cache;
++	unsigned int found_root_item:1;
++	u64 objectid;
++	u32 found_ref;
++};
++
+ struct ptr_node {
+ 	struct cache_extent cache;
+ 	void *data;
+@@ -151,6 +178,7 @@ struct ptr_node {
+ 
+ struct shared_node {
+ 	struct cache_extent cache;
++	struct cache_tree root_cache;
+ 	struct cache_tree inode_cache;
+ 	struct inode_record *current;
+ 	u32 refs;
+@@ -258,6 +286,14 @@ static void free_inode_rec(struct inode_record *rec)
+ 	free(rec);
+ }
+ 
++static int can_free_inode_rec(struct inode_record *rec)
++{
++	if (!rec->errors && rec->checked && rec->found_inode_item &&
++	    rec->nlink == rec->found_link && list_empty(&rec->backrefs))
++		return 1;
++	return 0;
++}
++
+ static void maybe_free_inode_rec(struct cache_tree *inode_cache,
+ 				 struct inode_record *rec)
+ {
+@@ -309,8 +345,7 @@ static void maybe_free_inode_rec(struct cache_tree *inode_cache,
+ 	}
+ 
+ 	BUG_ON(rec->refs != 1);
+-	if (!rec->errors && rec->nlink == rec->found_link &&
+-	    list_empty(&rec->backrefs)) {
++	if (can_free_inode_rec(rec)) {
+ 		cache = find_cache_extent(inode_cache, rec->ino, 1);
+ 		node = container_of(cache, struct ptr_node, cache);
+ 		BUG_ON(node->data != rec);
+@@ -338,14 +373,12 @@ static int check_orphan_item(struct btrfs_root *root, u64 ino)
+ 	return ret;
+ }
+ 
+-static int process_inode_item(struct btrfs_root *root,
+-			      struct extent_buffer *eb,
++static int process_inode_item(struct extent_buffer *eb,
+ 			      int slot, struct btrfs_key *key,
+ 			      struct shared_node *active_node)
+ {
+ 	struct inode_record *rec;
+ 	struct btrfs_inode_item *item;
+-	int ret;
+ 
+ 	rec = active_node->current;
+ 	BUG_ON(rec->ino != key->objectid || rec->refs > 1);
+@@ -361,11 +394,8 @@ static int process_inode_item(struct btrfs_root *root,
+ 	if (btrfs_inode_flags(eb, item) & BTRFS_INODE_NODATASUM)
+ 		rec->nodatasum = 1;
+ 	rec->found_inode_item = 1;
+-	if (rec->nlink == 0) {
+-		ret = check_orphan_item(root, rec->ino);
+-		if (ret == -ENOENT)
+-			rec->errors |= I_ERR_NO_ORPHAN_ITEM;
+-	}
++	if (rec->nlink == 0)
++		rec->errors |= I_ERR_NO_ORPHAN_ITEM;
+ 	maybe_free_inode_rec(&active_node->inode_cache, rec);
+ 	return 0;
+ }
+@@ -443,10 +473,9 @@ static int add_inode_backref(struct cache_tree *inode_cache,
+ }
+ 
+ static int merge_inode_recs(struct inode_record *src, struct inode_record *dst,
+-			    struct shared_node *dst_node)
++			    struct cache_tree *dst_cache)
+ {
+ 	struct inode_backref *backref;
+-	struct cache_tree *dst_cache = &dst_node->inode_cache;
+ 
+ 	dst->merging = 1;
+ 	list_for_each_entry(backref, &src->backrefs, list) {
+@@ -510,14 +539,8 @@ static int merge_inode_recs(struct inode_record *src, struct inode_record *dst,
+ 			dst->errors |= I_ERR_DUP_INODE_ITEM;
+ 		}
+ 	}
+-
+-	if (src->checked) {
+-		dst->checked = 1;
+-		if (dst_node->current == dst)
+-			dst_node->current = NULL;
+-	}
+ 	dst->merging = 0;
+-	maybe_free_inode_rec(dst_cache, dst);
++
+ 	return 0;
+ }
+ 
+@@ -537,8 +560,9 @@ static int splice_shared_node(struct shared_node *src_node,
+ 	if (src_node->current)
+ 		current_ino = src_node->current->ino;
+ 
+-	src = &src_node->inode_cache;
+-	dst = &dst_node->inode_cache;
++	src = &src_node->root_cache;
++	dst = &dst_node->root_cache;
++again:
+ 	cache = find_first_cache_extent(src, 0);
+ 	while (cache) {
+ 		node = container_of(cache, struct ptr_node, cache);
+@@ -557,14 +581,28 @@ static int splice_shared_node(struct shared_node *src_node,
+ 		}
+ 		ret = insert_existing_cache_extent(dst, &ins->cache);
+ 		if (ret == -EEXIST) {
++			WARN_ON(src == &src_node->root_cache);
+ 			conflict = get_inode_rec(dst, rec->ino, 1);
+-			merge_inode_recs(rec, conflict, dst_node);
++			merge_inode_recs(rec, conflict, dst);
++			if (rec->checked) {
++				conflict->checked = 1;
++				if (dst_node->current == conflict)
++					dst_node->current = NULL;
++			}
++			maybe_free_inode_rec(dst, conflict);
+ 			free_inode_rec(rec);
+ 			free(ins);
+ 		} else {
+ 			BUG_ON(ret);
+ 		}
+ 	}
++
++	if (src == &src_node->root_cache) {
++		src = &src_node->inode_cache;
++		dst = &dst_node->inode_cache;
++		goto again;
++	}
++
+ 	if (current_ino > 0 && (!dst_node->current ||
+ 	    current_ino > dst_node->current->ino)) {
+ 		if (dst_node->current) {
+@@ -616,6 +654,7 @@ static int add_shared_node(struct cache_tree *shared, u64 bytenr, u32 refs)
+ 	node = calloc(1, sizeof(*node));
+ 	node->cache.start = bytenr;
+ 	node->cache.size = 1;
++	cache_tree_init(&node->root_cache);
+ 	cache_tree_init(&node->inode_cache);
+ 	node->refs = refs;
+ 
+@@ -646,6 +685,7 @@ static int enter_shared_node(struct btrfs_root *root, u64 bytenr, u32 refs,
+ 	if (wc->root_level == wc->active_node &&
+ 	    btrfs_root_refs(&root->root_item) == 0) {
+ 		if (--node->refs == 0) {
++			free_inode_recs(&node->root_cache);
+ 			free_inode_recs(&node->inode_cache);
+ 			remove_cache_extent(&wc->shared, &node->cache);
+ 			free(node);
+@@ -708,10 +748,12 @@ static int process_dir_item(struct extent_buffer *eb,
+ 	int filetype;
+ 	struct btrfs_dir_item *di;
+ 	struct inode_record *rec;
++	struct cache_tree *root_cache;
+ 	struct cache_tree *inode_cache;
+ 	struct btrfs_key location;
+ 	char namebuf[BTRFS_NAME_LEN];
+ 
++	root_cache = &active_node->root_cache;
+ 	inode_cache = &active_node->inode_cache;
+ 	rec = active_node->current;
+ 	rec->found_dir_item = 1;
+@@ -740,7 +782,9 @@ static int process_dir_item(struct extent_buffer *eb,
+ 					  key->objectid, key->offset, namebuf,
+ 					  len, filetype, key->type, error);
+ 		} else if (location.type == BTRFS_ROOT_ITEM_KEY) {
+-			/* fixme: check root back & forward references */
++			add_inode_backref(root_cache, location.objectid,
++					  key->objectid, key->offset, namebuf,
++					  len, filetype, key->type, error);
+ 		} else {
+ 			fprintf(stderr, "warning line %d\n", __LINE__);
+ 		}
+@@ -977,8 +1021,7 @@ static int process_one_leaf(struct btrfs_root *root, struct extent_buffer *eb,
+ 			ret = process_inode_ref(eb, i, &key, active_node);
+ 			break;
+ 		case BTRFS_INODE_ITEM_KEY:
+-			ret = process_inode_item(root, eb, i, &key,
+-						 active_node);
++			ret = process_inode_item(eb, i, &key, active_node);
+ 			break;
+ 		case BTRFS_EXTENT_DATA_KEY:
+ 			ret = process_file_extent(root, eb, i, &key,
+@@ -1176,13 +1219,23 @@ static int check_inode_recs(struct btrfs_root *root,
+ 		node = container_of(cache, struct ptr_node, cache);
+ 		rec = node->data;
+ 		remove_cache_extent(inode_cache, &node->cache);
++		free(node);
+ 		if (rec->ino == root_dirid ||
+ 		    rec->ino == BTRFS_ORPHAN_OBJECTID) {
+-			free(node);
+ 			free_inode_rec(rec);
+ 			continue;
+ 		}
+ 
++		if (rec->errors & I_ERR_NO_ORPHAN_ITEM) {
++			ret = check_orphan_item(root, rec->ino);
++			if (ret == 0)
++				rec->errors &= ~I_ERR_NO_ORPHAN_ITEM;
++			if (can_free_inode_rec(rec)) {
++				free_inode_rec(rec);
++				continue;
++			}
++		}
++
+ 		error++;
+ 		if (!rec->found_inode_item)
+ 			rec->errors |= I_ERR_NO_INODE_ITEM;
+@@ -1205,13 +1258,314 @@ static int check_inode_recs(struct btrfs_root *root,
+ 				backref->namelen, backref->name,
+ 				backref->filetype, backref->errors);
+ 		}
+-		free(node);
+ 		free_inode_rec(rec);
+ 	}
+ 	return (error > 0) ? -1 : 0;
+ }
+ 
++static struct root_record *get_root_rec(struct cache_tree *root_cache,
++					u64 objectid)
++{
++	struct cache_extent *cache;
++	struct root_record *rec = NULL;
++	int ret;
++
++	cache = find_cache_extent(root_cache, objectid, 1);
++	if (cache) {
++		rec = container_of(cache, struct root_record, cache);
++	} else {
++		rec = calloc(1, sizeof(*rec));
++		rec->objectid = objectid;
++		INIT_LIST_HEAD(&rec->backrefs);
++		rec->cache.start = objectid;
++		rec->cache.size = 1;
++
++		ret = insert_existing_cache_extent(root_cache, &rec->cache);
++		BUG_ON(ret);
++	}
++	return rec;
++}
++
++static struct root_backref *get_root_backref(struct root_record *rec,
++					     u64 ref_root, u64 dir, u64 index,
++					     const char *name, int namelen)
++{
++	struct root_backref *backref;
++
++	list_for_each_entry(backref, &rec->backrefs, list) {
++		if (backref->ref_root != ref_root || backref->dir != dir ||
++		    backref->namelen != namelen)
++			continue;
++		if (memcmp(name, backref->name, namelen))
++			continue;
++		return backref;
++	}
++
++	backref = malloc(sizeof(*backref) + namelen + 1);
++	memset(backref, 0, sizeof(*backref));
++	backref->ref_root = ref_root;
++	backref->dir = dir;
++	backref->index = index;
++	backref->namelen = namelen;
++	memcpy(backref->name, name, namelen);
++	backref->name[namelen] = '\0';
++	list_add_tail(&backref->list, &rec->backrefs);
++	return backref;
++}
++
++static void free_root_recs(struct cache_tree *root_cache)
++{
++	struct cache_extent *cache;
++	struct root_record *rec;
++	struct root_backref *backref;
++
++	while (1) {
++		cache = find_first_cache_extent(root_cache, 0);
++		if (!cache)
++			break;
++		rec = container_of(cache, struct root_record, cache);
++		remove_cache_extent(root_cache, &rec->cache);
++
++		while (!list_empty(&rec->backrefs)) {
++			backref = list_entry(rec->backrefs.next,
++					     struct root_backref, list);
++			list_del(&backref->list);
++			free(backref);
++		}
++		kfree(rec);
++	}
++}
++
++static int add_root_backref(struct cache_tree *root_cache,
++			    u64 root_id, u64 ref_root, u64 dir, u64 index,
++			    const char *name, int namelen,
++			    int item_type, int errors)
++{
++	struct root_record *rec;
++	struct root_backref *backref;
++
++	rec = get_root_rec(root_cache, root_id);
++	backref = get_root_backref(rec, ref_root, dir, index, name, namelen);
++
++	backref->errors |= errors;
++
++	if (item_type != BTRFS_DIR_ITEM_KEY) {
++		if (backref->found_dir_index || backref->found_back_ref ||
++		    backref->found_forward_ref) {
++			if (backref->index != index)
++				backref->errors |= REF_ERR_INDEX_UNMATCH;
++		} else {
++			backref->index = index;
++		}
++	}
++
++	if (item_type == BTRFS_DIR_ITEM_KEY) {
++		backref->found_dir_item = 1;
++		backref->reachable = 1;
++		rec->found_ref++;
++	} else if (item_type == BTRFS_DIR_INDEX_KEY) {
++		backref->found_dir_index = 1;
++	} else if (item_type == BTRFS_ROOT_REF_KEY) {
++		if (backref->found_forward_ref)
++			backref->errors |= REF_ERR_DUP_ROOT_REF;
++		backref->found_forward_ref = 1;
++	} else if (item_type == BTRFS_ROOT_BACKREF_KEY) {
++		if (backref->found_back_ref)
++			backref->errors |= REF_ERR_DUP_ROOT_BACKREF;
++		backref->found_back_ref = 1;
++	} else {
++		BUG_ON(1);
++	}
++
++	return 0;
++}
++
++static int merge_root_recs(struct btrfs_root *root,
++			   struct cache_tree *src_cache,
++			   struct cache_tree *dst_cache)
++{
++	struct cache_extent *cache;
++	struct ptr_node *node;
++	struct inode_record *rec;
++	struct inode_backref *backref;
++
++	if (root->root_key.objectid == BTRFS_TREE_RELOC_OBJECTID) {
++		free_inode_recs(src_cache);
++		return 0;
++	}
++
++	while (1) {
++		cache = find_first_cache_extent(src_cache, 0);
++		if (!cache)
++			break;
++		node = container_of(cache, struct ptr_node, cache);
++		rec = node->data;
++		remove_cache_extent(src_cache, &node->cache);
++		free(node);
++
++		list_for_each_entry(backref, &rec->backrefs, list) {
++			BUG_ON(backref->found_inode_ref);
++			if (backref->found_dir_item)
++				add_root_backref(dst_cache, rec->ino,
++					root->root_key.objectid, backref->dir,
++					backref->index, backref->name,
++					backref->namelen, BTRFS_DIR_ITEM_KEY,
++					backref->errors);
++			if (backref->found_dir_index)
++				add_root_backref(dst_cache, rec->ino,
++					root->root_key.objectid, backref->dir,
++					backref->index, backref->name,
++					backref->namelen, BTRFS_DIR_INDEX_KEY,
++					backref->errors);
++		}
++		free_inode_rec(rec);
++	}
++	return 0;
++}
++
++static int check_root_refs(struct btrfs_root *root,
++			   struct cache_tree *root_cache)
++{
++	struct root_record *rec;
++	struct root_record *ref_root;
++	struct root_backref *backref;
++	struct cache_extent *cache;
++	int loop = 1;
++	int ret;
++	int error;
++	int errors = 0;
++
++	rec = get_root_rec(root_cache, BTRFS_FS_TREE_OBJECTID);
++	rec->found_ref = 1;
++
++	/* fixme: this can not detect circular references */
++	while (loop) {
++		loop = 0;
++		cache = find_first_cache_extent(root_cache, 0);
++		while (1) {
++			if (!cache)
++				break;
++			rec = container_of(cache, struct root_record, cache);
++			cache = next_cache_extent(cache);
++
++			if (rec->found_ref == 0)
++				continue;
++
++			list_for_each_entry(backref, &rec->backrefs, list) {
++				if (!backref->reachable)
++					continue;
++
++				ref_root = get_root_rec(root_cache,
++							backref->ref_root);
++				if (ref_root->found_ref > 0)
++					continue;
++
++				backref->reachable = 0;
++				rec->found_ref--;
++				if (rec->found_ref == 0)
++					loop = 1;
++			}
++		}
++	}
++
++	cache = find_first_cache_extent(root_cache, 0);
++	while (1) {
++		if (!cache)
++			break;
++		rec = container_of(cache, struct root_record, cache);
++		cache = next_cache_extent(cache);
++
++		if (rec->found_ref == 0 &&
++		    rec->objectid >= BTRFS_FIRST_FREE_OBJECTID &&
++		    rec->objectid <= BTRFS_LAST_FREE_OBJECTID) {
++			ret = check_orphan_item(root->fs_info->tree_root,
++						rec->objectid);
++			if (ret == 0)
++				continue;
++			errors++;
++			fprintf(stderr, "fs tree %llu not referenced\n",
++				(unsigned long long)rec->objectid);
++		}
++
++		error = 0;
++		if (rec->found_ref > 0 && !rec->found_root_item)
++			error = 1;
++		list_for_each_entry(backref, &rec->backrefs, list) {
++			if (!backref->found_dir_item)
++				backref->errors |= REF_ERR_NO_DIR_ITEM;
++			if (!backref->found_dir_index)
++				backref->errors |= REF_ERR_NO_DIR_INDEX;
++			if (!backref->found_back_ref)
++				backref->errors |= REF_ERR_NO_ROOT_BACKREF;
++			if (!backref->found_forward_ref)
++				backref->errors |= REF_ERR_NO_ROOT_REF;
++			if (backref->reachable && backref->errors)
++				error = 1;
++		}
++		if (!error)
++			continue;
++
++		errors++;
++		fprintf(stderr, "fs tree %llu refs %u %s\n",
++			(unsigned long long)rec->objectid, rec->found_ref,
++			 rec->found_root_item ? "" : "not found");
++
++		list_for_each_entry(backref, &rec->backrefs, list) {
++			if (!backref->reachable)
++				continue;
++			if (!backref->errors && rec->found_root_item)
++				continue;
++			fprintf(stderr, "\tunresolved ref root %llu dir %llu"
++				" index %llu namelen %u name %s error %x\n",
++				(unsigned long long)backref->ref_root,
++				(unsigned long long)backref->dir,
++				(unsigned long long)backref->index,
++				backref->namelen, backref->name,
++				backref->errors);
++		}
++	}
++	return errors > 0 ? 1 : 0;
++}
++
++static int process_root_ref(struct extent_buffer *eb, int slot,
++			    struct btrfs_key *key,
++			    struct cache_tree *root_cache)
++{
++	u64 dirid;
++	u64 index;
++	u32 len;
++	u32 name_len;
++	struct btrfs_root_ref *ref;
++	char namebuf[BTRFS_NAME_LEN];
++	int error;
++
++	ref = btrfs_item_ptr(eb, slot, struct btrfs_root_ref);
++
++	dirid = btrfs_root_ref_dirid(eb, ref);
++	index = btrfs_root_ref_sequence(eb, ref);
++	name_len = btrfs_root_ref_name_len(eb, ref);
++
++	if (name_len <= BTRFS_NAME_LEN) {
++		len = name_len;
++		error = 0;
++	} else {
++		len = BTRFS_NAME_LEN;
++		error = REF_ERR_NAME_TOO_LONG;
++	}
++	read_extent_buffer(eb, namebuf, (unsigned long)(ref + 1), len);
++
++	if (key->type == BTRFS_ROOT_REF_KEY) {
++		add_root_backref(root_cache, key->offset, key->objectid, dirid,
++				 index, namebuf, len, key->type, error);
++	} else {
++		add_root_backref(root_cache, key->objectid, key->offset, dirid,
++				 index, namebuf, len, key->type, error);
++	}
++	return 0;
++}
++
+ static int check_fs_root(struct btrfs_root *root,
++			 struct cache_tree *root_cache,
+ 			 struct walk_control *wc)
+ {
+ 	int ret = 0;
+@@ -1219,10 +1573,18 @@ static int check_fs_root(struct btrfs_root *root,
+ 	int level;
+ 	struct btrfs_path path;
+ 	struct shared_node root_node;
++	struct root_record *rec;
+ 	struct btrfs_root_item *root_item = &root->root_item;
+ 
++	if (root->root_key.objectid != BTRFS_TREE_RELOC_OBJECTID) {
++		rec = get_root_rec(root_cache, root->root_key.objectid);
++		if (btrfs_root_refs(root_item) > 0)
++			rec->found_root_item = 1;
++	}
++
+ 	btrfs_init_path(&path);
+ 	memset(&root_node, 0, sizeof(root_node));
++	cache_tree_init(&root_node.root_cache);
+ 	cache_tree_init(&root_node.inode_cache);
+ 
+ 	level = btrfs_header_level(root->node);
+@@ -1266,6 +1628,8 @@ static int check_fs_root(struct btrfs_root *root,
+ 	}
+ 	btrfs_release_path(root, &path);
+ 
++	merge_root_recs(root, &root_node.root_cache, root_cache);
++
+ 	if (root_node.current) {
+ 		root_node.current->checked = 1;
+ 		maybe_free_inode_rec(&root_node.inode_cache,
+@@ -1280,13 +1644,15 @@ static int fs_root_objectid(u64 objectid)
+ {
+ 	if (objectid == BTRFS_FS_TREE_OBJECTID ||
+ 	    objectid == BTRFS_TREE_RELOC_OBJECTID ||
++	    objectid == BTRFS_DATA_RELOC_TREE_OBJECTID ||
+ 	    (objectid >= BTRFS_FIRST_FREE_OBJECTID &&
+-	     objectid < BTRFS_LAST_FREE_OBJECTID))
++	     objectid <= BTRFS_LAST_FREE_OBJECTID))
+ 		return 1;
+ 	return 0;
+ }
+ 
+-static int check_fs_roots(struct btrfs_root *root)
++static int check_fs_roots(struct btrfs_root *root,
++			  struct cache_tree *root_cache)
+ {
+ 	struct btrfs_path path;
+ 	struct btrfs_key key;
+@@ -1319,10 +1685,14 @@ static int check_fs_roots(struct btrfs_root *root)
+ 		    fs_root_objectid(key.objectid)) {
+ 			tmp_root = btrfs_read_fs_root_no_cache(root->fs_info,
+ 							       &key);
+-			ret = check_fs_root(tmp_root, &wc);
++			ret = check_fs_root(tmp_root, root_cache, &wc);
+ 			if (ret)
+ 				err = 1;
+ 			btrfs_free_fs_root(root->fs_info, tmp_root);
++		} else if (key.type == BTRFS_ROOT_REF_KEY ||
++			   key.type == BTRFS_ROOT_BACKREF_KEY) {
++			process_root_ref(leaf, path.slots[0], &key,
++					 root_cache);
+ 		}
+ 		path.slots[0]++;
+ 	}
+@@ -1895,7 +2265,6 @@ static int add_data_backref(struct cache_tree *extent_cache, u64 bytenr,
+ 	return 0;
+ }
+ 
+-
+ static int add_pending(struct cache_tree *pending,
+ 		       struct cache_tree *seen, u64 bytenr, u32 size)
+ {
+@@ -2443,6 +2812,7 @@ static void print_usage(void)
+ 
+ int main(int ac, char **av)
+ {
++	struct cache_tree root_cache;
+ 	struct btrfs_root *root;
+ 	int ret;
+ 
+@@ -2450,6 +2820,7 @@ int main(int ac, char **av)
+ 		print_usage();
+ 
+ 	radix_tree_init();
++	cache_tree_init(&root_cache);
+ 	root = open_ctree(av[1], 0, 0);
+ 
+ 	if (root == NULL)
+@@ -2458,10 +2829,15 @@ int main(int ac, char **av)
+ 	ret = check_extents(root);
+ 	if (ret)
+ 		goto out;
+-	ret = check_fs_roots(root);
++	ret = check_fs_roots(root, &root_cache);
++	if (ret)
++		goto out;
+ 
++	ret = check_root_refs(root, &root_cache);
+ out:
++	free_root_recs(&root_cache);
+ 	close_ctree(root);
++
+ 	if (found_old_backref) {
+ 		/*
+ 		 * there was a disk format change when mixed
+diff --git a/btrfsctl.c b/btrfsctl.c
+index b323818..be6bf25 100644
+--- a/btrfsctl.c
++++ b/btrfsctl.c
+@@ -29,6 +29,7 @@
+ #include <unistd.h>
+ #include <dirent.h>
+ #include <libgen.h>
++#include <stdlib.h>
+ #include "kerncompat.h"
+ #include "ctree.h"
+ #include "transaction.h"
+@@ -46,7 +47,7 @@ static inline int ioctl(int fd, int define, void *arg) { return 0; }
+ static void print_usage(void)
+ {
+ 	printf("usage: btrfsctl [ -d file|dir] [ -s snap_name subvol|tree ]\n");
+-	printf("                [-r size] [-A device] [-a] [-c]\n");
++	printf("                [-r size] [-A device] [-a] [-c] [-D dir .]\n");
+ 	printf("\t-d filename: defragments one file\n");
+ 	printf("\t-d directory: defragments the entire Btree\n");
+ 	printf("\t-s snap_name dir: creates a new snapshot of dir\n");
+@@ -55,6 +56,9 @@ static void print_usage(void)
+ 	printf("\t-A device: scans the device file for a Btrfs filesystem\n");
+ 	printf("\t-a: scans all devices for Btrfs filesystems\n");
+ 	printf("\t-c: forces a single FS sync\n");
++	printf("\t-D: delete snapshot\n");
++	printf("\t-m [tree id] directory: set the default mounted subvolume"
++	       " to the [tree id] or the directory\n");
+ 	printf("%s\n", BTRFS_BUILD_VERSION);
+ 	exit(1);
+ }
+@@ -100,6 +104,7 @@ int main(int ac, char **av)
+ 	unsigned long command = 0;
+ 	int len;
+ 	char *fullpath;
++	u64 objectid = 0;
+ 
+ 	if (ac == 2 && strcmp(av[1], "-a") == 0) {
+ 		fprintf(stderr, "Scanning for Btrfs filesystems\n");
+@@ -158,6 +163,18 @@ int main(int ac, char **av)
+ 				print_usage();
+ 			}
+ 			command = BTRFS_IOC_DEFRAG;
++		} else if (strcmp(av[i], "-D") == 0) {
++			if (i >= ac - 1) {
++				fprintf(stderr, "-D requires an arg\n");
++				print_usage();
++			}
++			command = BTRFS_IOC_SNAP_DESTROY;
++			name = av[i + 1];
++			len = strlen(name);
++			if (len == 0 || len >= BTRFS_VOL_NAME_MAX) {
++				fprintf(stderr, "-D size too long\n");
++				exit(1);
++			}
+ 		} else if (strcmp(av[i], "-A") == 0) {
+ 			if (i >= ac - 1) {
+ 				fprintf(stderr, "-A requires an arg\n");
+@@ -178,6 +195,16 @@ int main(int ac, char **av)
+ 			command = BTRFS_IOC_RESIZE;
+ 		} else if (strcmp(av[i], "-c") == 0) {
+ 			command = BTRFS_IOC_SYNC;
++		} else if (strcmp(av[i], "-m") == 0) {
++			command = BTRFS_IOC_DEFAULT_SUBVOL;
++			if (i == ac - 3) {
++				objectid = (unsigned long long)
++					    strtoll(av[i + 1], NULL, 0);
++				if (errno == ERANGE) {
++					fprintf(stderr, "invalid tree id\n");
++					exit(1);
++				}
++			}
+ 		}
+ 	}
+ 	if (command == 0) {
+@@ -206,6 +233,9 @@ int main(int ac, char **av)
+ 	if (command == BTRFS_IOC_SNAP_CREATE) {
+ 		args.fd = fd;
+ 		ret = ioctl(snap_fd, command, &args);
++	} else if (command == BTRFS_IOC_DEFAULT_SUBVOL) {
++		printf("objectid is %llu\n", objectid);
++		ret = ioctl(fd, command, &objectid);
+ 	} else
+ 		ret = ioctl(fd, command, &args);
+ 	if (ret < 0) {
+diff --git a/convert.c b/convert.c
+index d2c9efa..d037c98 100644
+--- a/convert.c
++++ b/convert.c
+@@ -370,7 +370,6 @@ static int record_file_extent(struct btrfs_trans_handle *trans,
+ 	struct btrfs_extent_item *ei;
+ 	u32 blocksize = root->sectorsize;
+ 	u64 nbytes;
+-	u64 bytes_used;
+ 
+ 	if (disk_bytenr == 0) {
+ 		ret = btrfs_insert_file_extent(trans, root, objectid,
+@@ -432,9 +431,6 @@ static int record_file_extent(struct btrfs_trans_handle *trans,
+ 	nbytes = btrfs_stack_inode_nbytes(inode) + num_bytes;
+ 	btrfs_set_stack_inode_nbytes(inode, nbytes);
+ 
+-	bytes_used = btrfs_root_used(&root->root_item);
+-	btrfs_set_root_used(&root->root_item, bytes_used + num_bytes);
+-
+ 	btrfs_release_path(root, &path);
+ 
+ 	ins_key.objectid = disk_bytenr;
+@@ -454,9 +450,6 @@ static int record_file_extent(struct btrfs_trans_handle *trans,
+ 
+ 		btrfs_mark_buffer_dirty(leaf);
+ 
+-		bytes_used = btrfs_super_bytes_used(&info->super_copy);
+-		btrfs_set_super_bytes_used(&info->super_copy, bytes_used +
+-					   num_bytes);
+ 		ret = btrfs_update_block_group(trans, root, disk_bytenr,
+ 					       num_bytes, 1, 0);
+ 		if (ret)
+diff --git a/ctree.h b/ctree.h
+index a9062ea..64ecf12 100644
+--- a/ctree.h
++++ b/ctree.h
+@@ -1047,6 +1047,7 @@ BTRFS_SETGET_STACK_FUNCS(block_group_flags,
+ 
+ /* struct btrfs_inode_ref */
+ BTRFS_SETGET_FUNCS(inode_ref_name_len, struct btrfs_inode_ref, name_len, 16);
++BTRFS_SETGET_STACK_FUNCS(stack_inode_ref_name_len, struct btrfs_inode_ref, name_len, 16);
+ BTRFS_SETGET_FUNCS(inode_ref_index, struct btrfs_inode_ref, index, 64);
+ 
+ /* struct btrfs_inode_item */
+@@ -1325,6 +1326,10 @@ BTRFS_SETGET_FUNCS(root_ref_dirid, struct btrfs_root_ref, dirid, 64);
+ BTRFS_SETGET_FUNCS(root_ref_sequence, struct btrfs_root_ref, sequence, 64);
+ BTRFS_SETGET_FUNCS(root_ref_name_len, struct btrfs_root_ref, name_len, 16);
+ 
++BTRFS_SETGET_STACK_FUNCS(stack_root_ref_dirid, struct btrfs_root_ref, dirid, 64);
++BTRFS_SETGET_STACK_FUNCS(stack_root_ref_sequence, struct btrfs_root_ref, sequence, 64);
++BTRFS_SETGET_STACK_FUNCS(stack_root_ref_name_len, struct btrfs_root_ref, name_len, 16);
++
+ /* struct btrfs_dir_item */
+ BTRFS_SETGET_FUNCS(dir_data_len, struct btrfs_dir_item, data_len, 16);
+ BTRFS_SETGET_FUNCS(dir_type, struct btrfs_dir_item, type, 8);
+@@ -1572,6 +1577,7 @@ static inline unsigned long btrfs_leaf_data(struct extent_buffer *l)
+ 
+ /* struct btrfs_file_extent_item */
+ BTRFS_SETGET_FUNCS(file_extent_type, struct btrfs_file_extent_item, type, 8);
++BTRFS_SETGET_STACK_FUNCS(stack_file_extent_type, struct btrfs_file_extent_item, type, 8);
+ 
+ static inline unsigned long btrfs_file_extent_inline_start(struct
+ 						   btrfs_file_extent_item *e)
+@@ -1588,18 +1594,30 @@ static inline u32 btrfs_file_extent_calc_inline_size(u32 datasize)
+ 
+ BTRFS_SETGET_FUNCS(file_extent_disk_bytenr, struct btrfs_file_extent_item,
+ 		   disk_bytenr, 64);
++BTRFS_SETGET_STACK_FUNCS(stack_file_extent_disk_bytenr, struct btrfs_file_extent_item,
++		   disk_bytenr, 64);
+ BTRFS_SETGET_FUNCS(file_extent_generation, struct btrfs_file_extent_item,
+ 		   generation, 64);
++BTRFS_SETGET_STACK_FUNCS(stack_file_extent_generation, struct btrfs_file_extent_item,
++		   generation, 64);
+ BTRFS_SETGET_FUNCS(file_extent_disk_num_bytes, struct btrfs_file_extent_item,
+ 		   disk_num_bytes, 64);
+ BTRFS_SETGET_FUNCS(file_extent_offset, struct btrfs_file_extent_item,
+ 		  offset, 64);
++BTRFS_SETGET_STACK_FUNCS(stack_file_extent_offset, struct btrfs_file_extent_item,
++		  offset, 64);
+ BTRFS_SETGET_FUNCS(file_extent_num_bytes, struct btrfs_file_extent_item,
+ 		   num_bytes, 64);
++BTRFS_SETGET_STACK_FUNCS(stack_file_extent_num_bytes, struct btrfs_file_extent_item,
++		   num_bytes, 64);
+ BTRFS_SETGET_FUNCS(file_extent_ram_bytes, struct btrfs_file_extent_item,
+ 		   ram_bytes, 64);
++BTRFS_SETGET_STACK_FUNCS(stack_file_extent_ram_bytes, struct btrfs_file_extent_item,
++		   ram_bytes, 64);
+ BTRFS_SETGET_FUNCS(file_extent_compression, struct btrfs_file_extent_item,
+ 		   compression, 8);
++BTRFS_SETGET_STACK_FUNCS(stack_file_extent_compression, struct btrfs_file_extent_item,
++		   compression, 8);
+ BTRFS_SETGET_FUNCS(file_extent_encryption, struct btrfs_file_extent_item,
+ 		   encryption, 8);
+ BTRFS_SETGET_FUNCS(file_extent_other_encoding, struct btrfs_file_extent_item,
+diff --git a/ioctl-test.c b/ioctl-test.c
+new file mode 100644
+index 0000000..7cf3bc2
+--- /dev/null
++++ b/ioctl-test.c
+@@ -0,0 +1,36 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include "kerncompat.h"
++#include "ioctl.h"
++
++unsigned long ioctls[] = {
++	BTRFS_IOC_SNAP_CREATE,
++	BTRFS_IOC_DEFRAG,
++	BTRFS_IOC_RESIZE,
++	BTRFS_IOC_SCAN_DEV,
++	BTRFS_IOC_TRANS_START,
++	BTRFS_IOC_TRANS_END,
++	BTRFS_IOC_SYNC,
++	BTRFS_IOC_CLONE,
++	BTRFS_IOC_ADD_DEV,
++	BTRFS_IOC_RM_DEV,
++	BTRFS_IOC_BALANCE,
++	BTRFS_IOC_SUBVOL_CREATE,
++	BTRFS_IOC_SNAP_DESTROY,
++	BTRFS_IOC_DEFRAG_RANGE,
++	BTRFS_IOC_TREE_SEARCH,
++	BTRFS_IOC_INO_LOOKUP,
++	BTRFS_IOC_DEFAULT_SUBVOL,
++	BTRFS_IOC_SPACE_INFO,
++	0 };
++
++int main(int ac, char **av)
++{
++	int i = 0;
++	while(ioctls[i]) {
++		printf("%lu\n" ,ioctls[i]);
++		i++;
++	}
++	return 0;
++}
++
+diff --git a/ioctl.h b/ioctl.h
+index a084f33..776d7a9 100644
+--- a/ioctl.h
++++ b/ioctl.h
+@@ -30,6 +30,108 @@ struct btrfs_ioctl_vol_args {
+ 	char name[BTRFS_PATH_NAME_MAX + 1];
+ };
+ 
++struct btrfs_ioctl_search_key {
++	/* which root are we searching.  0 is the tree of tree roots */
++	__u64 tree_id;
++
++	/* keys returned will be >= min and <= max */
++	__u64 min_objectid;
++	__u64 max_objectid;
++
++	/* keys returned will be >= min and <= max */
++	__u64 min_offset;
++	__u64 max_offset;
++
++	/* max and min transids to search for */
++	__u64 min_transid;
++	__u64 max_transid;
++
++	/* keys returned will be >= min and <= max */
++	__u32 min_type;
++	__u32 max_type;
++
++	/*
++	 * how many items did userland ask for, and how many are we
++	 * returning
++	 */
++	__u32 nr_items;
++
++	/* align to 64 bits */
++	__u32 unused;
++
++	/* some extra for later */
++	__u64 unused1;
++	__u64 unused2;
++	__u64 unused3;
++	__u64 unused4;
++};
++
++struct btrfs_ioctl_search_header {
++	__u64 transid;
++	__u64 objectid;
++	__u64 offset;
++	__u32 type;
++	__u32 len;
++} __attribute__((may_alias));
++
++#define BTRFS_SEARCH_ARGS_BUFSIZE (4096 - sizeof(struct btrfs_ioctl_search_key))
++/*
++ * the buf is an array of search headers where
++ * each header is followed by the actual item
++ * the type field is expanded to 32 bits for alignment
++ */
++struct btrfs_ioctl_search_args {
++	struct btrfs_ioctl_search_key key;
++	char buf[BTRFS_SEARCH_ARGS_BUFSIZE];
++};
++
++#define BTRFS_INO_LOOKUP_PATH_MAX 4080
++struct btrfs_ioctl_ino_lookup_args {
++	__u64 treeid;
++	__u64 objectid;
++	char name[BTRFS_INO_LOOKUP_PATH_MAX];
++};
++
++/* flags for the defrag range ioctl */
++#define BTRFS_DEFRAG_RANGE_COMPRESS 1
++#define BTRFS_DEFRAG_RANGE_START_IO 2
++
++struct btrfs_ioctl_defrag_range_args {
++	/* start of the defrag operation */
++	__u64 start;
++
++	/* number of bytes to defrag, use (u64)-1 to say all */
++	__u64 len;
++
++	/*
++	 * flags for the operation, which can include turning
++	 * on compression for this one defrag
++	 */
++	__u64 flags;
++
++	/*
++	 * any extent bigger than this will be considered
++	 * already defragged.  Use 0 to take the kernel default
++	 * Use 1 to say every single extent must be rewritten
++	 */
++	__u32 extent_thresh;
++
++	/* spare for later */
++	__u32 unused[5];
++};
++
++struct btrfs_ioctl_space_info {
++	__u64 flags;
++	__u64 total_bytes;
++	__u64 used_bytes;
++};
++
++struct btrfs_ioctl_space_args {
++	__u64 space_slots;
++	__u64 total_spaces;
++	struct btrfs_ioctl_space_info spaces[0];
++};
++
+ #define BTRFS_IOC_SNAP_CREATE _IOW(BTRFS_IOCTL_MAGIC, 1, \
+ 				   struct btrfs_ioctl_vol_args)
+ #define BTRFS_IOC_DEFRAG _IOW(BTRFS_IOCTL_MAGIC, 2, \
+@@ -56,4 +158,15 @@ struct btrfs_ioctl_vol_args {
+ /* 13 is for CLONE_RANGE */
+ #define BTRFS_IOC_SUBVOL_CREATE _IOW(BTRFS_IOCTL_MAGIC, 14, \
+ 				   struct btrfs_ioctl_vol_args)
++#define BTRFS_IOC_SNAP_DESTROY _IOW(BTRFS_IOCTL_MAGIC, 15, \
++				   struct btrfs_ioctl_vol_args)
++#define BTRFS_IOC_DEFRAG_RANGE _IOW(BTRFS_IOCTL_MAGIC, 16, \
++				struct btrfs_ioctl_defrag_range_args)
++#define BTRFS_IOC_TREE_SEARCH _IOWR(BTRFS_IOCTL_MAGIC, 17, \
++				   struct btrfs_ioctl_search_args)
++#define BTRFS_IOC_INO_LOOKUP _IOWR(BTRFS_IOCTL_MAGIC, 18, \
++				   struct btrfs_ioctl_ino_lookup_args)
++#define BTRFS_IOC_DEFAULT_SUBVOL _IOW(BTRFS_IOCTL_MAGIC, 19, u64)
++#define BTRFS_IOC_SPACE_INFO _IOWR(BTRFS_IOCTL_MAGIC, 20, \
++				    struct btrfs_ioctl_space_args)
+ #endif
+diff --git a/man/Makefile b/man/Makefile
+index 4e8893b..4a90b75 100644
+--- a/man/Makefile
++++ b/man/Makefile
+@@ -7,13 +7,16 @@ mandir = $(prefix)/man
+ man8dir = $(mandir)/man8
+ 
+ MANPAGES = mkfs.btrfs.8.gz btrfsctl.8.gz btrfsck.8.gz btrfs-image.8.gz \
+-	   btrfs-show.8.gz
++	   btrfs-show.8.gz btrfs.8.gz
+ 
+ all: $(MANPAGES)
+ 
+ mkfs.btrfs.8.gz: mkfs.btrfs.8.in
+ 	$(GZIP) -n -c mkfs.btrfs.8.in > mkfs.btrfs.8.gz
+ 
++btrfs.8.gz: btrfs.8.in
++	$(GZIP) -n -c btrfs.8.in > btrfs.8.gz
++
+ btrfsctl.8.gz: btrfsctl.8.in
+ 	$(GZIP) -n -c btrfsctl.8.in > btrfsctl.8.gz
+ 
+diff --git a/man/btrfs.8.in b/man/btrfs.8.in
+new file mode 100644
+index 0000000..26ef982
+--- /dev/null
++++ b/man/btrfs.8.in
+@@ -0,0 +1,170 @@
++.TH BTRFS 8 "" "btrfs" "btrfs"
++.\"
++.\" Man page written by Goffredo Baroncelli <kreijack@inwind.it> (Feb 2010)
++.\"
++.SH NAME
++btrfs \- control a btrfs filesystem
++.SH SYNOPSIS
++\fBbtrfs\fP \fBsubvolume snapshot\fP\fI <source> [<dest>/]<name>\fP
++.PP
++\fBbtrfs\fP \fBsubvolume delete\fP\fI <subvolume>\fP
++.PP
++\fBbtrfs\fP \fBsubvolume create\fP\fI [<dest>/]<name>\fP
++.PP
++\fBbtrfs\fP \fBsubvolume list\fP\fI <path>\fP
++.PP
++\fBbtrfs\fP \fBsubvolume set-default\fP\fI <id> <path>\fP
++.PP
++\fBbtrfs\fP \fBfilesystem defrag\fP\fI <file>|<dir> [<file>|<dir>...]\fP
++.PP
++\fBbtrfs\fP \fBfilesystem sync\fP\fI <path> \fP
++.PP
++\fBbtrfs\fP \fBfilesystem resize\fP\fI [+/\-]<size>[gkm]|max <filesystem>\fP
++.PP
++\fBbtrfs\fP \fBdevice scan\fP\fI [<device> [<device>..]]\fP
++.PP
++\fBbtrfs\fP \fBdevice show\fP\fI <dev>|<label> [<dev>|<label>...]\fP
++.PP
++\fBbtrfs\fP \fBdevice balance\fP\fI <path> \fP
++.PP
++\fBbtrfs\fP \fBdevice add\fP\fI <dev> [<dev>..] <path> \fP
++.PP
++\fBbtrfs\fP \fBdevice delete\fP\fI <dev> [<dev>..] <path> \fP]
++
++.PP
++\fBbtrfs\fP \fBhelp|\-\-help|\-h \fP\fI\fP
++.PP
++.SH DESCRIPTION
++.B btrfs
++is used to control the filesystem and the files and directories stored. It is
++the tool to create or destroy a snapshot or a subvolume for the
++filesystem, to defrag a file or a directory, flush the data to the disk,
++to resize the filesystem, to scan the device.
++
++It is possible to abbreviate the commands unless the commands  are ambiguous.
++For example: it is possible to run
++.I btrfs sub snaps
++instead of
++.I btrfs subvolume snapshot.
++But
++.I btrfs dev s
++is not allowed, because
++.I dev s
++may be interpreted both as
++.I device show
++and as
++.I device scan.
++In this case
++.I btrfs
++returns an error.
++
++If a command is terminated by
++.I --help
++, the relevant help is showed. If the passed command matches more commands,
++the help of all the matched commands are showed. For example
++.I btrfs dev --help
++shows the help of all
++.I device*
++command.
++
++.SH COMMANDS
++.TP
++
++\fBsubvolume snapshot\fR\fI <source> [<dest>/]<name>\fR
++Create a writable snapshot of the subvolume \fI<source>\fR with the name
++\fI<name>\fR in the \fI<dest>\fR directory. If \fI<source>\fR is not a
++subvolume, \fBbtrfs\fR returns an error.
++.TP
++
++\fBsubvolume delete\fR\fI <subvolume>\fR
++Delete the subvolume \fI<subvolume>\fR. If \fI<subvolume>\fR is not a
++subvolume, \fBbtrfs\fR returns an error.
++.TP
++
++\fBsubvolume create\fR\fI [<dest>/]<name>\fR
++Create a subvolume in \fI<dest>\fR (or in the current directory if
++\fI<dest>\fR is omitted).
++.TP
++
++\fBsubvolume list\fR\fI <path>\fR
++List the subvolumes present in the filesystem \fI<path>\fR. For every
++subvolume is showed the subvolume ID (second column), 
++the ID of the \fItop level\fR 
++subvolume (fifth column), and the path (seventh column) relative to the
++\fItop level\fR subvolume.
++These <ID> may be used by the \fBsubvolume set-default\fR command, or at
++mount time via the \fIsubvol=\fR option.
++.TP
++
++\fBsubvolume set-default\fR\fI <id> <path>\fR
++Set the subvolume of the filesystem \fI<path>\fR which is mounted as 
++\fIdefault\fR. The subvolume is identified by \fB<id>\fR, which 
++is returned by the \fBsubvolume list\fR command.
++.TP
++
++\fBfilesystem defragment\fP\fI <file>|<dir> [<file>|<dir>...]\fR
++Defragment files and/or directories.
++.TP
++
++\fBdevice scan\fR \fI[<device> [<device>..]]\fR
++Scan devices for a btrfs filesystem. If no devices are passed, \fBbtrfs\fR scans
++all the block devices.
++.TP
++
++\fBfilesystem sync\fR\fI <path> \fR
++Force a sync for the filesystem identified by \fI<path>\fR.
++.TP
++
++.\"
++.\" Some wording are extracted by the resize2fs man page
++.\"
++
++\fBfilesystem resize\fR\fI [+/\-]<size>[gkm]|max <path>\fR
++Resize a filesystem identified by \fI<path>\fR.
++The \fI<size>\fR parameter specifies the new size of the filesystem.
++If the prefix \fI+\fR or \fI\-\fR is present the size is increased or decreased
++by the quantity \fI<size>\fR.
++If no units are specified, the unit of the \fI<size>\fR parameter defaults to
++bytes. Optionally, the size parameter may be suffixed by one of the following
++the units designators: 'K', 'M', or 'G', kilobytes, megabytes, or gigabytes,
++respectively.
++
++If 'max' is passed, the filesystem will occupy all available space on the
++volume(s).
++
++The \fBresize\fR command \fBdoes not\fR manipulate the size of underlying
++partition.  If you wish to enlarge/reduce a filesystem, you must make sure you
++can expand the partition before enlarging the filesystem and shrink the
++partition after reducing the size of the filesystem.
++.TP
++
++\fBfilesystem show\fR [<uuid>|<label>]\fR
++Show the btrfs filesystem with some additional info. If no UUID or label is
++passed, \fBbtrfs\fR show info of all the btrfs filesystem.
++.TP
++
++\fBdevice balance\fR \fI<path>\fR
++Balance the chunks of the filesystem identified by \fI<path>\fR
++across the devices.
++.TP
++
++\fBdevice add\fR\fI <dev> [<dev>..] <path>\fR
++Add device(s) to the filesystem identified by \fI<path>\fR.
++.TP
++
++\fBdevice delete\fR\fI <dev> [<dev>..] <path>\fR
++Remove device(s) from a filesystem identified by \fI<path>\fR.
++.PP
++
++.SH EXIT STATUS
++\fBbtrfs\fR returns a zero exist status if it succeeds. Non zero is returned in
++case of failure.
++
++.SH AVAILABILITY
++.B btrfs
++is part of btrfs-progs. Btrfs filesystem is currently under heavy development,
++and not suitable for any uses other than benchmarking and review.
++Please refer to the btrfs wiki http://btrfs.wiki.kernel.org for
++further details.
++.SH SEE ALSO
++.BR mkfs.btrfs (8)

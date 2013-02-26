@@ -1,0 +1,429 @@
+diff --git a/src/devicewidget.cc b/src/devicewidget.cc
+index e249944..0798e42 100644
+--- a/src/devicewidget.cc
++++ b/src/devicewidget.cc
+@@ -22,9 +22,14 @@
+ #include <config.h>
+ #endif
+ 
++#include <pulse/ext-device-manager.h>
++
++#include "mainwindow.h"
+ #include "devicewidget.h"
+ #include "channelwidget.h"
+ 
++#include "i18n.h"
++
+ /*** DeviceWidget ***/
+ DeviceWidget::DeviceWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Glade::Xml>& x) :
+     MinimalStreamWidget(cobject, x)  {
+@@ -35,9 +40,15 @@ DeviceWidget::DeviceWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Gl
+     x->get_widget("portSelect", portSelect);
+     x->get_widget("portList", portList);
+ 
++    this->signal_button_press_event().connect(sigc::mem_fun(*this, &DeviceWidget::onContextTriggerEvent));
+     muteToggleButton->signal_clicked().connect(sigc::mem_fun(*this, &DeviceWidget::onMuteToggleButton));
+     defaultToggleButton->signal_clicked().connect(sigc::mem_fun(*this, &DeviceWidget::onDefaultToggleButton));
+ 
++    rename.set_label(_("Rename Device..."));
++    rename.signal_activate().connect(sigc::mem_fun(*this, &DeviceWidget::renamePopup));
++    contextMenu.append(rename);
++    contextMenu.show_all();
++
+     treeModel = Gtk::ListStore::create(portModel);
+     portList->set_model(treeModel);
+     portList->pack_start(portModel.desc);
+@@ -48,6 +59,11 @@ DeviceWidget::DeviceWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Gl
+         channelWidgets[i] = NULL;
+ }
+ 
++void DeviceWidget::init(MainWindow* mainWindow, Glib::ustring deviceType) {
++    mpMainWindow = mainWindow;
++    mDeviceType = deviceType;
++}
++
+ void DeviceWidget::setChannelMap(const pa_channel_map &m, bool can_decibel) {
+     channelMap = m;
+ 
+@@ -151,3 +167,54 @@ void DeviceWidget::prepareMenu() {
+     else
+         portSelect->hide();
+ }
++
++bool DeviceWidget::onContextTriggerEvent(GdkEventButton* event) {
++    if (GDK_BUTTON_PRESS == event->type && 3 == event->button) {
++        contextMenu.popup(event->button, event->time);
++        return true;
++    }
++
++    return false;
++}
++
++void DeviceWidget::renamePopup() {
++    if (updating)
++        return;
++
++    if (!mpMainWindow->canRenameDevices) {
++        Gtk::MessageDialog dialog(
++            *mpMainWindow,
++            _("Sorry, but device renaming is not supported."),
++            false,
++            Gtk::MESSAGE_WARNING,
++            Gtk::BUTTONS_OK,
++            true);
++        dialog.set_secondary_text(_("You need to load module-device-manager in the PulseAudio server in order to rename devices"));
++        dialog.run();
++        return;
++    }
++
++    Gtk::Dialog* dialog;
++    Gtk::Entry* renameText;
++
++    Glib::RefPtr<Gnome::Glade::Xml> x = Gnome::Glade::Xml::create(GLADE_FILE, "renameDialog");
++    x->get_widget("renameDialog", dialog);
++    x->get_widget("renameText", renameText);
++
++    renameText->set_text(description);
++    dialog->add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
++    dialog->add_button(Gtk::Stock::OK, Gtk::RESPONSE_OK);
++    dialog->set_default_response(Gtk::RESPONSE_OK);
++    if (Gtk::RESPONSE_OK == dialog->run()) {
++        pa_operation* o;
++        gchar *key = g_markup_printf_escaped("%s:%s", mDeviceType.c_str(), name.c_str());
++
++        if (!(o = pa_ext_device_manager_set_device_description(get_context(), key, renameText->get_text().c_str(), NULL, NULL))) {
++            show_error(_("pa_ext_device_manager_write() failed"));
++            return;
++        }
++        pa_operation_unref(o);
++        g_free(key);
++    }
++    delete dialog;
++}
+diff --git a/src/devicewidget.h b/src/devicewidget.h
+index e4ba4af..3170f04 100644
+--- a/src/devicewidget.h
++++ b/src/devicewidget.h
+@@ -25,16 +25,21 @@
+ 
+ #include "minimalstreamwidget.h"
+ 
++class MainWindow;
+ class ChannelWidget;
+ 
+ class DeviceWidget : public MinimalStreamWidget {
+ public:
+     DeviceWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Glade::Xml>& x);
++    void init(MainWindow* mainWindow, Glib::ustring);
+ 
+     void setChannelMap(const pa_channel_map &m, bool can_decibel);
+     void setVolume(const pa_cvolume &volume, bool force = false);
+     virtual void updateChannelVolume(int channel, pa_volume_t v);
+ 
++    Glib::ustring name;
++    Glib::ustring description;
++
+     Gtk::ToggleButton *lockToggleButton, *muteToggleButton, *defaultToggleButton;
+ 
+     pa_channel_map channelMap;
+@@ -45,6 +50,7 @@ public:
+     virtual void onMuteToggleButton();
+     virtual void onDefaultToggleButton();
+     virtual void setDefault(bool isDefault);
++    virtual bool onContextTriggerEvent(GdkEventButton*);
+ 
+     sigc::connection timeoutConnection;
+ 
+@@ -59,9 +65,17 @@ public:
+ 
+     void prepareMenu();
+ 
++    void renamePopup();
++
+ protected:
++    MainWindow *mpMainWindow;
++
+     virtual void onPortChange() = 0;
+ 
++    Gtk::Menu contextMenu;
++    Gtk::MenuItem rename;
++
++
+     /* Tree model columns */
+     class ModelColumns : public Gtk::TreeModel::ColumnRecord
+     {
+@@ -79,6 +93,10 @@ protected:
+     Gtk::HBox *portSelect;
+     Gtk::ComboBox *portList;
+     Glib::RefPtr<Gtk::ListStore> treeModel;
++
++private:
++    Glib::ustring mDeviceType;
++
+ };
+ 
+ #endif
+diff --git a/src/mainwindow.cc b/src/mainwindow.cc
+index 563a615..fbc62b8 100644
+--- a/src/mainwindow.cc
++++ b/src/mainwindow.cc
+@@ -72,7 +72,8 @@ MainWindow::MainWindow(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Glade:
+     showSinkType(SINK_ALL),
+     showSourceOutputType(SOURCE_OUTPUT_CLIENT),
+     showSourceType(SOURCE_NO_MONITOR),
+-    eventRoleWidget(NULL){
++    eventRoleWidget(NULL),
++    canRenameDevices(false) {
+ 
+     x->get_widget("cardsVBox", cardsVBox);
+     x->get_widget("streamsVBox", streamsVBox);
+@@ -203,7 +204,7 @@ void MainWindow::updateSink(const pa_sink_info &info) {
+     if (sinkWidgets.count(info.index))
+         w = sinkWidgets[info.index];
+     else {
+-        sinkWidgets[info.index] = w = SinkWidget::create();
++        sinkWidgets[info.index] = w = SinkWidget::create(this);
+         w->setChannelMap(info.channel_map, !!(info.flags & PA_SINK_DECIBEL_VOLUME));
+         sinksVBox->pack_start(*w, false, false, 0);
+         w->index = info.index;
+@@ -363,7 +364,7 @@ void MainWindow::updateSource(const pa_source_info &info) {
+     if (sourceWidgets.count(info.index))
+         w = sourceWidgets[info.index];
+     else {
+-        sourceWidgets[info.index] = w = SourceWidget::create();
++        sourceWidgets[info.index] = w = SourceWidget::create(this);
+         w->setChannelMap(info.channel_map, !!(info.flags & PA_SOURCE_DECIBEL_VOLUME));
+         sourcesVBox->pack_start(*w, false, false, 0);
+         w->index = info.index;
+diff --git a/src/mainwindow.h b/src/mainwindow.h
+index a9f0f64..3c72ef3 100644
+--- a/src/mainwindow.h
++++ b/src/mainwindow.h
+@@ -91,6 +91,8 @@ public:
+ 
+     Glib::ustring defaultSinkName, defaultSourceName;
+ 
++    bool canRenameDevices;
++
+ protected:
+     virtual void on_realize();
+ };
+diff --git a/src/pavucontrol.cc b/src/pavucontrol.cc
+index 1e85184..867e523 100644
+--- a/src/pavucontrol.cc
++++ b/src/pavucontrol.cc
+@@ -25,6 +25,7 @@
+ #include <pulse/pulseaudio.h>
+ #include <pulse/glib-mainloop.h>
+ #include <pulse/ext-stream-restore.h>
++#include <pulse/ext-device-manager.h>
+ 
+ #include <canberra-gtk.h>
+ 
+@@ -239,6 +240,42 @@ static void ext_stream_restore_subscribe_cb(pa_context *c, void *userdata) {
+     pa_operation_unref(o);
+ }
+ 
++void ext_device_manager_read_cb(
++        pa_context *,
++        const pa_ext_device_manager_info *,
++        int eol,
++        void *userdata) {
++
++    MainWindow *w = static_cast<MainWindow*>(userdata);
++
++    if (eol < 0) {
++        dec_outstanding(w);
++        g_debug(_("Failed to initialize device manager extension: %s"), pa_strerror(pa_context_errno(context)));
++        return;
++    }
++
++    w->canRenameDevices = true;
++
++    if (eol > 0) {
++        dec_outstanding(w);
++        return;
++    }
++
++    /* Do something with a widget when this part is written */
++}
++
++static void ext_device_manager_subscribe_cb(pa_context *c, void *userdata) {
++    MainWindow *w = static_cast<MainWindow*>(userdata);
++    pa_operation *o;
++
++    if (!(o = pa_ext_device_manager_read(c, ext_device_manager_read_cb, w))) {
++        show_error(_("pa_ext_device_manager_read() failed"));
++        return;
++    }
++
++    pa_operation_unref(o);
++}
++
+ void subscribe_cb(pa_context *c, pa_subscription_event_type_t t, uint32_t index, void *userdata) {
+     MainWindow *w = static_cast<MainWindow*>(userdata);
+ 
+@@ -416,7 +453,7 @@ void context_state_callback(pa_context *c, void *userdata) {
+             pa_operation_unref(o);
+             n_outstanding++;
+ 
+-            /* This call is not always supported */
++            /* These calls are not always supported */
+             if ((o = pa_ext_stream_restore_read(c, ext_stream_restore_read_cb, w))) {
+                 pa_operation_unref(o);
+                 n_outstanding++;
+@@ -429,6 +466,18 @@ void context_state_callback(pa_context *c, void *userdata) {
+             } else
+                 g_debug(_("Failed to initialize stream_restore extension: %s"), pa_strerror(pa_context_errno(context)));
+ 
++            if ((o = pa_ext_device_manager_read(c, ext_device_manager_read_cb, w))) {
++                pa_operation_unref(o);
++                n_outstanding++;
++
++                pa_ext_device_manager_set_subscribe_cb(c, ext_device_manager_subscribe_cb, w);
++
++                if ((o = pa_ext_device_manager_subscribe(c, 1, NULL, NULL)))
++                    pa_operation_unref(o);
++
++            } else
++                g_debug(_("Failed to initialize device manager extension: %s"), pa_strerror(pa_context_errno(context)));
++
+ 
+             break;
+         }
+diff --git a/src/pavucontrol.glade b/src/pavucontrol.glade
+index 4d7a574..453bb57 100644
+--- a/src/pavucontrol.glade
++++ b/src/pavucontrol.glade
+@@ -1024,4 +1024,56 @@ Monitors</property>
+       </widget>
+     </child>
+   </widget>
++  <widget class="GtkDialog" id="renameDialog">
++    <property name="border_width">5</property>
++    <property name="type_hint">normal</property>
++    <property name="has_separator">False</property>
++    <child internal-child="vbox">
++      <widget class="GtkVBox" id="dialog-vbox1">
++        <property name="visible">True</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">2</property>
++        <child>
++          <widget class="GtkLabel" id="label1">
++            <property name="visible">True</property>
++            <property name="xalign">0</property>
++            <property name="label" translatable="yes">&lt;b&gt;Rename device to:&lt;/b&gt;</property>
++            <property name="use_markup">True</property>
++          </widget>
++          <packing>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <widget class="GtkEntry" id="renameText">
++            <property name="visible">True</property>
++            <property name="can_focus">True</property>
++            <property name="invisible_char">&#x25CF;</property>
++            <property name="activates_default">True</property>
++            <property name="width_chars">60</property>
++          </widget>
++          <packing>
++            <property name="position">2</property>
++          </packing>
++        </child>
++        <child internal-child="action_area">
++          <widget class="GtkHButtonBox" id="dialog-action_area1">
++            <property name="visible">True</property>
++            <property name="layout_style">end</property>
++            <child>
++              <placeholder/>
++            </child>
++            <child>
++              <placeholder/>
++            </child>
++          </widget>
++          <packing>
++            <property name="expand">False</property>
++            <property name="pack_type">end</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++      </widget>
++    </child>
++  </widget>
+ </glade-interface>
+diff --git a/src/sinkwidget.cc b/src/sinkwidget.cc
+index 0c39cae..3196dc7 100644
+--- a/src/sinkwidget.cc
++++ b/src/sinkwidget.cc
+@@ -32,10 +32,11 @@ SinkWidget::SinkWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Glade:
+     DeviceWidget(cobject, x) {
+ }
+ 
+-SinkWidget* SinkWidget::create() {
++SinkWidget* SinkWidget::create(MainWindow* mainWindow) {
+     SinkWidget* w;
+     Glib::RefPtr<Gnome::Glade::Xml> x = Gnome::Glade::Xml::create(GLADE_FILE, "deviceWidget");
+     x->get_widget_derived("deviceWidget", w);
++    w->init(mainWindow, "sink");
+     return w;
+ }
+ 
+diff --git a/src/sinkwidget.h b/src/sinkwidget.h
+index efabc7c..84f0d4a 100644
+--- a/src/sinkwidget.h
++++ b/src/sinkwidget.h
+@@ -28,11 +28,9 @@
+ class SinkWidget : public DeviceWidget {
+ public:
+     SinkWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Glade::Xml>& x);
+-    static SinkWidget* create();
++    static SinkWidget* create(MainWindow* mainWindow);
+ 
+     SinkType type;
+-    Glib::ustring description;
+-    Glib::ustring name;
+     uint32_t index, monitor_index, card_index;
+     bool can_decibel;
+ 
+diff --git a/src/sourcewidget.cc b/src/sourcewidget.cc
+index 2779df4..29980cc 100644
+--- a/src/sourcewidget.cc
++++ b/src/sourcewidget.cc
+@@ -30,10 +30,11 @@ SourceWidget::SourceWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Gl
+     DeviceWidget(cobject, x) {
+ }
+ 
+-SourceWidget* SourceWidget::create() {
++SourceWidget* SourceWidget::create(MainWindow* mainWindow) {
+     SourceWidget* w;
+     Glib::RefPtr<Gnome::Glade::Xml> x = Gnome::Glade::Xml::create(GLADE_FILE, "deviceWidget");
+     x->get_widget_derived("deviceWidget", w);
++    w->init(mainWindow, "source");
+     return w;
+ }
+ 
+@@ -99,4 +100,4 @@ void SourceWidget::onPortChange() {
+       pa_operation_unref(o);
+     }
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/sourcewidget.h b/src/sourcewidget.h
+index f0088b4..9a2cca3 100644
+--- a/src/sourcewidget.h
++++ b/src/sourcewidget.h
+@@ -28,11 +28,9 @@
+ class SourceWidget : public DeviceWidget {
+ public:
+     SourceWidget(BaseObjectType* cobject, const Glib::RefPtr<Gnome::Glade::Xml>& x);
+-    static SourceWidget* create();
++    static SourceWidget* create(MainWindow* mainWindow);
+ 
+     SourceType type;
+-    Glib::ustring name;
+-    Glib::ustring description;
+     uint32_t index, card_index;
+     bool can_decibel;
+ 

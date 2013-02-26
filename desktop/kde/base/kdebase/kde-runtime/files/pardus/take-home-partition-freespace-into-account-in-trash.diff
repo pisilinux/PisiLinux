@@ -1,0 +1,98 @@
+Index: kdebase-runtime-4.4.2/kioslave/trash/discspaceutil.cpp
+===================================================================
+--- kdebase-runtime-4.4.2.orig/kioslave/trash/discspaceutil.cpp
++++ kdebase-runtime-4.4.2/kioslave/trash/discspaceutil.cpp
+@@ -25,6 +25,8 @@
+ #include <QtCore/QFileInfo>
+ 
+ #include <kdiskfreespaceinfo.h>
++#include <kmountpoint.h>
++#include <kio/global.h>
+ #include <kdebug.h>
+ 
+ DiscSpaceUtil::DiscSpaceUtil( const QString &directory )
+@@ -73,6 +75,15 @@ qulonglong DiscSpaceUtil::size() const
+     return mFullSize;
+ }
+ 
++qulonglong DiscSpaceUtil::freeSpace() const
++{
++    KDiskFreeSpaceInfo info = KDiskFreeSpaceInfo::freeSpaceInfo( mDirectory );
++    if ( info.isValid() )
++        return info.available();
++
++    return 0;
++}
++
+ QString DiscSpaceUtil::mountPoint() const
+ {
+     return mMountPoint;
+Index: kdebase-runtime-4.4.2/kioslave/trash/discspaceutil.h
+===================================================================
+--- kdebase-runtime-4.4.2.orig/kioslave/trash/discspaceutil.h
++++ kdebase-runtime-4.4.2/kioslave/trash/discspaceutil.h
+@@ -53,6 +53,11 @@ class DiscSpaceUtil
+     qulonglong size() const;
+ 
+     /**
++     * Returns the free space of the partition in bytes.
++     */
++    qulonglong freeSpace() const;
++
++    /**
+      * Returns the mount point of the directory.
+      */
+     QString mountPoint() const;
+Index: kdebase-runtime-4.4.2/kioslave/trash/trashimpl.cpp
+===================================================================
+--- kdebase-runtime-4.4.2.orig/kioslave/trash/trashimpl.cpp
++++ kdebase-runtime-4.4.2/kioslave/trash/trashimpl.cpp
+@@ -1101,13 +1101,24 @@ bool TrashImpl::adaptTrashSize( const QS
+         }
+     }
+ 
+-    if ( useSizeLimit ) { // check if size limit exceeded
++    DiscSpaceUtil util(trashPath + QString::fromLatin1("/files/"));
++    qulonglong freeSpace = util.freeSpace();
++    // calculate size of the files to be put into the trash
++    qulonglong additionalSize = DiscSpaceUtil::sizeOfPath( origPath );
++    // current used space of trash
++    qulonglong trashUsedSpace = DiscSpaceUtil::sizeOfPath(trashPath + QString::fromLatin1("/files/"));
++
++    // if we do not have enough empty space in the partition of Trash, return false
++    if (!useSizeLimit and (freeSpace < additionalSize))
++    {
++        m_lastErrorCode = KIO::ERR_SLAVE_DEFINED;
++        m_lastErrorMessage = i18n( "Not enough disk space to move file into trash.");
++        return false;
++     }
+ 
+-        // calculate size of the files to be put into the trash
+-        qulonglong additionalSize = DiscSpaceUtil::sizeOfPath( origPath );
++    if ( useSizeLimit ) { // check if size limit exceeded
+ 
+         const TrashSizeCache trashSize( trashPath );
+-        DiscSpaceUtil util(trashPath + QString::fromLatin1("/files/"));
+         if ( util.usage( trashSize.size() + additionalSize ) >= percent ) {
+             if ( actionType == 0 ) { // warn the user only
+                 m_lastErrorCode = KIO::ERR_SLAVE_DEFINED;
+@@ -1150,7 +1161,18 @@ bool TrashImpl::adaptTrashSize( const QS
+                 }
+             }
+         }
+-    }
++
++        // check again if we have enough empty space in the partition of Trash
++        // recalculate free space, some files may be removed above
++        freeSpace = util.freeSpace();
++        if (freeSpace < additionalSize)
++        {
++            m_lastErrorCode = KIO::ERR_SLAVE_DEFINED;
++            m_lastErrorMessage = i18n( "Not enough disk space to move file into trash.");
++            return false;
++        }
++
++    } //end-if useSizeLimit
+ 
+     return true;
+ }

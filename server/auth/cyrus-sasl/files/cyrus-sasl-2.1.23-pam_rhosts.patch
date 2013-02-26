@@ -1,0 +1,596 @@
+diff -up cyrus-sasl-2.1.23/lib/checkpw.c.pam_rhosts cyrus-sasl-2.1.23/lib/checkpw.c
+--- cyrus-sasl-2.1.23/lib/checkpw.c.pam_rhosts	2009-04-28 17:09:15.000000000 +0200
++++ cyrus-sasl-2.1.23/lib/checkpw.c	2011-05-23 06:01:55.625105257 +0200
+@@ -553,6 +553,8 @@ static int saslauthd_verify_password(sas
+     char pwpath[sizeof(srvaddr.sun_path)];
+     const char *p = NULL;
+     char *freeme = NULL;
++    char *freemetoo = NULL;
++    const char *client_addr = NULL;
+ #ifdef USE_DOORS
+     door_arg_t arg;
+ #endif
+@@ -584,20 +586,27 @@ static int saslauthd_verify_password(sas
+ 	user_realm = rtmp + 1;
+     }
+ 
++    if (sasl_getprop(conn, SASL_IPREMOTEPORT, (const void **) & client_addr) == SASL_OK) {
++        if(_sasl_strdup(client_addr, &freemetoo, NULL) != SASL_OK)
++            goto fail;
++        client_addr = freemetoo;
++    }
++
+     /*
+      * build request of the form:
+      *
+-     * count authid count password count service count realm
++     * count authid count password count service count realm count client
+      */
+     {
+- 	unsigned short u_len, p_len, s_len, r_len;
++ 	unsigned short u_len, p_len, s_len, r_len, c_len;
+  
+  	u_len = (strlen(userid));
+  	p_len = (strlen(passwd));
+ 	s_len = (strlen(service));
+ 	r_len = ((user_realm ? strlen(user_realm) : 0));
++	c_len = ((client_addr ? strlen(client_addr): 0));
+ 
+-	if (u_len + p_len + s_len + r_len + 30 > (unsigned short) sizeof(query)) {
++	if (u_len + p_len + s_len + r_len + c_len + 30 > (unsigned short) sizeof(query)) {
+ 	    /* request just too damn big */
+             sasl_seterror(conn, 0, "saslauthd request too large");
+ 	    goto fail;
+@@ -607,6 +616,7 @@ static int saslauthd_verify_password(sas
+ 	p_len = htons(p_len);
+ 	s_len = htons(s_len);
+ 	r_len = htons(r_len);
++	c_len = htons(c_len);
+ 
+ 	memcpy(query_end, &u_len, sizeof(unsigned short));
+ 	query_end += sizeof(unsigned short);
+@@ -623,6 +633,11 @@ static int saslauthd_verify_password(sas
+ 	memcpy(query_end, &r_len, sizeof(unsigned short));
+ 	query_end += sizeof(unsigned short);
+ 	if (user_realm) while (*user_realm) *query_end++ = *user_realm++;
++
++	memcpy(query_end, &c_len, sizeof(unsigned short));
++	query_end += sizeof(unsigned short);
++	if(client_addr) while (*client_addr) *query_end++ = *client_addr++;
++
+     }
+ 
+ #ifdef USE_DOORS
+@@ -723,7 +738,8 @@ static int saslauthd_verify_password(sas
+     close(s);
+ #endif /* USE_DOORS */
+   
+-    if(freeme) free(freeme);
++    if (freeme) free(freeme);
++    if (freemetoo) free(freemetoo);
+ 
+     if (!strncmp(response, "OK", 2)) {
+ 	return SASL_OK;
+@@ -734,6 +750,7 @@ static int saslauthd_verify_password(sas
+ 
+  fail:
+     if (freeme) free(freeme);
++    if (freemetoo) free(freemetoo);
+     return SASL_FAIL;
+ }
+ 
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_dce.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_dce.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_dce.c.pam_rhosts	2001-12-04 03:06:54.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_dce.c	2011-05-23 06:01:55.793113875 +0200
+@@ -56,7 +56,8 @@ auth_dce(
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote
+   /* END PARAMETERS */
+   )
+ {
+@@ -104,7 +105,8 @@ auth_dce(
+   const char *login __attribute__((unused)),
+   const char *password __attribute__((unused)),
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote __attribute__((unused))
+   )
+ {
+      return NULL;
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_dce.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_dce.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_dce.h.pam_rhosts	2001-12-04 03:06:54.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_dce.h	2011-05-23 06:01:55.964113869 +0200
+@@ -26,4 +26,4 @@
+  * END COPYRIGHT
+  */
+ 
+-char *auth_dce(const char *, const char *, const char *, const char *);
++char *auth_dce(const char *, const char *, const char *, const char *, const char *);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_getpwent.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_getpwent.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_getpwent.c.pam_rhosts	2009-04-28 17:09:18.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_getpwent.c	2011-05-23 06:01:56.099114445 +0200
+@@ -64,7 +64,8 @@ auth_getpwent (
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_getpwent.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_getpwent.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_getpwent.h.pam_rhosts	2001-12-04 03:06:54.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_getpwent.h	2011-05-23 06:01:56.222113919 +0200
+@@ -25,4 +25,4 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_getpwent(const char *, const char *, const char *, const char *);
++char *auth_getpwent(const char *, const char *, const char *, const char *, const char *);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_httpform.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_httpform.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_httpform.c.pam_rhosts	2011-05-23 06:01:54.027105382 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_httpform.c	2011-05-23 06:01:56.354110199 +0200
+@@ -463,7 +463,8 @@ auth_httpform (
+   const char *user,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service,
+-  const char *realm
++  const char *realm,
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_httpform.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_httpform.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_httpform.h.pam_rhosts	2006-03-13 21:17:09.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_httpform.h	2011-05-23 06:01:56.557105054 +0200
+@@ -25,5 +25,5 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_httpform(const char *, const char *, const char *, const char *);
++char *auth_httpform(const char *, const char *, const char *, const char *, const char *);
+ int auth_httpform_init(void);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_krb4.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_krb4.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_krb4.c.pam_rhosts	2005-02-01 13:26:34.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_krb4.c	2011-05-23 06:01:56.679113840 +0200
+@@ -171,7 +171,8 @@ auth_krb4 (
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service,
+-  const char *realm_in
++  const char *realm_in,
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+@@ -282,7 +283,8 @@ auth_krb4 (
+   const char *login __attribute__((unused)),
+   const char *password __attribute__((unused)),
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote __attribute__((unused))
+   )
+ {
+     return NULL;
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_krb4.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_krb4.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_krb4.h.pam_rhosts	2001-12-04 03:06:54.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_krb4.h	2011-05-23 06:01:56.799114029 +0200
+@@ -25,5 +25,5 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_krb4(const char *, const char *, const char *, const char *);
++char *auth_krb4(const char *, const char *, const char *, const char *, const char *);
+ int auth_krb4_init(void);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_krb5.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_krb5.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_krb5.c.pam_rhosts	2009-04-28 17:09:18.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_krb5.c	2011-05-23 06:01:56.930114013 +0200
+@@ -172,7 +172,8 @@ auth_krb5 (
+   const char *user,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service,                  /* I: service authenticating to */
+-  const char *realm                     /* I: user's realm */
++  const char *realm,                    /* I: user's realm */
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+@@ -340,7 +341,8 @@ auth_krb5 (
+   const char *user,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service,			/* I: service authenticating to */
+-  const char *realm			/* I: user's realm */
++  const char *realm,			/* I: user's realm */
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+@@ -448,7 +450,8 @@ auth_krb5 (
+   const char *login __attribute__((unused)),
+   const char *password __attribute__((unused)),
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote __attribute__((unused))
+   )
+ {
+     return NULL;
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_krb5.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_krb5.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_krb5.h.pam_rhosts	2002-04-25 20:31:38.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_krb5.h	2011-05-23 06:01:57.408105451 +0200
+@@ -25,5 +25,5 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_krb5(const char *, const char *, const char *, const char *);
++char *auth_krb5(const char *, const char *, const char *, const char *, const char *);
+ int auth_krb5_init(void);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_ldap.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_ldap.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_ldap.c.pam_rhosts	2004-12-08 13:12:27.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_ldap.c	2011-05-23 06:01:57.529113588 +0200
+@@ -60,7 +60,8 @@ auth_ldap(
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service,
+-  const char *realm
++  const char *realm,
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+@@ -116,7 +117,8 @@ auth_ldap(
+   const char *login __attribute__((unused)),
+   const char *password __attribute__((unused)),
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote __attribute__((unused))
+   )
+ {
+      return NULL;
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_ldap.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_ldap.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_ldap.h.pam_rhosts	2002-06-19 19:35:29.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_ldap.h	2011-05-23 06:01:57.650114168 +0200
+@@ -25,5 +25,5 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_ldap(const char *, const char *, const char *, const char *);
++char *auth_ldap(const char *, const char *, const char *, const char *, const char *);
+ int auth_ldap_init(void);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_pam.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_pam.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_pam.c.pam_rhosts	2005-05-15 08:43:19.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_pam.c	2011-05-23 06:01:57.772113703 +0200
+@@ -186,7 +186,8 @@ auth_pam (
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service,			/* I: service name */
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+@@ -213,6 +214,14 @@ auth_pam (
+ 
+     my_appdata.pamh = pamh;
+ 
++    char * remote_host = strdup(remote);
++    if (remote_host) {
++	char * semicol = strchr(remote_host, ';');
++	if (semicol) * semicol = NULL; /* truncate remote_host at the ';' port separator */
++	pam_set_item(pamh, PAM_RHOST, remote_host);
++	free (remote_host);
++    }
++
+     rc = pam_authenticate(pamh, PAM_SILENT);
+     if (rc != PAM_SUCCESS) {
+ 	syslog(LOG_DEBUG, "DEBUG: auth_pam: pam_authenticate failed: %s",
+@@ -242,7 +251,8 @@ auth_pam(
+   const char *login __attribute__((unused)),
+   const char *password __attribute__((unused)),
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote __attribute__((unused))
+   )
+ {
+     return NULL;
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_pam.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_pam.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_pam.h.pam_rhosts	2001-12-04 03:06:54.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_pam.h	2011-05-23 06:01:57.909114623 +0200
+@@ -32,4 +32,4 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_pam(const char *, const char *, const char *, const char *);
++char *auth_pam(const char *, const char *, const char *, const char *, const char *);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_rimap.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_rimap.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_rimap.c.pam_rhosts	2011-05-23 06:01:52.564110462 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_rimap.c	2011-05-23 06:01:58.034112901 +0200
+@@ -298,7 +298,8 @@ auth_rimap (
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_rimap.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_rimap.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_rimap.h.pam_rhosts	2001-12-04 03:06:54.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_rimap.h	2011-05-23 06:01:58.159108329 +0200
+@@ -25,5 +25,5 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_rimap(const char *, const char *, const char *, const char *);
++char *auth_rimap(const char *, const char *, const char *, const char *, const char *);
+ int auth_rimap_init(void);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_sasldb.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_sasldb.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_sasldb.c.pam_rhosts	2009-04-28 17:09:18.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_sasldb.c	2011-05-23 06:01:58.606109328 +0200
+@@ -117,13 +117,14 @@ auth_sasldb (
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service __attribute__((unused)),
+-  const char *realm
++  const char *realm,
+ #else
+   const char *login __attribute__((unused)),/* I: plaintext authenticator */
+   const char *password __attribute__((unused)),  /* I: plaintext password */
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
+ #endif
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_sasldb.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_sasldb.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_sasldb.h.pam_rhosts	2001-12-04 03:06:55.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_sasldb.h	2011-05-23 06:01:58.735114581 +0200
+@@ -25,4 +25,4 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_sasldb(const char *, const char *, const char *, const char *);
++char *auth_sasldb(const char *, const char *, const char *, const char *, const char *);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_shadow.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_shadow.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_shadow.c.pam_rhosts	2011-05-23 06:01:54.327105960 +0200
++++ cyrus-sasl-2.1.23/saslauthd/auth_shadow.c	2011-05-23 06:01:58.866114054 +0200
+@@ -85,7 +85,8 @@ auth_shadow (
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+@@ -279,7 +280,8 @@ auth_shadow (
+   const char *login __attribute__((unused)),
+   const char *passwd __attribute__((unused)),
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote __attribute__((unused))
+   )
+ {
+     return NULL;
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_shadow.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_shadow.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_shadow.h.pam_rhosts	2001-12-04 03:06:55.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_shadow.h	2011-05-23 06:01:58.986105629 +0200
+@@ -25,4 +25,4 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_shadow(const char *, const char *, const char *, const char *);
++char *auth_shadow(const char *, const char *, const char *, const char *, const char *);
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_sia.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_sia.c
+--- cyrus-sasl-2.1.23/saslauthd/auth_sia.c.pam_rhosts	2001-12-04 03:06:55.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_sia.c	2011-05-23 06:01:59.115106407 +0200
+@@ -56,7 +56,8 @@ auth_sia (
+   const char *login,			/* I: plaintext authenticator */
+   const char *password,			/* I: plaintext password */
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote                    /* I: remote host address */
+   /* END PARAMETERS */
+   )
+ {
+@@ -84,7 +85,8 @@ auth_sia(
+   const char *login __attribute__((unused)),
+   const char *password __attribute__((unused)),
+   const char *service __attribute__((unused)),
+-  const char *realm __attribute__((unused))
++  const char *realm __attribute__((unused)),
++  const char *remote __attribute__((unused))
+   )
+ {
+     return NULL;
+diff -up cyrus-sasl-2.1.23/saslauthd/auth_sia.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/auth_sia.h
+--- cyrus-sasl-2.1.23/saslauthd/auth_sia.h.pam_rhosts	2001-12-04 03:06:55.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/auth_sia.h	2011-05-23 06:01:59.237106457 +0200
+@@ -25,4 +25,4 @@
+  * DAMAGE.
+  * END COPYRIGHT */
+ 
+-char *auth_sia(const char *, const char *, const char *, const char *);
++char *auth_sia(const char *, const char *, const char *, const char *, const char *);
+diff -up cyrus-sasl-2.1.23/saslauthd/ipc_doors.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/ipc_doors.c
+--- cyrus-sasl-2.1.23/saslauthd/ipc_doors.c.pam_rhosts	2004-04-27 18:01:50.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/ipc_doors.c	2011-05-23 06:01:59.386106663 +0200
+@@ -218,6 +218,7 @@ void do_request(void *cookie, char *data
+ 	char			password[MAX_REQ_LEN + 1]; /* password for authentication            */
+ 	char			service[MAX_REQ_LEN + 1];  /* service name for authentication        */
+ 	char			realm[MAX_REQ_LEN + 1];    /* user realm for authentication          */
++	char			client_addr[MAX_REQ_LEN + 1];  /* client address and port            */
+ 
+ 
+ 	/**************************************************************
+@@ -294,6 +295,22 @@ void do_request(void *cookie, char *data
+ 	memcpy(realm, data, count);
+ 	realm[count] = '\0';
+ 
++	/* client_addr */
++	memcpy(&count, data, sizeof(unsigned short));
++
++	count = ntohs(count);
++	data += sizeof(unsigned short);
++
++	if (count > MAX_REQ_LEN || data + count > dataend) {
++		logger(L_ERR, L_FUNC, "client_addr exceeds MAX_REQ_LEN: %d",
++		       MAX_REQ_LEN);
++		send_no("");
++		return;
++	}	
++
++	memcpy(client_addr, data, count);
++	client_addr[count] = '\0';
++
+ 	/**************************************************************
+  	 * We don't allow NULL passwords or login names
+ 	 **************************************************************/
+@@ -312,7 +329,7 @@ void do_request(void *cookie, char *data
+ 	/**************************************************************
+ 	 * Get the mechanism response from do_auth() and send it back.
+ 	 **************************************************************/
+-	response = do_auth(login, password, service, realm);
++	response = do_auth(login, password, service, realm, client_addr);
+ 
+ 	memset(password, 0, strlen(password));
+ 
+diff -up cyrus-sasl-2.1.23/saslauthd/ipc_unix.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/ipc_unix.c
+--- cyrus-sasl-2.1.23/saslauthd/ipc_unix.c.pam_rhosts	2003-10-30 20:06:42.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/ipc_unix.c	2011-05-23 06:01:59.599108343 +0200
+@@ -329,6 +329,7 @@ void do_request(int conn_fd) {
+ 	char			password[MAX_REQ_LEN + 1]; /* password for authentication            */
+ 	char			service[MAX_REQ_LEN + 1];  /* service name for authentication        */
+ 	char			realm[MAX_REQ_LEN + 1];    /* user realm for authentication          */
++	char			client_addr[MAX_REQ_LEN + 1];  /* client address and port            */
+ 
+ 
+ 	/**************************************************************
+@@ -399,12 +400,28 @@ void do_request(int conn_fd) {
+ 		send_no(conn_fd, "");
+ 		return;
+ 	}	
+-
+ 	if (rx_rec(conn_fd, (void *)realm, (size_t)count) != (ssize_t)count) 
+ 		return;
+ 
+ 	realm[count] = '\0';
+ 
++	/* client_addr */
++	if (rx_rec(conn_fd, (void *)&count, (size_t)sizeof(count)) != (ssize_t)sizeof(count))
++		return;
++
++	count = ntohs(count);
++
++	if (count > MAX_REQ_LEN) {
++		logger(L_ERR, L_FUNC, "client address exceeded MAX_REQ_LEN: %d", MAX_REQ_LEN);
++		send_no(conn_fd, "");
++		return;
++	}
++
++	if (rx_rec(conn_fd, (void *)&client_addr, (size_t)count) != (ssize_t)count)
++		return;
++
++	client_addr[count] = '\0';
++
+ 	/**************************************************************
+  	 * We don't allow NULL passwords or login names
+ 	 **************************************************************/
+@@ -423,7 +440,7 @@ void do_request(int conn_fd) {
+ 	/**************************************************************
+ 	 * Get the mechanism response from do_auth() and send it back.
+ 	 **************************************************************/
+-	response = do_auth(login, password, service, realm);
++	response = do_auth(login, password, service, realm, client_addr);
+ 
+ 	memset(password, 0, strlen(password));
+ 
+diff -up cyrus-sasl-2.1.23/saslauthd/mechanisms.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/mechanisms.h
+--- cyrus-sasl-2.1.23/saslauthd/mechanisms.h.pam_rhosts	2006-03-13 21:17:09.000000000 +0100
++++ cyrus-sasl-2.1.23/saslauthd/mechanisms.h	2011-05-23 06:01:59.718110355 +0200
+@@ -40,8 +40,8 @@ typedef struct {
+     char *name;				/* name of the mechanism */
+     int (*initialize)(void);		/* initialization function */
+     char *(*authenticate)(const char *, const char *,
+-			  const char *, const char *); /* authentication
+-							  function */
++			  const char *, const char *,
++			  const char *); /* authentication function */
+ } authmech_t;
+ 
+ extern authmech_t mechanisms[];		/* array of supported auth mechs */
+diff -up cyrus-sasl-2.1.23/saslauthd/saslauthd-main.c.pam_rhosts cyrus-sasl-2.1.23/saslauthd/saslauthd-main.c
+--- cyrus-sasl-2.1.23/saslauthd/saslauthd-main.c.pam_rhosts	2009-04-28 17:09:18.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/saslauthd-main.c	2011-05-23 06:01:59.860114122 +0200
+@@ -367,7 +367,7 @@ int main(int argc, char **argv) {
+  * return a pointer to a string to send back to the client.
+  * The caller is responsible for freeing the pointer. 
+  **************************************************************/
+-char *do_auth(const char *_login, const char *password, const char *service, const char *realm) {
++char *do_auth(const char *_login, const char *password, const char *service, const char *realm, const char *remote) {
+ 
+ 	struct cache_result	lkup_result;
+ 	char			*response;
+@@ -396,7 +396,7 @@ char *do_auth(const char *_login, const
+ 		response = strdup("OK");
+ 		cached = 1;
+ 	} else {
+-		response = auth_mech->authenticate(login, password, service, realm);
++		response = auth_mech->authenticate(login, password, service, realm, remote);
+ 
+ 		if (response == NULL) {
+ 			logger(L_ERR, L_FUNC, "internal mechanism failure: %s", auth_mech->name);
+@@ -409,18 +409,18 @@ char *do_auth(const char *_login, const
+ 
+ 		if (flags & VERBOSE) {
+ 			if (cached) 
+-				logger(L_DEBUG, L_FUNC, "auth success (cached): [user=%s] [service=%s] [realm=%s]", \
+-					login, service, realm);
++				logger(L_DEBUG, L_FUNC, "auth success (cached): [user=%s] [service=%s] [realm=%s] [remote=%s]", \
++					login, service, realm, remote);
+ 			else
+-				logger(L_DEBUG, L_FUNC, "auth success: [user=%s] [service=%s] [realm=%s] [mech=%s]", \
+-					login, service, realm, auth_mech->name);
++				logger(L_DEBUG, L_FUNC, "auth success: [user=%s] [service=%s] [realm=%s] [remote=%s] [mech=%s]", \
++					login, service, realm, remote, auth_mech->name);
+ 		}
+ 		return response;
+ 	}
+ 
+ 	if (strncmp(response, "NO", 2) == 0) {
+-		logger(L_INFO, L_FUNC, "auth failure: [user=%s] [service=%s] [realm=%s] [mech=%s] [reason=%s]", \
+-			login, service, realm, auth_mech->name,
++		logger(L_INFO, L_FUNC, "auth failure: [user=%s] [service=%s] [realm=%s] [remote=%s] [mech=%s] [reason=%s]", \
++			login, service, realm, remote, auth_mech->name,
+ 		        strlen(response) >= 4 ? response+3 : "Unknown");
+ 
+ 		return response;
+diff -up cyrus-sasl-2.1.23/saslauthd/saslauthd-main.h.pam_rhosts cyrus-sasl-2.1.23/saslauthd/saslauthd-main.h
+--- cyrus-sasl-2.1.23/saslauthd/saslauthd-main.h.pam_rhosts	2003-05-16 00:21:41.000000000 +0200
++++ cyrus-sasl-2.1.23/saslauthd/saslauthd-main.h	2011-05-23 06:01:59.994113718 +0200
+@@ -88,7 +88,8 @@
+ 
+ /* saslauthd-main.c */
+ extern char	*do_auth(const char *, const char *,
+-			 const char *, const char *);
++			 const char *, const char *,
++			 const char *);
+ extern void	set_auth_mech(const char *);
+ extern void	set_max_procs(const char *);
+ extern void	set_mech_option(const char *);

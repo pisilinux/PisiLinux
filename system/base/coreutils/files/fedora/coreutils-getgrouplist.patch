@@ -1,0 +1,86 @@
+diff --git a/lib/getugroups.c b/lib/getugroups.c
+index 299bae6..8ece29b 100644
+--- a/lib/getugroups.c
++++ b/lib/getugroups.c
+@@ -19,6 +19,9 @@
+ 
+ #include <config.h>
+ 
++/* We do not need this code if getgrouplist(3) is available.  */
++#ifndef HAVE_GETGROUPLIST
++
+ #include "getugroups.h"
+ 
+ #include <errno.h>
+@@ -123,3 +126,4 @@ getugroups (int maxcount, gid_t *grouplist, char const *username,
+ }
+ 
+ #endif /* HAVE_GRP_H */
++#endif	/* have getgrouplist */
+diff --git a/lib/mgetgroups.c b/lib/mgetgroups.c
+index 76474c2..0a9d221 100644
+--- a/lib/mgetgroups.c
++++ b/lib/mgetgroups.c
+@@ -115,9 +115,17 @@ mgetgroups (char const *username, gid_t gid, gid_t **groups)
+   /* else no username, so fall through and use getgroups. */
+ #endif
+ 
+-  max_n_groups = (username
+-                  ? getugroups (0, NULL, username, gid)
+-                  : getgroups (0, NULL));
++  if (!username)
++    max_n_groups = getgroups(0, NULL);
++  else 
++  {
++#ifdef HAVE_GETGROUPLIST
++    max_n_groups = 0;
++    getgrouplist (username, gid, NULL, &max_n_groups);
++#else
++    max_n_groups = getugroups (0, NULL, username, gid);
++#endif
++  }
+ 
+   /* If we failed to count groups because there is no supplemental
+      group support, then return an array containing just GID.
+@@ -139,10 +147,25 @@ mgetgroups (char const *username, gid_t gid, gid_t **groups)
+   if (g == NULL)
+     return -1;
+ 
+-  ng = (username
+-        ? getugroups (max_n_groups, g, username, gid)
+-        : getgroups (max_n_groups - (gid != (gid_t) -1),
+-                                g + (gid != (gid_t) -1)));
++  if (!username)
++    ng = getgroups (max_n_groups - (gid != (gid_t)-1), g + (gid != (gid_t)-1));
++  else
++  {
++#ifdef HAVE_GETGROUPLIST
++    int e;
++    ng = max_n_groups;
++    while ((e = getgrouplist (username, gid, g, &ng)) == -1
++	&& ng > max_n_groups)
++    {
++      max_n_groups = ng;
++      g = xrealloc (g, max_n_groups * sizeof (GETGROUPS_T));
++    }
++    if (e == -1)
++      ng = -1;
++#else
++    ng = getugroups (max_n_groups, g, username, gid);
++#endif
++  }
+ 
+   if (ng < 0)
+     {
+diff --git a/m4/jm-macros.m4 b/m4/jm-macros.m4
+index 62777c7..5180243 100644
+--- a/m4/jm-macros.m4
++++ b/m4/jm-macros.m4
+@@ -78,6 +78,7 @@ 
+     fchown
+     fchmod
+     ftruncate
++    getgrouplist
+     iswspace
+     mkfifo
+     mbrlen

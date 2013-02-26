@@ -1,0 +1,164 @@
+Port of fixes originally made to the NetKit telnet client.
+
+Previous behavior:
+  Well-defined or exported variables are sent to the server on initial connect.
+  The "environ list" command prints "*" before these variable names.
+  Other variables are sent to the server if it requests them.
+  The "environ list" command prints " " before these variable names.
+New behavior:
+  Well-defined variables are sent to the server on initial connect.
+  The "environ list" command prints "*" before these variable names.
+  Exported variables are sent to the server on initial connect.
+  The "environ list" command prints "+" before these variable names.
+  Other variables are NOT sent to the server.
+  The "environ list" command prints " " before these variable names.
+
+diff -uNr krb5-1.4.1/src/appl/telnet/telnet/authenc.c krb5-1.4.1/src/appl/telnet/telnet/authenc.c
+--- krb5-1.4.1/src/appl/telnet/telnet/authenc.c	2002-11-15 15:21:34.000000000 -0500
++++ krb5-1.4.1/src/appl/telnet/telnet/authenc.c	2005-06-29 21:06:39.000000000 -0400
+@@ -83,13 +83,6 @@
+ }
+ 
+ 	char *
+-telnet_getenv(val)
+-	char *val;
+-{
+-	return((char *)env_getvalue((unsigned char *)val));
+-}
+-
+-	char *
+ telnet_gets(tprompt, result, length, echo)
+ 	char *tprompt;
+ 	char *result;
+diff -uNr krb5-1.4.1/src/appl/telnet/telnet/commands.c krb5-1.4.1/src/appl/telnet/telnet/commands.c
+--- krb5-1.4.1/src/appl/telnet/telnet/commands.c	2005-04-07 17:17:26.000000000 -0400
++++ krb5-1.4.1/src/appl/telnet/telnet/commands.c	2005-06-29 21:11:34.000000000 -0400
+@@ -1889,8 +1889,9 @@
+ 	register struct env_lst *ep;
+ 
+ 	for (ep = envlisthead.next; ep; ep = ep->next) {
+-		printf("%c %-20s %s\r\n", ep->export ? '*' : ' ',
+-					ep->var, ep->value);
++		printf("%c %-20s %s\r\n",
++		       " +*"[(ep->welldefined ? 2 : (ep->export > 0))],
++		       ep->var, ep->value);
+ 	}
+ }
+ 
+@@ -1914,13 +1915,15 @@
+ }
+ 
+ 	unsigned char *
+-env_getvalue(var)
++env_getvalue(var, export_only)
+ 	unsigned char *var;
++	int export_only;
+ {
+ 	register struct env_lst *ep;
+ 
+ 	if ((ep = env_find(var)))
+-		return(ep->value);
++		if (ep->export || !export_only)
++			return(ep->value);
+ 	return(NULL);
+ }
+ 
+diff -uNr krb5-1.4.1/src/appl/telnet/telnet/externs.h krb5-1.4.1/src/appl/telnet/telnet/externs.h
+--- krb5-1.4.1/src/appl/telnet/telnet/externs.h	2003-04-23 23:27:56.000000000 -0400
++++ krb5-1.4.1/src/appl/telnet/telnet/externs.h	2005-06-29 21:05:16.000000000 -0400
+@@ -347,7 +347,7 @@
+ 
+ extern unsigned char
+     *env_default (int, int),
+-    *env_getvalue (unsigned char *);
++    *env_getvalue (unsigned char *, int);
+ 
+ extern int
+     env_is_exported (unsigned char *);
+diff -uNr krb5-1.4.1/src/appl/telnet/telnet/telnet.c krb5-1.4.1/src/appl/telnet/telnet/telnet.c
+--- krb5-1.4.1/src/appl/telnet/telnet/telnet.c	2005-06-29 21:13:29.000000000 -0400
++++ krb5-1.4.1/src/appl/telnet/telnet/telnet.c	2005-06-29 21:09:13.000000000 -0400
+@@ -552,7 +552,7 @@
+ #endif
+ 
+ 	    case TELOPT_XDISPLOC:	/* X Display location */
+-		if (env_getvalue((unsigned char *)"DISPLAY") &&
++		if (env_getvalue((unsigned char *)"DISPLAY", 0) &&
+ 		    env_is_exported((unsigned char *)"DISPLAY"))
+ 		    new_state_ok = 1;
+ 		break;
+@@ -813,7 +813,7 @@
+ 		resettermname = 0;
+ 		if (tnamep && tnamep != unknown)
+ 			free(tnamep);
+-		if ((tname = (char *)env_getvalue((unsigned char *)"TERM")) &&
++		if ((tname = (char *)env_getvalue((unsigned char *)"TERM", 0)) &&
+ 				(setupterm(tname, 1, &err) == 0)) {
+ 			tnamep = mklist(termbuf, tname);
+ 		} else {
+@@ -988,7 +988,7 @@
+ 	    unsigned char temp[50], *dp;
+ 	    int len;
+ 
+-	    if (((dp = env_getvalue((unsigned char *)"DISPLAY")) == NULL) ||
++	    if (((dp = env_getvalue((unsigned char *)"DISPLAY", 0)) == NULL) ||
+ 		(! env_is_exported((unsigned char *)"DISPLAY"))) {
+ 		/*
+ 		 * Something happened, we no longer have a DISPLAY
+@@ -1669,7 +1669,7 @@
+ 			env_opt_add(ep);
+ 		return;
+ 	}
+-	vp = env_getvalue(ep);
++	vp = env_getvalue(ep, 1);
+ 	elen = 2 * (vp ? strlen((char *)vp) : 0) +
+ 		2 * strlen((char *)ep) + 6;
+ 	if ((opt_replyend - opt_replyp) < elen)
+@@ -2327,7 +2327,7 @@
+ 	send_will(TELOPT_LINEMODE, 1);
+ 	send_will(TELOPT_NEW_ENVIRON, 1);
+ 	send_do(TELOPT_STATUS, 1);
+-	if (env_getvalue((unsigned char *)"DISPLAY") &&
++	if (env_getvalue((unsigned char *)"DISPLAY", 0) &&
+ 	    env_is_exported((unsigned char *)"DISPLAY"))
+ 	    send_will(TELOPT_XDISPLOC, 1);
+ 	if (eight)
+--- krb5-1.4.1/src/appl/telnet/telnetd/authenc.c	2005-06-29 21:25:09.000000000 -0400
++++ krb5-1.4.1/src/appl/telnet/telnetd/authenc.c	2005-06-29 21:25:13.000000000 -0400
+@@ -67,14 +67,6 @@
+ }
+ 
+ 	char *
+-telnet_getenv(val)
+-	char *val;
+-{
+-	extern char *getenv();
+-	return(getenv(val));
+-}
+-
+-	char *
+ telnet_gets(prompt, result, length, echo)
+ 	char *prompt;
+ 	char *result;
+--- krb5-1.4.1/src/appl/telnet/telnet/telnet.1	2005-06-29 21:26:55.000000000 -0400
++++ krb5-1.4.1/src/appl/telnet/telnet/telnet.1	2005-06-29 21:29:05.000000000 -0400
+@@ -401,7 +401,7 @@
+ .I variable
+ to have a value of
+ .IR value .
+-Any variables defined by this command are automatically exported.  The
++Variables defined by this command are not automatically exported.  The
+ .I value
+ may be enclosed in single or double quotes so that tabs and spaces may
+ be included.
+@@ -423,8 +423,8 @@
+ .TP
+ .B list
+ List the current set of environment variables.  Those marked with a \&*
+-will be sent automatically; other variables will only be sent if
+-explicitly requested.
++will be sent automatically; those marked with a \&+ will be sent if the
++other end requests their values, and other variables will not be sent.
+ .TP
+ .B \&?
+ Prints out help information for the

@@ -1,0 +1,69 @@
+From 329c0abf511737da0afcb9a8c53ab572c3ebadc3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Petr=20P=C3=ADsa=C5=99?= <ppisar@redhat.com>
+Date: Mon, 23 Apr 2012 09:38:46 +0200
+Subject: [PATCH] Fix ovector overflow
+
+Back-port to 8.30:
+r963 | ph10 | 2012-04-21 20:06:31 +0200 (So, 21 dub 2012) | 3 lines
+Fix ovector overrun when backreferences need temporary memory and the
+highest block is not used.
+---
+ pcre_exec.c          |    2 +-
+ pcretest.c           |    1 +
+ testdata/testinput2  |    3 +++
+ testdata/testoutput2 |    5 +++++
+ 4 files changed, 10 insertions(+), 1 deletions(-)
+
+diff --git a/pcre_exec.c b/pcre_exec.c
+index b715353..85e12df 100644
+--- a/pcre_exec.c
++++ b/pcre_exec.c
+@@ -6887,7 +6887,7 @@ if (rc == MATCH_MATCH || rc == MATCH_ACCEPT)
+     {
+     register int *iptr, *iend;
+     int resetcount = 2 + re->top_bracket * 2;
+-    if (resetcount > offsetcount) resetcount = ocount;
++    if (resetcount > offsetcount) resetcount = offsetcount;
+     iptr = offsets + md->end_offset_top;
+     iend = offsets + resetcount;
+     while (iptr < iend) *iptr++ = -1;
+diff --git a/pcretest.c b/pcretest.c
+index 1974453..4eee0ed 100644
+--- a/pcretest.c
++++ b/pcretest.c
+@@ -3653,6 +3653,7 @@ while (!done)
+           }
+         use_size_offsets = n;
+         if (n == 0) use_offsets = NULL;   /* Ensures it can't write to it */
++          else use_offsets = offsets + size_offsets_max - n;  /* To catch overruns */
+         continue;
+ 
+         case 'P':
+diff --git a/testdata/testinput2 b/testdata/testinput2
+index 5cc61e0..0c746da 100644
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -3619,4 +3619,7 @@ replaced by single letters. --/
+ /(?=a(*:x))(?=a(*:y)c|)/K+
+     ab
+ 
++"AB(C(D))(E(F))?(?(?=\2)(?=\4))"
++    ABCDGHI\O03
++
+ /-- End of testinput2 --/
+diff --git a/testdata/testoutput2 b/testdata/testoutput2
+index 90cfa4f..a9093fd 100644
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -12076,4 +12076,9 @@ MK: x
+  0+ ab
+ MK: x
+ 
++"AB(C(D))(E(F))?(?(?=\2)(?=\4))"
++    ABCDGHI\O03
++Matched, but too many substrings
++ 0: ABCD
++
+ /-- End of testinput2 --/
+-- 
+1.7.7.6 

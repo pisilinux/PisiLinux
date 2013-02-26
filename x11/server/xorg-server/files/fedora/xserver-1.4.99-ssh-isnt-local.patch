@@ -1,0 +1,48 @@
+From 66a3b14e118e90db80f96fcab52af4df35bc2377 Mon Sep 17 00:00:00 2001
+From: Adam Jackson <ajax@redhat.com>
+Date: Mon, 10 Dec 2007 11:26:57 -0500
+Subject: [PATCH] Hack for proper MIT-SHM rejection for ssh-forwarded clients.
+
+---
+ Xext/shm.c |   16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/Xext/shm.c b/Xext/shm.c
+index de48020..c011210 100644
+--- a/Xext/shm.c
++++ b/Xext/shm.c
+@@ -321,8 +321,21 @@ shm_access(ClientPtr client, SHMPERM_TYPE * perm, int readonly)
+     mode_t mask;
+     int uidset = 0, gidset = 0;
+     LocalClientCredRec *lcc;
++    Bool is_ssh = FALSE;
+ 
+     if (GetLocalClientCreds(client, &lcc) != -1) {
++#ifdef linux
++	if (lcc->fieldsSet & LCC_PID_SET) {
++	    /* ssh isn't actually a local client */
++	    char exe[64], buf[64];
++
++	    memset(buf, 0, 64);
++	    snprintf(exe, 64, "/proc/%d/exe", lcc->pid);
++	    readlink(exe, buf, 63);
++	    if (strstr(buf, "/ssh"))
++		is_ssh = TRUE;
++	}
++#endif
+ 
+         if (lcc->fieldsSet & LCC_UID_SET) {
+             uid = lcc->euid;
+@@ -342,6 +355,9 @@ shm_access(ClientPtr client, SHMPERM_TYPE * perm, int readonly)
+ #endif
+         FreeLocalClientCreds(lcc);
+ 
++        if (is_ssh)
++            return -1;
++
+         if (uidset) {
+             /* User id 0 always gets access */
+             if (uid == 0) {
+-- 
+1.7.10.1
+

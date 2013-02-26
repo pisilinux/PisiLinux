@@ -1,0 +1,191 @@
+From fc08ad50a2ad81f8741939f8e9eacf86b5af6676 Mon Sep 17 00:00:00 2001
+From: Fedora X Ninjas <x@fedoraproject.org>
+Date: Wed, 12 Dec 2012 15:15:38 +1000
+Subject: [PATCH] autoconfig: fixup tell changed so randr clients can tell
+
+This lets the gnome applet update if a usb device appears/disappears
+---
+ hw/xfree86/common/xf86platformBus.c |  6 ++++--
+ hw/xfree86/modes/xf86Crtc.c         |  4 ++++
+ randr/randr.c                       | 24 +++++++++++++++++++++++-
+ randr/randrstr.h                    |  4 ++++
+ randr/rrcrtc.c                      |  2 +-
+ randr/rrinfo.c                      |  2 +-
+ randr/rroutput.c                    |  2 +-
+ randr/rrscreen.c                    |  2 +-
+ 8 files changed, 39 insertions(+), 7 deletions(-)
+
+diff --git a/hw/xfree86/common/xf86platformBus.c b/hw/xfree86/common/xf86platformBus.c
+index 0b735d1..891142d 100644
+--- a/hw/xfree86/common/xf86platformBus.c
++++ b/hw/xfree86/common/xf86platformBus.c
+@@ -47,6 +47,7 @@
+ #include "Pci.h"
+ #include "xf86platformBus.h"
+ 
++#include "randrstr.h"
+ int platformSlotClaimed;
+ 
+ int xf86_num_platform_devices;
+@@ -454,7 +455,8 @@ xf86platformAddDevice(int index)
+    /* attach unbound to 0 protocol screen */
+    AttachUnboundGPU(xf86Screens[0]->pScreen, xf86GPUScreens[i]->pScreen);
+    xf86AutoConfigOutputDevice(xf86GPUScreens[i], xf86Screens[0]);
+-
++   
++   RRTellChanged(xf86Screens[0]->pScreen);
+    return 0;
+ }
+ 
+@@ -497,7 +499,7 @@ xf86platformRemoveDevice(int index)
+     xf86UnclaimPlatformSlot(&xf86_platform_devices[index], NULL);
+ 
+     xf86_remove_platform_device(index);
+-
++    RRTellChanged(xf86Screens[0]->pScreen);
+  out:
+     return;
+ }
+diff --git a/hw/xfree86/modes/xf86Crtc.c b/hw/xfree86/modes/xf86Crtc.c
+index 61119b3..a4fdec9 100644
+--- a/hw/xfree86/modes/xf86Crtc.c
++++ b/hw/xfree86/modes/xf86Crtc.c
+@@ -743,10 +743,12 @@ xf86CrtcCloseScreen(ScreenPtr screen)
+     /* detach any providers */
+     if (config->randr_provider) {
+         if (config->randr_provider->offload_sink) {
++            RRSetChanged(screen);
+             DetachOffloadGPU(screen);
+             config->randr_provider->offload_sink = NULL;
+         }
+         else if (config->randr_provider->output_source) {
++            RRSetChanged(screen);
+             DetachOutputGPU(screen);
+             config->randr_provider->output_source = NULL;
+         }
+@@ -3341,11 +3343,13 @@ void xf86AutoConfigOutputDevice(ScrnInfoPtr pScrn, ScrnInfoPtr master)
+         DetachUnboundGPU(pScrn->pScreen);
+         AttachOffloadGPU(master->pScreen, pScrn->pScreen);
+         slave_config->randr_provider->offload_sink = master_provider;
++        RRSetChanged(master->pScreen);
+     } else if ((master->capabilities & RR_Capability_SourceOutput) &&
+                pScrn->capabilities & RR_Capability_SinkOutput) {
+         /* sink offload */
+         DetachUnboundGPU(pScrn->pScreen);
+         AttachOutputGPU(master->pScreen, pScrn->pScreen);
+         slave_config->randr_provider->output_source = master_provider;
++        RRSetChanged(master->pScreen);
+     }
+ }
+diff --git a/randr/randr.c b/randr/randr.c
+index da48c3f..5b1957b 100644
+--- a/randr/randr.c
++++ b/randr/randr.c
+@@ -462,6 +462,28 @@ TellChanged(WindowPtr pWin, pointer value)
+     return WT_WALKCHILDREN;
+ }
+ 
++void
++RRSetChanged(ScreenPtr pScreen)
++{
++    /* set changed bits on the master screen only */
++    ScreenPtr master;
++    rrScrPriv(pScreen);
++    rrScrPrivPtr mastersp;
++
++    if (pScreen->isGPU) {
++        master = pScreen->current_master;
++        if (!master)
++            return;
++        mastersp = rrGetScrPriv(master);
++    }
++    else {
++        master = pScreen;
++        mastersp = pScrPriv;
++    }
++
++    mastersp->changed = TRUE;
++}
++
+ /*
+  * Something changed; send events and adjust pointer position
+  */
+@@ -482,7 +504,7 @@ RRTellChanged(ScreenPtr pScreen)
+         mastersp = pScrPriv;
+     }
+ 
+-    if (pScrPriv->changed) {
++    if (mastersp->changed) {
+         UpdateCurrentTimeIf();
+         if (mastersp->configChanged) {
+             mastersp->lastConfigTime = currentTime;
+diff --git a/randr/randrstr.h b/randr/randrstr.h
+index 212b0a9..d61f20e 100644
+--- a/randr/randrstr.h
++++ b/randr/randrstr.h
+@@ -480,6 +480,10 @@ extern _X_EXPORT void
+  RRDeliverScreenEvent(ClientPtr client, WindowPtr pWin, ScreenPtr pScreen);
+ 
+ /* randr.c */
++/* set a screen change on the primary screen */
++extern _X_EXPORT void
++RRSetChanged(ScreenPtr pScreen);
++
+ /*
+  * Send all pending events
+  */
+diff --git a/randr/rrcrtc.c b/randr/rrcrtc.c
+index e82d050..d57cc08 100644
+--- a/randr/rrcrtc.c
++++ b/randr/rrcrtc.c
+@@ -39,7 +39,7 @@ RRCrtcChanged(RRCrtcPtr crtc, Bool layoutChanged)
+     if (pScreen) {
+         rrScrPriv(pScreen);
+ 
+-        pScrPriv->changed = TRUE;
++        RRSetChanged(pScreen);
+         /*
+          * Send ConfigureNotify on any layout change
+          */
+diff --git a/randr/rrinfo.c b/randr/rrinfo.c
+index 1408d6f..fc57bd4 100644
+--- a/randr/rrinfo.c
++++ b/randr/rrinfo.c
+@@ -225,7 +225,7 @@ RRScreenSetSizeRange(ScreenPtr pScreen,
+     pScrPriv->minHeight = minHeight;
+     pScrPriv->maxWidth = maxWidth;
+     pScrPriv->maxHeight = maxHeight;
+-    pScrPriv->changed = TRUE;
++    RRSetChanged(pScreen);
+     pScrPriv->configChanged = TRUE;
+ }
+ 
+diff --git a/randr/rroutput.c b/randr/rroutput.c
+index 88781ba..922d61f 100644
+--- a/randr/rroutput.c
++++ b/randr/rroutput.c
+@@ -36,7 +36,7 @@ RROutputChanged(RROutputPtr output, Bool configChanged)
+     output->changed = TRUE;
+     if (pScreen) {
+         rrScrPriv(pScreen);
+-        pScrPriv->changed = TRUE;
++        RRSetChanged(pScreen);
+         if (configChanged)
+             pScrPriv->configChanged = TRUE;
+     }
+diff --git a/randr/rrscreen.c b/randr/rrscreen.c
+index 39340cc..36179ae 100644
+--- a/randr/rrscreen.c
++++ b/randr/rrscreen.c
+@@ -143,7 +143,7 @@ RRScreenSizeNotify(ScreenPtr pScreen)
+     pScrPriv->height = pScreen->height;
+     pScrPriv->mmWidth = pScreen->mmWidth;
+     pScrPriv->mmHeight = pScreen->mmHeight;
+-    pScrPriv->changed = TRUE;
++    RRSetChanged(pScreen);
+ /*    pScrPriv->sizeChanged = TRUE; */
+ 
+     RRTellChanged(pScreen);
+-- 
+1.8.0.1
+

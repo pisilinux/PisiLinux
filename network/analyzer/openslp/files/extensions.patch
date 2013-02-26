@@ -1,0 +1,4209 @@
+diff -Nur openslp-1.2.1.orig/common/Makefile.am openslp-1.2.1/common/Makefile.am
+--- openslp-1.2.1.orig/common/Makefile.am	2005-02-08 07:33:21.000000000 +0200
++++ openslp-1.2.1/common/Makefile.am	2005-11-10 00:10:46.000000000 +0200
+@@ -24,6 +24,7 @@
+ 	slp_parse.c \
+ 	slp_pid.c \
+ 	slp_dhcp.c \
++    slp_mdns.c \
+ 	$(slp_v1message_SRCS) \
+ 	$(slp_security_SRCS)
+ 
+@@ -46,6 +47,7 @@
+ 	slp_filter_l.l \
+ 	slp_predicate.c \
+ 	slp_dhcp.c \
++    slp_mdns.c \
+ 	$(slp_v1message_SRCS) \
+ 	$(slp_security_SRCS)
+ 	
+@@ -75,6 +77,7 @@
+ 	slp_filter.h \
+ 	slp_filter_y.h \
+ 	slp_predicate.h \
++    slp_mdns.h \
+ 	slp_dhcp.h
+ 	
+ AM_YFLAGS = -d
+diff -Nur openslp-1.2.1.orig/common/slp_dhcp.c openslp-1.2.1/common/slp_dhcp.c
+--- openslp-1.2.1.orig/common/slp_dhcp.c	2005-03-02 19:00:31.000000000 +0200
++++ openslp-1.2.1/common/slp_dhcp.c	2005-11-10 00:05:52.000000000 +0200
+@@ -68,6 +68,9 @@
+ #include <net/if_arp.h>
+ #include <sys/time.h>
+ #endif
++#ifdef HAVE_POLL
++#include <sys/poll.h>
++#endif
+ 
+ #include <stdlib.h>
+ #include <string.h>
+@@ -165,7 +168,11 @@
+ 						ETIMEDOUT read timed out
+   =========================================================================*/ 
+ {
++#ifdef HAVE_POLL
++	struct pollfd writefd;
++#else
+ 	fd_set writefds;
++#endif
+ 	int xferbytes;
+ 	int flags = 0;
+ 
+@@ -173,10 +180,17 @@
+ 	flags = MSG_NOSIGNAL;
+ #endif
+ 
++#ifdef HAVE_POLL
++	writefd.fd = sockfd;
++	writefd.events = POLLOUT;
++	writefd.revents = 0; 
++	xferbytes = poll(&writefd, 1, timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1);
++#else
+ 	FD_ZERO(&writefds);
+ 	FD_SET(sockfd, &writefds);
+-
+-	if((xferbytes = select(sockfd + 1, 0, &writefds, 0, timeout)) > 0)
++	xferbytes = select(sockfd + 1, 0, &writefds, 0, timeout);
++#endif
++	if(xferbytes > 0)
+ 	{
+ 		if((xferbytes = sendto(sockfd, (char*)buf, (int)bufsz, flags, 
+ 				peeraddr, sizeof(struct sockaddr_in))) <= 0)
+@@ -213,12 +227,23 @@
+   =========================================================================*/ 
+ {
+ 	int xferbytes;
++#ifdef HAVE_POLL
++	struct pollfd readfd;
++#else
+ 	fd_set readfds;
++#endif
+ 
++#ifdef HAVE_POLL
++	readfd.fd = sockfd;
++	readfd.events = POLLIN;
++	readfd.revents = 0; 
++	xferbytes = poll(&readfd, 1, timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1);
++#else
+ 	FD_ZERO(&readfds);
+ 	FD_SET(sockfd, &readfds);
+-
+-	if((xferbytes = select(sockfd + 1, &readfds, 0 , 0, timeout)) > 0)
++	xferbytes = select(sockfd + 1, &readfds, 0 , 0, timeout);
++#endif
++	if(xferbytes > 0)
+ 	{
+ 		if((xferbytes = recvfrom(sockfd, (char*)buf, (int)bufsz, 0, 0, 0)) <= 0)
+ 		{
+diff -Nur openslp-1.2.1.orig/common/slp_mdns.c openslp-1.2.1/common/slp_mdns.c
+--- openslp-1.2.1.orig/common/slp_mdns.c	1970-01-01 02:00:00.000000000 +0200
++++ openslp-1.2.1/common/slp_mdns.c	2005-11-10 00:57:16.000000000 +0200
+@@ -0,0 +1,573 @@
++#include "slp_mdns.h"
++#include "slp_message.h"
++
++
++#ifdef DEBUG
++
++#include <stdio.h>
++
++unsigned char *SLPMDNSDumpN(unsigned char *bp, unsigned char *start)
++{
++  unsigned char *obp = 0;
++  int x;
++
++  for (;;) {
++    if ((*bp & 0xc0) == 0xc0) {
++      if (!obp)
++	obp = bp + 2;
++      x = (*bp & 0x3f) << 8 | bp[1];
++      printf("%d:", x);
++      bp = start + x;
++    }
++    if (!*bp) {
++      printf("0");
++      return obp ? obp : bp + 1;
++    }
++    printf("%d ", *bp);
++    fwrite(bp + 1, *bp, 1, stdout);
++    printf(" ");
++    bp += *bp + 1;
++  }
++}
++
++unsigned char *SLPMDNSDumpRR(unsigned char *start, unsigned char *bp)
++{
++  int t, l, l2;
++  printf("    ");
++  bp = SLPMDNSDumpN(bp, start);
++  t = AsUINT16(bp);
++  printf(" TYPE=%d CLASS=%d TTL=%d", t, AsUINT16(bp + 2), AsUINT32(bp + 4));
++  l = AsUINT16(bp + 8);
++  bp += 10;
++  if (t == DNS_TYPE_A)
++    printf(" A=%d.%d.%d.%d", bp[0], bp[1], bp[2], bp[3]);
++  else if (t == DNS_TYPE_AAAA)
++    printf(" AAAA=%02x.%02x.%02x.%02x....", bp[0], bp[1], bp[2], bp[3]);
++  else if (t == DNS_TYPE_PTR)
++    {
++      putchar(' ');
++      SLPMDNSDumpN(bp, start);
++    }
++  else if (t == DNS_TYPE_SRV)
++    {
++      printf(" PRIO=%d WEIGHT=%d PORT=%d ", AsUINT16(bp), AsUINT16(bp + 2), AsUINT16(bp + 4));
++      SLPMDNSDumpN(bp + 6, start);
++    }
++  else if (t == DNS_TYPE_TXT)
++    {
++      while (l > 0)
++	{
++	  l2 = *bp++;
++	  l--;
++	  putchar(' ');
++	  putchar('"');
++	  while (l2-- > 0 && l > 0)
++	    {
++	      putchar(*bp++);
++	      l--;
++	    }
++	  putchar('"');
++	}
++    }
++  else
++    {
++      while (l > 0)
++	{
++	  printf(" %02x", *bp++);
++	  l--;
++	}
++    }
++  printf("\n");
++  return bp + l;
++}
++
++void SLPMDNSDumpDNS(SLPBuffer buf, char *head)
++{
++  int qcount, acount, ncount, xcount;
++  unsigned char *start = (unsigned char *)buf->start;
++  unsigned char *bp = start;
++
++  printf("%s DNS buffer\n", head);
++  printf("  ID %04x", AsUINT16(bp));
++  printf("  Flags %04x\n", AsUINT16(bp + 2));
++  qcount = AsUINT16(bp + 4);
++  acount = AsUINT16(bp + 6);
++  ncount = AsUINT16(bp + 8);
++  xcount = AsUINT16(bp + 10);
++  printf("  QCount %d\n", qcount);
++  bp += 12;
++  while (qcount-- > 0) {
++    printf("    ");
++    bp = SLPMDNSDumpN(bp, start);
++    printf(" TYPE=%d CLASS=%d\n", AsUINT16(bp), AsUINT16(bp + 2));
++    bp += 4;
++  }
++  printf("  ACount %d\n", acount);
++  while (acount-- > 0) {
++    bp = SLPMDNSDumpRR(start, bp);
++  }
++  printf("  NCount %d\n", ncount);
++  while (ncount-- > 0) {
++    bp = SLPMDNSDumpRR(start, bp);
++  }
++  printf("  XCount %d\n", xcount);
++  while (xcount-- > 0) {
++    bp = SLPMDNSDumpRR(start, bp);
++  }
++  printf("\n");
++}
++
++void SLPMDNSDumpBuf(unsigned char *buf, int len)
++{
++  int i;
++  while (len > 0)
++    {
++      for (i = 0; i < 16; i++)
++	{
++	  if (i < len)
++	    printf(" %02x", buf[i]);
++	  else
++	    printf("   ");
++	}
++      printf("  ");
++      for (i = 0; i < 16; i++)
++	{
++	  if (i < len)
++	    putchar(buf[i] >= 32 && buf[i] < 127 ? buf[i] : '.');
++	  else
++	    break;
++	}
++      putchar('\n');
++      len -= 16;
++      buf += 16;
++    }
++}
++
++#endif
++
++unsigned char *SLPMDNSParseRR(unsigned char *bp, unsigned char *end,
++			int count,
++                        unsigned char **dn,
++                        unsigned char **dd, int *dc)
++{
++    int c = 0;
++    for (; count > 0; count--)
++    {
++	if (dn && c < SLP_MDNS_MAX_RR)
++	    dn[c] = bp;
++	while (bp < end && *bp && (*bp & 0xc0) != 0xc0)
++	    bp += *bp + 1;
++	if (bp < end && *bp)
++	    bp++;
++	if (bp + 11 > end)
++	    return end + 1;
++	if (dd && c < SLP_MDNS_MAX_RR)
++	    dd[c++] = bp + 1;
++	bp += 11 + AsUINT16((char *)bp + 9);
++    }
++  if (dc)
++    *dc = c;
++  return bp;
++}
++
++int SLPMDNSCheckN(unsigned char *r,
++	           unsigned char *e,
++                   unsigned char *a,
++		   int ini)
++{
++    int l = 0;
++
++    for (;;)
++    {
++	if (a < r || a >= e)
++	    return 1;
++        if ((*a & 0xc0) == 0xc0)
++	{
++	    ini = 0;
++	    a = r + ((*a & 0x3f) << 8 | a[1]);
++	    if (a < r || a >= e)
++		return 1;
++	}
++	if (!*a)
++	    return 0;
++	if ((*a & 0xc0) != 0)
++	    return 1;
++	l += *a + 1;
++	if (ini && ini < l + 1)
++	    return 1;
++	a += *a + 1;
++	if (l > 254)
++	    return 1;
++    }
++}
++
++int SLPMDNSCheckRR(unsigned char *r,
++	        unsigned char *e,
++                unsigned char **dn,
++                unsigned char **dd, int *dc)
++{
++    int i, j, c, t, l;
++
++    c = *dc;
++    for (i = j = 0; i < c; i++)
++    {
++	if (SLPMDNSCheckN(r, e, dn[i], 0))
++	    continue;
++	t = AsUINT16(dd[i]);
++	l = AsUINT16(dd[i] + 8);
++	if (t == DNS_TYPE_PTR)
++	{
++	    if (l < 1)
++		continue;
++	    if (SLPMDNSCheckN(r, e, dd[i] + 10, l))
++		continue;
++	}
++	else if (t == DNS_TYPE_A)
++	{
++	    if (l < 4)
++		continue;
++	}
++	else if (t == DNS_TYPE_AAAA)
++	{
++	    if (l < 16)
++		continue;
++	}
++	else if (t == DNS_TYPE_SRV)
++	{
++	    if (l < 7)
++		continue;
++	    if (SLPMDNSCheckN(r, e, dd[i] + 16, l - 6))
++		continue;
++	}
++	if (j < i)
++	{
++	    dn[j] = dn[i];
++	    dd[j] = dd[i];
++	}
++	j++;
++    }
++    *dc = j;
++    return i == j ? 0 : 1;
++}
++
++int SLPMDNSCmpN(unsigned char *a, unsigned char *ar,
++                       unsigned char *b, unsigned char *br)
++{
++  for (;;)
++    {
++      if ((*a & 0xc0) == 0xc0)
++	a = ar + ((*a & 0x3f) << 8 | a[1]);
++      if ((*b & 0xc0) == 0xc0)
++	b = br + ((*b & 0x3f) << 8 | b[1]);
++      if (*a != *b)
++	return 1;
++      if (*a == 0)
++	return 0;
++      if (memcmp(a + 1, b + 1, *a))
++	return 1;
++      a += *a + 1;
++      b += *b + 1;
++    }
++}
++
++unsigned char *SLPMDNSCompN(unsigned char *bp, unsigned char *end,
++			unsigned char *a, unsigned char *ar,
++			unsigned char **cvec, int *ncvecp,
++			unsigned char *r)
++{
++    int i;
++    unsigned char *first = 0;
++    int ncvec = ncvecp ? *ncvecp : 0;
++
++    for (;;)
++    {
++	if ((*a & 0xc0) == 0xc0)
++	    a = ar + ((*a & 0x3f) << 8 | a[1]);
++	if ((*a & 0xc0) == 0xc0)
++	    return 0;
++	if (*a)
++	{
++	    for (i = 0; i < ncvec; i++)
++		if (!SLPMDNSCmpN(a, ar, cvec[i], r))
++		    break;
++	    if (i < ncvec)
++	    {
++		if (bp + 1 >= end)
++		    return 0;
++		*bp++ = (cvec[i] - r) >> 8 | 0xc0;
++		*bp++ = (cvec[i] - r) & 0xff;
++		break;
++	    }
++	}
++        if (first == 0 && *a)
++	    first = bp;
++	if (bp + *a + 1 >= end)
++	    return 0;
++	memcpy(bp, a, *a + 1);
++	bp += *a + 1;
++	if (*a == 0)
++	    break;
++	a += *a + 1;
++    }
++    if (first && ncvecp && ncvec < 256)
++    {
++	cvec[ncvec] = first;
++	*ncvecp = ncvec + 1;
++    }
++    return bp;
++}
++
++unsigned char *SLPMDNSNToStr(unsigned char *bp, unsigned char *end, 
++	unsigned char *a, unsigned char *ar, int nolastdot)
++{
++    if (!*a && bp < end)
++      *bp++ = '.';
++    for (;;)
++    {
++	if ((*a & 0xc0) == 0xc0)
++	    a = ar + ((*a & 0x3f) << 8 | a[1]);
++	if (*a >= 64 || bp + *a >= end)
++	    return 0;
++	if (!*a)
++	    break;
++	memcpy(bp, a + 1, *a);
++        bp += *a;
++	a += *a + 1;
++        if (!nolastdot || *a)
++	  *bp++ = '.';
++    }
++    return bp;
++}
++
++unsigned char *MDNSStrToN(unsigned char *bp, unsigned char *end,
++                          const char *str, int len)
++{
++    unsigned char *op;
++
++    for (op = ++bp; ; str++, len--)
++    {
++        if (bp >= end) 
++            return 0;
++        if (len == 0 || *str == '.') 
++        {
++            if (bp != op)
++            {
++                if (bp - op >= 64)
++                    return 0;
++                op[-1] = bp - op;
++                op = ++bp; 
++            }
++            if (len == 0)
++                break;
++            continue;
++        }
++        *bp++ = *str; 
++    }
++    bp[-1] = 0;
++    return bp;
++}
++
++unsigned char *SLPMDNSCopyN(unsigned char *bp, unsigned char *end, unsigned char *a, unsigned char *ar)
++{
++    for (;;)
++    {
++	if ((*a & 0xc0) == 0xc0)
++	    a = ar + ((*a & 0x3f) << 8 | a[1]);
++	if (bp + *a + 1 > end)
++	    return 0;
++	memcpy(bp, a, *a + 1);
++	bp += *a + 1;
++	if (!*a)
++	    return bp;
++	a += *a + 1;
++    }
++}
++
++unsigned char *SLPMDNSAddRR(unsigned char *bp, unsigned char *start,
++        unsigned char *end,
++        unsigned char *q, unsigned char *qr,
++	int type,
++	int ttl,
++	unsigned char **cvec,
++	int *ncvec,
++	int data1,
++	unsigned char *data2,
++	unsigned char **dp)
++{
++    unsigned char *oldbp;
++
++    bp = SLPMDNSCompN(bp, end, q, qr, cvec, ncvec, start);
++    if (!bp || bp + 10 > end)
++	return 0;
++    ToUINT16(bp, type);
++    ToUINT16(bp + 2, DNS_CLASS_IN);
++    ToUINT32(bp + 4, ttl);
++    bp += 10;
++    oldbp = bp;
++    if (type == DNS_TYPE_PTR)
++    {
++	bp = SLPMDNSCompN(bp, end, data2, qr, cvec, ncvec, start);
++	if (!bp)
++	    return 0;
++    }
++    else if (type == DNS_TYPE_A)
++    {
++	if (bp + 4 > end)
++	    return 0;
++	memcpy(bp, data2, 4);
++	bp += 4;
++    }
++    else if (type == DNS_TYPE_TXT)
++    {
++	if (bp + data1 > end)
++	    return 0;
++	memcpy(bp, data2, data1);
++	bp += data1;
++    }
++    else if (type == DNS_TYPE_SRV)
++    {
++	if (bp + 6 > end)
++	    return 0;
++	ToUINT16(bp, 0);
++	ToUINT16(bp + 2, 0);
++	ToUINT16(bp + 4, data1);
++	/* rfc says target is not compressed */
++	bp = SLPMDNSCopyN(bp + 6, end, data2, 0);
++	if (!bp)
++	    return 0;
++    }
++    else
++	return 0;
++    ToUINT16(oldbp - 2, bp - oldbp);
++    if (dp)
++	*dp = oldbp - 10;
++    return bp;
++}
++
++int SLPMDNSNToSrvtype(unsigned char *a, unsigned char *ar, char *buf, int len)
++{
++    char *sp;
++    int l, l2;
++
++    if (len < 9)
++	return 0;
++    memcpy(buf, "service", 8);
++    sp = buf + 7;
++    len -= 7;
++    l2 = 1;	/* the \0 */
++    for (;;)
++    {
++	if ((*a & 0xc0) == 0xc0)
++	  a = ar + ((*a & 0x3f) << 8 | a[1]);
++	l = *a++;
++	if (l == 0)
++	    break;
++	if (l == 4 && (!strncasecmp(a, "_tcp", 4) || !strncasecmp(a, "_udp", 4)))
++	    break;
++	if (*a == '_' && l > 1)
++	{
++	  a++;
++	  l--;
++	}
++        if (l2 + l + 1 > len)
++	    return 0;	/* doesn't fit */
++	memmove(sp + l + 1, sp, l2);
++	l2 += l + 1;
++	*sp++ = ':';
++	for (; l-- > 0; a++)
++	    *sp++ = *a != ':' ? *a : '.';
++	sp = buf + 7;
++    }
++    sp += l2 - 1;
++    if (l2 == 1)
++    {
++	*sp++ = ':';
++	*sp = 0;
++    }
++    return sp - buf;
++}
++
++unsigned char *SLPMDNSSrvtypeToN(unsigned char *bp, unsigned char *end, const char *buf, int len)
++{
++    int l, l2;
++    unsigned char *bb;
++    char *p;
++
++    if (len > 8 && !strncasecmp(buf, "service:", 8))
++    {
++	len -= 8;
++	buf += 8;
++    }
++    if (len <= 0)
++	return 0;
++    l2 = 0;
++    for (;;)
++    {
++	p = memchr(buf, ':', len);
++	l = p ? p - buf : len;
++        if (l >= 63 || bp + l2 + l + 2 > end)
++	    return 0;
++	if (l2)
++	  memmove(bp + l + 2, bp, l2);
++	l2 += l + 2;
++        bb = bp;
++	*bp++ = l + 1;
++	*bp++ = '_';
++	for (; l > 0; l--)
++	{
++	  *bp++ = *buf != '.' ? *buf : ':';
++	  buf++;
++	  len--;
++	}
++	bp = bb;
++	if (!p)
++	    break;
++	buf++;
++	len--;
++    }
++    bp += l2;
++    if (bp + 12 > end)
++	return 0;
++    memcpy(bp, "\004_tcp\005local\000", 12);
++    return bp + 12;
++}
++
++char *SLPMDNSFindInTxt(unsigned char *txtbuf, int txtlen, char *name, int *valuelen)
++{
++    int namelen;
++    int l;  
++
++    namelen = strlen(name);
++    while (txtlen >= namelen + 1)
++    {
++        l = *txtbuf++;
++        if (l >= namelen && !memcmp(txtbuf, name, namelen))
++        {
++            *valuelen = l - namelen;
++            return txtbuf + namelen;
++        }
++        txtbuf += l;
++        txtlen -= l + 1;
++    }
++    return 0;
++}
++
++int SLPMDNSAddTxt(unsigned char *txtbuf, int buflen, int *txtlenp, const char *name, const char *value, int valuelen)
++{
++  int txtlen = *txtlenp;
++  int namelen;
++  char *tp;
++
++  namelen = strlen(name);
++  if (namelen + valuelen > 255)
++        return 1;
++  if (txtlen + 1 + namelen + valuelen > buflen) 
++        return 1;
++  tp = txtbuf + txtlen; 
++  *tp++ = namelen + valuelen;
++  memcpy(tp, name, namelen);
++  memcpy(tp + namelen, value, valuelen);
++  *txtlenp = txtlen + 1 + namelen + valuelen;
++  return 0;
++}
++
+diff -Nur openslp-1.2.1.orig/common/slp_mdns.h openslp-1.2.1/common/slp_mdns.h
+--- openslp-1.2.1.orig/common/slp_mdns.h	1970-01-01 02:00:00.000000000 +0200
++++ openslp-1.2.1/common/slp_mdns.h	2005-11-10 00:57:16.000000000 +0200
+@@ -0,0 +1,102 @@
++#ifndef SLP_MDNS_H_INCLUDED
++#define SLP_MDNS_H_INCLUDED
++
++#include "slp_buffer.h"
++
++#define MDNS_RESERVED_PORT 5353
++#define MDNS_MCAST_ADDRESS 0xe00000fb
++
++#define DNS_TYPE_A      1
++#define DNS_TYPE_PTR   12
++#define DNS_TYPE_HINFO 13
++#define DNS_TYPE_TXT   16
++#define DNS_TYPE_AAAA  28
++#define DNS_TYPE_SRV   33
++#define DNS_TYPE_ANY  255
++
++#define DNS_CLASS_IN    1
++#define DNS_CLASS_ANY 255
++
++#define SLP_MDNS_MAX_RR 128
++
++#ifdef DEBUG
++
++extern unsigned char *SLPMDNSDumpN(unsigned char *bp,
++		unsigned char *start);
++extern unsigned char *SLPMDNSDumpRR(unsigned char *start,
++		unsigned char *bp);
++extern void SLPMDNSDumpDNS(SLPBuffer buf,
++		char *head);
++extern void SLPMDNSDumpBuf(unsigned char *buf,
++		int len);
++#endif
++
++extern unsigned char *SLPMDNSParseRR(unsigned char *bp,
++		unsigned char *end,
++		int count,
++		unsigned char **dn,
++		unsigned char **dd,
++		int *dc);
++extern int SLPMDNSCheckN(unsigned char *r,
++		unsigned char *e,
++		unsigned char *a,
++		int ini);
++extern int SLPMDNSCheckRR(unsigned char *r,
++	        unsigned char *e,
++                unsigned char **dn,
++                unsigned char **dd, int *dc);
++extern int SLPMDNSCmpN(unsigned char *a,
++		unsigned char *ar,
++		unsigned char *b,
++		unsigned char *br);
++extern unsigned char *SLPMDNSCompN(unsigned char *bp,
++		unsigned char *end,
++		unsigned char *a,
++		unsigned char *ar,
++		unsigned char **cvec,
++		int *ncvecp,
++		unsigned char *r);
++extern unsigned char *SLPMDNSNToStr(unsigned char *bp,
++		unsigned char *end, 
++		unsigned char *a,
++		unsigned char *ar,
++		int nolastdot);
++extern unsigned char *MDNSStrToN(unsigned char *bp,
++		unsigned char *end,
++		const char *str,
++		int len);
++extern unsigned char *SLPMDNSCopyN(unsigned char *bp,
++		unsigned char *end,
++		unsigned char *a,
++		unsigned char *ar);
++extern unsigned char *SLPMDNSAddRR(unsigned char *bp,
++		unsigned char *start,
++		unsigned char *end,
++		unsigned char *q, unsigned char *qr,
++		int type,
++		int ttl,
++		unsigned char **cvec,
++		int *ncvec,
++		int data1,
++		unsigned char *data2,
++		unsigned char **dp);
++extern int SLPMDNSNToSrvtype(unsigned char *a,
++		unsigned char *ar,
++		char *buf,
++		int len);
++extern unsigned char *SLPMDNSSrvtypeToN(unsigned char *bp,
++		unsigned char *end,
++		const char *buf,
++		int len);
++extern char *SLPMDNSFindInTxt(unsigned char *txtbuf,
++		int txtlen,
++		char *name,
++		int *valuelen);
++extern int SLPMDNSAddTxt(unsigned char *txtbuf,
++		int buflen,
++		int *txtlenp,
++		const char *name,
++		const char *value,
++		int valuelen);
++
++#endif
+diff -Nur openslp-1.2.1.orig/common/slp_message.h openslp-1.2.1/common/slp_message.h
+--- openslp-1.2.1.orig/common/slp_message.h	2005-02-15 22:00:42.000000000 +0200
++++ openslp-1.2.1/common/slp_message.h	2005-11-10 00:13:27.000000000 +0200
+@@ -96,6 +96,7 @@
+ #define SLP_RESERVED_PORT       427
+ #define SLP_MCAST_ADDRESS       0xeffffffd  /* 239.255.255.253 */
+ #define SLP_BCAST_ADDRESS       0xffffffff  /* 255.255.255.255 */
++#define SLPv1_SL_MCAST_ADDRESS  0xe0000116  /* 224.0.1.22 */
+ #define SLPv1_DA_MCAST_ADDRESS  0xe0000123  /* 224.0.1.35 */
+ #define LOOPBACK_ADDRESS        0x7f000001  /* 127.0.0.1 */
+ #define SLP_MAX_DATAGRAM_SIZE   1400 
+@@ -173,6 +174,10 @@
+ #define SLP_REG_SOURCE_LOCAL    2  /* from localhost or IPC */
+ #define SLP_REG_SOURCE_STATIC   3  /* from the slp.reg file */
+ 
++#define SLP_REG_WATCH_TCP  (1<<0)
++#define SLP_REG_WATCH_UDP  (1<<1)
++#define SLP_REG_WATCH_CHECKING (1<<8)
++#define SLP_REG_WATCH_DEAD (1<<9)
+ 
+ /*=========================================================================*/
+ /* SLP Extension IDs                                                       */
+@@ -277,6 +282,8 @@
+     SLPAuthBlock*       autharray;
+     /* The following are used for OpenSLP specific extensions */
+     uint32_t            pid;
++    int                 watchport;
++    int                 watchflags;
+     /* The following are not part of the RFC protocol.  They are used by   */
+     /* the OpenSLP implementation for convenience                          */
+     int                 source;
+diff -Nur openslp-1.2.1.orig/common/slp_net.c openslp-1.2.1/common/slp_net.c
+--- openslp-1.2.1.orig/common/slp_net.c	2005-02-08 07:32:58.000000000 +0200
++++ openslp-1.2.1/common/slp_net.c	2005-11-10 00:16:12.000000000 +0200
+@@ -93,8 +93,21 @@
+             he = gethostbyaddr((char *)&ifaddr, sizeof(ifaddr), AF_INET);
+         }
+         else
+-    {
+-        he = gethostbyname(host);
++        {
++            if (*host >= '0' && *host <= '9' && inet_aton(host, &ifaddr))
++            {
++                if (numeric_only)
++                {
++                    *hostfdn = xstrdup(inet_ntoa(ifaddr));
++                    return 0;
++                }
++                he = gethostbyaddr((char *)&ifaddr, sizeof(ifaddr), AF_INET);
++            }
++            else
++            {
++                he = gethostbyname(host);
++            }
++      
+         }
+         if(he)
+         {
+diff -Nur openslp-1.2.1.orig/common/slp_network.c openslp-1.2.1/common/slp_network.c
+--- openslp-1.2.1.orig/common/slp_network.c	2005-03-02 19:00:31.000000000 +0200
++++ openslp-1.2.1/common/slp_network.c	2005-11-10 00:09:07.000000000 +0200
+@@ -221,7 +221,11 @@
+ /*               ETIME read timed out                                      */
+ /*=========================================================================*/ 
+ {
++#ifdef HAVE_POLL
++    struct pollfd writefd;
++#else
+     fd_set      writefds;
++#endif
+     int         xferbytes;
+     int         flags = 0;
+ 
+@@ -233,10 +237,17 @@
+ 
+     while(buf->curpos < buf->end)
+     {
++#ifdef HAVE_POLL
++        writefd.fd = sockfd;
++        writefd.events = POLLOUT;
++        writefd.revents = 0;
++	xferbytes = poll(&writefd, 1, timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1);
++#else
+         FD_ZERO(&writefds);
+         FD_SET(sockfd, &writefds);
+ 
+         xferbytes = select(sockfd + 1, 0, &writefds, 0, timeout);
++#endif
+         if(xferbytes > 0)
+         {
+             if(socktype == SOCK_DGRAM)
+@@ -301,16 +312,27 @@
+ /*=========================================================================*/ 
+ {
+     int         xferbytes, recvlen;
++#ifdef HAVE_POLL
++    struct pollfd readfd;
++#else
+     fd_set      readfds;
++#endif
+     char        peek[16];
+     int         peeraddrlen = sizeof(struct sockaddr_in);
+ 
+     /*---------------------------------------------------------------*/
+     /* take a peek at the packet to get version and size information */
+     /*---------------------------------------------------------------*/
++#ifdef HAVE_POLL
++    readfd.fd = sockfd;
++    readfd.events = POLLIN;
++    readfd.revents = 0;
++    xferbytes = poll(&readfd, 1, timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1);
++#else
+     FD_ZERO(&readfds);
+     FD_SET(sockfd, &readfds);
+     xferbytes = select(sockfd + 1, &readfds, 0 , 0, timeout);
++#endif
+     if(xferbytes > 0)
+     {
+         if(socktype == SOCK_DGRAM)
+@@ -371,9 +393,16 @@
+         {
+             while((*buf)->curpos < (*buf)->end)
+             {
++#ifdef HAVE_POLL
++		readfd.fd = sockfd;
++		readfd.events = POLLIN;
++		readfd.revents = 0;
++		xferbytes = poll(&readfd, 1, timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1);
++#else
+                 FD_ZERO(&readfds);
+                 FD_SET(sockfd, &readfds);
+                 xferbytes = select(sockfd + 1, &readfds, 0 , 0, timeout);
++#endif
+                 if(xferbytes > 0)
+                 {
+                     xferbytes = recv(sockfd,
+diff -Nur openslp-1.2.1.orig/common/slp_network.h openslp-1.2.1/common/slp_network.h
+--- openslp-1.2.1.orig/common/slp_network.h	2005-02-08 07:32:58.000000000 +0200
++++ openslp-1.2.1/common/slp_network.h	2005-11-10 00:05:52.000000000 +0200
+@@ -72,6 +72,9 @@
+ #include <fcntl.h> 
+ #include <errno.h>
+ #endif
++#ifdef HAVE_POLL
++#include <sys/poll.h>
++#endif
+ 
+ #include "slp_buffer.h"
+ #include "slp_property.h"
+diff -Nur openslp-1.2.1.orig/common/slp_property.c openslp-1.2.1/common/slp_property.c
+--- openslp-1.2.1.orig/common/slp_property.c	2005-02-08 07:37:53.000000000 +0200
++++ openslp-1.2.1/common/slp_property.c	2005-11-10 00:19:27.000000000 +0200
+@@ -222,7 +222,7 @@
+ 
+ 
+ /*=========================================================================*/
+-int SLPPropertyReadFile(const char* conffile)
++int SLPPropertyReadFileFP(FILE *fp)
+ /* Reads and sets properties from the specified configuration file         */
+ /*                                                                         */
+ /* conffile     (IN) the path of the config file to read.                  */
+@@ -233,7 +233,6 @@
+ {
+     char*   line;
+     char*   alloced;
+-    FILE*   fp;
+     char*   namestart;
+     char*   nameend;
+     char*   valuestart;
+@@ -243,6 +242,10 @@
+     {
+         return -1;
+     }
++    if(!fp)
++    {
++        return 0;
++    }
+ 
+     alloced = xmalloc(4096);
+     if(alloced == 0)
+@@ -252,14 +255,7 @@
+         return -1;
+     }
+ 
+-    fp = fopen(conffile,"r");
+-    if(!fp)
+-    {
+-        goto CLEANUP;
+-    }
+-
+-    /* Set the property that keeps track of conffile */
+-    SLPPropertySet("net.slp.OpenSLPConfigFile",conffile);
++    rewind(fp);
+ 
+     while(fgets(alloced,4096,fp))
+     {
+@@ -328,12 +324,6 @@
+     }   
+ 
+ 
+-    CLEANUP:
+-    if(fp)
+-    {
+-        fclose(fp);
+-    }
+-
+     if(alloced)
+     {
+         xfree(alloced);
+@@ -343,6 +333,33 @@
+ }
+ 
+ /*=========================================================================*/
++int SLPPropertyReadFile(const char* conffile)
++/* Reads and sets properties from the specified configuration file         */
++/*                                                                         */
++/* conffile     (IN) the path of the config file to read.                  */
++/*                                                                         */
++/* Returns  -   zero on success. non-zero on error.  Properties will be set*/
++/*              to default on error.                                       */
++/*=========================================================================*/
++{
++    FILE*   fp;
++    int     ret;
++
++    fp = fopen(conffile,"r");
++    if (fp)
++    {
++        /* Set the property that keeps track of conffile */
++        SLPPropertySet("net.slp.OpenSLPConfigFile",conffile);
++    }
++    ret = SLPPropertyReadFileFP(fp);
++    if (fp)
++    {
++        fclose(fp);
++    }
++    return ret;
++}
++
++/*=========================================================================*/
+ int SLPPropertyAsBoolean(const char* property)
+ /*=========================================================================*/
+ {
+diff -Nur openslp-1.2.1.orig/common/slp_spi.c openslp-1.2.1/common/slp_spi.c
+--- openslp-1.2.1.orig/common/slp_spi.c	2005-02-09 00:24:54.000000000 +0200
++++ openslp-1.2.1/common/slp_spi.c	2005-11-10 00:20:50.000000000 +0200
+@@ -437,6 +437,18 @@
+                             spistr) != 0);
+ }
+ 
++void SLPSpiFill(SLPSpiHandle hspi)
++{
++    SLPSpiEntry* entry = (SLPSpiEntry*)hspi->cache.head;
++    while(entry)
++    {
++        if(entry->keytype != SLPSPI_KEY_TYPE_PRIVATE || hspi->cacheprivate)
++        {
++            entry->key = SLPSpiReadKeyFile(entry->keyfilename,entry->keytype);
++        }
++        entry = (SLPSpiEntry*)entry->listitem.next;
++    }
++}
+ 
+ /*=========================================================================*/
+ int SLPSpiCanSign(SLPSpiHandle hspi,
+diff -Nur openslp-1.2.1.orig/common/slp_spi.h openslp-1.2.1/common/slp_spi.h
+--- openslp-1.2.1.orig/common/slp_spi.h	2005-02-08 07:32:58.000000000 +0200
++++ openslp-1.2.1/common/slp_spi.h	2005-11-10 00:21:29.000000000 +0200
+@@ -172,6 +172,14 @@
+ /* Returns     Non-zero if we sign using the specified SPI                 */
+ /*=========================================================================*/
+ 
++
++/*=========================================================================*/
++void SLPSpiFill(SLPSpiHandle hspi);
++/* Fill up all entries with private/public keys.                           */
++/*                                                                         */
++/* Parameters: hspi      (IN)  handle obtained from call to SLPSpiOpen()   */
++/*=========================================================================*/
++
+ #endif
+ 
+ 
+diff -Nur openslp-1.2.1.orig/common/slp_xcast.c openslp-1.2.1/common/slp_xcast.c
+--- openslp-1.2.1.orig/common/slp_xcast.c	2005-02-24 19:06:55.000000000 +0200
++++ openslp-1.2.1/common/slp_xcast.c	2005-11-10 01:32:04.000000000 +0200
+@@ -65,6 +65,9 @@
+ #include <fcntl.h> 
+ #include <errno.h>
+ #endif
++#ifdef HAVE_POLL
++#include <sys/poll.h>
++#endif
+ 
+ #ifndef UNICAST_NOT_SUPPORTED
+ #include "../libslp/slp.h"
+@@ -285,8 +288,12 @@
+  * 	Zero on success, non-zero with errno set on failure.
+  *==========================================================================*/ 
+ {
++#ifdef HAVE_POLL
++    struct pollfd readfds[SLP_MAX_IFACES];
++#else
+     fd_set  readfds;
+     int     highfd;
++#endif
+     int     i;
+     int     readable;
+     size_t  bytesread;
+@@ -300,6 +307,15 @@
+     recvloop = 1;
+     while(recvloop)
+     {
++#ifdef HAVE_POLL
++        for (i=0; i<sockets->sock_count; i++)
++        {
++            readfds[i].fd = sockets->sock[i];
++            readfds[i].events = POLLIN;
++            readfds[i].revents = 0;
++        }
++        readable = poll(readfds, sockets->sock_count, timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1);
++#else
+         /* Set the readfds */
+         FD_ZERO(&readfds);
+         highfd = 0;
+@@ -314,12 +330,17 @@
+     
+         /* Select */
+         readable = select(highfd + 1,&readfds,NULL,NULL,timeout);
++#endif        
+         if(readable > 0)
+         {
+             /* Read the datagram */
+             for (i=0; i<sockets->sock_count; i++)
+             {
++#ifdef HAVE_POLL
++                if((readfds[i].revents & POLLIN) != 0)
++#else
+                 if(FD_ISSET(sockets->sock[i],&readfds))
++#endif                
+                 {
+                     /* Peek at the first 16 bytes of the header */
+                     bytesread = recvfrom(sockets->sock[i],
+diff -Nur openslp-1.2.1.orig/configure.in openslp-1.2.1/configure.in
+--- openslp-1.2.1.orig/configure.in	2005-02-15 22:06:02.000000000 +0200
++++ openslp-1.2.1/configure.in	2005-11-10 01:20:04.000000000 +0200
+@@ -174,7 +174,7 @@
+ AC_CHECK_LIB(socket, main)
+ AC_CHECK_LIB(nsl, gethostbyname)
+ dnl AC_CHECK_LIB(m, main)
+-dnl AC_CHECK_FUNCS(ceil log10 strncasecmp strcasecmp )
++dnl AC_CHECK_FUNCS(ceil log10 strncasecmp strcasecmp poll)
+ AC_CHECK_FUNCS(strncasecmp strcasecmp)
+ dnl AC_OUTPUT( Makefile common/Makefile libslpattr/Makefile libslp/Makefile 
+ dnl 	slpd/Makefile slptool/Makefile test/Makefile slp.list )
+diff -Nur openslp-1.2.1.orig/etc/slp.reg openslp-1.2.1/etc/slp.reg
+--- openslp-1.2.1.orig/etc/slp.reg	2005-02-08 07:35:12.000000000 +0200
++++ openslp-1.2.1/etc/slp.reg	2005-11-10 00:06:24.000000000 +0200
+@@ -37,3 +37,10 @@
+ ##Register telnet service with no attributes 
+ #service:telnet.myorg://192.168.100.1,en,65535 
+ #use default scopes
++
++##Register vnc kdm service, can be used via krdc
++#service:remotedesktop.kde:vnc://192.168.100.1:1,en,65535
++#attrid=(type=shared),(username=joe),(fullname=Joe User),(serviceid=1235456)
++#description=KDE remote login
++
++
+diff -Nur openslp-1.2.1.orig/libslp/libslp_mdns.c openslp-1.2.1/libslp/libslp_mdns.c
+--- openslp-1.2.1.orig/libslp/libslp_mdns.c	1970-01-01 02:00:00.000000000 +0200
++++ openslp-1.2.1/libslp/libslp_mdns.c	2005-11-10 01:42:14.000000000 +0200
+@@ -0,0 +1,944 @@
++#ifdef _WIN32
++#define WIN32_LEAN_AND_MEAN
++#include <windows.h>
++#include <io.h>
++#include <errno.h>
++#define ETIMEDOUT 110
++#define ENOTCONN  107
++#else
++#include <stdlib.h>
++#include <unistd.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <sys/time.h>
++#include <netinet/in.h>
++#include <arpa/inet.h> 
++#include <netdb.h> 
++#include <fcntl.h> 
++#include <errno.h>
++#endif
++#include <stdio.h>
++
++#ifndef UNICAST_NOT_SUPPORTED
++#include "../libslp/slp.h"
++#endif
++
++#include "slp_compare.h"
++#include "slp_xcast.h"
++#include "slp_message.h"
++#include "libslp_mdns.h"
++
++
++/*========================================================================*/
++SLPBuffer SLPBufToMDNS(char* buf, int bufsize, int buftype)
++/* Description:
++ *    Convert the data part of a SLP request to a MDNS request
++ *========================================================================*/
++{
++    char *srvtype;
++    int srvtypelen;
++    char *scopelist;
++    int scopelistlen;
++    unsigned char *bp, *end;
++    SLPBuffer mdnsbuf;
++    unsigned char txtbuf[512];
++    int txtlen;
++    char *na;
++    int nalen;
++    char *pred;
++    int predlen;
++    char *slpurl;
++    int slpurllen;
++    char *taglist;
++    int taglistlen;
++
++    bp = (unsigned char *)buf;
++    txtlen = 0;
++
++    if (buftype == SLP_FUNCT_SRVTYPERQST)
++    {
++	nalen = AsUINT16(bp);
++	bp += 2;
++	na = bp;
++	if (nalen != 65535)
++	    bp += nalen;
++	scopelistlen = AsUINT16(bp);
++	scopelist = bp + 2;
++	if (!SLPContainsStringList(scopelistlen, scopelist, 5, "_mdns"))
++	    return 0;
++	bp += 2 + scopelistlen;
++	if (!(mdnsbuf = SLPBufferAlloc(8000)))
++	    return 0;
++	bp = mdnsbuf->start;
++	bp[0] = bp[1] = 0;	/* ID */
++	bp[2] = 0x01;		/* normal query */
++	bp[3] = 0x00;
++	bp[4] = 0x00;		/* qcount = 1 */
++	bp[5] = 0x01;
++	bp[6] = bp[7] = 0;	/* acount = 0 */
++	bp[8] = bp[9] = 0;	/* ncount = 0 */
++	bp[10] = bp[11] = 0;	/* xcount = 0 */
++	memcpy(bp + 12, "\011_services\007_dns-sd\004_udp\005local\000", 30);
++	bp += 12 + 30;
++	bp[0] = 0;
++	bp[1] = DNS_TYPE_PTR;
++	bp[2] = 0;
++	bp[3] = DNS_CLASS_IN;
++	mdnsbuf->end = bp + 4;
++	if (nalen != 65535)
++	    SLPMDNSAddTxt(txtbuf, sizeof(txtbuf), &txtlen, "namingauth=", na, nalen);
++    }
++    else if (buftype == SLP_FUNCT_SRVRQST)
++    {
++	srvtypelen = AsUINT16(bp);
++	srvtype = bp + 2;
++	bp += 2 + srvtypelen;
++	scopelistlen = AsUINT16(bp);
++	scopelist = bp + 2;
++	bp += 2 + scopelistlen;
++	if (!SLPContainsStringList(scopelistlen, scopelist, 5, "_mdns"))
++	    return 0;
++	predlen = AsUINT16(bp);
++	pred = bp + 2;
++	bp += 2 + predlen;
++	if (bp[0] || bp[1])	/* slpspilen */
++	    return 0;
++	mdnsbuf = SLPBufferAlloc(8000);
++	if (!mdnsbuf)
++	    return 0;
++	bp = mdnsbuf->start;
++	bp[0] = bp[1] = 0;    /* ID */
++	bp[2] = 0x01;
++	bp[3] = 0x00;
++	bp[4] = 0x00;
++	bp[5] = 0x01;
++	bp[6] = bp[7] = 0;
++	bp[8] = bp[9] = 0;
++	bp[10] = bp[11] = 0;
++	end = mdnsbuf->start + mdnsbuf->allocated;
++	if (!(bp = SLPMDNSSrvtypeToN(bp + 12, end, srvtype, srvtypelen)) || bp + 4 > end)
++	{
++	    SLPBufferFree(mdnsbuf);
++	    return 0;
++	}
++	bp[0] = 0;
++	bp[1] = DNS_TYPE_PTR;
++	bp[2] = 0;
++	bp[3] = DNS_CLASS_IN;
++	mdnsbuf->end = bp + 4;
++	SLPMDNSAddTxt(txtbuf, sizeof(txtbuf), &txtlen, "scope=", scopelist, scopelistlen);
++	if (predlen)
++	    SLPMDNSAddTxt(txtbuf, sizeof(txtbuf), &txtlen, "predicate=", pred, predlen);
++    }
++    else if (buftype == SLP_FUNCT_ATTRRQST)
++    {
++	slpurllen = AsUINT16(bp);
++	slpurl = bp + 2;
++	bp += 2 + slpurllen;
++	srvtype = slpurl;
++        for (srvtypelen = 0; srvtypelen < slpurllen; srvtypelen++)
++	    if (srvtypelen > 2 && slpurl[srvtypelen] == '/' && slpurl[srvtypelen - 1] == '/' && slpurl[srvtypelen - 2] == ':')
++		break;
++	if (srvtypelen != slpurllen)
++	    srvtypelen -= 2;
++	else
++	    slpurllen = 0;
++	if (srvtypelen <= 0)
++	    return 0;
++	scopelistlen = AsUINT16(bp);
++	scopelist = bp + 2;
++	bp += 2 + scopelistlen;
++	if (!SLPContainsStringList(scopelistlen, scopelist, 5, "_mdns"))
++	    return 0;
++	taglistlen = AsUINT16(bp);
++	taglist = bp + 2;
++	bp += 2 + taglistlen;
++	if (bp[0] || bp[1])	/* slpspilen */
++	    return 0;
++	mdnsbuf = SLPBufferAlloc(8000);
++	if (!mdnsbuf)
++	    return 0;
++	bp = mdnsbuf->start;
++	bp[0] = bp[1] = 0;    /* ID */
++	bp[2] = 0x01;
++	bp[3] = 0x00;
++	bp[4] = 0x00;
++	bp[5] = 0x01;
++	bp[6] = bp[7] = 0;
++	bp[8] = bp[9] = 0;
++	bp[10] = bp[11] = 0;
++	end = mdnsbuf->start + mdnsbuf->allocated;
++	if (!(bp = SLPMDNSSrvtypeToN(bp + 12, end, srvtype, srvtypelen)) || bp + 4 > end)
++	{
++	    SLPBufferFree(mdnsbuf);
++	    return 0;
++	}
++	bp[0] = 0;
++	bp[1] = DNS_TYPE_PTR;
++	bp[2] = 0;
++	bp[3] = DNS_CLASS_IN;
++	mdnsbuf->end = bp + 4;
++	if (slpurllen)
++	    SLPMDNSAddTxt(txtbuf, sizeof(txtbuf), &txtlen, "slpurl=", slpurl, slpurllen);
++	if (taglistlen)
++	    SLPMDNSAddTxt(txtbuf, sizeof(txtbuf), &txtlen, "taglist=", taglist, taglistlen);
++    }
++    else
++    {
++	return 0;
++    }
++    if (txtlen)
++    {
++	/* small hack: we patch in the compression vector afterwards */
++	bp = SLPMDNSAddRR(mdnsbuf->end, mdnsbuf->start, mdnsbuf->start + mdnsbuf->allocated, "\012_slpqueryX\000", 0, DNS_TYPE_TXT, 0, 0, 0, txtlen, txtbuf, 0);
++	if (bp)
++	{
++	    /* set compression pointer to query */
++	    mdnsbuf->end[0]  = 9;
++	    mdnsbuf->end[10] = 0xc0;
++	    mdnsbuf->end[11] = 12;
++	    mdnsbuf->end = bp;
++	    mdnsbuf->start[7]++;	/* increment acount */
++	}
++    }
++#ifdef DEBUG
++    SLPMDNSDumpDNS(mdnsbuf, "-> srvtype");
++#endif
++    return mdnsbuf;
++}
++
++static int SLPMDNSCmpRRData(unsigned char *a, unsigned char *ra, unsigned char *b, unsigned char *rb)
++{
++    int type = AsUINT16(a);
++    if (memcmp(a, b, 4))
++        return 1;
++    if (type == DNS_TYPE_PTR)
++        return SLPMDNSCmpN(a + 10, ra, b + 10, rb);
++    if (type == DNS_TYPE_SRV)
++    {
++        if (memcmp(a + 10, b + 10, 6)) 
++            return 1;
++        return SLPMDNSCmpN(a + 16, ra, b + 16, rb);
++    }
++    return memcmp(a + 8, b + 8, 2 + AsUINT16(a + 8));
++}
++
++int SLPMDNSNToAttrs(unsigned char *txtbuf, int txtlen, char *buf, int len)
++{
++    char *bp = buf;
++    int i, l;
++    int comma = 0;
++
++    while (txtlen)
++    {
++	l = *txtbuf++;
++	txtlen--;
++	if (l > txtlen)
++	    return 0;
++	for (i = 0; i < l; i++)
++	    if (txtbuf[i] == '=')
++		break;
++	if (comma)
++	{
++	    if (len == 0)
++		return 0;
++	    *bp++ = ',';
++	    len--;
++	}
++	comma = 1;
++	if (i == l)
++	{
++	    /* keyword */
++	    if (l > len)
++		return 0;
++	    memcpy(bp, txtbuf, l);
++	    bp += l;
++	    len -= l;
++	}
++	else
++	{
++	    if (l + 2 > len)
++		return 0;
++	    /* (keyword=values) */
++	    *bp++ = '(';
++	    memcpy(bp, txtbuf, l);
++	    bp += l;
++	    *bp++ = ')';
++	    len -= l + 2;
++	}
++	txtbuf += l;
++	txtlen -= l;
++    }
++    return bp - buf;
++}
++
++
++/*========================================================================*/
++int SLPMDNSToBuf(SLPBuffer buf, struct sockaddr *peer, int peerlen, SLPBuffer mdnssendbuf, int buftype, PSLPHandleInfo handle)
++/* Description:
++ *    Convert the an MDNS answer to a SLP answer
++ *========================================================================*/
++{
++    int qcount, acount, ncount, xcount;
++    unsigned char *end = buf->end;
++    unsigned char *bp, *obp;
++    unsigned char slpbuf[8000], *slpbufend;
++    unsigned char *an[SLP_MDNS_MAX_RR];
++    unsigned char *ad[SLP_MDNS_MAX_RR];
++    unsigned char *xn[SLP_MDNS_MAX_RR];
++    unsigned char *xd[SLP_MDNS_MAX_RR];
++    int ac, xc, i, j, rac, l, type;
++    int jsrv, ja, jtxt;
++    unsigned char *cvec[256];
++    unsigned char *ran[SLP_MDNS_MAX_RR];
++    unsigned char *rad[SLP_MDNS_MAX_RR];
++    int ncvec;
++    unsigned char *slpurl;
++    unsigned int ttl;
++    unsigned char *name;
++    int namelen;
++    int urllen;
++
++    if (end - buf->start < 12)
++	return 1;	/* too small */
++#ifdef DEBUG
++    SLPMDNSDumpDNS(buf, "<-");
++#endif
++    if (buf->start[0] != mdnssendbuf->start[0])
++	return 1;	/* XID mismatch */
++    if (buf->start[1] != mdnssendbuf->start[1])
++	return 1;	/* XID mismatch */
++    if ((buf->start[2] & 0xf0) != 0x80)
++	return 1;	/* no standard response */
++    if ((buf->start[3] & 0x0f) != 0x00)
++	return 1;	/* DNS error */
++    qcount = AsUINT16(buf->start + 4);
++    if (qcount > 1)
++	return 1;	/* we didn't query this */
++
++    slpbuf[0] = 2;
++    if (buftype == SLP_FUNCT_SRVTYPERQST)
++	slpbuf[1] = SLP_FUNCT_SRVTYPERPLY;
++    else if (buftype == SLP_FUNCT_SRVRQST)
++	slpbuf[1] = SLP_FUNCT_SRVRPLY;
++    else if (buftype == SLP_FUNCT_ATTRRQST)
++	slpbuf[1] = SLP_FUNCT_ATTRRPLY;
++    else
++	return 1;	/* internal error */
++    slpbuf[2] = slpbuf[3] = slpbuf[4] = 0;	/* length */
++    slpbuf[5] = slpbuf[6] = 0;			/* flags */
++    slpbuf[7] = slpbuf[8] = slpbuf[9] = 0;	/* ext off */
++    slpbuf[10] = mdnssendbuf->start[0];		/* xid */
++    slpbuf[11] = mdnssendbuf->start[1];		/* xid */
++    slpbuf[12] = slpbuf[13] = 0;		/* ltaglen */
++    slpbuf[14] = slpbuf[15] = 0;		/* error code */
++    slpbuf[16] = slpbuf[17] = 0;		/* url count */
++    slpurl = slpbuf + 18;
++
++    acount = AsUINT16(buf->start + 6);
++    ncount = AsUINT16(buf->start + 8);
++    xcount = AsUINT16(buf->start + 10);
++
++    /* set up compression vector from old query */
++    cvec[0] = bp = mdnssendbuf->start + 12;
++    ncvec = 1;
++    while (bp < end && *bp)
++	bp += *bp + 1;
++    bp += 1 + 4;
++    bp = SLPMDNSParseRR(bp, mdnssendbuf->end, AsUINT16(mdnssendbuf->start + 6), ran, rad, &rac);
++    for (i = 0; i < rac; i++)
++    {
++	if ((ran[i][0] & 0xc0) == 0xc0 && ncvec < 256)
++	    cvec[ncvec++] = ran[i];
++	if (AsUINT16(rad[i]) == DNS_TYPE_PTR)
++	{
++	    if ((rad[i][10] & 0xc0) == 0xc0 && ncvec < 256)
++		cvec[ncvec++] = rad[i] + 10;
++	}
++    }
++
++    bp = buf->start + 12;
++    /* skip query section */
++    if (qcount)
++    {
++        while (bp < end && *bp && (*bp & 0xc0) != 0xc0)
++	    bp += *bp + 1;
++        if (bp < end && *bp)
++	    bp++;
++        bp += 5;
++    }
++    bp = SLPMDNSParseRR(bp, end, acount, an, ad, &ac);
++    if (bp > end)
++	return 1;
++    bp = SLPMDNSParseRR(bp, end, ncount, 0, 0, 0);
++    bp = SLPMDNSParseRR(bp, end, xcount, xn, xd, &xc);
++
++    /* now that we know the end of the packet validate rrs */
++    SLPMDNSCheckRR(buf->start, bp > end ? end : bp, an, ad, &ac);
++    SLPMDNSCheckRR(buf->start, bp > end ? end : bp, xn, xd, &xc);
++    /* printf("checked rrs: ac=%d, xc=%d\n", ac, xc); */
++
++    /* add answer rrs to our query if not already there */
++    for (i = 0; i < ac; i++)
++    {
++	/* is this an answer we are looking for? */
++	if (SLPMDNSCmpN(an[i], buf->start,
++                        mdnssendbuf->start + 12, mdnssendbuf->start))
++	    continue;
++	type = AsUINT16(ad[i]);
++	/* skip everything but PTR RR, CLASS INs */
++	if (type != DNS_TYPE_PTR)
++	    continue;
++	if (AsUINT16(ad[i] + 2) != DNS_CLASS_IN)
++	    continue;
++
++	for (j = 0; j < rac; j++)
++	    if (!SLPMDNSCmpRRData(ad[i], buf->start, rad[j], mdnssendbuf->start))
++		break;
++	if (j < rac)
++	    continue;
++	/* new rr, add it to query */
++	if (rac < SLP_MDNS_MAX_RR)
++	{
++	    bp = mdnssendbuf->end;
++	    ran[rac] = bp;
++	    bp = SLPMDNSAddRR(bp, mdnssendbuf->start, mdnssendbuf->start + mdnssendbuf->allocated, an[i], buf->start, type, AsUINT32(ad[i] + 4), cvec, &ncvec, 0, ad[i] + 10, rad + rac);
++	    if (bp)
++	    {
++		mdnssendbuf->end = bp;
++		j = AsUINT16(mdnssendbuf->start + 6);
++		ToUINT16(mdnssendbuf->start + 6, j + 1);
++		rac++;
++	    }
++	}
++#ifdef DEBUG
++	SLPMDNSDumpDNS(mdnssendbuf, "updated sendbuf");
++#endif
++
++	slpbufend = slpbuf + sizeof(slpbuf);
++	if (buftype == SLP_FUNCT_SRVTYPERQST)
++	{
++	    int comma = slpbuf[16] || slpbuf[17] ? 1 : 0;
++	    l = SLPMDNSNToSrvtype(ad[i] + 10, buf->start, slpurl + comma, slpbufend - (slpurl + comma));
++	    if (!l)
++		continue;
++	    if (comma)
++		*slpurl++ = ',';
++	    slpurl += l;
++	    ToUINT16(slpbuf + 16, slpurl - (slpbuf + 18));
++	    continue;
++	}
++	if (buftype == SLP_FUNCT_ATTRRQST)
++	{
++	    unsigned char *txtbuf;
++	    int txtlen;
++
++	    int comma = slpbuf[16] || slpbuf[17] ? 1 : 0;
++	    /* find TXT record in additional section */
++	    for (jtxt = 0; jtxt < xcount; jtxt++)
++		if (AsUINT16(xd[jtxt]) == DNS_TYPE_TXT
++		     && !SLPMDNSCmpN(ad[i] + 10, buf->start, xn[jtxt], buf->start))
++		    break;
++	    if (jtxt == xcount)
++		continue;	/* oops, no TXT */
++	    txtbuf = xd[jtxt] + 10;
++	    txtlen = AsUINT16(xd[jtxt] + 8);
++	    /* skip internal slpurl attribute */
++	    if (txtlen > 7 && *txtbuf > 7 && *txtbuf + 1 <= txtlen && !strncasecmp(txtbuf + 1, "slpurl=", 7)) {
++		txtlen -= *txtbuf + 1;
++		txtbuf += *txtbuf + 1;
++	    }
++	    /* extra +1 for # of AttrAuths added later */
++	    l = SLPMDNSNToAttrs(txtbuf, txtlen, slpurl + comma, slpbufend - (slpurl + comma + 1));
++	    if (!l)
++		continue;
++	    if (comma)
++		*slpurl++ = ',';
++	    slpurl += l;
++	    ToUINT16(slpbuf + 16, slpurl - (slpbuf + 18));
++	    continue;
++	}
++
++	/* now create a nice url */
++	/* find SRV record in the additional section */
++	for (jsrv = 0; jsrv < xcount; jsrv++)
++	    if (AsUINT16(xd[jsrv]) == DNS_TYPE_SRV
++		 && !SLPMDNSCmpN(ad[i] + 10, buf->start, xn[jsrv], buf->start))
++		break;
++	if (jsrv == xcount)
++	    continue;		/* oops, server didn't send SRV RR */
++	for (ja = 0; ja < xcount; ja++)
++	    if (AsUINT16(xd[ja]) == DNS_TYPE_A
++		 && !SLPMDNSCmpN(xd[jsrv] + 10 + 6, buf->start, xn[ja], buf->start))
++		break;
++	if (ja == xcount)
++	    ja = -1;
++	for (jtxt = 0; jtxt < xcount; jtxt++)
++	    if (AsUINT16(xd[jtxt]) == DNS_TYPE_TXT
++		 && !SLPMDNSCmpN(ad[i] + 10, buf->start, xn[jtxt], buf->start))
++		break;
++	if (jtxt == xcount)
++	    jtxt = -1;
++
++	/* calculate slp TTL */
++	ttl = AsUINT32(xd[jsrv] + 4);
++	if (ttl > 65535)
++	    ttl = 65535;
++
++	/* check if we hava an "slpurl" attribute in the TXT entry */
++	if (jtxt >= 0)
++	{
++	    char *txt;
++	    l = 0;
++	    txt = SLPMDNSFindInTxt(xd[jtxt] + 10, AsUINT16(xd[jtxt] + 8), "slpurl=", &l);
++	    if (txt && l)
++	    {
++		/* found it, great! add the slpurl */
++		if (slpurl + 6 + l >= slpbufend)
++		    continue;
++		*slpurl = 0;		/* reserved */
++		ToUINT16(slpurl + 1, ttl);
++		ToUINT16(slpurl + 3, l);
++		memcpy(slpurl + 5, txt, l);
++		slpurl[5 + l] = 0;	/* url auths */
++		slpurl += 6 + l;
++		if (++slpbuf[17] == 0)
++		    slpbuf[16]++;
++		continue;
++	    }
++	}
++
++	bp = mdnssendbuf->start + 12;	/* equal to an[i], not compr. */
++	l = *bp++;
++	if (*bp == '_')
++	{
++	    l--;
++	    bp++;
++	}
++	if (l == 0 || l >= 64 || slpurl + 16 + l >= slpbufend)
++	    continue;
++	memcpy(slpurl, "\0\0\0\0\0service:", 13);
++	ToUINT16(slpurl + 1, ttl);
++	memcpy(slpurl + 13, bp, l);
++ 	bp = slpurl + 13;
++	/* convert : to . */
++	for (; *bp && l-- > 0; bp++)
++	    if (*bp == ':')
++		*bp = '.';
++	*bp++ = ':';
++	*bp++ = '/';
++	*bp++ = '/';
++	obp = bp;
++	bp = SLPMDNSNToStr(bp, slpbufend - 1 - 8, xd[jsrv] + 10 + 6, buf->start, 1);
++	if (bp == 0)
++	    continue;
++	if (ja >= 0 && (xd[ja][10] != 169 || xd[ja][11] != 254) && bp - obp > 6 && !strncmp(bp - 6, ".local", 6))
++	{
++	    /* got .local address but ip isn't local. Lookup. */
++	    struct sockaddr_in sai;
++	    sai.sin_family = AF_INET;
++	    memcpy(&sai.sin_addr.s_addr, xd[ja] + 10, 4);
++	    if (getnameinfo((struct sockaddr *)&sai, sizeof(sai),
++		obp, slpbufend - 1 - 8 - obp,
++		(char *)0, 0, NI_NAMEREQD) == 0
++		&& obp + strlen(obp) < slpbufend - 1 - 9)
++	    {
++		bp = obp + strlen(obp);
++	    }
++	    else
++	    {
++		/* recreate old content */
++		bp = SLPMDNSNToStr(obp, slpbufend - 1 - 8, xd[jsrv] + 10 + 6, buf->start, 1);
++	    }
++	}
++	sprintf(bp, ":%u", AsUINT16(xd[jsrv] + 14));
++	bp += strlen(bp);
++	urllen = bp - (slpurl + 5);
++	ToUINT16(slpurl + 3, urllen);
++	*bp++ = 0;	/* 0 url blocks */
++
++        /* add extra name info */
++	name = ad[i] + 10;
++	if ((*name & 0xc0) == 0xc0)
++	    name = buf->start + ((*name & 0x3f) << 8 | name[1]);
++	namelen = *name++;
++	if (namelen && urllen && buftype == SLP_FUNCT_SRVRQST)
++	{
++	    SLPSrvUrlColatedItem *collateditem;
++	    collateditem = (SLPSrvUrlColatedItem*) xmalloc(sizeof(SLPSrvUrlColatedItem) + 3 + urllen + namelen);
++	    if (collateditem)
++	    {
++		memset(collateditem,0,sizeof(SLPSrvUrlColatedItem));
++		collateditem->srvurl = (char*)(collateditem + 1);
++		collateditem->srvurl[0] = 0;
++		strcpy(collateditem->srvurl + 1, slpurl + 5);
++		memcpy(collateditem->srvurl + 1 + urllen + 1, name, namelen);
++		collateditem->srvurl[2 + urllen + namelen] = 0;
++		SLPListLinkTail(&(handle->collatedsrvurls), (SLPListItem*)collateditem);
++	    }
++	}
++
++	/* sucessfully added url */
++	slpurl = bp;
++	if (++slpbuf[17] == 0)
++	    slpbuf[16]++;
++    }
++    if ((!slpbuf[16] && !slpbuf[17]) || slpurl - slpbuf > buf->allocated)
++	return 1;
++    if (buftype == SLP_FUNCT_ATTRRQST)
++    {
++	/* we already know there is room for this byte */
++	*slpurl++ = 0;
++    }
++    ToUINT24(slpbuf + 2, slpurl - slpbuf);
++    memcpy(buf->start, slpbuf, slpurl - slpbuf);
++#ifdef DEBUG
++    printf("SLP buffer\n");
++    SLPMDNSDumpBuf(slpbuf, slpurl - slpbuf);
++#endif
++    buf->end = buf->start + (slpurl - slpbuf);
++    buf->curpos = buf->start;
++    return 0;
++}
++
++const char *SLPAPI SLPGetMDNSName(SLPHandle hSLP, const char *pcURL)
++{
++
++    PSLPHandleInfo      handle;
++    SLPSrvUrlColatedItem*   collateditem;
++
++    /*------------------------------*/
++    /* check for invalid parameters */
++    /*------------------------------*/
++    if(hSLP == 0 || *(unsigned int*)hSLP != SLP_HANDLE_SIG || pcURL == 0)
++    {
++        return 0;
++    }
++
++    /*-----------------------------------------*/
++    /* cast the SLPHandle into a SLPHandleInfo */
++    /*-----------------------------------------*/
++    handle = (PSLPHandleInfo)hSLP; 
++
++    collateditem = (SLPSrvUrlColatedItem*) handle->collatedsrvurls.head;
++    while(collateditem)
++    {
++	if (collateditem->srvurl[0] == 0
++	    && strcmp(collateditem->srvurl + 1,pcURL) == 0)
++	    return collateditem->srvurl + strlen(collateditem->srvurl + 1) + 2;
++	collateditem = (SLPSrvUrlColatedItem*)collateditem->listitem.next;
++    }
++    return 0;
++}
++
++
++/*========================================================================*/
++int SLPMDNSMulticastSend(const SLPIfaceInfo* ifaceinfo, 
++                     SLPBuffer msg,
++                     SLPXcastSockets* socks)
++/* Description:
++ *    Multicast a message.
++ *
++ * Parameters:
++ *    ifaceinfo (IN) Pointer to the SLPIfaceInfo structure that contains
++ *                   information about the interfaces to send on
++ *    msg       (IN) Buffer to send
++ *
++ *   socks      (OUT) Sockets used to multicast.  May be used to recv() 
++ *                    responses.  MUST be close by caller using 
++ *                    SLPXcastSocketsClose() 
++ *
++ * Returns:
++ *    Zero on sucess.  Non-zero with errno set on error
++ *========================================================================*/
++{
++    int             flags = 0;
++    int		    on = 1;
++    int             xferbytes;
++    struct in_addr  saddr;
++
++#if defined(MSG_NOSIGNAL)
++    flags = MSG_NOSIGNAL;
++#endif
++
++    for (socks->sock_count = 0;
++         socks->sock_count < ifaceinfo->iface_count;
++         socks->sock_count++)
++    {
++        socks->sock[socks->sock_count] = socket(AF_INET, SOCK_DGRAM, 0);
++        if (socks->sock[socks->sock_count] < 0)
++        {
++            /* error creating socket */
++            return -1;
++        }
++	if (setsockopt(socks->sock[socks->sock_count],
++			SOL_IP,
++			IP_RECVTTL,
++			&on,
++			sizeof(on))) {
++	    /* error setting socket option */
++	    return -1;
++	}
++        
++        saddr.s_addr = ifaceinfo->iface_addr[socks->sock_count].sin_addr.s_addr;
++        if( setsockopt(socks->sock[socks->sock_count], 
++                       IPPROTO_IP, 
++                       IP_MULTICAST_IF, 
++                       (char*)&saddr, 
++                       sizeof(struct in_addr)))
++        {
++            /* error setting socket option */
++            return -1;
++        }
++
++        socks->peeraddr[socks->sock_count].sin_family = AF_INET;
++        socks->peeraddr[socks->sock_count].sin_port = htons(MDNS_RESERVED_PORT);
++        socks->peeraddr[socks->sock_count].sin_addr.s_addr = htonl(MDNS_MCAST_ADDRESS);
++
++        xferbytes = sendto(socks->sock[socks->sock_count],
++                           msg->start,
++                           msg->end - msg->start,
++                           flags,
++                           (struct sockaddr *) &(socks->peeraddr[socks->sock_count]),
++                           sizeof(struct sockaddr_in));
++        if (xferbytes <= 0)
++        {
++            /* error sending */
++            return -1;
++        }
++    }
++    return 0;
++}
++
++
++/*=========================================================================*/
++int SLPMDNSXcastRecvMessage(const SLPXcastSockets* sockets,
++			const SLPXcastSockets* mdnssockets,
++                        SLPBuffer *buf,
++                        struct sockaddr_in* peeraddr,
++                        struct timeval* timeout,
++			SLPBuffer mdnssendbuf, int buftype,
++			PSLPHandleInfo handle)
++/* Description: 
++ *    Receives datagram messages from one of the sockets in the specified  
++ *    SLPXcastsSockets structure
++ *  
++ * Parameters:
++ *    sockets (IN) Pointer to the SOPXcastSockets structure that describes
++ *                 which sockets to read slp messages from.
++ *    sockets (IN) Pointer to the SOPXcastSockets structure that describes
++ *                 which sockets to read mdns messages from.
++ *    buf     (OUT) Pointer to SLPBuffer that will contain the message upon
++ *                  successful return.
++ *    peeraddr (OUT) Pointer to struc sockaddr_in that will contain the
++ *                   address of the peer that sent the received message.
++ *    timeout (IN/OUT) pointer to the struct timeval that indicates how much
++ *                     time to wait for a message to arrive
++ *    mdnssendbuf (IN/OUT) Pointer to SLPBuffer that contains the MDNS message.
++ *                         We will add our received RRs here (known answer
++ *                         suppression)
++ *
++ * Returns:
++ *    Zero on success, non-zero with errno set on failure.
++ *========================================================================*/
++{
++#ifdef HAVE_POLL
++    struct pollfd readfds[SLP_MAX_IFACES * 2];
++#else
++    fd_set  readfds;
++    int     highfd;
++#endif    
++    int     i;
++    int     readable;
++    size_t  bytesread;
++    int     recvloop;
++    int     peeraddrlen = sizeof(struct sockaddr_in);
++    char    peek[16];
++    int     result = 0;
++    struct msghdr mhdr;
++    struct iovec iov;
++    unsigned char cmsgbuf[CMSG_SPACE(sizeof(int))];
++    struct  cmsghdr *cmsg;
++    int     ttl;
++
++    /* recv loop */
++    recvloop = 1;
++    while(recvloop)
++    {
++#ifdef HAVE_POLL
++        for (i=0; i<sockets->sock_count; i++)
++        {
++           readfds[i].fd = sockets->sock[i];
++           readfds[i].events = POLLIN;
++           readfds[i].revents = 0;
++        }
++        for (i=0; i<mdnssockets->sock_count; i++)
++        {
++            readfds[i + sockets->sock_count].fd = mdnssockets->sock[i];
++            readfds[i + sockets->sock_count].events = POLLIN;
++            readfds[i + sockets->sock_count].revents = 0;
++       }
++       readable = poll(readfds, sockets->sock_count + mdnssockets->sock_count, timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1);
++#else
++        
++        /* Set the readfds */
++        FD_ZERO(&readfds);
++        highfd = 0;
++        for (i=0; i<sockets->sock_count; i++)
++        {
++            FD_SET(sockets->sock[i],&readfds);
++            if(sockets->sock[i] > highfd)
++                highfd = sockets->sock[i];
++        }
++        for (i=0; i<mdnssockets->sock_count; i++)
++        {
++            FD_SET(mdnssockets->sock[i],&readfds);
++            if(mdnssockets->sock[i] > highfd)
++                highfd = mdnssockets->sock[i];
++        }
++    
++        /* Select */
++        readable = select(highfd + 1,&readfds,NULL,NULL,timeout);
++#endif
++        if(readable > 0)
++        {
++            /* Read the datagram */
++            for (i=0; i<sockets->sock_count; i++)
++            {
++#ifdef HAVE_POLL
++       if((readfds[i].revents & POLLIN) != 0)
++#else
++                if(FD_ISSET(sockets->sock[i],&readfds))
++#endif
++                {
++                    /* Peek at the first 16 bytes of the header */
++                    bytesread = recvfrom(sockets->sock[i],
++                                         peek,
++                                         16,
++                                         MSG_PEEK,
++                                         (struct sockaddr *)peeraddr,
++                                         &peeraddrlen);
++                    if(bytesread == 16
++#ifdef _WIN32
++                    /* Win32 returns WSAEMSGSIZE if the message is larger than
++                     * the requested size, even with MSG_PEEK. But if this is the
++                     * error code we can be sure that the message is at least 16
++                     * bytes */
++                       || (bytesread == (size_t)-1 && WSAGetLastError() == WSAEMSGSIZE)
++#endif
++                       )
++                    {
++                        if(AsUINT24(peek + 2) <=  SLP_MAX_DATAGRAM_SIZE)
++                        {
++                            *buf = SLPBufferRealloc(*buf, AsUINT24(peek + 2));
++                            bytesread = recv(sockets->sock[i],
++                                             (*buf)->curpos,
++                                             (*buf)->end - (*buf)->curpos,
++                                             0);
++                            if(bytesread != AsUINT24(peek + 2))
++                            {
++                                /* This should never happen but we'll be paranoid*/
++                                (*buf)->end = (*buf)->curpos + bytesread;
++                            }
++                            
++                            /* Message read. We're done! */
++                            result = 0; 
++                            recvloop = 0;
++                            break;
++                        }
++                        else
++                        {
++                            /* we got a bad message, or one that is too big! */
++#ifndef UNICAST_NOT_SUPPORTED
++                            /* Reading SLP_MAX_DATAGRAM_SIZE bytes on the socket */
++		            *buf = SLPBufferRealloc(*buf, SLP_MAX_DATAGRAM_SIZE);
++		            bytesread = recv(sockets->sock[i],
++		                              (*buf)->curpos,
++					      (*buf)->end - (*buf)->curpos,
++					      0);
++			    if(bytesread != SLP_MAX_DATAGRAM_SIZE)
++			    {
++			        /* This should never happen but we'll be paranoid*/
++			        (*buf)->end = (*buf)->curpos + bytesread;
++			    }
++			    result = SLP_RETRY_UNICAST;
++			    recvloop = 0;
++			    return result;
++#endif
++                        }
++                    }
++                    else
++                    {
++                        /* Not even 16 bytes available */
++                    }
++                }
++            }   
++            for (i=0; i<mdnssockets->sock_count; i++)
++            {
++#ifdef HAVE_POLL
++       if((readfds[sockets->sock_count + i].revents & POLLIN) == 0)
++#else
++                if(!FD_ISSET(mdnssockets->sock[i],&readfds))
++#endif
++		    continue;
++		*buf = SLPBufferRealloc(*buf, 8000);
++		(*buf)->curpos = (*buf)->start;
++#if 1
++		iov.iov_base = (*buf)->curpos;
++		iov.iov_len = (*buf)->end - (*buf)->curpos; 
++		mhdr.msg_name = (struct sockaddr *)peeraddr;
++		mhdr.msg_namelen = peeraddrlen;
++		mhdr.msg_iov = &iov; 
++		mhdr.msg_iovlen = 1;
++		mhdr.msg_control = cmsgbuf;
++		mhdr.msg_controllen = sizeof(cmsgbuf);
++		mhdr.msg_flags = 0;
++		bytesread = recvmsg(mdnssockets->sock[i], &mhdr, 0);
++		if (bytesread < 12)
++		    continue;
++		cmsg = CMSG_FIRSTHDR(&mhdr);
++		for (cmsg = CMSG_FIRSTHDR(&mhdr); cmsg; CMSG_NXTHDR(&mhdr, cmsg))
++		    if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_TTL) 
++			break;
++		if (!cmsg)
++		    continue;
++		ttl = *(int *)CMSG_DATA(cmsg);
++		if (ttl != 255)
++		{
++		    continue;
++		}
++#else
++		bytesread = recvfrom(mdnssockets->sock[i],
++				 (*buf)->curpos,
++				 (*buf)->end - (*buf)->curpos,
++				 0,
++				 (struct sockaddr *)peeraddr,
++				 &peeraddrlen);
++		if (bytesread < 12)
++		    continue;
++#endif
++		(*buf)->end = (*buf)->start + bytesread;
++		if (SLPMDNSToBuf(*buf, (struct sockaddr *)peeraddr, peeraddrlen, mdnssendbuf, buftype, handle) == 0)
++		{
++		    result = 0; 
++		    recvloop = 0;
++		    break;
++		}
++	    }
++        }
++        else if(readable == 0)
++        {
++            result = -1;
++            errno = ETIMEDOUT;
++            recvloop = 0;
++        }
++        else
++        {
++            result = -1;
++            recvloop = 0;
++        }
++    }
++
++    return result;
++}
++
+diff -Nur openslp-1.2.1.orig/libslp/libslp_mdns.h openslp-1.2.1/libslp/libslp_mdns.h
+--- openslp-1.2.1.orig/libslp/libslp_mdns.h	1970-01-01 02:00:00.000000000 +0200
++++ openslp-1.2.1/libslp/libslp_mdns.h	2005-11-10 00:57:16.000000000 +0200
+@@ -0,0 +1,14 @@
++#include "slp_mdns.h"
++#include "libslp.h"
++
++extern SLPBuffer SLPBufToMDNS(char* buf, int bufsize, int buftype);
++extern int SLPMDNSToBuf(SLPBuffer buf, struct sockaddr *peer,
++	int peerlen, SLPBuffer mdnssendbuf, int buftype, PSLPHandleInfo handle);
++extern int SLPMDNSMulticastSend(const SLPIfaceInfo* ifaceinfo, 
++	SLPBuffer msg, SLPXcastSockets* socks);
++extern int SLPMDNSXcastRecvMessage(const SLPXcastSockets* sockets,
++	const SLPXcastSockets* mdnssockets,
++	SLPBuffer *buf,
++	struct sockaddr_in* peeraddr,
++	struct timeval* timeout,
++	SLPBuffer mdnssendbuf, int buftype, PSLPHandleInfo handle);
+diff -Nur openslp-1.2.1.orig/libslp/libslp_network.c openslp-1.2.1/libslp/libslp_network.c
+--- openslp-1.2.1.orig/libslp/libslp_network.c	2005-02-24 19:06:57.000000000 +0200
++++ openslp-1.2.1/libslp/libslp_network.c	2005-11-10 00:28:47.000000000 +0200
+@@ -49,7 +49,7 @@
+ 
+ #include "slp.h"
+ #include "libslp.h"
+-
++#include "libslp_mdns.h"
+ 
+ /*=========================================================================*/
+ int NetworkConnectToSlpd(struct sockaddr_in* peeraddr)
+@@ -676,6 +676,15 @@
+     SLPIfaceInfo        ifaceinfo;
+     SLPXcastSockets     xcastsocks;
+ 
++    int            usemdns = 1;
++    int            useslp = 1;
++    SLPBuffer           mdnssendbuf     = 0;
++    SLPXcastSockets     mdnsxcastsocks;
++
++    /* initialize sock_count so that CLEANUP won't get hurt */
++    xcastsocks.sock_count = 0;
++    mdnsxcastsocks.sock_count = 0;
++
+ #ifdef DEBUG
+     /* This function only supports multicast or broadcast of the following
+      *  messages
+@@ -742,6 +751,7 @@
+         /* SLP_FUNCT_DASRVRQST is a fake function.  We really want to */
+         /* send a SRVRQST                                             */
+         buftype  = SLP_FUNCT_SRVRQST;
++        usemdns = 0;
+     }
+ 
+     /*---------------------------------------------------------------------*/
+@@ -760,6 +770,13 @@
+     *prlist = 0;
+     prlistlen = 0; 
+ 
++    if (usemdns)
++    {
++        mdnssendbuf = SLPBufToMDNS(buf, bufsize, buftype);
++        if (!mdnssendbuf)
++            usemdns = 0;
++    }
++
+     /*--------------------------*/
+     /* Main retransmission loop */
+     /*--------------------------*/
+@@ -847,13 +864,22 @@
+         /*----------------------*/
+         /* send the send buffer */
+         /*----------------------*/
+-        if(usebroadcast)
++        result = 0;
++        if (useslp)
+         {
+-            result = SLPBroadcastSend(&ifaceinfo,sendbuf,&xcastsocks);
++            if(usebroadcast)
++            {
++               result = SLPBroadcastSend(&ifaceinfo,sendbuf,&xcastsocks);
++            }
++            else
++            {
++               result = SLPMulticastSend(&ifaceinfo,sendbuf,&xcastsocks);
++            }
+         }
+-        else
++        if (result == 0 && usemdns)
+         {
+-            result = SLPMulticastSend(&ifaceinfo,sendbuf,&xcastsocks);
++           ToUINT16(mdnssendbuf->start,xid);
++           result = SLPMDNSMulticastSend(&ifaceinfo,mdnssendbuf,&mdnsxcastsocks);
+         }
+         if(result != 0)
+         {
+@@ -867,20 +893,19 @@
+         /*----------------*/
+         while(1)
+         {
+-            #ifndef UNICAST_NOT_SUPPORTED
+-            int retval = 0;
+-	    if((retval = SLPXcastRecvMessage(&xcastsocks,
+-                                   &recvbuf,
+-                                   &peeraddr,
+-                                   &timeout)) != 0)
+-            #else
+-			
+-	    if(SLPXcastRecvMessage(&xcastsocks,
+-                                   &recvbuf,
+-                                   &peeraddr,
+-                                   &timeout) != 0)
+-            #endif
+-
++            int retval;
++            if (usemdns)
++                retval = SLPMDNSXcastRecvMessage(&xcastsocks,
++                      &mdnsxcastsocks,
++                      &recvbuf,
++                      &peeraddr,
++                      &timeout, mdnssendbuf, buftype, handle);
++            else
++               retval = SLPXcastRecvMessage(&xcastsocks,
++                      &recvbuf,
++                      &peeraddr,
++                      &timeout);
++            if (retval != 0)
+             {
+                 /* An error occured while receiving the message        */
+                 /* probably a just time out error. break for re-send.  */
+@@ -1046,8 +1071,11 @@
+     /*----------------*/
+     if(prlist) xfree(prlist);
+     SLPBufferFree(sendbuf);
++    SLPBufferFree(mdnssendbuf);
+     SLPBufferFree(recvbuf);
+     SLPXcastSocketsClose(&xcastsocks);
++    if (usemdns)
++        SLPXcastSocketsClose(&mdnsxcastsocks);
+     
+     return result;
+ }
+diff -Nur openslp-1.2.1.orig/libslp/Makefile.am openslp-1.2.1/libslp/Makefile.am
+--- openslp-1.2.1.orig/libslp/Makefile.am	2005-02-26 02:24:22.000000000 +0200
++++ openslp-1.2.1/libslp/Makefile.am	2005-11-10 00:22:31.000000000 +0200
+@@ -23,6 +23,7 @@
+ 	libslp_delattrs.c \
+ 	libslp_findsrvtypes.c \
+ 	libslp_knownda.c \
++    libslp_mdns.c \
+         libslp.h
+ 
+ #if you're building on Irix, exchange commented and uncommented lines
+diff -Nur openslp-1.2.1.orig/libslp/slp.h openslp-1.2.1/libslp/slp.h
+--- openslp-1.2.1.orig/libslp/slp.h	2005-02-24 19:06:57.000000000 +0200
++++ openslp-1.2.1/libslp/slp.h	2005-11-10 00:29:58.000000000 +0200
+@@ -983,6 +983,23 @@
+ /*          was not found otherwise SLP_OK                                 */
+ /*=========================================================================*/
+ 
++
++/*=========================================================================*/
++SLPEXP const char* SLPAPI SLPGetMDNSName(SLPHandle hSLP, const char *pcURL);
++/*                                                                         */
++/* Used to get the MDNS name corresponding to a service URL. This function */
++/* may only be called from a SLPSrvURLCallback.                            */
++/*                                                                         */
++/* hSLP             The language specific SLPHandle on which to search for */
++/*                  the MDNS name.                                         */
++/*                                                                         */
++/* pcURL (IN)       The service URL.                                       */
++/*                                                                         */
++/* Returns: Returns NULL if no name is available for the URL, otherwise    */
++/*          the name. Note that the memory belongs to libslp and must not  */
++/*          be freed!                                                      */
++/*=========================================================================*/
++
+ #if(defined __cplusplus)
+ }
+ #endif
+diff -Nur openslp-1.2.1.orig/slpd/Makefile.am openslp-1.2.1/slpd/Makefile.am
+--- openslp-1.2.1.orig/slpd/Makefile.am	2005-02-24 19:06:57.000000000 +0200
++++ openslp-1.2.1/slpd/Makefile.am	2005-11-10 00:31:25.000000000 +0200
+@@ -38,6 +38,7 @@
+ slpd_knownda.c \
+ slpd_incoming.c \
+ slpd_outgoing.c \
++slpd_mdns.c \        
+ slpd.h \
+ slpd_knownda.h \
+ slpd_process.h \
+@@ -49,6 +50,7 @@
+ slpd_outgoing.h \
+ slpd_regfile.h \
+ slpd_incoming.h \
++slpd_mdns.h \
+ slpd_socket.h
+     
+ #if you're building on Irix, exchange commented and uncommented lines
+diff -Nur openslp-1.2.1.orig/slpd/slpd_database.c openslp-1.2.1/slpd/slpd_database.c
+--- openslp-1.2.1.orig/slpd/slpd_database.c	2005-02-08 07:34:31.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_database.c	2005-11-10 01:02:28.000000000 +0200
+@@ -69,6 +69,13 @@
+ #include "slp_xmalloc.h"
+ #include "slp_pid.h"
+ 
++extern char *reg_file_dir;
++FILE *regfileFP;
++
++/*=========================================================================*/
++/* standard header files                                                   */
++/*=========================================================================*/
++#include <dirent.h>
+ 
+ /*=========================================================================*/
+ SLPDDatabase G_SlpdDatabase;
+@@ -414,6 +421,8 @@
+ 
+                 /* entry reg is the SrvReg message from the database */
+                 entryreg = &(entry->msg->body.srvreg);
++                if ((entryreg->watchflags & SLP_REG_WATCH_DEAD) != 0)
++                  continue;
+ 
+                 /* check the service type */
+                 if ( SLPCompareSrvType(srvrqst->srvtypelen,
+@@ -548,6 +557,8 @@
+ 
+                 /* entry reg is the SrvReg message from the database */
+                 entryreg = &(entry->msg->body.srvreg);
++                if ((entryreg->watchflags & SLP_REG_WATCH_DEAD) != 0)
++                    continue;
+ 
+                 if ( SLPCompareNamingAuth(entryreg->srvtypelen,
+                                           entryreg->srvtype,
+@@ -658,7 +669,8 @@
+ 
+             /* entry reg is the SrvReg message from the database */
+             entryreg = &(entry->msg->body.srvreg);
+-
++            if ((entryreg->watchflags & SLP_REG_WATCH_DEAD) != 0)
++               continue;
+ 
+             if ( SLPCompareString(attrrqst->urllen,
+                                   attrrqst->url,
+@@ -775,17 +787,20 @@
+ /*=========================================================================*/
+ {
+     SLPDatabaseEntry*   entry;
+-    entry = SLPDatabaseEnum((SLPDatabaseHandle) eh);
+-    if ( entry )
++    SLPSrvReg*                  entryreg;
++
++    while ((entry = SLPDatabaseEnum((SLPDatabaseHandle) eh)) != 0)
+     {
++        entryreg = &(entry->msg->body.srvreg);
++        if ((entryreg->watchflags & SLP_REG_WATCH_DEAD) != 0)
++            continue;
+         *msg = entry->msg;
+         *buf = entry->buf;
++        return *msg;
+     }
+-    else
+-    {
+-        *msg = 0;
+-        *buf = 0;
+-    }
++
++    *msg = 0;
++    *buf = 0;
+ 
+     return *msg;
+ }
+@@ -840,12 +855,139 @@
+     SLPDatabaseInit(&G_SlpdDatabase.database);
+ 
+     /* Call the reinit function */
+-    return SLPDDatabaseReInit(regfile);
++    if (regfileFP)
++    {
++        fclose(regfileFP);
++    }
++    regfileFP = fopen(regfile, "r");
++    return SLPDDatabaseReInit();
++}
++
++/*=========================================================================*/
++static void SLPDDatabaseWatcher_fd(int fd, int flag, unsigned char *porthash)
++{
++    SLPDatabaseHandle dh;
++    SLPDatabaseEntry*   entry;
++    SLPSrvReg*          srvreg;
++    char buf[4096], *p[6];
++    int l, o, i, j, k, c, n, port;
++
++    if (fd < 0)
++   return;
++    lseek(fd, (off_t)0, SEEK_SET);
++    o = 0;
++    while ((l = read(fd, buf + o, sizeof(buf) - o)) > 0) {
++   l += o;
++   n = 0;
++   for (;;) {
++       for (i = n; i < l; i++)
++       if (buf[i] == '\n')
++           break;
++       if (i == l) {
++       if (l > n)
++           memmove(buf, buf + n, l - n);
++       o = l > n ? l - n : 0;
++       break;
++       }
++       k = 0;
++       for (j = n; j < i; j++) {
++       c = buf[j];
++       if (!(c >= '0' && c <= '9') && !(c >= 'A' && c <= 'F') && !(c >= 'a' && c <= 'f'))
++           buf[j] = 0;
++       else if ((j == n || buf[j - 1] == 0) && k < 6)
++           p[k++] = buf + j;
++       }
++       n = i + 1;
++       if (k < 6 || strlen(p[1]) < 8)
++       continue;
++       if (strlen(p[1]) == 8 && strtol(p[1], (char **)0, 16) == htonl(0x7f000001))
++       continue;
++       if ((flag & SLP_REG_WATCH_TCP) != 0 && strtol(p[5], (char **)0, 16) != 10)
++       continue;
++       port = strtol(p[2], (char **)0, 16);
++       if (!(porthash[(port / 8) & 255] & (1 << (port & 7))))
++       continue;
++       dh = SLPDatabaseOpen(&G_SlpdDatabase.database);
++       while ((entry = SLPDatabaseEnum(dh)) != 0) {
++       srvreg = &(entry->msg->body.srvreg);
++       if (!(srvreg->watchflags & flag))
++           continue;
++       if (port == srvreg->watchport)
++           srvreg->watchflags &= ~SLP_REG_WATCH_CHECKING;
++       }
++       SLPDatabaseClose(dh);
++   }
++    }
++}
++
++/*=========================================================================*/
++void SLPDDatabaseWatcher(void)
++{
++    static int initialized = 0;
++    static int proctcp, procudp, proctcp6, procudp6;
++    unsigned char porthash[256];
++    int flags, port;
++    SLPDatabaseHandle dh;
++    SLPDatabaseEntry*   entry;
++    SLPSrvReg*          srvreg;
++
++    if (!initialized) {
++   proctcp = open("/proc/net/tcp_listen", O_RDONLY);
++   if (proctcp == -1)
++     proctcp = open("/proc/net/tcp", O_RDONLY);
++   procudp = open("/proc/net/udp", O_RDONLY);
++   proctcp6 = open("/proc/net/tcp6_listen", O_RDONLY);
++   if (proctcp6 == -1)
++     proctcp6 = open("/proc/net/tcp6", O_RDONLY);
++   procudp6 = open("/proc/net/udp6", O_RDONLY);
++   initialized = 1;
++    }
++    flags = 0;
++    memset(porthash,0,sizeof(porthash));
++    dh = SLPDatabaseOpen(&G_SlpdDatabase.database);
++    while ((entry = SLPDatabaseEnum(dh)) != 0) {
++   srvreg = &(entry->msg->body.srvreg);
++   if (!srvreg->watchflags)
++       continue;
++   flags |= srvreg->watchflags;
++   port = srvreg->watchport;
++   porthash[(port / 8) & 255] |= 1 << (port & 7);
++   srvreg->watchflags |= SLP_REG_WATCH_CHECKING;
++    }
++    SLPDatabaseClose(dh);
++    if ((flags & SLP_REG_WATCH_TCP) != 0) {
++   SLPDDatabaseWatcher_fd(proctcp, SLP_REG_WATCH_TCP, porthash);
++   SLPDDatabaseWatcher_fd(proctcp6, SLP_REG_WATCH_TCP, porthash);
++    }
++    if ((flags & SLP_REG_WATCH_UDP) != 0) {
++   SLPDDatabaseWatcher_fd(procudp, SLP_REG_WATCH_UDP, porthash);
++   SLPDDatabaseWatcher_fd(procudp6, SLP_REG_WATCH_UDP, porthash);
++    }
++    dh = SLPDatabaseOpen(&G_SlpdDatabase.database);
++    while ((entry = SLPDatabaseEnum(dh)) != 0) {
++   srvreg = &(entry->msg->body.srvreg);
++   if (!srvreg->watchflags)
++       continue;
++   switch (srvreg->watchflags & (SLP_REG_WATCH_CHECKING | SLP_REG_WATCH_DEAD)) {
++   case SLP_REG_WATCH_CHECKING:
++       srvreg->watchflags |= SLP_REG_WATCH_DEAD;
++       SLPDKnownDADeRegisterWithAllDas(entry->msg, entry->buf);
++       SLPDLogRegistration("port dead",entry);
++       break;
++   case SLP_REG_WATCH_DEAD:
++       srvreg->watchflags ^= SLP_REG_WATCH_DEAD;
++       SLPDKnownDARegisterWithAllDas(entry->msg, entry->buf);
++       SLPDLogRegistration("port living",entry);
++       break;
++   }
++   srvreg->watchflags &= ~SLP_REG_WATCH_CHECKING;
++    }
++    SLPDatabaseClose(dh);
+ }
+ 
+ 
+ /*=========================================================================*/
+-int SLPDDatabaseReInit(const char* regfile)
++int SLPDDatabaseReInit()
+ /* Re-initialize the database with changed registrations from a regfile.   */
+ /*                                                                         */
+ /* regfile  (IN)    the regfile to register.                               */
+@@ -857,6 +999,8 @@
+     SLPDatabaseEntry*   entry;
+     SLPMessage          msg;
+     SLPBuffer           buf;
++    struct dirent       *direntry;
++    DIR                 *dirfp;
+     FILE*               fd;
+ 
+     /*------------------------------------------------------------------*/
+@@ -882,20 +1026,41 @@
+     /*--------------------------------------*/
+     /* Read static registration file if any */
+     /*--------------------------------------*/
+-    if ( regfile )
++    if ( regfileFP )
+     {
+-        fd = fopen(regfile,"rb");
+-        if ( fd )
++        rewind(regfileFP);
++        while ( SLPDRegFileReadSrvReg(regfileFP, &msg, &buf) == 0 )
+         {
+-            while ( SLPDRegFileReadSrvReg(fd, &msg, &buf) == 0 )
+-            {
+-                SLPDDatabaseReg(msg, buf);
+-            }   
+-
+-            fclose(fd);
++            SLPDDatabaseReg(msg, buf);
+         }
+     }
+ 
++    /*------------------------------------------------------------------*/
++    /* Read  all static registration file, which comes with any package */
++    /* SuSE ONLY                                                        */
++    /*------------------------------------------------------------------*/
++    dirfp = opendir(reg_file_dir);
++    while ( dirfp && (direntry = readdir(dirfp)) != 0) {
++        if ( direntry->d_name && direntry->d_name[0] != '.' ){
++             char filename[1024];
++             snprintf( filename, 1023, "%s/%s", reg_file_dir, direntry->d_name );
++
++             if ( strlen(filename)>4 &&
++                  strcmp(filename+strlen(filename)-4, ".reg") == 0 &&
++                  (fd=fopen(filename,"rb")) )
++             {
++                 while ( SLPDRegFileReadSrvReg(fd, &msg, &buf) == 0 )
++                 {
++                     SLPDDatabaseReg(msg, buf);
++                 }
++
++                 fclose(fd);
++             }
++         }
++     }
++     if ( dirfp )
++        closedir(dirfp);
++
+     return 0;
+ }
+ 
+diff -Nur openslp-1.2.1.orig/slpd/slpd_database.h openslp-1.2.1/slpd/slpd_database.h
+--- openslp-1.2.1.orig/slpd/slpd_database.h	2005-02-08 07:34:32.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_database.h	2005-11-10 00:40:46.000000000 +0200
+@@ -266,7 +266,7 @@
+ 
+ 
+ /*=========================================================================*/
+-int SLPDDatabaseInit(const char* regfile);
++int SLPDDatabaseInit();
+ /* Initialize the database with registrations from a regfile.              */
+ /*                                                                         */
+ /* regfile  (IN)    the regfile to register.  Pass in NULL for no regfile  */
+@@ -276,7 +276,7 @@
+ 
+ 
+ /*=========================================================================*/
+-int SLPDDatabaseReInit(const char* regfile);
++int SLPDDatabaseReInit();
+ /* Re-initialize the database with changed registrations from a regfile.   */
+ /*                                                                         */
+ /* regfile  (IN)    the regfile to register.                               */
+@@ -284,6 +284,8 @@
+ /* Returns  - zero on success or non-zero on error.                        */
+ /*=========================================================================*/
+ 
++void SLPDDatabaseWatcher(void);
++
+ #ifdef DEBUG
+ /*=========================================================================*/
+ void SLPDDatabaseDeinit(void);
+diff -Nur openslp-1.2.1.orig/slpd/slpd_incoming.c openslp-1.2.1/slpd/slpd_incoming.c
+--- openslp-1.2.1.orig/slpd/slpd_incoming.c	2005-03-02 19:00:31.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_incoming.c	2005-11-10 00:05:54.000000000 +0200
+@@ -313,23 +313,20 @@
+ 
+ /*=========================================================================*/
+ void SLPDIncomingHandler(int* fdcount,
+-                         fd_set* readfds,
+-                         fd_set* writefds)
++                         SLPD_fdset *fdset)
+ /* Handles all outgoing requests that are pending on the specified file    */
+ /* discriptors                                                             */
+ /*                                                                         */
+-/* fdcount  (IN/OUT) number of file descriptors marked in fd_sets          */
++/* fdcount  (IN/OUT) number of file descriptors marked in fdset            */
+ /*                                                                         */
+-/* readfds  (IN) file descriptors with pending read IO                     */
+-/*                                                                         */
+-/* writefds  (IN) file descriptors with pending read IO                    */
++/* fdset    (IN) file descriptors with pending read/write IO               */
+ /*=========================================================================*/
+ {
+     SLPDSocket* sock;
+     sock = (SLPDSocket*) G_IncomingSocketList.head;
+     while (sock && *fdcount)
+     {
+-        if (FD_ISSET(sock->fd,readfds))
++        if (SLPD_fdset_readok(fdset, sock))
+         {
+             switch (sock->state)
+             {
+@@ -354,7 +351,7 @@
+ 
+             *fdcount = *fdcount - 1;
+         }
+-        else if (FD_ISSET(sock->fd,writefds))
++        else if (SLPD_fdset_writeok(fdset, sock))
+         {
+             switch (sock->state)
+             {
+@@ -534,6 +531,21 @@
+         }
+ 
+ #if defined(ENABLE_SLPv1)
++	/*------------------------------------------------------------*/
++	/* Create socket that will handle multicast UDP for SLPv1     */
++	/* Service Location General Multicast address.                */
++	/*------------------------------------------------------------*/
++	mcastaddr.s_addr = htonl(SLPv1_SL_MCAST_ADDRESS);
++	sock =  SLPDSocketCreateBoundDatagram(&myaddr,
++					      &mcastaddr,
++					      DATAGRAM_MULTICAST);
++	if (sock)
++	{
++	    SLPListLinkTail(&G_IncomingSocketList,(SLPListItem*)sock);
++                SLPDLog("SLPv1 Service Location General Multicast socket on %s ready\n",
++                        inet_ntoa(myaddr));
++	}
++	
+         if (G_SlpdProperty.isDA)
+         {
+             /*------------------------------------------------------------*/
+diff -Nur openslp-1.2.1.orig/slpd/slpd_incoming.h openslp-1.2.1/slpd/slpd_incoming.h
+--- openslp-1.2.1.orig/slpd/slpd_incoming.h	2005-02-08 07:34:32.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_incoming.h	2005-11-10 00:05:54.000000000 +0200
+@@ -57,6 +57,7 @@
+ /* common code includes                                                    */
+ /*=========================================================================*/
+ #include "slp_linkedlist.h"
++#include "slpd_socket.h"
+ 
+ 
+ /*=========================================================================*/
+@@ -74,16 +75,13 @@
+ 
+ /*=========================================================================*/
+ void SLPDIncomingHandler(int* fdcount,
+-                         fd_set* readfds,
+-                         fd_set* writefds);
++                         SLPD_fdset *fdset);
+ /* Handles all outgoing requests that are pending on the specified file    */
+ /* discriptors                                                             */
+ /*                                                                         */
+-/* fdcount  (IN/OUT) number of file descriptors marked in fd_sets          */
++/* fdcount  (IN/OUT) number of file descriptors marked in fdset            */
+ /*                                                                         */
+-/* readfds  (IN) file descriptors with pending read IO                     */
+-/*                                                                         */
+-/* writefds  (IN) file descriptors with pending read IO                    */
++/* fdset    (IN) file descriptors with pending read/write IO               */
+ /*=========================================================================*/
+ 
+ 
+diff -Nur openslp-1.2.1.orig/slpd/slpd_main.c openslp-1.2.1/slpd/slpd_main.c
+--- openslp-1.2.1.orig/slpd/slpd_main.c	2005-02-09 01:24:53.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_main.c	2005-11-10 01:36:56.000000000 +0200
+@@ -54,6 +54,7 @@
+ #include "slpd_log.h"
+ #include "slpd_socket.h"
+ #include "slpd_incoming.h"
++#include "slpd_mdns.h"
+ #include "slpd_outgoing.h"
+ #include "slpd_database.h"
+ #include "slpd_cmdline.h"
+@@ -74,17 +75,17 @@
+ int G_SIGALRM;
+ int G_SIGTERM;
+ int G_SIGHUP;                                                                                                 
++char *reg_file_dir;
+ #ifdef DEBUG
+ int G_SIGINT;		/* Signal being used for dumping registrations */
+ #endif 
+ /*==========================================================================*/
+ 
++#ifdef HAVE_POLL
+ 
+ /*-------------------------------------------------------------------------*/
+-void LoadFdSets(SLPList* socklist, 
+-                int* highfd, 
+-                fd_set* readfds, 
+-                fd_set* writefds)
++void LoadFdSets(SLPList* socklist,
++                SLPD_fdset *fdset)
+ /*-------------------------------------------------------------------------*/
+ {
+     SLPDSocket* sock = 0;
+@@ -93,9 +94,87 @@
+     sock = (SLPDSocket*)socklist->head;
+     while(sock)
+     {
+-        if(sock->fd > *highfd)
++	if (fdset->used == fdset->allocated) {
++	    fdset->allocated += 32;
++	    if (fdset->used)
++		fdset->fds = xrealloc(fdset->fds, fdset->allocated * sizeof(*fdset->fds));
++	    else
++		fdset->fds = xmalloc(fdset->allocated * sizeof(*fdset->fds));
++	    if (!fdset->fds)
++		SLPDFatal("No memory for fdset.\n");
++	}
++	fdset->fds[fdset->used].fd = sock->fd;
++	fdset->fds[fdset->used].events = 0;
++	fdset->fds[fdset->used].revents = 0;
++        switch(sock->state)
++        {
++        case DATAGRAM_UNICAST:
++        case DATAGRAM_MULTICAST:
++        case DATAGRAM_BROADCAST:
++	    fdset->fds[fdset->used].events |= POLLIN;
++            break;
++
++        case SOCKET_LISTEN:
++            if(socklist->count < SLPD_MAX_SOCKETS)
++            {
++		fdset->fds[fdset->used].events |= POLLIN;
++            }
++            break;
++
++        case STREAM_READ:
++        case STREAM_READ_FIRST:
++	    fdset->fds[fdset->used].events |= POLLIN;
++            break;
++
++        case STREAM_WRITE:
++        case STREAM_WRITE_FIRST:
++        case STREAM_CONNECT_BLOCK:
++	    fdset->fds[fdset->used].events |= POLLOUT;
++            break;
++
++        case SOCKET_CLOSE:
++            del = sock;
++            break;
++
++        default:
++            break;
++        }
++
++	if (fdset->fds[fdset->used].events)
++        {
++	    sock->fdsetnr = fdset->used++;
++	}
++	else
++	{
++	    sock->fdsetnr = -1;
++	}
++
++        sock = (SLPDSocket*)sock->listitem.next;
++
++        if(del)
+         {
+-            *highfd = sock->fd;
++            SLPDSocketFree((SLPDSocket*)SLPListUnlink(socklist,(SLPListItem*)del));     
++            del = 0;
++        }
++    }
++}
++
++#else
++
++/*-------------------------------------------------------------------------*/
++void LoadFdSets(SLPList* socklist,
++                SLPD_fdset *fdset)
++/*-------------------------------------------------------------------------*/
++{
++    SLPDSocket* sock = 0;
++    SLPDSocket* del = 0;
++
++    sock = (SLPDSocket*)socklist->head;
++    while(sock)
++    {
++        if(sock->fd > fdset->highfd)
++        {
++            fdset->highfd = sock->fd;
+         }
+ 
+         switch(sock->state)
+@@ -103,25 +182,25 @@
+         case DATAGRAM_UNICAST:
+         case DATAGRAM_MULTICAST:
+         case DATAGRAM_BROADCAST:
+-            FD_SET(sock->fd,readfds);
++            FD_SET(sock->fd,&fdset->readfds);
+             break;
+ 
+         case SOCKET_LISTEN:
+             if(socklist->count < SLPD_MAX_SOCKETS)
+             {
+-                FD_SET(sock->fd,readfds);
++                FD_SET(sock->fd,&fdset->readfds);
+             }
+             break;
+ 
+         case STREAM_READ:
+         case STREAM_READ_FIRST:
+-            FD_SET(sock->fd,readfds);
++            FD_SET(sock->fd,&fdset->readfds);
+             break;
+ 
+         case STREAM_WRITE:
+         case STREAM_WRITE_FIRST:
+         case STREAM_CONNECT_BLOCK:
+-            FD_SET(sock->fd,writefds);
++            FD_SET(sock->fd,&fdset->writefds);
+             break;
+ 
+         case SOCKET_CLOSE:
+@@ -142,17 +221,18 @@
+     }
+ }
+ 
++#endif
++
+ 
+ /*------------------------------------------------------------------------*/
+ void HandleSigTerm()
+ /*------------------------------------------------------------------------*/
+ {
+     struct timeval  timeout;
+-    fd_set          readfds;
+-    fd_set          writefds;
+-    int             highfd          = 0;
++    SLPD_fdset      fdset;
+     int             fdcount         = 0;
+ 
++    SLPD_fdset_init(&fdset);
+     SLPDLog("****************************************\n");
+     SLPDLogTime();
+     SLPDLog("SLPD daemon shutting down\n");
+@@ -161,6 +241,10 @@
+     /* close all incoming sockets */
+     SLPDIncomingDeinit();
+ 
++#ifdef ENABLE_MDNS_SLPD
++    SLPDMDNSDeinit();
++#endif    
++    
+     /* unregister with all DAs */
+     SLPDKnownDADeinit();
+ 
+@@ -173,16 +257,19 @@
+     /* if possible wait until all outgoing socket are done and closed */
+     while(SLPDOutgoingDeinit(1))
+     {
+-        FD_ZERO(&writefds);
+-        FD_ZERO(&readfds);
+-        LoadFdSets(&G_OutgoingSocketList, &highfd, &readfds,&writefds);
+-        fdcount = select(highfd+1,&readfds,&writefds,0,&timeout);
++	SLPD_fdset_reset(&fdset);
++        LoadFdSets(&G_OutgoingSocketList, &fdset);
++#ifdef HAVE_POLL
++        fdcount = poll(fdset.fds, fdset.used, timeout.tv_sec * 1000 + timeout.tv_usec / 1000);
++#else
++        fdcount = select(fdset.highfd+1,&fdset.readfds,&fdset.writefds,0,&timeout);
++#endif
+         if(fdcount == 0)
+         {
+             break;
+         }
+ 
+-        SLPDOutgoingHandler(&fdcount,&readfds,&writefds);
++        SLPDOutgoingHandler(&fdcount,&fdset);
+     }
+ 
+     SLPDOutgoingDeinit(0);
+@@ -218,15 +305,22 @@
+     SLPDKnownDADeinit();
+ 
+     /* re-read properties */
++#if 0
+     SLPDPropertyInit(G_SlpdCommandLine.cfgfile);
++#else
++    SLPDPropertyInit((char *)0);
++#endif
+ 
+ #ifdef ENABLE_SLPv2_SECURITY
++/* does not work in chroot, sorry */
++# if 0
+     /* Re-initialize SPI stuff*/
+     SLPDSpiInit(G_SlpdCommandLine.spifile);
+ #endif
++#endif
+     
+     /* Re-read the static registration file (slp.reg)*/
+-    SLPDDatabaseReInit(G_SlpdCommandLine.regfile);
++    SLPDDatabaseReInit();
+ 
+     /* Rebuild Known DA database */
+     SLPDKnownDAInit();
+@@ -247,6 +341,7 @@
+     SLPDKnownDAPassiveDAAdvert(SLPD_AGE_INTERVAL,0);
+     SLPDKnownDAActiveDiscovery(SLPD_AGE_INTERVAL);
+     SLPDDatabaseAge(SLPD_AGE_INTERVAL,G_SlpdProperty.isDA);
++    SLPDDatabaseWatcher();
+ }
+ 
+ 
+@@ -377,11 +472,21 @@
+     close(2); 
+     setsid(); /* will only fail if we are already the process group leader */
+ 
++    pwent = getpwnam("daemon");
++    /*---------------------*/
++    /* chroot to slp.reg.d */
++    /*---------------------*/
++    if (chroot(reg_file_dir))
++    {
++      exit(1);
++    }
++    free(reg_file_dir);
++    reg_file_dir = strdup(".");
++
+     /*----------------*/
+     /* suid to daemon */
+     /*----------------*/
+     /* TODO: why do the following lines mess up my signal handlers? */
+-    pwent = getpwnam("daemon"); 
+     if(pwent)
+     {
+         if(setgroups(1, &pwent->pw_gid) < 0 ||
+@@ -467,11 +572,11 @@
+ int main(int argc, char* argv[])
+ /*=========================================================================*/
+ {
+-    fd_set          readfds;
+-    fd_set          writefds;
+-    int             highfd;
++    SLPD_fdset      fdset;
+     int             fdcount         = 0;
++    reg_file_dir = strdup("/etc/slp.reg.d");
+ 
++    SLPD_fdset_init(&fdset);
+ #ifdef DEBUG
+     xmalloc_init("/var/log/slpd_xmalloc.log",0);
+ #endif
+@@ -537,6 +642,9 @@
+ #endif     
+        SLPDDatabaseInit(G_SlpdCommandLine.regfile) ||
+        SLPDIncomingInit() ||
++#ifdef ENABLE_MDNS_SLPD
++       SLPDMDNSInit() ||
++#endif
+        SLPDOutgoingInit() ||
+        SLPDKnownDAInit())
+     {
+@@ -546,6 +654,11 @@
+     SLPDLog("Agent URL = %s\n",G_SlpdProperty.myUrl);
+ 
+     /*---------------------------*/
++    /* init watcher              */
++    /*---------------------------*/
++    SLPDDatabaseWatcher();
++
++    /*---------------------------*/
+     /* make slpd run as a daemon */
+     /*---------------------------*/
+     if(Daemonize(G_SlpdCommandLine.pidfile))
+@@ -582,11 +695,12 @@
+         /*--------------------------------------------------------*/
+         /* Load the fdsets up with all valid sockets in the list  */
+         /*--------------------------------------------------------*/
+-        highfd = 0;
+-        FD_ZERO(&readfds);
+-        FD_ZERO(&writefds);
+-        LoadFdSets(&G_IncomingSocketList, &highfd, &readfds,&writefds);
+-        LoadFdSets(&G_OutgoingSocketList, &highfd, &readfds,&writefds);
++       SLPD_fdset_reset(&fdset);
++       LoadFdSets(&G_IncomingSocketList, &fdset);
++       LoadFdSets(&G_OutgoingSocketList, &fdset); 
++#ifdef ENABLE_MDNS_SLPD
++        LoadFdSets(&G_MDNSSocketList, &fdset);
++#endif
+ 
+         /*--------------------------------------------------*/
+         /* Before select(), check to see if we got a signal */
+@@ -599,13 +713,21 @@
+         /*-------------*/
+         /* Main select */
+         /*-------------*/
+-        fdcount = select(highfd+1,&readfds,&writefds,0,0);
++#ifdef HAVE_POLL
++        fdcount = poll(fdset.fds, fdset.used, -1);
++#else
++        fdcount = select(fdset.highfd+1,&fdset.readfds,&fdset.writefds,0,0);
++#endif
+         if(fdcount > 0) /* fdcount will be < 0 when interrupted by a signal */
+         {
+-            SLPDIncomingHandler(&fdcount,&readfds,&writefds);
+-            SLPDOutgoingHandler(&fdcount,&readfds,&writefds);
++            SLPDIncomingHandler(&fdcount,&fdset);
++            SLPDOutgoingHandler(&fdcount,&fdset);
+         }
+ 
++#ifdef ENABLE_MDNS_SLPD
++            SLPDMDNSHandler(&fdcount,&fdset);
++#endif
++
+         /*----------------*/
+         /* Handle signals */
+         /*----------------*/
+diff -Nur openslp-1.2.1.orig/slpd/slpd_mdns.c openslp-1.2.1/slpd/slpd_mdns.c
+--- openslp-1.2.1.orig/slpd/slpd_mdns.c	1970-01-01 02:00:00.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_mdns.c	2005-11-10 01:38:41.000000000 +0200
+@@ -0,0 +1,904 @@
++#include "slpd_mdns.h"
++#include "slpd_socket.h"
++#include "slpd_property.h"
++#include "slpd_database.h"
++#include "slpd_log.h"
++
++#include "slp_compare.h"
++#ifdef ENABLE_PREDICATES
++# include "slpd_predicate.h"
++#endif
++
++
++extern SLPDDatabase G_SlpdDatabase;
++
++extern int JoinSLPMulticastGroup(sockfd_t sockfd, struct in_addr* maddr,
++	struct in_addr* addr);
++extern int EnableBroadcast(sockfd_t sockfd);
++
++
++#define MDNS_MAX_DATAGRAM_SIZE 8000
++
++/*=========================================================================*/
++/* common code includes                                                    */
++/*=========================================================================*/
++#include "slp_xmalloc.h"
++
++
++static void MDNSDatagramRead(SLPList* socklist, SLPDSocket* sock);
++static int MDNSHandleSrvTypeRqst(SLPBuffer buf, SLPBuffer obuf, unsigned char *q, int qtype, unsigned char **an, unsigned char **ad, int ac, int mdnspeer, unsigned char *txtbuf, int txtlen);
++static int MDNSHandleSrvsRqst(SLPBuffer buf, SLPBuffer obuf, unsigned char *q, int qtype, unsigned char **an, unsigned char **ad, int ac, int mdnspeer, unsigned char *txtbuf, int txtlen, struct sockaddr_in *);
++static int MDNSHandleARqst(SLPBuffer buf, SLPBuffer obuf, unsigned char *q, int qtype, unsigned char **an, unsigned char **ad, int ac, int mdnspeer, struct sockaddr_in *ifaddr);
++
++
++SLPList G_MDNSSocketList = {0,0,0};
++
++
++SLPDSocket* SLPDMDNSCreateBoundDatagram(struct in_addr* myaddr,
++                                        struct in_addr* peeraddr,
++                                        int type)
++{
++    SLPDSocket*     sock;
++    struct in_addr*  bindaddr;
++    struct sockaddr_in  mysockaddr;
++#ifdef _WIN32
++    BOOL                reuse = TRUE; 
++#else
++    int                 reuse = 1;
++#endif
++    unsigned char	ttl = 255;
++
++    /*------------------------------------------*/
++    /* Adjust for multicast binding differences */
++    /*------------------------------------------*/
++#ifdef LINUX
++    bindaddr = peeraddr;  
++#else
++    if(type == DATAGRAM_MULTICAST)
++        bindaddr = NULL;    /* must bind to INADDR_ANY for multicast */
++    else
++        bindaddr = peeraddr;  
++#endif
++
++    /*------------------------*/
++    /* Create and bind socket */
++    /*------------------------*/
++    sock = SLPDSocketAlloc();
++    if (!sock)
++	return 0;
++    if (myaddr)
++      sock->ifaddr.sin_addr = *myaddr;
++    sock->recvbuf = SLPBufferAlloc(MDNS_MAX_DATAGRAM_SIZE);
++    sock->sendbuf = SLPBufferAlloc(MDNS_MAX_DATAGRAM_SIZE);
++    sock->fd = socket(PF_INET, SOCK_DGRAM, 0);
++    if (sock->fd < 0)
++    {
++	SLPDSocketFree(sock);
++	return 0;
++    }
++    memset(&mysockaddr, 0, sizeof(mysockaddr));
++    mysockaddr.sin_family = AF_INET;
++    mysockaddr.sin_port = htons(MDNS_RESERVED_PORT);
++    mysockaddr.sin_addr.s_addr = INADDR_ANY;
++    if (bindaddr)
++	mysockaddr.sin_addr = *bindaddr;
++    setsockopt(sock->fd,SOL_SOCKET,SO_REUSEADDR,(const char *)&reuse,sizeof(reuse));
++    setsockopt(sock->fd,SOL_IP,IP_TTL,(const char *)&ttl,sizeof(ttl));
++    setsockopt(sock->fd,SOL_IP,IP_MULTICAST_TTL,(const char *)&ttl,sizeof(ttl));
++    if (bind(sock->fd, (struct sockaddr *) &mysockaddr,sizeof(mysockaddr)))
++    {
++	SLPDSocketFree(sock);
++	return 0;
++    }
++    if(peeraddr != NULL)
++	sock->peeraddr.sin_addr = *peeraddr;
++    switch(type)
++    {
++    case DATAGRAM_MULTICAST:
++	if(JoinSLPMulticastGroup(sock->fd, peeraddr, myaddr) == 0)
++	{
++	    sock->state = DATAGRAM_MULTICAST;
++	    return sock;    
++	}
++	break;
++    case DATAGRAM_BROADCAST:
++	if(EnableBroadcast(sock->fd) == 0)
++	{
++	    sock->state = DATAGRAM_BROADCAST;
++	    return sock;    
++	}
++	break;
++    case DATAGRAM_UNICAST:
++    default:
++	sock->state = DATAGRAM_UNICAST;
++	return sock;    
++    }
++    SLPDSocketFree(sock);
++    return 0;
++}
++
++int SLPDMDNSInit(void)
++{
++    int             iface;
++    struct in_addr  myaddr;
++    struct in_addr  mcastaddr;
++    SLPDSocket*     sock;
++
++    /*------------------------------------------------------------*/
++    /* First, remove all of the sockets that might be in the list */
++    /*------------------------------------------------------------*/
++    while (G_MDNSSocketList.count)
++    {
++        SLPDSocketFree((SLPDSocket*)SLPListUnlink(&G_MDNSSocketList,G_MDNSSocketList.head));
++    }
++
++    /*----------------------------------------------------------------*/
++    /* Create sockets for all of the interfaces in the interface list */
++    /*----------------------------------------------------------------*/
++    mcastaddr.s_addr = htonl(MDNS_MCAST_ADDRESS);
++
++    for (iface = 0; iface < G_SlpdProperty.ifaceInfo.iface_count; iface++)
++    {
++	myaddr = G_SlpdProperty.ifaceInfo.iface_addr[iface].sin_addr;
++
++        /*----------------------------------------------------------------*/
++        /* Create socket that will handle multicast UDP.                  */
++        /*----------------------------------------------------------------*/
++
++        sock =  SLPDMDNSCreateBoundDatagram(&myaddr,
++                                              &mcastaddr,
++                                              DATAGRAM_MULTICAST);
++        if (sock)
++        {
++            SLPListLinkTail(&G_MDNSSocketList,(SLPListItem*)sock);
++            SLPDLog("Multicast MDNS socket on %s ready\n",inet_ntoa(myaddr));
++        }
++        else
++        {
++            SLPDLog("Couldn't bind to multicast MDNS for interface %s (%s)\n",
++                    inet_ntoa(myaddr), strerror(errno));
++        }
++
++        /*--------------------------------------------*/
++        /* Create socket that will handle unicast UDP */
++        /*--------------------------------------------*/
++        sock =  SLPDMDNSCreateBoundDatagram(&myaddr,
++                                              &myaddr,
++                                              DATAGRAM_UNICAST);
++        if (sock)
++        {
++            SLPListLinkTail(&G_MDNSSocketList,(SLPListItem*)sock);
++            SLPDLog("Unicast MDNS socket on %s ready\n",inet_ntoa(myaddr));
++        }
++    }     
++
++    if (G_MDNSSocketList.count == 0)
++    {
++        SLPDLog("No usable MDNS interfaces\n");
++        return 1;
++    }
++
++    return 0;
++}
++
++/*=========================================================================*/
++int SLPDMDNSDeinit()
++/* Deinitialize incoming socket list to have appropriate sockets for all   */
++/* network interfaces                                                      */
++/*                                                                         */
++/* Returns  Zero on success non-zero on error                              */
++/*=========================================================================*/
++{
++    SLPDSocket* del  = 0;
++    SLPDSocket* sock = (SLPDSocket*)G_MDNSSocketList.head;
++    while (sock)
++    {
++        del = sock; 
++        sock = (SLPDSocket*)sock->listitem.next;
++        if (del)
++        {
++            SLPDSocketFree((SLPDSocket*)SLPListUnlink(&G_MDNSSocketList,(SLPListItem*)del));
++            del = 0;
++        }
++    } 
++
++    return 0;
++}
++
++/*=========================================================================*/
++void SLPDMDNSHandler(int* fdcount, SLPD_fdset* fdset)
++/* Handles all outgoing requests that are pending on the specified file    */
++/* discriptors                                                             */
++/*                                                                         */
++/* fdcount  (IN/OUT) number of file descriptors marked in fd_sets          */
++/*                                                                         */
++/* readfds  (IN) file descriptors with pending read IO                     */
++/*                                                                         */
++/* writefds  (IN) file descriptors with pending read IO                    */
++/*=========================================================================*/
++{
++    SLPDSocket* sock;
++    sock = (SLPDSocket*) G_MDNSSocketList.head;
++    while (sock && *fdcount)
++    {
++        if ((SLPD_fdset_readok(fdset, sock)))
++        {
++            switch (sock->state)
++            {
++            case DATAGRAM_UNICAST:
++            case DATAGRAM_MULTICAST:
++            case DATAGRAM_BROADCAST:
++                MDNSDatagramRead(&G_MDNSSocketList,sock);
++                break;                      
++            default:
++                break;
++            }
++
++            *fdcount = *fdcount - 1;
++        }
++        sock = (SLPDSocket*)sock->listitem.next; 
++    }                               
++}
++
++
++/*-------------------------------------------------------------------------*/
++static void MDNSDatagramRead(SLPList* socklist, SLPDSocket* sock)
++/*-------------------------------------------------------------------------*/
++{
++    int                 bytesread;
++    int                 bytestowrite;
++    int                 byteswritten;
++    int                 peeraddrlen = sizeof(struct sockaddr_in);
++    int qcount, acount, ncount, xcount;
++    unsigned char *bp, *end;
++    SLPBuffer           buf;
++    int			mdnspeer;
++    int                 qtype = 0;
++    int                 qclass = 0;
++    unsigned char *     an[SLP_MDNS_MAX_RR];
++    unsigned char *     ad[SLP_MDNS_MAX_RR];
++    int                 ac;
++    int			result;
++    unsigned char *     txtbuf = 0;
++    int                 txtlen = 0;
++    
++
++    buf = sock->recvbuf;
++    bytesread = recvfrom(sock->fd,
++                         buf->start,
++                         MDNS_MAX_DATAGRAM_SIZE,
++                         0,     
++                         (struct sockaddr *) &(sock->peeraddr),
++                         &peeraddrlen);
++    if (bytesread < 12)
++	return;
++    buf->end = buf->start + bytesread;
++#ifdef DEBUG
++    SLPMDNSDumpDNS(buf, "mdns incoming");
++#endif 
++
++    if ((buf->start[2] & 0xf0) != 0x00)
++        return;		/* no standard query */
++
++    qcount = AsUINT16(buf->start + 4);
++    if (qcount > 1)
++	return;		/* not supported at the moment */
++    if (qcount == 0)
++	return;		/* no query to answer */
++    acount = AsUINT16(buf->start + 6);
++    ncount = AsUINT16(buf->start + 8);
++    xcount = AsUINT16(buf->start + 10);
++
++    bp = (unsigned char *)buf->start + 12;
++        /* skip query section */
++    end = buf->end;
++    if (qcount)
++    {
++        while (bp < end && *bp && (*bp & 0xc0) != 0xc0)
++            bp += *bp + 1;
++        if (bp < end && *bp)
++            bp++;
++        bp += 5;
++	if (bp <= end)
++	{
++	    qtype = AsUINT16(bp - 4);
++	    qclass = AsUINT16(bp - 2);
++	}
++    }
++    bp = SLPMDNSParseRR(bp, end, acount, an, ad, &ac);
++    if (bp > end)
++	return;
++    bp = SLPMDNSParseRR(bp, end, ncount, 0, 0, 0);
++    bp = SLPMDNSParseRR(bp, end, xcount, 0, 0, 0);
++
++    /* validate DNS request */
++    if (qcount > 0 && SLPMDNSCheckN(buf->start, bp > end ? end : bp, buf->start + 12, 0))
++	return;
++    if (SLPMDNSCheckRR(buf->start, bp > end ? end : bp, an, ad, &ac))
++	return;
++
++    if (qcount == 0)
++	return;
++    if (qclass != DNS_CLASS_IN && qclass != DNS_CLASS_ANY)
++	return;
++    mdnspeer = (sock->peeraddr.sin_port == htons(MDNS_RESERVED_PORT));
++
++    if (qtype == DNS_TYPE_ANY || qtype == DNS_TYPE_A)
++    {
++	unsigned char myhostname[256];
++	if (MDNSStrToN(myhostname, myhostname + sizeof(myhostname), G_SlpdProperty.myHostname, G_SlpdProperty.myHostnameLen))
++	{
++	    if (!SLPMDNSCmpN(buf->start + 12, buf->start, myhostname, 0))
++	    {
++		result = MDNSHandleARqst(buf, sock->sendbuf, buf->start + 12, qtype, an, ad, ac, mdnspeer, &sock->ifaddr);
++		goto reply;
++	    }
++	}
++    }
++
++    if (qtype != DNS_TYPE_PTR && qtype != DNS_TYPE_ANY)
++	return;
++    if (ac > 0 && !memcmp(an[0], "\011_slpquery\300\014", 12) && AsUINT16(ad[0]) == DNS_TYPE_TXT)
++    {
++	txtlen = AsUINT16(ad[0] + 8);
++	txtbuf = ad[0] + 10;
++    }
++
++    if (!SLPMDNSCmpN(buf->start + 12, buf->start, "\011_services\007_dns-sd\004_udp\005local\000", 0))
++    {
++	result = MDNSHandleSrvTypeRqst(buf, sock->sendbuf, buf->start + 12, qtype, an, ad, ac, mdnspeer, txtbuf, txtlen);
++    }
++    else
++    {
++	result = MDNSHandleSrvsRqst(buf, sock->sendbuf, buf->start + 12, qtype, an, ad, ac, mdnspeer, txtbuf, txtlen, &sock->ifaddr);
++    }
++
++reply:
++    if (result)
++	return;
++
++    bytestowrite = sock->sendbuf->end - sock->sendbuf->start;
++    if (bytestowrite > 0)
++    {
++	byteswritten = sendto(sock->fd, 
++			      sock->sendbuf->start,
++			      bytestowrite,
++			      0,
++			      (struct sockaddr *)&(sock->peeraddr),
++			      sizeof(struct sockaddr_in));
++	if (byteswritten != bytestowrite)
++	{
++	    SLPDLog("NETWORK_ERROR - %d replying %s\n",
++		    errno,
++		    inet_ntoa(sock->peeraddr.sin_addr));
++	}
++    }
++
++}
++
++static int MDNSParseHostPort(const char *url, int urllen, const char **hostp, int *portp)
++{
++    int l, hl, port;
++
++    for (l = 0; l < urllen; l++)
++	if (l && url[l] == '/' && url[l - 1] == '/')
++	    break;
++    l++;
++    if (l >= urllen)
++	return 0;
++    url += l;
++    urllen -= l;
++    if (hostp)
++	*hostp = url;
++    for (l = 0; l < urllen ; l++)
++	if (url[l] == '/' || url[l] == ':')
++	    break;
++    if (l == urllen || url[l] != ':')
++    {
++	if (portp)
++	    *portp = 0;
++	return l;
++    }
++    port = 0;
++    hl = l++;
++    url += l;
++    urllen -= l;
++    for (l = 0; l < urllen ; l++)
++	if (url[l] <= '0' || url[l] >= '9')
++	    break;
++	else
++	    port = port * 10 + (url[l] - '0');
++    if (l < urllen && url[l] != '/')
++	return 0;
++    if (portp)
++	*portp = port;
++    return hl;
++}
++
++
++static int MDNSHandleSrvTypeRqst(SLPBuffer buf, SLPBuffer obuf, unsigned char *q, int qtype, unsigned char **an, unsigned char **ad, int ac, int mdnspeer, unsigned char *txtbuf, int txtlen)
++{
++    SLPDatabaseHandle           dh;
++    SLPDatabaseEntry*           entry;
++    SLPSrvReg*                  entryreg;
++    char srvbuf[80];
++    unsigned char *md[SLP_MDNS_MAX_RR];
++    unsigned char *oend, *bp, *oldbp;
++    unsigned char *cvec[256];
++    int i, port;
++    int ncvec;
++    int nans;
++    char *nameauth;
++    int nameauthlen;
++
++    nameauthlen = 0xffff;
++    nameauth = SLPMDNSFindInTxt(txtbuf, txtlen, "namingauth=", &nameauthlen);
++
++    obuf->start[0] = buf->start[0];	/* xid */
++    obuf->start[1] = buf->start[1];	/* xid */
++    obuf->start[2] = 0x84;
++    obuf->start[3] = 0x00;
++    obuf->start[4] = obuf->start[5] = 0;	/* qcount */
++    obuf->start[6] = obuf->start[7] = 0;	/* acount */
++    obuf->start[8] = obuf->start[9] = 0;	/* ncount */
++    obuf->start[10] = obuf->start[11] = 0;	/* xcount */
++
++    ncvec = 0;
++    bp = obuf->start + 12;
++    oend = obuf->start + obuf->allocated;
++    if (!mdnspeer)
++    {
++	bp = SLPMDNSCompN(bp, oend, q, buf->start, cvec, &ncvec, obuf->start);
++	if (!bp || bp + 4 >= oend)
++	    return 1;
++        *bp++ = 0;
++        *bp++ = qtype;
++        *bp++ = 0;
++        *bp++ = DNS_CLASS_IN;
++	obuf->start[5] = 1;
++    }
++
++    nans = 0;
++    dh = SLPDatabaseOpen(&G_SlpdDatabase.database);
++    while ((entry = SLPDatabaseEnum(dh)) != 0)
++    {
++	entryreg = &(entry->msg->body.srvreg);
++	if ((entryreg->watchflags & SLP_REG_WATCH_DEAD) != 0)
++	    continue;
++
++	if (SLPCompareNamingAuth(entryreg->srvtypelen,
++	    entryreg->srvtype,
++	    nameauthlen,
++	    nameauth))
++	    continue;
++
++#if 0
++	if (!SLPContainsStringList(entryreg->scopelistlen, entryreg->scopelist, 5, "_mdns"))
++	    continue;
++#endif
++
++	if (!MDNSParseHostPort(entryreg->urlentry.url, entryreg->urlentry.urllen, 0, &port))
++	    continue;
++	if (!port)
++	    continue;
++
++	if (!SLPMDNSSrvtypeToN(srvbuf, srvbuf + sizeof(srvbuf), entryreg->srvtype, entryreg->srvtypelen))
++	    continue;
++
++	/* check if answer is already known in query */
++	for (i = 0; i < ac; i++)
++	    if (AsUINT16(ad[i]) == DNS_TYPE_PTR &&
++		!SLPMDNSCmpN(ad[i] + 10, buf->start, srvbuf, 0))
++		break;
++	if (i < ac)
++	    continue;
++
++        /* check if answer already in our packet */
++	for (i = 0; i < nans; i++)
++	    if (!SLPMDNSCmpN(md[i] + 10, obuf->start, srvbuf, 0))
++		break;
++	if (i < nans)
++	    continue;
++
++	/* new answer, add to return buffer */
++	oldbp = bp;
++	bp = SLPMDNSAddRR(bp, obuf->start, oend, q, buf->start,
++		DNS_TYPE_PTR, mdnspeer ? entryreg->urlentry.lifetime : 10,
++		cvec, &ncvec, 0, srvbuf, md + nans);
++	if (!bp)
++	{
++	    bp = oldbp;
++	    break;
++	}
++	if (++nans == SLP_MDNS_MAX_RR)
++	    break;
++    }
++    ToUINT16(obuf->start + 6, nans);
++    SLPDatabaseClose(dh);
++    if (bp >= oend)
++	return 1;
++    if (nans)
++    {
++	obuf->end = bp;
++#ifdef DEBUG
++	SLPMDNSDumpDNS(obuf, "mdns outgoing");
++#endif
++    }
++    else
++	obuf->end = obuf->start;
++    return 0;
++}
++
++
++static void SLPDAddAttrs(unsigned char *txtbuf, int txtbuflen, int *txtlen, const char *attr, int attrlen, char *taglist, int taglistlen)
++{
++    const char *ts, *vs;
++    int tl, vl, i;
++
++    while (attrlen > 0)
++    {
++	if (*attr != '(')
++	{
++	    /* keyword */
++	    vs = 0;
++	    vl = 0;
++	    ts = attr;
++	    for (i = 0; i < attrlen; i++)
++		if (attr[i] == ',')
++		    break;
++	    tl = i;
++	    attr += i;
++	    attrlen -= i;
++	}
++	else
++	{
++	    /* (key=value,value...) */
++	    attr++;
++	    attrlen--;
++	    ts = attr;
++	    for (i = 0; i < attrlen; i++)
++		if (attr[i] == '=')
++		    break;
++	    tl = i;
++	    attr += i + 1;
++	    attrlen -= i + 1;
++	    if (attrlen <= 0)
++		break;
++	    vs = attr;
++	    for (i = 0; i < attrlen; i++)
++		if (attr[i] == ')')
++		    break;
++	    if (i == attrlen)
++		break;
++	    vl = i;
++	    attr += i + 1;
++	    attrlen -= i + 1;
++	}
++	if (!taglistlen || SLPContainsStringList(taglistlen, taglist, tl, ts))
++	{
++	    if (tl + 1 + vl <= 255)
++	    {
++		char tagbuf[256];
++		memcpy(tagbuf, ts, tl);
++		if (vs)
++		{
++		    tagbuf[tl] = '=';
++		    tl++;
++		}
++		tagbuf[tl] = 0;
++		SLPMDNSAddTxt(txtbuf, txtbuflen, txtlen, tagbuf, vs, vl);
++	    }
++	}
++	if (attrlen)
++	{
++	    attr++;
++	    attrlen--;
++	}
++    }
++}
++
++static int MDNSHandleSrvsRqst(SLPBuffer buf, SLPBuffer obuf, unsigned char *q, int qtype, unsigned char **an, unsigned char **ad, int ac, int mdnspeer, unsigned char *txtbuf, int txtlen, struct sockaddr_in *ifaddr)
++{
++    SLPDatabaseHandle           dh;
++    SLPDatabaseEntry*           entry;
++    SLPSrvReg*                  entryreg;
++    SLPUrlEntry*                urlentry;
++    char srvtype[256];
++    int srvtypelen;
++    int i;
++    unsigned char *bp, *oend;
++    unsigned char *cvec[256];
++    int ncvec;
++    const char *host;
++    int hostlen, hostlennq;
++    int port;
++    unsigned char ptr[256];
++    int nans;
++    unsigned char *oldbp;
++    unsigned char xbuf[8000];
++    unsigned char *xn[SLP_MDNS_MAX_RR];
++    unsigned char *xd[SLP_MDNS_MAX_RR];
++    unsigned char *xp, *xend;
++    int xc = 0;
++    unsigned char *rad[SLP_MDNS_MAX_RR];
++    int unify;
++#ifdef ENABLE_PREDICATES
++    int predlen;
++    char *pred;
++#endif
++    char *slpurl;
++    int slpurllen;
++    char *taglist;
++    int taglistlen;
++    unsigned char otxtbuf[512];
++    int otxtlen;
++
++    slpurllen = 0;
++    slpurl = SLPMDNSFindInTxt(txtbuf, txtlen, "slpurl=", &slpurllen);
++    taglistlen = 0;
++    taglist = SLPMDNSFindInTxt(txtbuf, txtlen, "taglist=", &taglistlen);
++
++#ifdef ENABLE_PREDICATES
++    predlen = 0;
++    pred = SLPMDNSFindInTxt(txtbuf, txtlen, "predicate=", &predlen);
++#endif
++
++    xp = xbuf;
++    xend = xbuf + sizeof(xbuf);
++
++    obuf->start[0] = buf->start[0];	/* xid */
++    obuf->start[1] = buf->start[1];	/* xid */
++    obuf->start[2] = 0x84;
++    obuf->start[3] = 0x00;
++    obuf->start[4] = obuf->start[5] = 0;	/* qcount */
++    obuf->start[6] = obuf->start[7] = 0;	/* acount */
++    obuf->start[8] = obuf->start[9] = 0;	/* ncount */
++    obuf->start[10] = obuf->start[11] = 0;	/* xcount */
++
++    ncvec = 0;
++    bp = obuf->start + 12;
++    oend = obuf->start + obuf->allocated;
++    if (!mdnspeer)
++    {
++	bp = SLPMDNSCompN(bp, oend, q, buf->start, cvec, &ncvec, obuf->start);
++	if (!bp || bp + 4 >= oend)
++	    return 1;
++        *bp++ = 0;
++        *bp++ = qtype;
++        *bp++ = 0;
++        *bp++ = DNS_CLASS_IN;
++	obuf->start[5] = 1;
++    }
++    /* convert query in srvtype (query is already checked) */
++    srvtypelen = SLPMDNSNToSrvtype(q, buf->start, srvtype, sizeof(srvtype) - 1);
++    if (srvtypelen == 0)
++	return 1;
++    srvtype[srvtypelen] = 0;
++    /* printf("srvtype: %s\n", srvtype); */
++
++    nans = 0;
++    dh = SLPDatabaseOpen(&G_SlpdDatabase.database);
++    while ((entry = SLPDatabaseEnum(dh)) != 0)
++    {
++	entryreg = &(entry->msg->body.srvreg);
++	if ((entryreg->watchflags & SLP_REG_WATCH_DEAD) != 0)
++	    continue;
++        urlentry = &entryreg->urlentry;
++
++        /* limit to one exact url, used for AttrRqst */
++	if (slpurllen && SLPCompareString(urlentry->urllen, urlentry->url, slpurllen, slpurl))
++	    continue;
++
++	/* limit to matching srvtypes */
++	if (!slpurllen && SLPCompareSrvType(srvtypelen,
++		srvtype,
++		entryreg->srvtypelen,
++		entryreg->srvtype) != 0)
++	    continue;
++
++#ifdef ENABLE_PREDICATES
++	if (!SLPDPredicateTest(2,
++			       entryreg->attrlistlen,
++			       entryreg->attrlist,
++			       predlen,
++			       pred))
++	    continue;
++#endif
++
++	otxtlen = 0;
++
++	/* printf("HIT: %.*s\n", urlentry->urllen, urlentry->url); */
++
++	hostlen = MDNSParseHostPort(urlentry->url, urlentry->urllen, &host, &port);
++	if (!hostlen || !port)
++	    continue;
++	if (*host >= '0' && *host <= '9')
++	    hostlennq = hostlen;
++	else
++	    for (hostlennq = 0; hostlennq < hostlen; hostlennq++)
++		if (host[hostlennq] == '.')
++		    break;
++	if (hostlennq == 0 || hostlennq > 63)
++	    continue;
++
++	/* create an unique name */
++        for (unify = 0; unify < SLP_MDNS_MAX_RR; unify++)
++	{
++	    ptr[0] = hostlennq;
++	    memcpy(ptr + 1, host, hostlennq);
++	    if (unify)
++	    {
++		/* will always fit into ptr, as hostlennq < 64 */
++		sprintf(ptr + 1 + hostlennq, "_%d", unify == 1 ? port : unify);
++		i = strlen(ptr + 1);
++		if (i > 63)
++		    break;
++		ptr[0] = i;
++	    }
++	    /* append query name */
++	    if (!SLPMDNSCopyN(ptr + 1 + *ptr, ptr + sizeof(ptr), q, buf->start))
++		break;
++	    for (i = 0; i < nans; i++)
++		if (!SLPMDNSCmpN(rad[i] + 10, obuf->start, ptr, 0))
++		    break;
++	    if (i == nans)
++	    {
++		unify = -1;
++		break;
++	    }
++	}
++	if (unify != -1)
++	    continue;
++
++	/* check if it is already in the answer section of the query */
++	for (i = 0; i < ac; i++)
++	    if (AsUINT16(ad[i]) == DNS_TYPE_PTR &&
++		!SLPMDNSCmpN(ad[i] + 10, buf->start, ptr, 0))
++		break;
++	if (i < ac)
++	    continue;
++
++	/* great, a new entry */
++	oldbp = bp;
++	bp = SLPMDNSAddRR(bp, obuf->start, oend, q, buf->start,
++		DNS_TYPE_PTR, mdnspeer ? urlentry->lifetime : 10,
++		cvec, &ncvec, 0, ptr, rad + nans);
++	if (!bp)
++	{
++	    bp = oldbp;
++	    break;
++	}
++
++	/* set up extra answers */
++	if (xp && xc < SLP_MDNS_MAX_RR)
++	{
++	    unsigned char data[256];
++	    if (!MDNSStrToN(data, data + sizeof(data), host, hostlen))
++		continue;
++	    xn[xc] = xp;
++	    xp = SLPMDNSAddRR(xp, 0, xend, ptr, obuf->start,
++		    DNS_TYPE_SRV, mdnspeer ? urlentry->lifetime : 10,
++		    0, 0, port, data, xd + xc);
++	    if (xp)
++		xc++;
++	}
++	SLPMDNSAddTxt(otxtbuf, sizeof(otxtbuf), &otxtlen, "slpurl=", urlentry->url, urlentry->urllen);
++	SLPDAddAttrs(otxtbuf, sizeof(otxtbuf), &otxtlen, entryreg->attrlist, entryreg->attrlistlen, taglist, taglistlen);
++	if (xp && xc < SLP_MDNS_MAX_RR && otxtlen)
++	{
++	    xn[xc] = xp;
++	    xp = SLPMDNSAddRR(xp, 0, xend, ptr, obuf->start,
++		    DNS_TYPE_TXT, mdnspeer ? urlentry->lifetime : 10,
++		    0, 0, otxtlen, otxtbuf, xd + xc);
++	    if (xp)
++		xc++;
++	}
++	if (++nans == SLP_MDNS_MAX_RR)
++	    break;
++    }
++    ToUINT16(obuf->start + 6, nans);
++    SLPDatabaseClose(dh);
++    if (bp >= oend)
++	return 1;
++
++    /* add an A RR of our hostname to x info */
++    if (nans && xp && xc < SLP_MDNS_MAX_RR)
++    {
++	unsigned char myhostname[256];
++	if (MDNSStrToN(myhostname, myhostname + sizeof(myhostname), G_SlpdProperty.myHostname, G_SlpdProperty.myHostnameLen))
++	{
++	    xn[xc] = xp;
++	    xp = SLPMDNSAddRR(xp, 0, xend, myhostname, 0,
++		    DNS_TYPE_A, 10,
++		    0, 0, 4, (unsigned char *)&ifaddr->sin_addr,
++                    xd + xc);
++	    if (xp)
++		xc++;
++	}
++    }
++
++    if (nans)
++    {
++	/* add x info */
++	int nxans = 0;
++	for (i = 0; i < xc; i++)
++	{
++	    int type;
++	    type = AsUINT16(xd[i]);
++	    oldbp = bp;
++	    if (type == DNS_TYPE_SRV)
++		bp = SLPMDNSAddRR(bp, obuf->start, oend, xn[i], 0, type, AsUINT32(xd[i] + 4), cvec, &ncvec, AsUINT16(xd[i] + 14), xd[i] + 16, 0);
++	    else if (type == DNS_TYPE_TXT || type == DNS_TYPE_A)
++		bp = SLPMDNSAddRR(bp, obuf->start, oend, xn[i], 0, type, AsUINT32(xd[i] + 4), cvec, &ncvec, AsUINT16(xd[i] + 8), xd[i] + 10, 0);
++	    else
++		continue;
++	    if (!bp)
++	    {
++		bp = oldbp;
++		break;
++	    }
++	    nxans++;
++	}
++	ToUINT16(obuf->start + 10, nxans);
++	obuf->end = bp;
++#ifdef DEBUG
++	SLPMDNSDumpDNS(obuf, "mdns outgoing");
++#endif
++    }
++    else
++	obuf->end = obuf->start;
++    return 0;
++}
++
++static int MDNSHandleARqst(SLPBuffer buf, SLPBuffer obuf, unsigned char *q, int qtype, unsigned char **an, unsigned char **ad, int ac, int mdnspeer, struct sockaddr_in *ifaddr)
++{
++    unsigned char *data, *bp, *oend;
++    unsigned char *cvec[256];
++    int i, ncvec;
++
++    data = (unsigned char *)&ifaddr->sin_addr;
++
++    obuf->start[0] = buf->start[0];	/* xid */
++    obuf->start[1] = buf->start[1];	/* xid */
++    obuf->start[2] = 0x84;
++    obuf->start[3] = 0x00;
++    obuf->start[4] = obuf->start[5] = 0;	/* qcount */
++    obuf->start[6] = obuf->start[7] = 0;	/* acount */
++    obuf->start[8] = obuf->start[9] = 0;	/* ncount */
++    obuf->start[10] = obuf->start[11] = 0;	/* xcount */
++
++    ncvec = 0;
++    bp = obuf->start + 12;
++    oend = obuf->start + obuf->allocated;
++    if (!mdnspeer)
++    {
++	bp = SLPMDNSCompN(bp, oend, q, buf->start, cvec, &ncvec, obuf->start);
++	if (!bp || bp + 4 >= oend)
++	    return 1;
++        *bp++ = 0;
++        *bp++ = qtype;
++        *bp++ = 0;
++        *bp++ = DNS_CLASS_IN;
++	obuf->start[5] = 1;
++    }
++
++    for (i = 0; i < ac; i++)
++	if (AsUINT16(ad[i]) == DNS_TYPE_A &&
++	    !memcmp(ad[i] + 10, data, 4))
++	    break;
++    if (i < ac)
++    {
++	obuf->end = obuf->start;
++	return 0;
++    }
++
++    bp = SLPMDNSAddRR(bp, obuf->start, oend, q, buf->start, DNS_TYPE_A, 10, cvec, &ncvec, 4, data, 0);
++    if (!bp)
++	return 1;
++    obuf->start[7] = 1;
++    obuf->end = bp;
++#ifdef DEBUG
++    SLPMDNSDumpDNS(obuf, "mdns outgoing");
++#endif
++    return 0;
++}
+diff -Nur openslp-1.2.1.orig/slpd/slpd_mdns.h openslp-1.2.1/slpd/slpd_mdns.h
+--- openslp-1.2.1.orig/slpd/slpd_mdns.h	1970-01-01 02:00:00.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_mdns.h	2005-11-10 01:40:20.000000000 +0200
+@@ -0,0 +1,48 @@
++#ifndef SLPD_MDNS_H_INCLUDE
++#define SLPD_MDNS_H_INCLUDE
++
++#include "slpd.h"
++
++/*=========================================================================*/
++/* common code includes                                                    */
++/*=========================================================================*/
++#include "slp_linkedlist.h"
++#include "slp_mdns.h"
++#include "slpd_socket.h"
++
++/*=========================================================================*/
++extern SLPList G_MDNSSocketList;
++/*=========================================================================*/
++
++
++/*=========================================================================*/
++void SLPDMDNSHandler(int* fdcount, SLPD_fdset* fdset);
++/* Handles all outgoing requests that are pending on the specified file    */
++/* discriptors                                                             */
++/*                                                                         */
++/* fdcount  (IN/OUT) number of file descriptors marked in fd_sets          */
++/*                                                                         */
++/* readfds  (IN) file descriptors with pending read IO                     */
++/*                                                                         */
++/* writefds  (IN) file descriptors with pending read IO                    */
++/*=========================================================================*/
++
++
++/*=========================================================================*/
++int SLPDMDNSInit(void);
++/* Initialize incoming socket list to have appropriate sockets for all     */
++/* network interfaces                                                      */
++/*                                                                         */
++/* Returns  Zero on success non-zero on error                              */
++/*=========================================================================*/
++
++
++/*=========================================================================*/
++int SLPDMDNSDeinit(void);
++/* Deinitialize incoming socket list to have appropriate sockets for all   */
++/* network interfaces                                                      */
++/*                                                                         */
++/* Returns  Zero on success non-zero on error                              */
++/*=========================================================================*/
++
++#endif
+diff -Nur openslp-1.2.1.orig/slpd/slpd_outgoing.c openslp-1.2.1/slpd/slpd_outgoing.c
+--- openslp-1.2.1.orig/slpd/slpd_outgoing.c	2005-03-02 19:00:31.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_outgoing.c	2005-11-10 00:05:56.000000000 +0200
+@@ -451,24 +451,21 @@
+ 
+ /*=========================================================================*/
+ void SLPDOutgoingHandler(int* fdcount,
+-                         fd_set* readfds,
+-                         fd_set* writefds)
++                         SLPD_fdset* fdset)
+ 
+ /* Handles all outgoing requests that are pending on the specified file    */
+ /* discriptors                                                             */
+ /*                                                                         */
+-/* fdcount  (IN/OUT) number of file descriptors marked in fd_sets          */
++/* fdcount  (IN/OUT) number of file descriptors marked in fdset            */
+ /*                                                                         */
+-/* readfds  (IN) file descriptors with pending read IO                     */
+-/*                                                                         */
+-/* writefds  (IN) file descriptors with pending read IO                    */
++/* fdset    (IN) file descriptors with pending read/write IO               */
+ /*=========================================================================*/
+ {
+     SLPDSocket* sock;
+     sock = (SLPDSocket*)G_OutgoingSocketList.head;
+     while ( sock && *fdcount )
+     {
+-        if ( FD_ISSET(sock->fd,readfds) )
++        if (SLPD_fdset_readok(fdset, sock))
+         {
+             switch ( sock->state )
+             {
+@@ -490,7 +487,7 @@
+ 
+             *fdcount = *fdcount - 1;
+         }
+-        else if ( FD_ISSET(sock->fd,writefds) )
++        else if (SLPD_fdset_writeok(fdset, sock))
+         {
+             switch ( sock->state )
+             {
+diff -Nur openslp-1.2.1.orig/slpd/slpd_outgoing.h openslp-1.2.1/slpd/slpd_outgoing.h
+--- openslp-1.2.1.orig/slpd/slpd_outgoing.h	2005-02-08 07:34:32.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_outgoing.h	2005-11-10 00:05:56.000000000 +0200
+@@ -74,17 +74,14 @@
+ 
+ /*=========================================================================*/
+ void SLPDOutgoingHandler(int* fdcount,
+-                         fd_set* readfds,
+-                         fd_set* writefds);
++                         SLPD_fdset* fdset);
+ 
+ /* Handles all incoming requests that are pending on the specified file    */
+ /* discriptors                                                             */
+ /*                                                                         */
+-/* fdcount  (IN/OUT) number of file descriptors marked in fd_sets          */
++/* fdcount  (IN/OUT) number of file descriptors marked in fdset            */
+ /*                                                                         */
+-/* readfds  (IN) file descriptors with pending read IO                     */
+-/*                                                                         */
+-/* writefds  (IN) file descriptors with pending read IO                    */
++/* fdset    (IN) file descriptors with pending read/write IO               */
+ /*=========================================================================*/
+ 
+ 
+diff -Nur openslp-1.2.1.orig/slpd/slpd_property.c openslp-1.2.1/slpd/slpd_property.c
+--- openslp-1.2.1.orig/slpd/slpd_property.c	2005-02-09 02:04:32.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_property.c	2005-11-10 00:51:55.000000000 +0200
+@@ -65,6 +65,7 @@
+ 
+ /*=========================================================================*/
+ SLPDProperty G_SlpdProperty;
++FILE* G_SlpdConffileFP;
+ /*=========================================================================*/
+ 
+ /*=========================================================================*/
+@@ -75,9 +76,18 @@
+     char*               myinterfaces = 0;
+     char*               myurl = 0;
+     const char*         ifaces = 0;
++    extern int *        SLPPropertyReadFileFP(FILE *);
++    
++    if (conffile)
++    {
++        G_SlpdConffileFP = fopen(conffile, "r");
++        if (G_SlpdConffileFP)
++        {
++            SLPPropertySet("net.slp.OpenSLPConfigFile",conffile);
++        }
++    }
++    SLPPropertyReadFileFP(G_SlpdConffileFP);
+     
+-    SLPPropertyReadFile(conffile);
+-
+     memset(&G_SlpdProperty,0,sizeof(G_SlpdProperty));
+ 
+     /*-------------------------------------------------------------*/
+diff -Nur openslp-1.2.1.orig/slpd/slpd_regfile.c openslp-1.2.1/slpd/slpd_regfile.c
+--- openslp-1.2.1.orig/slpd/slpd_regfile.c	2005-02-09 02:07:07.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_regfile.c	2005-11-10 00:55:47.000000000 +0200
+@@ -176,7 +176,8 @@
+     unsigned char*  attrauth        = 0;
+     int             attrauthlen     = 0;
+ #endif
+-    
++    int        watchport = 0;
++    int        watchflags = 0;
+     
+     /*-------------------------------------------*/
+     /* give the out params an initial NULL value */
+@@ -361,6 +362,22 @@
+                 }
+             }
+         }
++        else if(strncasecmp(slider1,"tcp-port",8) == 0 || strncasecmp(slider1,"watch-port-tcp",14) == 0)
++        {
++            slider2 = strchr(slider1,'=');
++            if (slider2) {
++                watchport = atoi(slider2 + 1);
++                watchflags |= SLP_REG_WATCH_TCP;
++            }
++        }
++        else if(strncasecmp(slider1,"watch-port-udp",14) == 0)
++        {
++            slider2 = strchr(slider1,'=');
++            if (slider2) {
++                watchport = atoi(slider2 + 1);
++                watchflags |= SLP_REG_WATCH_UDP;
++            }
++        }
+         else
+         {
+             /* line contains an attribute (slow but it works)*/
+@@ -566,7 +583,8 @@
+     peer.sin_addr.s_addr = htonl(LOOPBACK_ADDRESS);
+     result = SLPMessageParseBuffer(&peer,*buf,*msg);
+     (*msg)->body.srvreg.source = SLP_REG_SOURCE_STATIC;
+-    
++    (*msg)->body.srvreg.watchflags = watchflags ? (watchflags | SLP_REG_WATCH_DEAD) : 0;
++    (*msg)->body.srvreg.watchport = watchport;
+     
+ CLEANUP:
+     
+diff -Nur openslp-1.2.1.orig/slpd/slpd_socket.h openslp-1.2.1/slpd/slpd_socket.h
+--- openslp-1.2.1.orig/slpd/slpd_socket.h	2005-02-09 02:10:47.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_socket.h	2005-11-10 01:29:20.000000000 +0200
+@@ -107,8 +107,50 @@
+     /* Outgoing socket stuff */
+     int                 reconns;
+     SLPList             sendlist;
++#ifdef HAVE_POLL
++    int                 fdsetnr;
++#endif
+ }SLPDSocket;
+ 
++#ifdef HAVE_POLL
++
++#include <sys/poll.h>
++
++typedef struct _SLPD_fdset {
++    struct pollfd *fds;
++    int used;
++    int allocated;
++} SLPD_fdset;
++
++/* the following code supports only one fdset at a time */
++
++#define SLPD_fdset_readok(fdset, sock) ((sock)->fdsetnr != -1 && (sock)->fdsetnr < (fdset)->used && (fdset)->fds[(sock)->fdsetnr].fd == (sock)->fd ? ((fdset)->fds[(sock)->fdsetnr].revents & ((fdset)->fds[(sock)->fdsetnr].events & POLLIN ? (POLLIN|POLLERR|POLLHUP) : POLLIN)) != 0 : 0)
++#define SLPD_fdset_writeok(fdset, sock) ((sock)->fdsetnr != -1 && (sock)->fdsetnr < (fdset)->used && (fdset)->fds[(sock)->fdsetnr].fd == (sock)->fd ? ((fdset)->fds[(sock)->fdsetnr].revents & ((fdset)->fds[(sock)->fdsetnr].events & POLLOUT ? (POLLOUT|POLLERR|POLLHUP) : POLLOUT)) != 0 : 0)
++
++#define SLPD_fdset_reset(fdset) ((fdset)->used = 0)
++#define SLPD_fdset_init(fdset) ((fdset)->used = (fdset)->allocated = 0, (fdset)->fds = 0)
++#define SLPD_fdset_free(fdset) ((fdset)->allocated && xfree((fdset)->fds), SLPD_fdset_init(fdset))
++
++#else
++
++typedef struct _SLPD_fdset {
++    fd_set readfds;
++    fd_set writefds;
++    int highfd;
++} SLPD_fdset;
++
++#define SLPD_fdset_readok(fdset, sock) (FD_ISSET((sock)->fd, &(fdset)->readfds))
++#define SLPD_fdset_writeok(fdset, sock) (FD_ISSET((sock)->fd, &(fdset)->writefds))
++
++#define SLPD_fdset_reset(fdset) do {		\
++		FD_ZERO(&(fdset)->readfds);	\
++		FD_ZERO(&(fdset)->writefds);	\
++		(fdset)->highfd = 0;		\
++	} while(0)
++#define SLPD_fdset_init(fdset)
++#define SLPD_fdset_free(fdset)
++
++#endif
+ 
+ /*==========================================================================*/
+ SLPDSocket* SLPDSocketCreateConnected(struct in_addr* addr);
+diff -Nur openslp-1.2.1.orig/slpd/slpd_spi.c openslp-1.2.1/slpd/slpd_spi.c
+--- openslp-1.2.1.orig/slpd/slpd_spi.c	2005-02-08 07:34:32.000000000 +0200
++++ openslp-1.2.1/slpd/slpd_spi.c	2005-11-10 00:57:01.000000000 +0200
+@@ -68,6 +68,8 @@
+     }
+    
+     G_SlpdSpiHandle = SLPSpiOpen(spifile,1);
++    if (G_SlpdSpiHandle)
++        SLPSpiFill(G_SlpdSpiHandle);
+     return (G_SlpdSpiHandle == 0);
+ }
+ 

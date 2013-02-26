@@ -1,0 +1,162 @@
+Index: plasma/containments/desktop/desktop.h
+===================================================================
+--- plasma/containments/desktop/desktop.h	(revision 1011046)
++++ plasma/containments/desktop/desktop.h	(working copy)
+@@ -29,9 +29,11 @@
+ 
+ #include <KDialog>
+ #include <KIcon>
++#include <KMessageBox>
+ 
+ #include <Plasma/Containment>
+ #include <Plasma/Animator>
++#include "plasma/dataenginemanager.h"
+ 
+ #include "desktoplayout.h"
+ 
+@@ -84,6 +86,8 @@
+     void onAppletTransformedItself();
+     void refreshWorkingArea();
+ 
++    void saveDefaultSetup();
++
+ private:
+     QMenu *m_addPanelsMenu;
+     QAction *m_lockDesktopAction;
+@@ -97,6 +101,8 @@
+ 
+     DesktopLayout *m_layout;
+     bool dropping;
++
++    Plasma::Applet *loadDefaultApplet(const QString &pluginName, Plasma::Containment *c);   
+ };
+ 
+ #endif // PLASMA_PANEL_H
+Index: plasma/containments/desktop/desktop.cpp
+===================================================================
+--- plasma/containments/desktop/desktop.cpp	(revision 1011046)
++++ plasma/containments/desktop/desktop.cpp	(working copy)
+@@ -134,11 +134,23 @@
+ {
+     Corona *c = corona();
+     if (c) {
++       bool default_panel = false;
++       if (corona()->containments().count()==1) {
++            int answer = KMessageBox::questionYesNoCancel(0, i18n("Do you want a panel with the default widgets or an empty panel?"),
++                                                   i18n("Add Panel"), KGuiItem(i18n("Default Panel")), KGuiItem(i18n("Empty Panel")));
++            if (answer==KMessageBox::Cancel) {
++               return;
++            } else if (answer==KMessageBox::Yes) {
++               default_panel = true;
++            }
++        }
++
+         Containment* panel = c->addContainment(plugin);
+         panel->showConfigurationInterface();
+ 
+         panel->setScreen(screen());
+ 
++    if (!default_panel) {
+         QList<Plasma::Location> freeEdges = c->freeEdges(screen());
+         //kDebug() << freeEdges;
+         Plasma::Location destination;
+@@ -190,7 +202,99 @@
+         panel->setMinimumSize(minW, minH);
+         panel->setMaximumSize(w, h);
+         panel->resize(w, h);
++   }
++   else {
++        panel->setLocation(Plasma::BottomEdge);
++        
++        const int newHeight = 28;
++        panel->resize(QSize((int)panel->size().width(), newHeight));
++        panel->setMinimumSize(QSize((int)panel->minimumSize().width(), newHeight));
++        panel->setMaximumSize(QSize((int)panel->maximumSize().width(), newHeight));
++        
++        panel->updateConstraints(Plasma::StartupCompletedConstraint);
++        panel->flushPendingConstraintsEvents();
++
++        // some default applets to get a usable UI
++        Plasma::Applet *applet = loadDefaultApplet("launcher", panel);
++        if (applet) {
++            applet->setGlobalShortcut(KShortcut("Alt+F1"));
++        }
++
++        if (QFile::exists("/usr/share/kde4/services/plasma-applet-showdashboard.desktop"))
++            loadDefaultApplet("showdashboard", panel);
++
++        QVariantList args;
++        if (QFile::exists("/usr/share/applications/MozillaFirefox.desktop")) {
++            args << "/usr/share/applications/MozillaFirefox.desktop";
++            panel->addApplet("icon", args);
++        }
++        else if (QFile::exists("/usr/share/applications/kde4/konqbrowser.desktop")) {
++            args << "/usr/share/applications/kde4/konqbrowser.desktop";
++            panel->addApplet("icon", args);
++        }
++
++        args.clear();
++        if (QFile::exists("/usr/share/applications/kde4/dolphin.desktop")) {
++            args << "/usr/share/applications/kde4/dolphin.desktop";
++            panel->addApplet("icon", args);
++        }
++
++        loadDefaultApplet("notifier", panel);
++        loadDefaultApplet("pager", panel);
++        loadDefaultApplet("tasks", panel);
++        loadDefaultApplet("systemtray", panel);
++
++        Plasma::DataEngineManager *engines = Plasma::DataEngineManager::self();
++        Plasma::DataEngine *power = engines->loadEngine("powermanagement");
++        if (power) {
++            const QStringList &batteries = power->query("Battery")["sources"].toStringList();
++            if (!batteries.isEmpty()) {
++                loadDefaultApplet("battery", panel);
++            }
++        }
++        engines->unloadEngine("powermanagement");
++
++        if (QFile::exists("/usr/share/kde4/services/plasma-applet-networkmanagement.desktop")) {
++            loadDefaultApplet("networkmanagement", panel);
++        }
++
++        loadDefaultApplet("digital-clock", panel);
++        loadDefaultApplet("lockout", panel);
++        
++        QTimer::singleShot(1000, this, SLOT(saveDefaultSetup()));
++     }
++   }
++}
++
++Plasma::Applet *DefaultDesktop::loadDefaultApplet(const QString &pluginName, Plasma::Containment *c)
++{
++    QVariantList args;
++    Plasma::Applet *applet = Plasma::Applet::load(pluginName, 0, args);
++
++    if (applet) {
++        c->addApplet(applet);
+     }
++
++    return applet;
++}     
++          
++void DefaultDesktop::saveDefaultSetup()
++{
++    // a "null" KConfigGroup is used to force a save into the config file
++    KConfigGroup invalidConfig;
++
++    foreach (Plasma::Containment *containment, corona()->containments()) {
++        containment->save(invalidConfig);
++
++        foreach (Plasma::Applet* applet, containment->applets()) {
++            applet->init();
++            applet->updateConstraints(Plasma::AllConstraints | Plasma::StartupCompletedConstraint);
++            applet->flushPendingConstraintsEvents();
++            applet->save(invalidConfig);
++        }
++    }
++
++    corona()->requestConfigSync();
+ }
+ 
+ void DefaultDesktop::runCommand()

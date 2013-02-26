@@ -1,0 +1,71 @@
+From 05a082b2556a74f287a75367f09fc286a0e346d8 Mon Sep 17 00:00:00 2001
+From: Nils Philippsen <nils@redhat.com>
+Date: Sat, 8 Sep 2012 21:10:47 +0200
+Subject: [PATCH 1/2] Don't append data to already encoded EXIF blob when
+ trimming data.
+
+---
+ ufraw_exiv2.cc | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/ufraw_exiv2.cc b/ufraw_exiv2.cc
+index 937944d..857d3a8 100644
+--- a/ufraw_exiv2.cc
++++ b/ufraw_exiv2.cc
+@@ -311,6 +311,7 @@ extern "C" int ufraw_exif_prepare_output(ufraw_data *uf)
+                 ufraw_message(UFRAW_SET_LOG,
+                               "buflen %d too big, erasing Exif.Photo.MakerNote\n",
+                               size + sizeof(ExifHeader));
++                blob.clear();
+                 Exiv2::ExifParser::encode(blob, Exiv2::bigEndian, exifData);
+                 size = blob.size();
+             }
+@@ -321,6 +322,7 @@ extern "C" int ufraw_exif_prepare_output(ufraw_data *uf)
+             ufraw_message(UFRAW_SET_LOG,
+                           "buflen %d too big, erasing Thumbnail\n",
+                           size + sizeof(ExifHeader));
++            blob.clear();
+             Exiv2::ExifParser::encode(blob, Exiv2::bigEndian, exifData);
+             size = blob.size();
+         }
+-- 
+1.7.11.4
+
+
+From bc30eb2982c6abd33f9b822180ba9e5a05d3c8e0 Mon Sep 17 00:00:00 2001
+From: Nils Philippsen <nils@redhat.com>
+Date: Sat, 8 Sep 2012 21:13:09 +0200
+Subject: [PATCH 2/2] Delete decoded metadata associated with Makernote when
+ trimming EXIF data.
+
+---
+ ufraw_exiv2.cc | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/ufraw_exiv2.cc b/ufraw_exiv2.cc
+index 857d3a8..72843f0 100644
+--- a/ufraw_exiv2.cc
++++ b/ufraw_exiv2.cc
+@@ -309,8 +309,18 @@ extern "C" int ufraw_exif_prepare_output(ufraw_data *uf)
+                     != exifData.end()) {
+                 exifData.erase(pos);
+                 ufraw_message(UFRAW_SET_LOG,
+-                              "buflen %d too big, erasing Exif.Photo.MakerNote\n",
++                              "buflen %d too big, erasing Exif.Photo.MakerNote "
++                              "and related decoded metadata\n",
+                               size + sizeof(ExifHeader));
++                /* Delete decoded metadata associated with
++                 * Exif.Photo.MakerNote, otherwise erasing it isn't
++                 * effective. */
++                for (pos = exifData.begin(); pos != exifData.end();) {
++                    if (!strcmp(pos->ifdName(), "Makernote"))
++                        pos = exifData.erase(pos);
++                    else
++                        pos++;
++                }
+                 blob.clear();
+                 Exiv2::ExifParser::encode(blob, Exiv2::bigEndian, exifData);
+                 size = blob.size();
+-- 
+1.7.11.4
+

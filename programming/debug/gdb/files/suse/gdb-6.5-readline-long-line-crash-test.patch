@@ -1,0 +1,136 @@
+https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=214196
+
+
+Index: ./gdb/testsuite/gdb.base/readline-overflow.exp
+===================================================================
+RCS file: ./gdb/testsuite/gdb.base/readline-overflow.exp
+diff -N ./gdb/testsuite/gdb.base/readline-overflow.exp
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.base/readline-overflow.exp	13 Nov 2006 23:42:50 -0000
+@@ -0,0 +1,125 @@
++# Copyright 2006 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# Please email any bugs, comments, and/or additions to this file to:
++# bug-gdb@prep.ai.mit.edu
++
++# This file was written by Jan Kratochvil <jan.kratochvil@redhat.com>
++
++# This file is part of the gdb testsuite.
++
++#
++# Tests for readline buffer overflow.
++#
++
++if $tracelevel {
++  strace $tracelevel
++}
++
++# Don't let a .inputrc file or an existing setting of INPUTRC mess up
++# the test results.  Even if /dev/null doesn't exist on the particular
++# platform, the readline library will use the default setting just by
++# failing to open the file.  OTOH, opening /dev/null successfully will
++# also result in the default settings being used since nothing will be
++# read from this file.
++global env
++if [info exists env(INPUTRC)] {
++    set old_inputrc $env(INPUTRC)
++}
++set env(INPUTRC) "/dev/null"
++
++set oldtimeout1 $timeout
++set timeout 600
++
++if [info exists env(GDBHISTFILE)] {
++    set old_gdbhistfile $env(GDBHISTFILE)
++}
++if [info exists env(HISTSIZE)] {
++    set old_histsize $env(HISTSIZE)
++}
++set env(GDBHISTFILE) "${srcdir}/${subdir}/gdb_history"
++set env(HISTSIZE) "10"
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++
++
++set width 11
++gdb_test "set width $width" \
++         "" \
++         "Setting width to $width."
++#gdb_test "set height 1" \
++#         "" \
++#         "Setting height to 1."
++send_gdb "run X"
++set i 0
++# It crashes using `set width 7' on `set total 3560'.
++# Sometimes it corrupts screen on `set width 7'.
++# Bugreport used `set total 130001':
++# 	https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=214196
++# Check also `timeout' above.
++set total 4200
++gdb_expect {
++	-re X {
++		incr i
++		if {$i <= $total} {
++			send_gdb "X"
++			exp_continue
++		}
++	}
++	-re "\[ \b\r\n\]" {
++		exp_continue
++	}
++	eof {
++		fail "gdb sending total $total characters"
++		note "Failed after sending $i characters, reason: EOF"
++		gdb_clear_suppressed
++	}
++	timeout {
++		fail "gdb sending total $total characters"
++		note "Failed after sending $i characters (timeout $timeout), reason: TIMEOUT"
++		gdb_clear_suppressed
++	}
++	default {
++		fail "gdb sending total $total characters"
++		note "Failed after sending $i characters, reason: 0=\[$expect_out(0,string)\] buffer=\[$expect_out(buffer)\]"
++		gdb_clear_suppressed
++	}
++}
++gdb_test "\r" \
++         "No executable file specified..*" \
++         "All the characters transferred"
++
++
++# Restore globals modified in this test...
++if [info exists old_inputrc] {
++    set env(INPUTRC) $old_inputrc
++} else {
++    unset env(INPUTRC)
++}
++if [info exists old_gdbhistfile] {
++    set env(GDBHISTFILE) $old_gdbhistfile
++} else {
++    unset env(GDBHISTFILE)
++}
++if [info exists old_histsize] {
++    set env(HISTSIZE) $old_histsize
++} else {
++    unset env(HISTSIZE)
++}
++set timeout $oldtimeout1
++
++return 0

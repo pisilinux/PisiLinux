@@ -1,0 +1,142 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.171
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.171
+Problem:    When the clipboard isn't supported: ":yank*" gives a confusing
+	    error message.
+Solution:   Specifically mention that the register name is invalid.
+	    (Jean-Rene David)
+Files:	    runtime/doc/change.txt, src/ex_docmd.c, src/globals.h
+
+
+*** ../vim-7.3.170/runtime/doc/change.txt	2010-08-15 21:57:18.000000000 +0200
+--- runtime/doc/change.txt	2011-05-05 13:48:00.000000000 +0200
+***************
+*** 916,923 ****
+  {Visual}["x]Y		Yank the highlighted lines [into register x] (for
+  			{Visual} see |Visual-mode|).  {not in Vi}
+  
+! 							*:y* *:yank*
+! :[range]y[ank] [x]	Yank [range] lines [into register x].
+  
+  :[range]y[ank] [x] {count}
+  			Yank {count} lines, starting with last line number
+--- 917,926 ----
+  {Visual}["x]Y		Yank the highlighted lines [into register x] (for
+  			{Visual} see |Visual-mode|).  {not in Vi}
+  
+! 							*:y* *:yank* *E850*
+! :[range]y[ank] [x]	Yank [range] lines [into register x]. Yanking to the
+! 			"* or "+ registers is possible only in GUI versions or
+! 			when the |+xterm_clipboard| feature is included.
+  
+  :[range]y[ank] [x] {count}
+  			Yank {count} lines, starting with last line number
+*** ../vim-7.3.170/src/ex_docmd.c	2011-04-11 21:35:03.000000000 +0200
+--- src/ex_docmd.c	2011-05-05 13:48:57.000000000 +0200
+***************
+*** 2424,2448 ****
+      if (       (ea.argt & REGSTR)
+  	    && *ea.arg != NUL
+  #ifdef FEAT_USR_CMDS
+- 	    && valid_yank_reg(*ea.arg, (ea.cmdidx != CMD_put
+- 						   && USER_CMDIDX(ea.cmdidx)))
+  	    /* Do not allow register = for user commands */
+  	    && (!USER_CMDIDX(ea.cmdidx) || *ea.arg != '=')
+- #else
+- 	    && valid_yank_reg(*ea.arg, ea.cmdidx != CMD_put)
+  #endif
+  	    && !((ea.argt & COUNT) && VIM_ISDIGIT(*ea.arg)))
+      {
+! 	ea.regname = *ea.arg++;
+! #ifdef FEAT_EVAL
+! 	/* for '=' register: accept the rest of the line as an expression */
+! 	if (ea.arg[-1] == '=' && ea.arg[0] != NUL)
+  	{
+! 	    set_expr_line(vim_strsave(ea.arg));
+! 	    ea.arg += STRLEN(ea.arg);
+  	}
+  #endif
+! 	ea.arg = skipwhite(ea.arg);
+      }
+  
+      /*
+--- 2424,2462 ----
+      if (       (ea.argt & REGSTR)
+  	    && *ea.arg != NUL
+  #ifdef FEAT_USR_CMDS
+  	    /* Do not allow register = for user commands */
+  	    && (!USER_CMDIDX(ea.cmdidx) || *ea.arg != '=')
+  #endif
+  	    && !((ea.argt & COUNT) && VIM_ISDIGIT(*ea.arg)))
+      {
+! #ifndef FEAT_CLIPBOARD
+! 	/* check these explicitly for a more specific error message */
+! 	if (*ea.arg == '*' || *ea.arg == '+')
+  	{
+! 	    errormsg = (char_u *)_(e_invalidreg);
+! 	    goto doend;
+  	}
+  #endif
+! 	if (
+! #ifdef FEAT_USR_CMDS
+! 	    valid_yank_reg(*ea.arg, (ea.cmdidx != CMD_put
+! 						   && USER_CMDIDX(ea.cmdidx)))
+! #else
+! 	    valid_yank_reg(*ea.arg, ea.cmdidx != CMD_put)
+! #endif
+! 	   )
+! 	{
+! 	    ea.regname = *ea.arg++;
+! #ifdef FEAT_EVAL
+! 	    /* for '=' register: accept the rest of the line as an expression */
+! 	    if (ea.arg[-1] == '=' && ea.arg[0] != NUL)
+! 	    {
+! 		set_expr_line(vim_strsave(ea.arg));
+! 		ea.arg += STRLEN(ea.arg);
+! 	    }
+! #endif
+! 	    ea.arg = skipwhite(ea.arg);
+! 	}
+      }
+  
+      /*
+*** ../vim-7.3.170/src/globals.h	2011-02-15 17:39:14.000000000 +0100
+--- src/globals.h	2011-05-05 13:47:44.000000000 +0200
+***************
+*** 1561,1566 ****
+--- 1561,1569 ----
+  	(defined(FEAT_INS_EXPAND) && defined(FEAT_COMPL_FUNC))
+  EXTERN char_u e_notset[]	INIT(= N_("E764: Option '%s' is not set"));
+  #endif
++ #ifndef FEAT_CLIPBOARD
++ EXTERN char_u e_invalidreg[]    INIT(= N_("E850: Invalid register name"));
++ #endif
+  
+  #ifdef MACOS_X_UNIX
+  EXTERN short disallow_gui	INIT(= FALSE);
+*** ../vim-7.3.170/src/version.c	2011-04-28 19:05:01.000000000 +0200
+--- src/version.c	2011-05-05 14:24:39.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     171,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+53. To find out what time it is, you send yourself an e-mail and check the
+    "Date:" field.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

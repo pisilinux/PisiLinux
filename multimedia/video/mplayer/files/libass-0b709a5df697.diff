@@ -1,0 +1,69 @@
+commit 0b709a5df697b36a24e4456b24585ec8f0c54b63
+Author: Grigori Goronzy <greg@blackbox>
+Date:   Sun Jul 17 17:43:55 2011 +0200
+
+    Fix crash with FreeType's updated stroker
+    
+    The new revision of the stroker in FreeType doesn't like the way
+    contours are zero-filled to disable them. It's not particularly clean
+    anyway, so rewrite the whole outline instead.
+
+Index: mplayer/libass/ass_font.c
+===================================================================
+--- mplayer.orig/libass/ass_font.c
++++ mplayer/libass/ass_font.c
+@@ -604,8 +604,20 @@ static int get_contour_direction(FT_Vect
+ }
+ 
+ /**
+- * \brief Fix-up stroker result for huge borders by removing inside contours
+- * that would reverse in size
++ * \brief Apply fixups to please the FreeType stroker and improve the
++ * rendering result, especially in case the outline has some anomalies.
++ * At the moment, the following fixes are done:
++ *
++ * 1. Reverse contours that have "inside" winding direction but are not
++ *    contained in any other contours' cbox.
++ * 2. Remove "inside" contours depending on border size, so that large
++ *    borders do not reverse the winding direction, which leads to "holes"
++ *    inside the border. The inside will be filled by the border of the
++ *    outside contour anyway in this case.
++ *
++ * \param outline FreeType outline, modified in-place
++ * \param border_x border size, x direction, d6 format
++ * \param border_x border size, y direction, d6 format
+  */
+ void fix_freetype_stroker(FT_OutlineGlyph glyph, int border_x, int border_y)
+ {
+@@ -673,19 +685,26 @@ void fix_freetype_stroker(FT_OutlineGlyp
+         }
+     }
+ 
+-    // zero-out contours that can be removed; much simpler than copying
++    // if we need to modify the outline, rewrite it and skip
++    // the contours that we determined should be removed.
+     if (modified) {
++        int p = 0, c = 0;
+         for (i = 0; i < nc; i++) {
+-            if (valid_cont[i])
++            if (!valid_cont[i])
+                 continue;
+             begin = (i == 0) ? 0 : glyph->outline.contours[i - 1] + 1;
+             stop = glyph->outline.contours[i];
+             for (j = begin; j <= stop; j++) {
+-                glyph->outline.points[j].x = 0;
+-                glyph->outline.points[j].y = 0;
+-                glyph->outline.tags[j] = 0;
++                glyph->outline.points[p].x = glyph->outline.points[j].x;
++                glyph->outline.points[p].y = glyph->outline.points[j].y;
++                glyph->outline.tags[p] = glyph->outline.tags[j];
++                p++;
+             }
++            glyph->outline.contours[c] = p - 1;
++            c++;
+         }
++        glyph->outline.n_points = p;
++        glyph->outline.n_contours = c;
+     }
+ 
+     free(boxes);

@@ -1,0 +1,86 @@
+diff -u -ruNp gdb-6.3-unpatched/gdb/testsuite/gdb.base/tracefork-zombie.exp gdb-6.3/gdb/testsuite/gdb.base/tracefork-zombie.exp
+--- gdb-6.3-unpatched/gdb/testsuite/gdb.base/tracefork-zombie.exp	1969-12-31 19:00:00.000000000 -0500
++++ gdb-6.3/gdb/testsuite/gdb.base/tracefork-zombie.exp	2007-07-31 13:04:12.000000000 -0400
+@@ -0,0 +1,82 @@
++# Copyright 2007 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
++
++if $tracelevel then {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++# are we on a target board
++if [is_remote target] then {
++    return 0
++}
++
++# Start the program running and then wait for a bit, to be sure
++# that it can be attached to.
++
++gdb_exit
++gdb_start
++gdb_load sleep
++
++set gdb_pid [exp_pid -i [board_info host fileid]]
++set test "identified the child GDB"
++if {$gdb_pid != "" && $gdb_pid > 0} {
++    pass $test
++    verbose -log "Child GDB PID $gdb_pid"
++} else {
++    fail $test
++}
++
++set testpid [eval exec sleep 10 &]
++exec sleep 2
++
++set test "attach"
++gdb_test_multiple "attach $testpid" "$test" {
++    -re "Attaching to program.*`?.*'?, process $testpid..*$gdb_prompt $" {
++	pass "$test"
++    }
++    -re "Attaching to program.*`?.*\.exe'?, process $testpid.*\[Switching to thread $testpid\..*\].*$gdb_prompt $" {
++	# Response expected on Cygwin
++	pass "$test"
++    }
++}
++
++# Some time to let GDB spawn its testing child.
++exec sleep 2
++
++set found none
++foreach procpid [glob -directory /proc -type d {[0-9]*}] {
++    if {[catch {open $procpid/status} statusfi]} {
++	continue
++    }
++    set status [read $statusfi]
++    close $statusfi
++    if {1
++         && [regexp -line {^Name:\tgdb$} $status]
++         && [regexp -line {^PPid:\t1$} $status]
++         && [regexp -line "^TracerPid:\t$gdb_pid$" $status]} {
++	set found $procpid
++	verbose -log "Found linux_test_for_tracefork zombie PID $procpid"
++    }
++}
++set test "linux_test_for_tracefork leaves no zombie"
++if {$found eq {none}} {
++    pass $test
++} else {
++    fail $test
++}

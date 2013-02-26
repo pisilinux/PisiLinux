@@ -1,0 +1,177 @@
+--- tzdata/Makeconfig.in.mdvconfig	2003-07-24 19:52:36.000000000 +0200
++++ tzdata/Makeconfig.in	2007-03-07 14:01:06.000000000 +0100
+@@ -1,8 +1,9 @@
+-objpfx := @objpfx@
+-datadir := @datadir@
+-install_root := @install_root@
++ifdef subdir
++.. := ../
++endif
++include $(..)config.mk
+ AWK := awk
+-built-program-cmd := /usr/sbin/zic
++built-program-cmd := $(objpfx)/zic
+ cross-compiling := no
+ have-ksh := yes
+ +force =
+@@ -11,3 +12,23 @@ posixrules = America/New_York
+ posixrules-file = posixrules
+ zonedir := $(datadir)/zoneinfo
+ inst_zonedir := $(install_root)$(zonedir)
++sysconfdir = $(prefix)/etc
++inst_sysconfdir = $(install_root)$(sysconfdir)
++localtime = Factory
++localtime-file = $(sysconfdir)/localtime
++inst_localtime-file = $(install_root)$(localtime-file)
++inst_sbindir = $(install_root)$(sbindir)
++
++# These are the variables that the implicit compilation rules use.
++# Note that we can't use -std=* in CPPFLAGS, because it overrides
++# the implicit -lang-asm and breaks cpp behavior for .S files--notably
++# it causes cpp to stop predefining __ASSEMBLER__.
++CPPFLAGS = $(sysdep-CPPFLAGS) \
++	$(CPPFLAGS-$(suffix $@)) \
++	$(CPPFLAGS-$(<F)) $(CPPFLAGS-$(@F)) $(CPPFLAGS-$(basename $(@F)))
++override CFLAGS = $(sysdep-CFLAGS) -std=gnu99 \
++	$(CFLAGS-$(suffix $@)) $(CFLAGS-$(<F)) \
++	$(CFLAGS-$(@F))
++
++$(objpfx)%.o: %.c
++	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+--- tzdata/Rules.mdvconfig	2003-07-24 18:52:34.000000000 +0200
++++ tzdata/Rules	2007-03-07 13:59:44.000000000 +0100
+@@ -1,9 +1,3 @@
+-$(objpfx)zic: /dev/null
+-	touch $@
+-$(objpfx)scheck.o: /dev/null
+-	touch $@
+-$(objpfx)ialloc.o: /dev/null
+-	touch $@
+ define make-target-directory
+ $(addprefix mkdir -p ,\
+ 	    $(filter-out $(wildcard $(@D:%/=%)),$(@D:%/=%)))
+@@ -12,7 +6,28 @@ define do-install
+ $(make-target-directory)
+ /usr/bin/install -m 644 $< $@
+ endef
+-install: $(inst_zonedir)/
++define do-install-program
++$(make-target-directory)
++/usr/bin/install -m 755 $< $@.new
++mv -f $@.new $@
++endef
++install: install-zoneinfo install-programs
++
++install-zoneinfo: $(inst_zonedir)/
+ 	$(MAKE) install-data
+ $(inst_zonedir)/: ; $(make-target-directory)
+ install-data: $(install-others)
++
++ifdef install-sbin
++$(addprefix $(inst_sbindir)/,$(install-sbin)): \
++    $(inst_sbindir)/%: $(objpfx)% $(+force)
++	$(do-install-program)
++installed-programs += $(addprefix $(inst_sbindir)/,$(install-sbin))
++endif
++
++install-programs: $(installed-programs)
++
++others: $(addprefix $(objpfx),$(extra-objs) \
++                              $(install-lib) \
++                              $(install-bin) \
++                              $(install-rootsbin) $(install-sbin))
+--- tzdata/Makefile.mdvconfig	2005-11-02 13:17:57.000000000 +0100
++++ tzdata/Makefile	2007-03-07 13:46:40.000000000 +0100
+@@ -1,6 +1,13 @@
+-all:
+-	mkdir obj
++all: prepare
++	$(MAKE) -C src others
++
++OBJ_DIR = obj
++$(OBJ_DIR)::
++	@[ -d $(OBJ_DIR) ] || mkdir $(OBJ_DIR) > /dev/null 2>&1
++
++prepare: $(OBJ_DIR)
+ 	for i in tzdata*/*; do ln -sf ../$$i src/; done
++	for i in tzcode*/*.[ch]; do ln -sf ../$$i src/; done
+ 	cp -L src/yearistype.sh src/yearistype; chmod +x src/yearistype
+ 
+ include ./Makeconfig
+--- tzdata/scripts/rellns-sh.mdvconfig	2007-03-07 13:46:40.000000000 +0100
++++ tzdata/scripts/rellns-sh	2007-03-07 13:46:40.000000000 +0100
+@@ -0,0 +1,74 @@
++#! /bin/sh
++# rellns-sh - Simplified ln program to generate relative symbolic link.
++# Copyright (C) 1996, 1997 Free Software Foundation, Inc.
++# Written by Ulrich Drepper <drepper@cygnus.com>, October 1996
++#
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2, or (at your option)
++# any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++
++if test $# -ne 2; then
++  echo "Usage: rellns SOURCE DEST" >&2
++  exit 1
++fi
++
++if test -x /bin/pwd; then
++  pwd=/bin/pwd
++elif test -x /usr/bin/pwd; then
++  pwd=/usr/bin/pwd
++else
++  pwd='pwd'
++fi
++
++# Make both paths absolute.
++if test -d $1; then
++  to=`cd $1 && $pwd`
++else
++  temp=`echo $1 | sed 's%/*[^/]*$%%'`
++  if test -z "$temp"; then
++    to=`$pwd`
++  else
++    to=`cd $temp && $pwd`
++  fi
++  to="$to/`echo $1 | sed 's%.*/\([^/][^/]*\)$%\1%'`"
++fi
++to=`echo $to | sed 's%^/%%'`
++
++if test -d $2; then
++  from=`echo $2 | sed 's%/*$%%'`
++else
++  from=`echo $2 | sed 's%/*[^/]*$%%'`
++fi
++
++if test -z "$from"; then
++  from=`$pwd | sed 's%^/%%'`
++else
++  from=`cd $from && $pwd | sed 's%^/%%'`
++fi
++
++while test -n "$to" && test -n "$from"; do
++  preto=`echo $to | sed 's%^\([^/]*\)/.*%\1%'`
++  prefrom=`echo $from | sed 's%^\([^/]*\)/.*%\1%'`
++
++  test "$preto" != "$prefrom" && break
++
++  to=`echo $to | sed 's%^[^/]*/*\(.*\)$%\1%'`
++  from=`echo $from | sed 's%^[^/]*/*\(.*\)$%\1%'`
++done
++
++while test -n "$from"; do
++  rfrom="../$rfrom"
++  from=`echo $from | sed 's%^[^/]*/*%%'`
++done
++
++ln -s $rfrom$to $2

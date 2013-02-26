@@ -1,0 +1,360 @@
+Index: gdb-7.1/bfd/elf-bfd.h
+===================================================================
+--- gdb-7.1.orig/bfd/elf-bfd.h	2010-02-09 13:14:42.000000000 +0100
++++ gdb-7.1/bfd/elf-bfd.h	2010-05-16 20:22:38.000000000 +0200
+@@ -2160,7 +2160,7 @@ extern Elf_Internal_Phdr * _bfd_elf_find
+ extern char *elfcore_write_note
+   (bfd *, char *, int *, const char *, int, const void *, int);
+ extern char *elfcore_write_prpsinfo
+-  (bfd *, char *, int *, const char *, const char *);
++  (bfd *, char *, int *, void *, const char *, const char *);
+ extern char *elfcore_write_prstatus
+   (bfd *, char *, int *, long, int, const void *);
+ extern char * elfcore_write_pstatus
+Index: gdb-7.1/bfd/elf.c
+===================================================================
+--- gdb-7.1.orig/bfd/elf.c	2010-02-18 01:09:06.000000000 +0100
++++ gdb-7.1/bfd/elf.c	2010-05-16 20:25:15.000000000 +0200
+@@ -8545,6 +8545,7 @@ char *
+ elfcore_write_prpsinfo (bfd  *abfd,
+ 			char *buf,
+ 			int  *bufsiz,
++			void *info,
+ 			const char *fname,
+ 			const char *psargs)
+ {
+@@ -8571,26 +8572,40 @@ elfcore_write_prpsinfo (bfd  *abfd,
+       int note_type = NT_PRPSINFO;
+ #endif
+ 
+-      memset (&data, 0, sizeof (data));
+-      strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
+-      strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
++      if (info)
++	memcpy (&data, info, sizeof (data));
++      else
++	{
++	  memset (&data, 0, sizeof (data));
++	  strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
++	  strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
++	}
++
+       return elfcore_write_note (abfd, buf, bufsiz,
+ 				 note_name, note_type, &data, sizeof (data));
+     }
+   else
+ #endif
+     {
++/* gdb-6.8-bz254229-gcore-prpsinfo.patch misapplication glue.  */
+ #if defined (HAVE_PSINFO_T)
+       psinfo_t data;
++/* gdb-6.8-bz254229-gcore-prpsinfo.patch misapplication glue.  */
+       int note_type = NT_PSINFO;
+ #else
+       prpsinfo_t data;
+       int note_type = NT_PRPSINFO;
+ #endif
+ 
+-      memset (&data, 0, sizeof (data));
+-      strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
+-      strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
++      if (info)
++	memcpy (&data, info, sizeof (data));
++      else
++	{
++	  memset (&data, 0, sizeof (data));
++	  strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
++	  strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
++	}
++
+       return elfcore_write_note (abfd, buf, bufsiz,
+ 				 note_name, note_type, &data, sizeof (data));
+     }
+Index: gdb-7.1/gdb/amd64-linux-nat.c
+===================================================================
+--- gdb-7.1.orig/gdb/amd64-linux-nat.c	2010-05-16 20:22:38.000000000 +0200
++++ gdb-7.1/gdb/amd64-linux-nat.c	2010-05-16 20:22:38.000000000 +0200
+@@ -140,6 +140,7 @@ static int amd64_linux_gregset32_reg_off
+ 
+ static char *
+ amd64_linux_elfcore_write_prpsinfo (bfd *abfd, char *buf, int *bufsiz,
++				    void *info,
+ 				    const char *fname, const char *psargs)
+ {
+   if (gdbarch_ptr_bit (target_gdbarch) == 32)
+@@ -149,14 +150,20 @@ amd64_linux_elfcore_write_prpsinfo (bfd 
+       struct elf_prpsinfo32 data;
+       note_type = NT_PRPSINFO;
+ 
+-      memset (&data, 0, sizeof (data));
+-      strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
+-      strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
++      if (info)
++	memcpy (&data, info, sizeof (data));
++      else
++	{
++	  memset (&data, 0, sizeof (data));
++	  strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
++	  strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
++	}
++
+       return elfcore_write_note (abfd, buf, bufsiz,
+ 				 note_name, note_type, &data, sizeof (data));
+     }
+   else
+-    return elfcore_write_prpsinfo (abfd, buf, bufsiz, fname, psargs);
++    return elfcore_write_prpsinfo (abfd, buf, bufsiz, info, fname, psargs);
+ }
+ 
+ static void
+Index: gdb-7.1/gdb/fbsd-nat.c
+===================================================================
+--- gdb-7.1.orig/gdb/fbsd-nat.c	2010-01-01 08:31:31.000000000 +0100
++++ gdb-7.1/gdb/fbsd-nat.c	2010-05-16 20:22:38.000000000 +0200
+@@ -211,6 +211,7 @@ fbsd_make_corefile_notes (bfd *obfd, int
+ 	psargs = reconcat (psargs, psargs, " ", get_inferior_args (), NULL);
+ 
+       note_data = elfcore_write_prpsinfo (obfd, note_data, note_size,
++				          NULL,
+ 					  fname, psargs);
+     }
+ 
+Index: gdb-7.1/gdb/linux-nat.c
+===================================================================
+--- gdb-7.1.orig/gdb/linux-nat.c	2010-05-16 20:22:38.000000000 +0200
++++ gdb-7.1/gdb/linux-nat.c	2010-05-16 20:22:38.000000000 +0200
+@@ -56,6 +56,7 @@
+ #include "terminal.h"
+ #include <sys/vfs.h>
+ #include "solib.h"
++#include "gdb_procfs32.h"	/* for struct elf_prpsinfo32 */
+ 
+ #ifndef SPUFS_MAGIC
+ #define SPUFS_MAGIC 0x23c9b64e
+@@ -228,7 +229,7 @@ static LONGEST (*super_xfer_partial) (st
+ /* This functions make elfcore note sections.
+    They may get overriden by code adjusting data for multi-target builds.  */
+ char *(*linux_elfcore_write_prpsinfo)
+-  (bfd *, char *, int *, const char *, const char *) = elfcore_write_prpsinfo;
++  (bfd *, char *, int *, void *, const char *, const char *) = elfcore_write_prpsinfo;
+ char *(*linux_elfcore_write_prstatus)
+   (bfd *, char *, int *, long, int, const void *) = elfcore_write_prstatus;
+ static char *
+@@ -4507,6 +4508,159 @@ linux_spu_make_corefile_notes (bfd *obfd
+   return args.note_data;
+ }
+ 
++/* Should be always true for Linux */
++#define HAVE_PRPSINFO_T 1
++
++#if defined (HAVE_PRPSINFO_T)
++
++/* Fills struct elf_prpsinfo{32,64} as much as possible, imitate Linux kernel
++   binfmt_elf.c.  Unknown values are filled with zeroes.  The structure is
++   malloced.  */
++
++static void*
++fill_prpsinfo (void)
++{
++  struct stat sb;
++  char filename[sizeof ("/proc//cmdline") + sizeof (int) * 3 + 2];
++  char buf[1024];
++  char proc_state[5];
++  char proc_cmdline[sizeof (((struct elf_prpsinfo*)0)->pr_psargs) + 1];
++  unsigned flags;
++  long proc_nice;
++  unsigned proc_ppid;
++  unsigned proc_pgid;
++  unsigned proc_sid;
++  pid_t pid;
++  int fd, n;
++  char *cp, *proc_comm, *state_s;
++  /* String comes from Linux kernel binfmt_elf.c FILL_PSINFO but it is already
++     obsolete there to <linux/sched.h> TASK_* constants.  */
++  const char state_string[] = "RSDTZW";
++  int state_num;
++
++  /* Get /proc/$PID/stat.  */
++  pid = ptid_get_pid (inferior_ptid);
++  sprintf (filename, "/proc/%u/stat", (unsigned)pid);
++  fd = open (filename, O_RDONLY);
++  if (fd < 0)
++    return NULL;
++  fstat (fd, &sb); /* No error checking (can it ever happen?).  */
++  n = read (fd, buf, sizeof (buf) - 1);
++  close (fd);
++  if (n < 0)
++    return NULL;
++  buf[n] = 0;
++
++  cp = strrchr (buf, ')'); /* Split into "PID (COMM" and "<rest>".  */
++  if (!cp)
++    return NULL;
++  *cp = 0;
++
++  /* Grab COMM.  */
++  proc_comm = strchr (buf, '(');
++  if (!proc_comm)
++    return NULL;
++  proc_comm++;
++
++  /* Read /proc/$PID/cmdline.  */
++  proc_cmdline[0] = 0;
++  strcpy (strrchr (filename, '/'), "/cmdline");
++  fd = open (filename, O_RDONLY);
++  if (fd >= 0)
++    {
++      int n;
++
++      n = read (fd, proc_cmdline, sizeof (proc_cmdline) - 1);
++      if (n < 0)
++	n = 0;
++      proc_cmdline[n] = 0;
++      while (n--) /* Replace NULs with spaces.  */
++	if (proc_cmdline[n] == 0)
++	  proc_cmdline[n] = ' ';
++      close (fd);
++    }
++
++  /* Parse /proc/$PID/stat.  */
++  n = sscanf (cp + 2, /* skip ") " */
++	      "%4s %u "          /* state, ppid */
++	      "%u %u %*s %*s "   /* pgid, sid, tty, tpgid */
++	      "%u %*s %*s %*s "  /* flags, min_flt, cmin_flt, maj_flt */
++	      "%*s "             /* cmaj_flt */
++	      "%*s %*s "         /* utime, stime */
++	      "%*s %*s %*s "     /* cutime, cstime, priority */
++	      "%ld "             /* nice */
++	      /*"%*s %*s "          timeout, it_real_value */
++	      /*"%lu "              start_time */
++	      /*"%lu "              vsize */
++	      /*"%lu "              rss */
++	      /*"%lu %lu %lu "      rss_rlim, start_code, end_code */
++	      /*"%lu %lu %lu "      start_stack, kstk_esp, kstk_eip */
++	      /*"%u %u %u %u "      signal, blocked, sigignore, sigcatch */
++	      /*"%lu %lu %lu"       wchan, nswap, cnswap */
++	      , proc_state, &proc_ppid,
++	      &proc_pgid, &proc_sid,
++	      &flags,
++	      &proc_nice);
++  if (n != 6)
++    return NULL;
++
++  state_s = strchr (state_string, proc_state[0]);
++  if (state_s != NULL)
++    state_num = state_s - state_string;
++  else
++    {
++      /* 0 means Running, some more unusal state would be better.  */
++      state_num = 0;
++    }
++
++#if ULONG_MAX > 0xffffffffU
++  /* We skip this code on 32-bit gdb.  */
++  if (gdbarch_ptr_bit (target_gdbarch) == 64)
++    {
++      struct elf_prpsinfo *info = xzalloc (sizeof (*info));
++
++      info->pr_state = state_num;
++      info->pr_sname = proc_state[0];
++      info->pr_zomb = (proc_state[0] == 'Z');
++      info->pr_nice = proc_nice;
++      info->pr_flag = flags;
++      info->pr_uid = sb.st_uid;
++      info->pr_gid = sb.st_gid;
++      info->pr_pid = pid;
++      info->pr_ppid = proc_ppid;
++      info->pr_pgrp = proc_pgid;
++      info->pr_sid = proc_sid;
++      strncpy (info->pr_fname, proc_comm, sizeof (info->pr_fname));
++      strncpy (info->pr_psargs, proc_cmdline, sizeof (info->pr_psargs));
++
++      return info;
++    }
++#endif
++  if (gdbarch_ptr_bit (target_gdbarch) == 32)
++    {
++      struct elf_prpsinfo32 *info = xzalloc (sizeof (*info));
++
++      info->pr_state = state_num;
++      info->pr_sname = proc_state[0];
++      info->pr_zomb = (proc_state[0] == 'Z');
++      info->pr_nice = proc_nice;
++      info->pr_flag = flags;
++      info->pr_uid = sb.st_uid;
++      info->pr_gid = sb.st_gid;
++      info->pr_pid = pid;
++      info->pr_ppid = proc_ppid;
++      info->pr_pgrp = proc_pgid;
++      info->pr_sid = proc_sid;
++      strncpy (info->pr_fname, proc_comm, sizeof (info->pr_fname));
++      strncpy (info->pr_psargs, proc_cmdline, sizeof (info->pr_psargs));
++
++      return info;
++    }
++
++  return NULL;
++}
++#endif
++
+ /* Fills the "to_make_corefile_note" target vector.  Builds the note
+    section for a corefile, and returns it in a malloc buffer.  */
+ 
+@@ -4527,8 +4681,14 @@ linux_nat_make_corefile_notes (bfd *obfd
+ 
+   if (get_exec_file (0))
+     {
++#if defined (HAVE_PRPSINFO_T)
++      void *data = fill_prpsinfo ();
++#define DATAPTR data
++#else
++#define DATAPTR NULL
+       strncpy (fname, strrchr (get_exec_file (0), '/') + 1, sizeof (fname));
+       strncpy (psargs, get_exec_file (0), sizeof (psargs));
++#endif
+       if (get_inferior_args ())
+ 	{
+ 	  char *string_end;
+@@ -4544,9 +4704,15 @@ linux_nat_make_corefile_notes (bfd *obfd
+ 		       psargs_end - string_end);
+ 	    }
+ 	}
+-      note_data = (char *) linux_elfcore_write_prpsinfo (obfd, note_data,
+-							 note_size, fname,
++      note_data = (char *) linux_elfcore_write_prpsinfo (obfd,
++							 note_data, note_size,
++							 DATAPTR,
++							 fname,
+ 							 psargs);
++#if defined (HAVE_PRPSINFO_T)
++      xfree (DATAPTR);
++#endif
++#undef DATAPTR
+     }
+ 
+   /* Dump information for threads.  */
+Index: gdb-7.1/gdb/linux-nat.h
+===================================================================
+--- gdb-7.1.orig/gdb/linux-nat.h	2010-05-16 20:22:37.000000000 +0200
++++ gdb-7.1/gdb/linux-nat.h	2010-05-16 20:22:38.000000000 +0200
+@@ -173,7 +173,7 @@ int linux_nat_core_of_thread_1 (ptid_t p
+ /* These functions make elfcore note sections.
+    They may get overriden by code adjusting data for multi-target builds.  */
+ extern char *(*linux_elfcore_write_prpsinfo)
+-  (bfd *, char *, int *, const char *, const char *);
++  (bfd *, char *, int *, void *, const char *, const char *);
+ extern char *(*linux_elfcore_write_prstatus)
+   (bfd *, char *, int *, long, int, const void *);
+ extern char *(*linux_elfcore_write_prfpreg)
+Index: gdb-7.1/gdb/procfs.c
+===================================================================
+--- gdb-7.1.orig/gdb/procfs.c	2010-02-15 18:35:49.000000000 +0100
++++ gdb-7.1/gdb/procfs.c	2010-05-16 20:22:38.000000000 +0200
+@@ -6184,6 +6184,7 @@ procfs_make_note_section (bfd *obfd, int
+   note_data = (char *) elfcore_write_prpsinfo (obfd,
+ 					       note_data,
+ 					       note_size,
++					       NULL,
+ 					       fname,
+ 					       psargs);
+ 

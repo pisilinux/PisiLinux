@@ -1,0 +1,143 @@
+>From fd04276a00b172e6fbba3e3c72b1d13a0f179414 Mon Sep 17 00:00:00 2001
+From: Alon Levy <alevy@redhat.com>
+Date: Wed, 16 Mar 2011 15:21:03 +0100
+Subject: [PATCH 1/4] qxl/spice-display: move pipe to ssd
+
+This moves the int pipe[2] and pthread_t main data from the
+PCIQXLDevice struct to the SimpleSpiceDisplay. This will let us
+reuse it in the next patch for both -spice with no -qxl usage and
+for vga mode from qxl.
+
+Also move the pipe creation function (which is effectively completely rewritten
+by this patch anyways) from hw/qxl.c to ui/spice-display.c, since
+spice-display will depend on it after the next patch and qemu can be build
+with ui/spice-display.c in combination with no hw/qxl.c.
+---
+ hw/qxl.c           |   22 +++++-----------------
+ hw/qxl.h           |    4 ----
+ ui/spice-display.c |   21 +++++++++++++++++++++
+ ui/spice-display.h |    8 ++++++++
+ 4 files changed, 34 insertions(+), 21 deletions(-)
+
+diff --git a/hw/qxl.c b/hw/qxl.c
+index fe4212b..201698f 100644
+--- a/hw/qxl.c
++++ b/hw/qxl.c
+@@ -1062,7 +1062,7 @@ static void pipe_read(void *opaque)
+     int len;
+ 
+     do {
+-        len = read(d->pipe[0], &dummy, sizeof(dummy));
++        len = read(d->ssd.pipe[0], &dummy, sizeof(dummy));
+     } while (len == sizeof(dummy));
+     qxl_set_irq(d);
+ }
+@@ -1078,10 +1078,11 @@ static void qxl_send_events(PCIQXLDevice *d, uint32_t events)
+     if ((old_pending & le_events) == le_events) {
+         return;
+     }
+-    if (pthread_self() == d->main) {
++    if (pthread_self() == d->ssd.main) {
++        /* running in io_thread thread */
+         qxl_set_irq(d);
+     } else {
+-        if (write(d->pipe[1], d, 1) != 1) {
++        if (write(d->ssd.pipe[1], d, 1) != 1) {
+             dprint(d, 1, "%s: write to pipe failed\n", __FUNCTION__);
+         }
+     }
+@@ -1089,20 +1090,7 @@ static void qxl_send_events(PCIQXLDevice *d, uint32_t events)
+ 
+ static void init_pipe_signaling(PCIQXLDevice *d)
+ {
+-   if (pipe(d->pipe) < 0) {
+-       dprint(d, 1, "%s: pipe creation failed\n", __FUNCTION__);
+-       return;
+-   }
+-#ifdef CONFIG_IOTHREAD
+-   fcntl(d->pipe[0], F_SETFL, O_NONBLOCK);
+-#else
+-   fcntl(d->pipe[0], F_SETFL, O_NONBLOCK /* | O_ASYNC */);
+-#endif
+-   fcntl(d->pipe[1], F_SETFL, O_NONBLOCK);
+-   fcntl(d->pipe[0], F_SETOWN, getpid());
+-
+-   d->main = pthread_self();
+-   qemu_set_fd_handler(d->pipe[0], pipe_read, NULL, d);
++   qxl_create_server_to_iothread_pipe(&d->ssd, pipe_read);
+ }
+ 
+ /* graphics console */
+diff --git a/hw/qxl.h b/hw/qxl.h
+index f6c450d..701245f 100644
+--- a/hw/qxl.h
++++ b/hw/qxl.h
+@@ -55,10 +55,6 @@ typedef struct PCIQXLDevice {
+     } guest_surfaces;
+     QXLPHYSICAL        guest_cursor;
+ 
+-    /* thread signaling */
+-    pthread_t          main;
+-    int                pipe[2];
+-
+     /* ram pci bar */
+     QXLRam             *ram;
+     VGACommonState     vga;
+diff --git a/ui/spice-display.c b/ui/spice-display.c
+index 020b423..ec6e0cb 100644
+--- a/ui/spice-display.c
++++ b/ui/spice-display.c
+@@ -394,6 +394,27 @@ static DisplayChangeListener display_listener = {
+     .dpy_refresh = display_refresh,
+ };
+ 
++void qxl_create_server_to_iothread_pipe(SimpleSpiceDisplay *ssd,
++    IOHandler *pipe_read)
++{
++    if (pipe(ssd->pipe) < 0) {
++        fprintf(stderr, "%s: pipe creation failed\n", __FUNCTION__);
++        return;
++    }
++
++#ifdef CONFIG_IOTHREAD
++    fcntl(ssd->pipe[0], F_SETFL, O_NONBLOCK);
++#else
++    fcntl(ssd->pipe[0], F_SETFL, O_NONBLOCK /* | O_ASYNC */);
++#endif
++    fcntl(ssd->pipe[1], F_SETFL, O_NONBLOCK);
++
++    fcntl(ssd->pipe[0], F_SETOWN, getpid());
++
++    qemu_set_fd_handler(ssd->pipe[0], pipe_read, NULL, ssd);
++    ssd->main = pthread_self();
++}
++
+ void qemu_spice_display_init(DisplayState *ds)
+ {
+     assert(sdpy.ds == NULL);
+diff --git a/ui/spice-display.h b/ui/spice-display.h
+index aef0464..3e6cf7c 100644
+--- a/ui/spice-display.h
++++ b/ui/spice-display.h
+@@ -43,6 +43,11 @@ typedef struct SimpleSpiceDisplay {
+     QXLRect dirty;
+     int notify;
+     int running;
++
++    /* thread signaling - used both in qxl (in vga mode
++     * and in native mode) and without qxl */
++    pthread_t          main;
++    int                pipe[2];     /* to iothread */
+ } SimpleSpiceDisplay;
+ 
+ typedef struct SimpleSpiceUpdate {
+@@ -66,3 +71,6 @@ void qemu_spice_display_update(SimpleSpiceDisplay *ssd,
+                                int x, int y, int w, int h);
+ void qemu_spice_display_resize(SimpleSpiceDisplay *ssd);
+ void qemu_spice_display_refresh(SimpleSpiceDisplay *ssd);
++/* used by both qxl and spice-display */
++void qxl_create_server_to_iothread_pipe(SimpleSpiceDisplay *ssd,
++    IOHandler *pipe_read);
+-- 
+1.7.3.2
+

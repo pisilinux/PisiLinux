@@ -1,0 +1,321 @@
+Index: valgrind/coregrind/m_clientstate.c
+===================================================================
+--- valgrind/coregrind/m_clientstate.c	(revision 13015)
++++ valgrind/coregrind/m_clientstate.c	(working copy)
+@@ -64,6 +64,9 @@
+ /* A fd which refers to the fake /proc/<pid>/cmdline in /tmp. */
+ Int VG_(cl_cmdline_fd) = -1;
+ 
++/* A fd which refers to the fake /proc/<pid>/auxv in /tmp. */
++Int VG_(cl_auxv_fd) = -1;
++
+ // Command line pieces, after they have been extracted from argv in
+ // m_main.main().  The payload vectors are allocated in VG_AR_TOOL
+ // (the default arena).  They are never freed.
+Index: valgrind/coregrind/m_main.c
+===================================================================
+--- valgrind/coregrind/m_main.c	(revision 13015)
++++ valgrind/coregrind/m_main.c	(working copy)
+@@ -1871,14 +1871,17 @@
+    setup_file_descriptors();
+ 
+    //--------------------------------------------------------------
+-   // create the fake /proc/<pid>/cmdline file and then unlink it,
+-   // but hold onto the fd, so we can hand it out to the client
+-   // when it tries to open /proc/<pid>/cmdline for itself.
++   // create fake /proc/<pid>/cmdline and /proc/<pid>/auxv files
++   // and then unlink them, but hold onto the fds, so we can handr
++   // them out to the client when it tries to open
++   // /proc/<pid>/cmdline or /proc/<pid>/auxv for itself.
+    //   p: setup file descriptors
++   //   p: ii_create_image for VG_(client_auxv) setup.
+    //--------------------------------------------------------------
+ #if !defined(VGO_linux)
+    // client shouldn't be using /proc!
+    VG_(cl_cmdline_fd) = -1;
++   VG_(cl_auxv_fd) = -1;
+ #else
+    if (!need_help) {
+       HChar  buf[50], buf2[50+64];
+@@ -1915,6 +1918,34 @@
+          VG_(err_config_error)("Can't delete client cmdline file in %s\n", buf2);
+ 
+       VG_(cl_cmdline_fd) = fd;
++
++      VG_(debugLog)(1, "main", "Create fake /proc/<pid>/auxv\n");
++
++      VG_(sprintf)(buf, "proc_%d_auxv", VG_(getpid)());
++      fd = VG_(mkstemp)( buf, buf2 );
++      if (fd == -1)
++         VG_(err_config_error)("Can't create client auxv file in %s\n", buf2);
++
++      UWord *client_auxv = VG_(client_auxv);
++      unsigned int client_auxv_len = 0;
++      while (*client_auxv != 0) {
++         client_auxv++;
++         client_auxv++;
++         client_auxv_len += 2 * sizeof(UWord);
++      }
++      client_auxv_len += 2 * sizeof(UWord);
++
++      VG_(write)(fd, VG_(client_auxv), client_auxv_len);
++
++      /* Don't bother to seek the file back to the start; instead do
++	 it every time a copy of it is given out (by PRE(sys_open)). 
++	 That is probably more robust across fork() etc. */
++
++      /* Now delete it, but hang on to the fd. */
++      r = VG_(unlink)( buf2 );
++      if (r)
++         VG_(err_config_error)("Can't delete client cmdline file in %s\n", buf2);
++      VG_(cl_auxv_fd) = fd;
+    }
+ #endif
+ 
+Index: valgrind/coregrind/m_syswrap/syswrap-generic.c
+===================================================================
+--- valgrind/coregrind/m_syswrap/syswrap-generic.c	(revision 13015)
++++ valgrind/coregrind/m_syswrap/syswrap-generic.c	(working copy)
+@@ -3633,6 +3633,31 @@
+          return;
+       }
+    }
++
++   /* Handle the case where the open is of /proc/self/auxv or
++      /proc/<pid>/auxv, and just give it a copy of the fd for the
++      fake file we cooked up at startup (in m_main).  Also, seek the
++      cloned fd back to the start. */
++   {
++      HChar  name[30];
++      Char*  arg1s = (Char*) ARG1;
++      SysRes sres;
++
++      VG_(sprintf)(name, "/proc/%d/auxv", VG_(getpid)());
++      if (ML_(safe_to_deref)( arg1s, 1 ) &&
++          (VG_STREQ(arg1s, name) || VG_STREQ(arg1s, "/proc/self/auxv"))
++         )
++      {
++         sres = VG_(dup)( VG_(cl_auxv_fd) );
++         SET_STATUS_from_SysRes( sres );
++         if (!sr_isError(sres)) {
++            OffT off = VG_(lseek)( sr_Res(sres), 0, VKI_SEEK_SET );
++            if (off < 0)
++               SET_STATUS_Failure( VKI_EMFILE );
++         }
++         return;
++      }
++   }
+ #endif // defined(VGO_linux)
+ 
+    /* Otherwise handle normally */
+Index: valgrind/coregrind/m_syswrap/syswrap-linux.c
+===================================================================
+--- valgrind/coregrind/m_syswrap/syswrap-linux.c	(revision 13015)
++++ valgrind/coregrind/m_syswrap/syswrap-linux.c	(working copy)
+@@ -3332,6 +3332,22 @@
+       return;
+    }
+ 
++   /* Do the same for /proc/self/auxv or /proc/<pid>/auxv case. */
++
++   VG_(sprintf)(name, "/proc/%d/auxv", VG_(getpid)());
++   if (ML_(safe_to_deref)( (void*)ARG2, 1 )
++       && (VG_(strcmp)((Char *)ARG2, name) == 0 
++           || VG_(strcmp)((Char *)ARG2, "/proc/self/auxv") == 0)) {
++      sres = VG_(dup)( VG_(cl_auxv_fd) );
++      SET_STATUS_from_SysRes( sres );
++      if (!sr_isError(sres)) {
++         OffT off = VG_(lseek)( sr_Res(sres), 0, VKI_SEEK_SET );
++         if (off < 0)
++            SET_STATUS_Failure( VKI_EMFILE );
++      }
++      return;
++   }
++
+    /* Otherwise handle normally */
+    *flags |= SfMayBlock;
+ }
+Index: valgrind/coregrind/pub_core_clientstate.h
+===================================================================
+--- valgrind/coregrind/pub_core_clientstate.h	(revision 13015)
++++ valgrind/coregrind/pub_core_clientstate.h	(working copy)
+@@ -67,6 +67,9 @@
+    the file contents alive exactly until the process exits. */
+ extern Int VG_(cl_cmdline_fd);
+ 
++/* Same as above, but for /proc/<pid>/auxv. */
++extern Int VG_(cl_auxv_fd);
++
+ // Client's original rlimit data and rlimit stack
+ extern struct vki_rlimit VG_(client_rlimit_data);
+ extern struct vki_rlimit VG_(client_rlimit_stack);
+Index: valgrind/memcheck/tests/linux/Makefile.am
+===================================================================
+--- valgrind/memcheck/tests/linux/Makefile.am	(revision 13015)
++++ valgrind/memcheck/tests/linux/Makefile.am	(working copy)
+@@ -15,7 +15,8 @@
+ 	syscalls-2007.vgtest syscalls-2007.stderr.exp \
+ 	syslog-syscall.vgtest syslog-syscall.stderr.exp \
+ 	timerfd-syscall.vgtest timerfd-syscall.stderr.exp \
+-	with-space.stderr.exp with-space.stdout.exp with-space.vgtest
++	with-space.stderr.exp with-space.stdout.exp with-space.vgtest \
++	proc-auxv.vgtest proc-auxv.stderr.exp
+ 
+ check_PROGRAMS = \
+ 	brk \
+@@ -27,7 +28,8 @@
+ 	stack_switch \
+ 	syscalls-2007 \
+ 	syslog-syscall \
+-	timerfd-syscall
++	timerfd-syscall \
++	proc-auxv
+ 
+ 
+ AM_CFLAGS   += $(AM_FLAG_M3264_PRI)
+Index: memcheck/tests/linux/proc-auxv.c
+===================================================================
+--- valgrind/memcheck/tests/linux/proc-auxv.c	(revision 0)
++++ valgrind/memcheck/tests/linux/proc-auxv.c	(working copy)
+@@ -0,0 +1,62 @@
++#include <elf.h>
++#include <link.h>
++#include <stdio.h>
++#include <stddef.h>
++#include <string.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <stdlib.h>
++
++int
++main (int argc, char **argv, char **envp)
++{
++  ElfW(auxv_t) auxv;
++  ElfW(auxv_t) *auxv_p;
++
++  void *entry0 = NULL;
++  void *entry1 = NULL;
++
++  char *platform0 = NULL;
++  char *platform1 = NULL;
++
++  // First try the "traditional" way.
++  while (*envp++ != NULL)
++    ; /* Skip, skip, skip... and after finding a NULL we have the auxv. */
++
++  for (auxv_p = (ElfW(auxv_t) *) envp;
++       auxv_p->a_type != AT_NULL;
++       auxv_p++)
++    {
++      if (auxv_p->a_type == AT_ENTRY)
++	entry0 = (void *) auxv_p->a_un.a_val;
++      if (auxv_p->a_type == AT_PLATFORM)
++	platform0 = strdup((char *) auxv_p->a_un.a_val);
++    }
++
++  // Now the /proc way as often used in libraries.
++  int fd = open("/proc/self/auxv", O_RDONLY);
++  if (fd == -1)
++    return -1;
++
++  while (read(fd, &auxv, sizeof(auxv)) == sizeof(auxv))
++    {
++      if (auxv.a_type == AT_ENTRY)
++	entry1 = (void *) auxv.a_un.a_val;
++      if (auxv.a_type == AT_PLATFORM)
++	platform1 = strdup((char *) auxv.a_un.a_val);
++    }
++  close(fd);
++
++  if (entry0 == entry1 && entry0 != NULL)
++    fprintf(stderr, "entries OK\n");
++
++  if (strcmp (platform0, platform1) == 0)
++    fprintf(stderr, "platform OK\n");
++
++  free (platform0);
++  free (platform1);
++
++  return 0;
++}
+Index: valgrind/memcheck/tests/linux/proc-auxv.stderr.exp
+===================================================================
+--- valgrind/memcheck/tests/linux/proc-auxv.stderr.exp	(revision 0)
++++ valgrind/memcheck/tests/linux/proc-auxv.stderr.exp	(working copy)
+@@ -0,0 +1,2 @@
++entries OK
++platform OK
+Index: valgrind/memcheck/tests/linux/proc-auxv.vgtest
+===================================================================
+--- valgrind/memcheck/tests/linux/proc-auxv.vgtest	(revision 0)
++++ valgrind/memcheck/tests/linux/proc-auxv.vgtest	(working copy)
+@@ -0,0 +1,2 @@
++prog: proc-auxv
++vgopts: -q
+--- valgrind-3.8.1.orig/memcheck/tests/linux/Makefile.in	2012-09-18 21:19:20.000000000 +0200
++++ valgrind-3.8.1/memcheck/tests/linux/Makefile.in	2012-10-03 19:18:09.543945571 +0200
+@@ -57,7 +57,8 @@
+ check_PROGRAMS = brk$(EXEEXT) capget$(EXEEXT) lsframe1$(EXEEXT) \
+ 	lsframe2$(EXEEXT) sigqueue$(EXEEXT) stack_changes$(EXEEXT) \
+ 	stack_switch$(EXEEXT) syscalls-2007$(EXEEXT) \
+-	syslog-syscall$(EXEEXT) timerfd-syscall$(EXEEXT)
++	syslog-syscall$(EXEEXT) timerfd-syscall$(EXEEXT) \
++	proc-auxv$(EXEEXT)
+ subdir = memcheck/tests/linux
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+ am__aclocal_m4_deps = $(top_srcdir)/configure.in
+@@ -79,6 +80,9 @@
+ lsframe2_SOURCES = lsframe2.c
+ lsframe2_OBJECTS = lsframe2.$(OBJEXT)
+ lsframe2_LDADD = $(LDADD)
++proc_auxv_SOURCES = proc-auxv.c
++proc_auxv_OBJECTS = proc-auxv.$(OBJEXT)
++proc_auxv_LDADD = $(LDADD)
+ sigqueue_SOURCES = sigqueue.c
+ sigqueue_OBJECTS = sigqueue.$(OBJEXT)
+ sigqueue_LDADD = $(LDADD)
+@@ -106,11 +110,11 @@
+ 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
+ CCLD = $(CC)
+ LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
+-SOURCES = brk.c capget.c lsframe1.c lsframe2.c sigqueue.c \
++SOURCES = brk.c capget.c lsframe1.c lsframe2.c proc-auxv.c sigqueue.c \
+ 	stack_changes.c stack_switch.c syscalls-2007.c \
+ 	syslog-syscall.c timerfd-syscall.c
+-DIST_SOURCES = brk.c capget.c lsframe1.c lsframe2.c sigqueue.c \
+-	stack_changes.c stack_switch.c syscalls-2007.c \
++DIST_SOURCES = brk.c capget.c lsframe1.c lsframe2.c proc-auxv.c \
++	sigqueue.c stack_changes.c stack_switch.c syscalls-2007.c \
+ 	syslog-syscall.c timerfd-syscall.c
+ ETAGS = etags
+ CTAGS = ctags
+@@ -404,7 +408,8 @@
+ 	syscalls-2007.vgtest syscalls-2007.stderr.exp \
+ 	syslog-syscall.vgtest syslog-syscall.stderr.exp \
+ 	timerfd-syscall.vgtest timerfd-syscall.stderr.exp \
+-	with-space.stderr.exp with-space.stdout.exp with-space.vgtest
++	with-space.stderr.exp with-space.stdout.exp with-space.vgtest \
++	proc-auxv.vgtest proc-auxv.stderr.exp
+ 
+ stack_switch_LDADD = -lpthread
+ timerfd_syscall_LDADD = -lrt
+@@ -457,6 +462,9 @@
+ lsframe2$(EXEEXT): $(lsframe2_OBJECTS) $(lsframe2_DEPENDENCIES) 
+ 	@rm -f lsframe2$(EXEEXT)
+ 	$(LINK) $(lsframe2_OBJECTS) $(lsframe2_LDADD) $(LIBS)
++proc-auxv$(EXEEXT): $(proc_auxv_OBJECTS) $(proc_auxv_DEPENDENCIES) 
++	@rm -f proc-auxv$(EXEEXT)
++	$(LINK) $(proc_auxv_OBJECTS) $(proc_auxv_LDADD) $(LIBS)
+ sigqueue$(EXEEXT): $(sigqueue_OBJECTS) $(sigqueue_DEPENDENCIES) 
+ 	@rm -f sigqueue$(EXEEXT)
+ 	$(LINK) $(sigqueue_OBJECTS) $(sigqueue_LDADD) $(LIBS)
+@@ -486,6 +494,7 @@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/capget.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lsframe1.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lsframe2.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/proc-auxv.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sigqueue.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/stack_changes.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/stack_switch.Po@am__quote@

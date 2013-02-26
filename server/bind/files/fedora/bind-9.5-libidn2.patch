@@ -1,0 +1,221 @@
+diff -up bind-9.5.0b1/bin/dig/dighost.c.libidn2 bind-9.5.0b1/bin/dig/dighost.c
+--- bind-9.5.0b1/bin/dig/dighost.c.libidn2	2007-12-10 13:12:26.000000000 +0100
++++ bind-9.5.0b1/bin/dig/dighost.c	2007-12-10 14:21:09.000000000 +0100
+@@ -153,7 +153,7 @@ int  idnoptions	= 0;
+ #endif
+ 
+ #ifdef WITH_LIBIDN
+-static isc_result_t	libidn_locale_to_utf8 (const char* from, char **to);
++static isc_result_t	libidn_locale_to_utf8 (const char* from, char *to);
+ static isc_result_t	libidn_utf8_to_ascii (const char* from, char *to);
+ static isc_result_t	output_filter (isc_buffer_t *buffer,
+ 				       unsigned int used_org,
+@@ -1764,17 +1764,13 @@ setup_lookup(dig_lookup_t *lookup) {
+ 	char utf8_textname[MXNAME], utf8_origin[MXNAME], idn_textname[MXNAME];
+ #endif
+ #ifdef WITH_LIBIDN
+-	char *utf8_str = NULL, utf8_name[MXNAME], ascii_name[MXNAME];
++	char utf8_str[MXNAME], utf8_name[MXNAME], ascii_name[MXNAME];
+ #endif
+ 
+-#ifdef WITH_IDN
++#if defined (WITH_IDN) || defined (WITH_LIBIDN)
+ 	result = dns_name_settotextfilter(output_filter);
+ 	check_result(result, "dns_name_settotextfilter");
+ #endif
+-#ifdef WITH_LIBIDN
+-	result = dns_name_settotextfilter (output_filter);
+-	check_result(result, "dns_name_settotextfilter");
+-#endif
+ 	REQUIRE(lookup != NULL);
+ 	INSIST(!free_now);
+ 
+@@ -1812,15 +1808,13 @@ setup_lookup(dig_lookup_t *lookup) {
+ 			    utf8_textname, sizeof(utf8_textname));
+ 	idn_check_result(mr, "convert textname to UTF-8");
+ #elif defined (WITH_LIBIDN)
+-	result = libidn_locale_to_utf8 (lookup->textname, &utf8_str);
+-	check_result (result, "converting textname to UTF-8");
++	result = libidn_locale_to_utf8 (lookup->textname, utf8_str);
++	check_result (result, "convert textname to UTF-8");
+ 	len = strlen (utf8_str);
+-	if (len < MXNAME) {
++	if (len < MXNAME)
+ 		(void) strcpy (utf8_name, utf8_str);
+-	} else {
++	else
+ 		fatal ("Too long name");
+-	}
+-	isc_mem_free (mctx, utf8_str);
+ #endif
+ 
+ 	/*
+@@ -1833,24 +1827,11 @@ setup_lookup(dig_lookup_t *lookup) {
+ 	if (lookup->new_search) {
+ #ifdef WITH_IDN
+ 		if ((count_dots(utf8_textname) >= ndots) || !usesearch) {
+-			lookup->origin = NULL; /* Force abs lookup */
+-			lookup->done_as_is = ISC_TRUE;
+-			lookup->need_search = usesearch;
+-		} else if (lookup->origin == NULL && usesearch) {
+-			lookup->origin = ISC_LIST_HEAD(search_list);
+-			lookup->need_search = ISC_FALSE;
+-		}
+ #elif defined (WITH_LIBIDN)
+ 		if ((count_dots(utf8_name) >= ndots) || !usesearch) {
+-			lookup->origin = NULL; /* Force abs lookup */
+-			lookup->done_as_is = ISC_TRUE;
+-			lookup->need_search = usesearch;
+-		} else if (lookup->origin == NULL && usesearch) {
+-			lookup->origin = ISC_LIST_HEAD(search_list);
+-			lookup->need_search = ISC_FALSE;
+-		}
+ #else
+ 		if ((count_dots(lookup->textname) >= ndots) || !usesearch) {
++#endif
+ 			lookup->origin = NULL; /* Force abs lookup */
+ 			lookup->done_as_is = ISC_TRUE;
+ 			lookup->need_search = usesearch;
+@@ -1858,7 +1839,6 @@ setup_lookup(dig_lookup_t *lookup) {
+ 			lookup->origin = ISC_LIST_HEAD(search_list);
+ 			lookup->need_search = ISC_FALSE;
+ 		}
+-#endif
+ 	}
+ 
+ #ifdef WITH_IDN
+@@ -1877,15 +1857,12 @@ setup_lookup(dig_lookup_t *lookup) {
+ 	idn_check_result(mr, "convert UTF-8 textname to IDN encoding");
+ #elif defined (WITH_LIBIDN)
+ 	if (lookup->origin != NULL) {
+-		result = libidn_locale_to_utf8 (lookup->origin->origin, &utf8_str);
++		result = libidn_locale_to_utf8 (lookup->origin->origin, utf8_str);
+ 		check_result (result, "convert origin to UTF-8");
+-		if (len + strlen (utf8_str) + 1 < MXNAME) {
+-			utf8_name[len++] = '.';
++		if (len + strlen (utf8_str) < MXNAME)
+ 			(void) strcpy (utf8_name + len, utf8_str);
+-		} else {
++		else
+ 			fatal ("Too long name + origin");
+-		}
+-		isc_mem_free (mctx, utf8_str);
+ 	}
+ 
+ 	result = libidn_utf8_to_ascii (utf8_name, ascii_name);
+@@ -3600,76 +3577,85 @@ idn_check_result(idn_result_t r, const c
+ }
+ #endif /* WITH_IDN */
+ #ifdef WITH_LIBIDN
+-/* If stringprep_locale_to_utf8 fails simple copy string */
+ static isc_result_t
+-libidn_locale_to_utf8 (const char *from, char **to) {
++libidn_locale_to_utf8 (const char *from, char *to) {
+ 	char *utf8_str;
+ 
++	debug ("libidn_locale_to_utf8");
+ 	utf8_str = stringprep_locale_to_utf8 (from);
+-	if (utf8_str == NULL) {
+-		*to = isc_mem_allocate (mctx, strlen (from) + 1);
+-		if (*to == NULL)
+-			return (ISC_R_NOMEMORY);
+-		(void) strcpy (*to, from);
+-	} else {
+-		*to = isc_mem_allocate (mctx, strlen (utf8_str) + 1);
+-		if (*to == NULL)
+-			return (ISC_R_NOMEMORY);
+-		(void) strcpy (*to, utf8_str);
++	if (utf8_str != NULL) {
++		(void) strcpy (to, utf8_str);
+ 		free (utf8_str);
++		return ISC_R_SUCCESS;
+ 	}
+-	return (ISC_R_SUCCESS);
++
++	debug ("libidn_locale_to_utf8: failure");
++	return ISC_R_FAILURE;
+ }
+ static isc_result_t
+ libidn_utf8_to_ascii (const char *from, char *to) {
+ 	char *ascii;
++	int iresult;
+ 
+-	if (idna_to_ascii_8z (from, &ascii, 0) != IDNA_SUCCESS)
+-		return (ISC_R_FAILURE);
++	debug ("libidn_utf8_to_ascii");
++	iresult = idna_to_ascii_8z (from, &ascii, 0);
++	if (iresult != IDNA_SUCCESS) {
++		debug ("idna_to_ascii_8z: %s", idna_strerror (iresult));
++		return ISC_R_FAILURE;
++	}
+ 
+ 	(void) strcpy (to, ascii);
+ 	free (ascii);
+-	return (ISC_R_SUCCESS);
++	return ISC_R_SUCCESS;
+ }
+-/* based on idnkit's code*/
++
+ static isc_result_t
+ output_filter (isc_buffer_t *buffer, unsigned int used_org,
+ 	       isc_boolean_t absolute) {
++
+ 	char tmp1[MXNAME], *tmp2;
+         size_t fromlen, tolen;
+         isc_boolean_t end_with_dot;
++	int iresult;
++
++	debug ("output_filter");
+ 
+-        fromlen = isc_buffer_usedlength(buffer) - used_org;
++        fromlen = isc_buffer_usedlength (buffer) - used_org;
+ 	if (fromlen >= MXNAME)
+-		return (ISC_R_SUCCESS);
+-        memcpy(tmp1, (char *)isc_buffer_base(buffer) + used_org, fromlen);
++		return ISC_R_SUCCESS;
++        memcpy (tmp1, (char *) isc_buffer_base (buffer) + used_org, fromlen);
+         end_with_dot = (tmp1[fromlen - 1] == '.') ? ISC_TRUE : ISC_FALSE;
+         if (absolute && !end_with_dot) {
+                 fromlen++;
+ 		if (fromlen >= MXNAME)
+-			return (ISC_R_SUCCESS);
++			return ISC_R_SUCCESS;
+                 tmp1[fromlen - 1] = '.';
+         }
+         tmp1[fromlen] = '\0';
+ 
+-	if (idna_to_unicode_lzlz (tmp1, &tmp2, 0) != IDNA_SUCCESS)
+-		return (ISC_R_SUCCESS);
++	iresult = idna_to_unicode_8z8z (tmp1, &tmp2, 0);
++	if (iresult != IDNA_SUCCESS) {
++		debug ("output_filter: %s", idna_strerror (iresult));
++		return ISC_R_SUCCESS;
++	}
+ 
+ 	(void) strcpy (tmp1, tmp2);
+ 	free (tmp2);
+ 
+-        tolen = strlen(tmp1);
++        tolen = strlen (tmp1);
+         if (absolute && !end_with_dot && tmp1[tolen - 1] == '.')
+                 tolen--;
+ 
+-        if (isc_buffer_length(buffer) < used_org + tolen)
+-                return (ISC_R_NOSPACE);
++        if (isc_buffer_length (buffer) < used_org + tolen)
++                return ISC_R_NOSPACE;
++
++	debug ("%s", tmp1);
+ 
+-        isc_buffer_subtract(buffer, isc_buffer_usedlength(buffer) - used_org);
+-        memcpy(isc_buffer_used(buffer), tmp1, tolen);
+-        isc_buffer_add(buffer, tolen);
++        isc_buffer_subtract (buffer, isc_buffer_usedlength (buffer) - used_org);
++        memcpy (isc_buffer_used (buffer), tmp1, tolen);
++        isc_buffer_add (buffer, tolen);
+ 
+-        return (ISC_R_SUCCESS);
++        return ISC_R_SUCCESS;
+ }
+ #endif /* WITH_LIBIDN*/
+ 

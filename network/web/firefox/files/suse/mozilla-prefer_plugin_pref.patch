@@ -1,0 +1,58 @@
+From: Ubuntu
+Subject: introduce a pref to prefer certain plugins for mime-types
+
+diff --git a/dom/plugins/base/nsPluginHost.cpp b/dom/plugins/base/nsPluginHost.cpp
+--- a/dom/plugins/base/nsPluginHost.cpp
++++ b/dom/plugins/base/nsPluginHost.cpp
+@@ -1543,17 +1543,51 @@ nsPluginHost::FindPluginForType(const ch
+   if (!aMimeType) {
+     return nullptr;
+   }
+ 
+   LoadPlugins();
+ 
+   InfallibleTArray<nsPluginTag*> matchingPlugins;
+ 
++  char *preferredPluginPath = NULL;
++  nsAutoCString mimetypePrefString ("modules.plugins.mimetype.");
++  mimetypePrefString.Append(aMimeType);
++  const char *mimetypePrefChar = mimetypePrefString.get();
++  nsAdoptingCString pluginPath = Preferences::GetCString(mimetypePrefChar);
++  preferredPluginPath = (char*) pluginPath.get();
++
+   nsPluginTag *plugin = mPlugins;
++
++  if(preferredPluginPath) {
++    while (plugin) {
++      if (!aCheckEnabled || plugin->IsEnabled()) {
++        if (0 == PL_strcasecmp(plugin->mFileName.get(), preferredPluginPath) ||
++            0 == PL_strcasecmp(plugin->mFullPath.get(), preferredPluginPath)) {
++          matchingPlugins.AppendElement(plugin);
++        }
++      }
++      plugin = plugin->mNext;
++    }
++
++    // now lets search for substrings
++    plugin = mPlugins;
++    while (plugin) {
++      if (!aCheckEnabled || plugin->IsEnabled()) {
++        if (nullptr != PL_strstr(plugin->mFileName.get(), preferredPluginPath) ||
++            nullptr != PL_strstr(plugin->mFullPath.get(), preferredPluginPath)) {
++          matchingPlugins.AppendElement(plugin);
++        }
++      }
++      plugin = plugin->mNext;
++    }
++
++    return FindPreferredPlugin(matchingPlugins);
++  }
++
+   while (plugin) {
+     if (!aCheckEnabled || plugin->IsEnabled()) {
+       int32_t mimeCount = plugin->mMimeTypes.Length();
+       for (int32_t i = 0; i < mimeCount; i++) {
+         if (0 == PL_strcasecmp(plugin->mMimeTypes[i].get(), aMimeType)) {
+           matchingPlugins.AppendElement(plugin);
+           break;
+         }

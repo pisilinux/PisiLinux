@@ -1,0 +1,135 @@
+--- cscope-15.6/src/display.c.orig	2006-09-30 04:13:00.000000000 -0400
++++ cscope-15.6/src/display.c	2007-05-25 10:15:14.000000000 -0400
+@@ -113,6 +113,7 @@
+ 	{"Find this", "file",				findfile},
+ 	{"Find", "files #including this file",		findinclude},
+ 	{"Find all", "function definitions",		findallfcns},	/* samuel only */
++	{"Find all", "symbol assignments",		findassign},
+ };
+ 
+ /* Internal prototypes: */
+--- cscope-15.6/src/global.h.orig	2006-09-30 04:13:00.000000000 -0400
++++ cscope-15.6/src/global.h	2007-05-25 10:15:14.000000000 -0400
+@@ -327,6 +327,7 @@
+ char	*findfile(char *dummy);
+ char	*findinclude(char *pattern);
+ char	*findsymbol(char *pattern);
++char	*findassign(char *pattern);
+ char	*findregexp(char *egreppat);
+ char	*findstring(char *pattern);
+ char	*inviewpath(char *file);
+--- cscope-15.6/src/find.c.orig	2006-09-30 04:13:00.000000000 -0400
++++ cscope-15.6/src/find.c	2007-05-25 10:15:27.000000000 -0400
+@@ -79,6 +79,8 @@
+ static	void	findcalledbysub(char *file, BOOL macro);
+ static	void	findterm(char *pattern);
+ static	void	putline(FILE *output);
++static  char    *find_symbol_or_assignment(char *pattern, BOOL assign_flag);
++static  BOOL    check_for_assignment(void);
+ static	void	putpostingref(POSTING *p, char *pat);
+ static	void	putref(int seemore, char *file, char *func);
+ static	void	putsource(int seemore, FILE *output);
+@@ -88,6 +90,77 @@
+ char *
+ findsymbol(char *pattern)
+ {
++	return find_symbol_or_assignment(pattern, NO);
++}
++
++/* find the symbol in the cross-reference, and look for assignments */
++char *
++findassign(char *pattern)
++{
++	return find_symbol_or_assignment(pattern, YES);
++}
++
++/* Test reference whether it's an assignment to the symbol found at
++ * (global variable) 'blockp' */
++static BOOL
++check_for_assignment(void) 
++{
++	/* Do the extra work here to determine if this is an
++	* assignment or not Do this by examining the next character
++	* or two in blockp */
++	char *asgn_char = blockp;
++	int i = 1; /*skip any leading \n*/
++
++	while(1) {
++		if (asgn_char[i] == blockmark) {
++			/* get the next block when we reach the end of
++			* the current block */
++			asgn_char = read_block();
++			i=0;
++		}
++		while (isspace((unsigned char) asgn_char[i])) {
++			/* skip any whitespace or \n */
++			i++;
++		}
++		/* this next character better be one of the assignment
++		* characters, ie: =, +=, -=, *=, %=, /=, &=, |=, ^=,
++		* ~= if not, then its a notmatched case */
++		if ((asgn_char[i] != '=') &&
++		   (asgn_char[i] != '+') && 
++		   (asgn_char[i] != '-') && 
++		   (asgn_char[i] != '*') && 
++		   (asgn_char[i] != '/') && 
++		   (asgn_char[i] != '%') && 
++		   (asgn_char[i] != '&') && 
++		   (asgn_char[i] != '|') && 
++		   (asgn_char[i] != '^') && 
++		   (asgn_char[i] != '~')) {
++			return NO;
++		} else {
++			/* if the first found character is = and the
++			* next found character is also =, then this
++			* is not an assignment.  likewise if the
++			* first character is not = (i.e. one of the
++			* +,-,*,etc. chars and the next character is
++			* not =, then this is not an assignment */
++			if ((((asgn_char[i] == '=')
++			     && (asgn_char[i+1] == '='))) 
++			   || ((asgn_char[i] != '=')
++				&& (asgn_char[i+1] != '='))) {
++				return NO;
++			}
++			/* if we pass all these filters then this is
++			* an assignment */
++			return YES;
++		} /* else(operator char?) */
++	} /* while(endless) */
++}
++
++/* The actual routine that does the work for findsymbol() and
++* findassign() */
++static char *
++find_symbol_or_assignment(char *pattern, BOOL assign_flag)
++{
+ 	char	file[PATHLEN + 1];	/* source file name */
+ 	char	function[PATLEN + 1];	/* function name */
+ 	char	macro[PATLEN + 1];	/* macro name */
+@@ -249,6 +322,14 @@
+ 			if (matchrest()) {
+ 				s = NULL;
+ 		matched:
++				/* if the assignment flag is set then
++				 * we are looking for assignments and
++				 * some extra filtering is needed */
++				if(assign_flag == YES
++				  && ! check_for_assignment())
++				       goto notmatched;
++
++
+ 				/* output the file, function or macro, and source line */
+ 				if (strcmp(macro, global) && s != macro) {
+ 					putref(0, file, macro);
+--- cscope-15.6/src/constants.h.orig	2006-09-30 04:13:00.000000000 -0400
++++ cscope-15.6/src/constants.h	2007-05-25 10:15:14.000000000 -0400
+@@ -101,7 +101,7 @@
+ #define	REGEXP		6
+ #define FILENAME	7
+ #define INCLUDES	8
+-#define	FIELDS		9
++#define	FIELDS		11
+ 
+ #if (BSD || V9) && !__NetBSD__ && !__FreeBSD__
+ # define TERMINFO	0	/* no terminfo curses */

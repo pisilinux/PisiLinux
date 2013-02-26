@@ -1,0 +1,182 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.210
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.210
+Problem:    Can't always find the file when using cscope.
+Solution:   Add the 'cscoperelative' option. (Raghavendra D Prabhu)
+Files:      runtime/doc/if_cscop.txt, runtime/doc/options.txt,
+            src/if_cscope.c, src/options.c, src/options.h
+
+
+*** ../mercurial/vim73/runtime/doc/if_cscop.txt	2010-09-30 21:38:08.000000000 +0200
+--- runtime/doc/if_cscop.txt	2011-06-12 19:54:26.000000000 +0200
+***************
+*** 271,276 ****
+--- 271,285 ----
+  	:set cst
+  	:set nocst
+  <
++ 							*cscoperelative* *csre*
++ If 'cscoperelative' set, then in absence of a prefix given to cscope (prefx
++ is the argument to -P option of cscope), basename of cscope.out location
++ (usually the project root directory) will be used as the prefix to construt
++ absolute path.The default is off. Note: This option is only effective when
++ cscope (cscopeprg) is initialized without a prefix path (-P). Examples: >
++ 	:set csre
++ 	:set nocsre
++ <
+  							*cscopetagorder* *csto*
+  The value of 'csto' determines the order in which |:cstag| performs a search.
+  If 'csto' is set to zero, cscope database(s) are searched first, followed
+*** ../mercurial/vim73/runtime/doc/options.txt	2011-05-19 12:22:41.000000000 +0200
+--- runtime/doc/options.txt	2011-06-12 20:00:10.000000000 +0200
+***************
+*** 2209,2214 ****
+--- 2209,2224 ----
+  	Specifies whether to use quickfix window to show cscope results.
+  	See |cscopequickfix|.
+  
++ 						*'cscoperelative'* *'csre'*
++ 'cscoperelative' 'csre' boolean (default off)
++ 			global
++ 			{not available when compiled without the |+cscope|
++ 			feature}
++ 			{not in Vi}
++ 	In the absence of a prefix (-P) for cscope. setting this option enables
++ 	to use the basename of cscope.out path as the prefix.
++ 	See |cscoperelative|.
++ 
+  				*'cscopetag'* *'cst'* *'nocscopetag'* *'nocst'*
+  'cscopetag' 'cst'	boolean (default off)
+  			global
+*** ../mercurial/vim73/src/if_cscope.c	2011-05-05 16:41:19.000000000 +0200
+--- src/if_cscope.c	2011-06-12 20:25:17.000000000 +0200
+***************
+*** 2471,2512 ****
+   */
+      static char *
+  cs_resolve_file(i, name)
+!     int i;
+      char *name;
+  {
+!     char *fullname;
+!     int len;
+  
+      /*
+!      * ppath is freed when we destroy the cscope connection.
+!      * fullname is freed after cs_make_vim_style_matches, after it's been
+!      * copied into the tag buffer used by vim
+       */
+      len = (int)(strlen(name) + 2);
+      if (csinfo[i].ppath != NULL)
+  	len += (int)strlen(csinfo[i].ppath);
+  
+      if ((fullname = (char *)alloc(len)) == NULL)
+  	return NULL;
+  
+!     /*
+!      * note/example: this won't work if the cscope output already starts
+       * "../.." and the prefix path is also "../..".  if something like this
+!      * happens, you are screwed up and need to fix how you're using cscope.
+!      */
+!     if (csinfo[i].ppath != NULL &&
+! 	(strncmp(name, csinfo[i].ppath, strlen(csinfo[i].ppath)) != 0) &&
+! 	(name[0] != '/')
+  #ifdef WIN32
+! 	&& name[0] != '\\' && name[1] != ':'
+  #endif
+! 	)
+  	(void)sprintf(fullname, "%s/%s", csinfo[i].ppath, name);
+      else
+  	(void)sprintf(fullname, "%s", name);
+  
+      return fullname;
+! } /* cs_resolve_file */
+  
+  
+  /*
+--- 2471,2531 ----
+   */
+      static char *
+  cs_resolve_file(i, name)
+!     int  i;
+      char *name;
+  {
+!     char	*fullname;
+!     int		len;
+!     char_u	*csdir = NULL;
+  
+      /*
+!      * Ppath is freed when we destroy the cscope connection.
+!      * Fullname is freed after cs_make_vim_style_matches, after it's been
+!      * copied into the tag buffer used by Vim.
+       */
+      len = (int)(strlen(name) + 2);
+      if (csinfo[i].ppath != NULL)
+  	len += (int)strlen(csinfo[i].ppath);
++     else if (p_csre && csinfo[i].fname != NULL)
++     {
++ 	/* If 'cscoperelative' is set and ppath is not set, use cscope.out
++ 	 * path in path resolution. */
++ 	csdir = alloc(MAXPATHL);
++ 	if (csdir != NULL)
++ 	{
++ 	    vim_strncpy(csdir, (char_u *)csinfo[i].fname,
++ 		    gettail((char_u *)csinfo[i].fname) - 1 - (char_u *)csinfo[i].fname);
++ 	    len += (int)STRLEN(csdir);
++ 	}
++     }
+  
+      if ((fullname = (char *)alloc(len)) == NULL)
+  	return NULL;
+  
+!     /* Note/example: this won't work if the cscope output already starts
+       * "../.." and the prefix path is also "../..".  if something like this
+!      * happens, you are screwed up and need to fix how you're using cscope. */
+!     if (csinfo[i].ppath != NULL
+! 	    && (strncmp(name, csinfo[i].ppath, strlen(csinfo[i].ppath)) != 0)
+! 	    && (name[0] != '/')
+  #ifdef WIN32
+! 	    && name[0] != '\\' && name[1] != ':'
+  #endif
+!        )
+  	(void)sprintf(fullname, "%s/%s", csinfo[i].ppath, name);
++     else if (csdir != NULL && csinfo[i].fname != NULL && STRLEN(csdir) > 0)
++     {
++ 	/* Check for csdir to be non empty to avoid empty path concatenated to
++ 	 * cscope output. TODO: avoid the unnecessary alloc/free of fullname. */
++ 	vim_free(fullname);
++ 	fullname = concat_fnames(csdir, (char_u *)name, TRUE);
++     }
+      else
+  	(void)sprintf(fullname, "%s", name);
+  
++     vim_free(csdir);
+      return fullname;
+! }
+  
+  
+  /*
+*** ../vim-7.3.209/src/version.c	2011-06-12 20:36:00.000000000 +0200
+--- src/version.c	2011-06-12 20:37:48.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     210,
+  /**/
+
+-- 
+Apathy Error: Don't bother striking any key.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

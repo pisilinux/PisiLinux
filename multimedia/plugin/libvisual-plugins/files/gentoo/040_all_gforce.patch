@@ -1,0 +1,860 @@
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/GeneralTools/Headers/XPtrList.h libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/GeneralTools/Headers/XPtrList.h
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/GeneralTools/Headers/XPtrList.h	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/GeneralTools/Headers/XPtrList.h	2007-02-04 16:58:19.000000000 +0100
+@@ -86,7 +86,7 @@
+ 		
+ 		//	Post:	Returns the number of items in this list.
+ 		//	Order:	O( 1 )
+-		inline long				Count() const														{ return length() / 4;		}
++		inline long				Count() const														{ return length() / sizeof(void*);		}
+ 		
+ 		//	Post:	All ptrs in this list are randomly reordered.
+ 		void					Randomize();
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/GeneralTools/UtilStr.cpp libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/GeneralTools/UtilStr.cpp
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/GeneralTools/UtilStr.cpp	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/GeneralTools/UtilStr.cpp	2007-02-04 17:31:26.000000000 +0100
+@@ -69,7 +69,7 @@
+ fprintf(stderr, "~UtilStr()->(this = %.8X mBuf = %.8X)\n", this, mBuf);
+ #endif
+ 	if ( mBuf ) 
+-		delete mBuf;
++		delete[] mBuf;
+ #if 0
+ fprintf(stderr, "<-~UtilStr()\n");
+ #endif
+@@ -172,7 +172,7 @@
+ 				if ( mStrLen > 0 )
+ 					Move( &mBuf[1], &oldBuf[1], mStrLen );
+ 			
+-				delete oldBuf;
++				delete[] oldBuf;
+ 			}
+ 		}
+ 				
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/GeneralTools/XPtrList.cpp libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/GeneralTools/XPtrList.cpp
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/GeneralTools/XPtrList.cpp	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/GeneralTools/XPtrList.cpp	2007-02-04 16:57:32.000000000 +0100
+@@ -1,3 +1,4 @@
++#include <limits.h>
+ #include "XPtrList.h"
+ #include "nodeClass.h"
+ 
+@@ -21,12 +22,12 @@
+ 
+ 
+ 
+-#define __ptr( idx )	*((void**) (base + idx * 4))
++#define __ptr( idx )   *((void**) (base + idx * sizeof(void*)))
+ 
+ long XPtrList::FetchPredIndex( const void* inPtr ) const {
+ 	long M, L = 0, R = Count()-1;
+ 	char* base = getCStr();
+-	long order = ( mOrdering == cSortHighToLow ) ? 0x80000000 : 0;
++	int order = ( mOrdering == cSortHighToLow ) ? INT_MIN : 0;
+ 
+ 	if ( R < 0 ) 
+ 		return 0;
+@@ -74,7 +75,7 @@
+ 
+ 	if ( mCompFcn ) {
+ 		i = FetchPredIndex( inMatch );
+-		curPtr = getCStr() + 4 * i;
++		curPtr = getCStr() + sizeof(void*) * i;
+ 		endPtr = getCStr() + length();
+ 		while ( curPtr < endPtr ) {
+ 			i++;
+@@ -85,7 +86,7 @@
+ 			// Stop checking when we hit items that aren't equal to inMatch
+ 			else if ( mCompFcn( inMatch, ptr ) != 0 )
+ 				break;
+-			curPtr += 4;
++			curPtr += sizeof(void*);
+ 		} }
+ 	else {
+ 		curPtr = getCStr();
+@@ -96,7 +97,7 @@
+ 			if ( *((void**) curPtr) == inMatch ) 
+ 				return i;
+ 			else
+-				curPtr += 4;
++				curPtr += sizeof(void*);
+ 		}
+ 	}
+ 
+@@ -111,10 +112,10 @@
+ 	
+ 	if ( mCompFcn ) {
+ 		i = FetchPredIndex( inPtrToAdd );
+-		Insert( i*4, (char*) &inPtrToAdd, 4 ); 
++		Insert( i*sizeof(void*), (char*) &inPtrToAdd, sizeof(void*) );
+ 		return i+1; }
+ 	else {
+-		UtilStr::Append( (char*) &inPtrToAdd, 4 );
++		UtilStr::Append( (char*) &inPtrToAdd, sizeof(void*) );
+ 		return Count();
+ 	}
+ }
+@@ -131,7 +132,7 @@
+ 	if ( inN > Count() )
+ 		inN = Count();
+ 	
+-	Insert( inN * 4, (char*) &inPtrToAdd, 4 );
++	Insert( inN * sizeof(void*), (char*) &inPtrToAdd, sizeof(void*) );
+ }
+ 
+ 
+@@ -156,11 +157,11 @@
+ 	
+ 	if ( inIndex >= 0 ) {
+ 		len = mStrLen;
+-		if ( inIndex >= len >> 2 ) {
+-			Insert( len, '\0', ( inIndex + 1 ) * 4 - len );
++		if ( inIndex >= len / sizeof(void*) ) {
++			Insert( len, '\0', ( inIndex + 1 ) * sizeof(void*) - len );
+ 		}
+ 			
+-		return *( (void**) ( mBuf + inIndex * 4 + 1 ) ); }
++		return *( (void**) ( mBuf + inIndex * sizeof(void*) + 1 ) ); }
+ 	else
+ 		return sDummy;
+ }
+@@ -184,10 +185,10 @@
+ 		inIndex--;
+ 		if ( mOrdering == cOrderNotImportant ) {
+ 			s = getCStr();
+-			*( (void**) (s + inIndex * 4) ) = *( (void**) (s + length() - 4 ) );
+-			Trunc( 4 ); }
++			*( (void**) (s + inIndex * sizeof(void*)) ) = *( (void**) (s + length() - sizeof(void*) ) );
++			Trunc( sizeof(void*) ); }
+ 		else 
+-			UtilStr::Remove( inIndex * 4 + 1, 4 );
++			UtilStr::Remove( inIndex * sizeof(void*) + 1, sizeof(void*) );
+ 		return true; }
+ 	else
+ 		return false;
+@@ -199,7 +200,7 @@
+ bool XPtrList::RemoveLast() {
+ 
+ 	if ( length() > 0 ) {
+-		Trunc( 4 );
++		Trunc( sizeof(void*) );
+ 		return true; }
+ 	else
+ 		return false;
+@@ -222,9 +223,9 @@
+ 			inIndex--;
+ 			s = getCStr();
+ 			if ( mOrdering == cOrderNotImportant )
+-				*( (void**) (s + inIndex * 4) ) = *( (void**) s);	
++				*( (void**) (s + inIndex * sizeof(void*)) ) = *( (void**) s);
+ 			else
+-				UtilStr::Move( s+4, s, inIndex * 4 );
++				UtilStr::Move( s+sizeof(void*), s, inIndex * sizeof(void*) );
+ 			*( (void**) s) = p;
+ 		}
+ 	}
+@@ -234,8 +235,8 @@
+ 
+ 
+ void* XPtrList::Fetch( long inIndex ) const {
+-	if ( inIndex >= 1 && inIndex <= length() >> 2 )
+-		return *( (void**) (getCStr() + ( inIndex - 1 ) * 4) );
++	if ( inIndex >= 1 && inIndex <= length() / sizeof(void*) )
++		return *( (void**) (getCStr() + ( inIndex - 1 ) * sizeof(void*)) );
+ 	else
+ 		return 0;
+ }
+@@ -244,8 +245,8 @@
+ bool XPtrList::Fetch( long inIndex, void** ioPtrDest ) const {
+ 	
+ 	if ( ioPtrDest ) {
+-		if ( inIndex >= 1 && inIndex <= length() / 4 ) {
+-			*ioPtrDest = *( (void**) (getCStr() + ( inIndex - 1 ) * 4) );
++		if ( inIndex >= 1 && inIndex <= length() / sizeof(void*) ) {
++			*ioPtrDest = *( (void**) (getCStr() + ( inIndex - 1 ) * sizeof(void*)) );
+ 			return true; }
+ 		else
+ 			*ioPtrDest = 0;
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/DrawXX.cpp libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/DrawXX.cpp
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/DrawXX.cpp	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/DrawXX.cpp	2007-02-04 17:27:24.000000000 +0100
+@@ -19,7 +19,7 @@
+ 	#define _EraseRect		EraseRect16
+ 	#define __Clr(r,g,b)	(((r & 0xF800) >> 1) | ((g & 0xF800) >> 6) | (b >> 11))
+ #elif P_SZ == 4
+-	#define PIXTYPE unsigned long
++	#define PIXTYPE uint32_t
+ 	#define REDSHIFT 16
+ 	#define GRNSHIFT 8
+ 	#define COLMASK 0xFF
+@@ -304,7 +304,7 @@
+ 
+ 
+ void PixPort::_EraseRect( const Rect* inRect ) {
+-	long width, height;
++	int32_t width, height;
+ 	int x, y;
+ 	char*	base;
+ 	Rect	r;
+@@ -340,8 +340,8 @@
+ 
+ 
+ void PixPort::_CrossBlur( char* inSrce, int inWidth, int inHeight, int inBytesPerRow, unsigned char* inRowBuf ) {
+-	long leftR, leftG, leftB, cenR, cenG, cenB, rightR, rightG, rightB;
+-	long topR, topG, topB, val, botR, botG, botB, x;
++	int32_t leftR, leftG, leftB, cenR, cenG, cenB, rightR, rightG, rightB;
++	int32_t topR, topG, topB, val, botR, botG, botB, x;
+ 	unsigned char *rowPos;
+ 	
+ 	// Init inRowBuf[]
+@@ -409,14 +409,13 @@
+ 
+ 
+ 
+-#define UL unsigned long
++#define UL uint32_t
+ #define DENOM_SHIFT 14
+ 
+-
+-void PixPort::_BoxBlur( char* inSrce, char* inDest, int inBoxWidth, int inWidth, int inHeight, int inSrceRowWidth, int inDestRowWidth, unsigned long* b, unsigned long inBackColor ) {
+-	register unsigned long* bEnd;
++void PixPort::_BoxBlur( char* inSrce, char* inDest, int inBoxWidth, int inWidth, int inHeight, int inSrceRowWidth, int inDestRowWidth, uint32_t* b, uint32_t inBackColor ) {
++	register uint32_t* bEnd;
+ 	register char *dest;
+-	register unsigned long b1R, b1G, b1B, b2R, b2G, b2B, b3R, b3G, b3B, val, box9W, i, numerator;
++	register uint32_t b1R, b1G, b1B, b2R, b2G, b2B, b3R, b3G, b3B, val, box9W, i, numerator;
+ 	register int x, half, useWidth;
+ 	
+ 	i = inBoxWidth * inBoxWidth * inBoxWidth;
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/Headers/PixPort.h libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/Headers/PixPort.h
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/Headers/PixPort.h	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/Headers/PixPort.h	2007-02-04 17:21:48.000000000 +0100
+@@ -1,6 +1,8 @@
+ #ifndef _PIXPORT_
+ #define _PIXPORT_
+ 
++#include <stdint.h>
++
+ #include "EgCommon.h"
+ 
+ #include "UtilStr.h"
+@@ -34,12 +36,12 @@
+ 
+ class PixTextStyle {
+ 	public:
+-	long					mPointSize;
++	int32_t                                 mPointSize;
+ 	UtilStr					mFontName;
+-	long					mStyle;
+-	long					mDeviceLineHeight;
++	int32_t                                 mStyle;
++	int32_t                                 mDeviceLineHeight;
+ 	long					mOSFontID;
+-	long					mOSStyle;	
++	int32_t                                 mOSStyle;
+ };
+ 
+ enum PixDrawMode {
+@@ -49,7 +51,7 @@
+ };
+ 
+ #define __Clr8(r,g,b)	( r >> 8 )
+-#define __Clr16(r,g,b)	((( ((unsigned long) r) & 0xF800) >> 1) | ((((unsigned long) g) & 0xF800) >> 6) | (((unsigned long) b) >> 11))
++#define __Clr16(r,g,b) ((( ((uint32_t) r) & 0xF800) >> 1) | ((((uint32_t) g) & 0xF800) >> 6) | (((uint32_t) b) >> 11))
+ #if EG_MAC != 0 || defined(UNIX_X)
+ #define	__Clr32(r,g,b)	(((r & 0xFF00) << 8) | (g & 0xFF00) | (b >> 8))
+ #elif EG_WIN
+@@ -94,17 +96,17 @@
+ 			
+ 
+ 		// Returns the current bit color depth from Init(). (8, 16, or 32)
+-		long					GetDepth()											{ return mBytesPerPix * 8; 	}
++		int32_t                                 GetDepth(){ return mBytesPerPix * 8;      }
+ 	
+ 		// See how many bytes there are per row
+-		long					GetRowSize() 										{	return mBytesPerRow;	}
++		int32_t					GetRowSize() 										{	return mBytesPerRow;	}
+ 		
+ 		
+ 		//	Sets the background colors (for erase rect and Blur() )
+ 		//  Returns the new pixel entry for the given color and this port
+ 		//  Note:  For 8 bit ports, the red 0-2^16 component maps directly to 0-255 pixel value
+-		long					SetBackColor( const RGBColor& inColor );
+-		long					SetBackColor( long inR, long inG, long inB );
++		int32_t					SetBackColor( const RGBColor& inColor );
++		int32_t					SetBackColor( int32_t inR, int32_t inG, int32_t inB );
+ 
+ 		//	Blurs the rect given in this image, with a given box filter of size (1=no blur)
+ 		//	If the dest is 0, the blur is applied to itself
+@@ -114,10 +116,10 @@
+ 		void					CrossBlur( const Rect& inRect );
+ 
+ 		// 	Sets the width of the pen
+-		void					SetLineWidth( long inWidth );
++		void					SetLineWidth( int32_t inWidth );
+ 		
+ 		//	Draw a line.  Use GetPortColor() to get a device color for a RGB
+-		void					Line( int sx, int sy, int ex, int ey, long inColor );
++		void					Line( int sx, int sy, int ex, int ey, int32_t inColor );
+ 		void					Line( int sx, int sy, int ex, int ey, const RGBColor& inS, const RGBColor& inE );
+ 
+ 		//	Sets the clip rgn for all drawing operations.  0 for the cliprect means to remove all clipping.
+@@ -125,7 +127,7 @@
+ 		void					SetClipRect( long inSX, long inSY, long inEX, long inEY );
+ 		
+ 		//  Note:  For 8 bit ports, the red 0-2^16 component maps directly to 0-255 pixel value
+-		inline long				GetPortColor_inline( long inR, long inG, long inB ) {
++		inline int32_t                          GetPortColor_inline( int32_t inR, int32_t inG, int32_t inB ) {
+ 			if ( mBytesPerPix == 2 )
+ 				return __Clr16( inR, inG, inB );
+ 			else if ( mBytesPerPix == 4 ) 
+@@ -137,11 +139,11 @@
+ 		void					SetTextMode( PixDrawMode inMode );
+ 		void					SetTextColor( PixPalEntry& inColor );
+ 		void					SetTextColor( RGBColor& inColor );
+-		void					DrawText( long inX, long inY, UtilStr& inStr )									{ DrawText( inX, inY, inStr.getCStr() ); 	}
+-		void					DrawText( long inX, long inY, const char* inStr );
++		void                                    DrawText( int32_t inX, int32_t inY, UtilStr& inStr )                                                                    { DrawText( inX, inY, inStr.getCStr() );        }
++		void                                    DrawText( int32_t inX, int32_t inY, const char* inStr );
+ 
+ 		// See how big some text is going to be...
+-		void					TextRect( const char* inStr, long& outWidth, long& outHeight );
++		void                                    TextRect( const char* inStr, int32_t& outWidth, int32_t& outHeight );
+ 		
+ 		//	Set the given rect to the current background color.  If no rect is specified, the entire port rect is cleared.
+ 		void					EraseRect( const Rect* inRect = 0 );
+@@ -153,15 +155,15 @@
+ 				
+ 		//	Gets a port/device color for a given RGB		
+ 		//  Note:  For 8 bit ports, the red 0-2^16 component maps directly to 0-255 pixel value
+-		long					GetPortColor( long inR, long inG, long inB );
+-		inline long				GetPortColor( const RGBColor& inColor )  		{ return GetPortColor( inColor.red, inColor.green, inColor.blue );  }
++		int32_t                                 GetPortColor( int32_t inR, int32_t inG, int32_t inB );
++		inline int32_t                          GetPortColor( const RGBColor& inColor )                 { return GetPortColor( inColor.red, inColor.green, inColor.blue );  }
+ 	
+ 		//	The guts for G-Force...  This PixPort must be in 8-bit mode to do anything.
+ #if 0
+ 		void					Fade( DeltaFieldData* inGrad )									{ Fade( mBits, mBytesPerRow, mX, mY, inGrad ); } 
+ 
+ #endif
+-		void					Fade( PixPort& inDest, DeltaFieldData* inGrad )					{ Fade( mBits, inDest.mBits, mBytesPerRow, mX, mY, (unsigned long*) inGrad -> mField ); } 
++		void                                    Fade( PixPort& inDest, DeltaFieldData* inGrad )                                 { Fade( mBits, inDest.mBits, mBytesPerRow, mX, mY, (uint32_t*) inGrad -> mField ); }
+ 		
+ 	
+ 		//	When this sprocket is set to 256 colors, you may change the palette it's using any time
+@@ -184,12 +186,12 @@
+ 		void					SelectFont( long inPixFontID );
+ 
+ 
+-		long					GetX()			{ return mX; }
+-		long					GetY()			{ return mY; }
++		int32_t					GetX()			{ return mX; }
++		int32_t					GetY()			{ return mY; }
+ 				
+ 		
+ 		static char*			sTemp;
+-		static long				sTempSize;
++		static int32_t				sTempSize;
+ 
+ 
+ 		#if EG_MAC
+@@ -203,11 +205,11 @@
+ 
+ 	
+ 		Rect					mClipRect;
+-		long					mBytesPerPix;
+-		long					mBytesPerRow;
+-		long					mX, mY;
+-		long					mBackColor;
+-		long					mLineWidth;
++		int32_t					mBytesPerPix;
++		int32_t					mBytesPerRow;
++		int32_t					mX, mY;
++		int32_t					mBackColor;
++		int32_t					mLineWidth;
+ 		
+ 		char*					mBits;
+ 		
+@@ -218,7 +220,7 @@
+ 		
+ 		XPtrList				mFonts;
+ 		long					mCurFontID;
+-		long					mDeviceLineHeight;
++		int32_t					mDeviceLineHeight;
+ 					
+ 		#if EG_WIN
+ 		BITMAPINFO				mInfo;
+@@ -230,26 +232,25 @@
+ 		void					EraseRect16( const Rect* inRect );
+ 		void					EraseRect32( const Rect* inRect );
+ 
+-
+-		static void				BoxBlur8 ( char* inSrce, char* inDest, int inBoxWidth, int inWidth, int inHeight, int inSrceRowSize, int inDestRowSize, unsigned long* temp, unsigned long inBackColor ); 
+-		static void				BoxBlur16( char* inSrce, char* inDest, int inBoxWidth, int inWidth, int inHeight, int inSrceRowSize, int inDestRowSize, unsigned long* temp, unsigned long inBackColor ); 
+-		static void				BoxBlur32( char* inSrce, char* inDest, int inBoxWidth, int inWidth, int inHeight, int inSrceRowSize, int inDestRowSize, unsigned long* temp, unsigned long inBackColor ); 
++		static void                             BoxBlur8 ( char* inSrce, char* inDest, int inBoxWidth, int inWidth, int inHeight, int inSrceRowSize, int inDestRowSize, uint32_t* temp, uint32_t inBackColor );
++		static void                             BoxBlur16( char* inSrce, char* inDest, int inBoxWidth, int inWidth, int inHeight, int inSrceRowSize, int inDestRowSize, uint32_t* temp, uint32_t inBackColor );
++		static void                             BoxBlur32( char* inSrce, char* inDest, int inBoxWidth, int inWidth, int inHeight, int inSrceRowSize, int inDestRowSize, uint32_t* temp, uint32_t inBackColor ); 
+ 
+ 		static void				CrossBlur8 ( char* inSrce, int inWidth, int inHeight, int inBytesPerRow, unsigned char* inRowBuf );
+ 		static void				CrossBlur16( char* inSrce, int inWidth, int inHeight, int inBytesPerRow, unsigned char* inRowBuf );
+ 		static void				CrossBlur32( char* inSrce, int inWidth, int inHeight, int inBytesPerRow, unsigned char* inRowBuf );
+ 
+-		void					Line8 ( int sx, int sy, int ex, int ey, long inColor );
+-		void					Line16( int sx, int sy, int ex, int ey, long inColor );
+-		void					Line32( int sx, int sy, int ex, int ey, long inColor );
++		void                                    Line8 ( int sx, int sy, int ex, int ey, int32_t inColor );
++		void                                    Line16( int sx, int sy, int ex, int ey, int32_t inColor );
++		void                                    Line32( int sx, int sy, int ex, int ey, int32_t inColor );
+ 
+ 
+-		void					Line8 ( int sx, int sy, int ex, int ey, long inR, long dR );
+-		void					Line16( int sx, int sy, int ex, int ey, const RGBColor& inS, long dR, long dG, long dB );
+-		void					Line32( int sx, int sy, int ex, int ey, const RGBColor& inS, long dR, long dG, long dB );
++		void                                    Line8 ( int sx, int sy, int ex, int ey, int32_t inR, int32_t dR );
++		void                                    Line16( int sx, int sy, int ex, int ey, const RGBColor& inS, int32_t dR, int32_t dG, int32_t dB );
++		void                                    Line32( int sx, int sy, int ex, int ey, const RGBColor& inS, int32_t dR, int32_t dG, int32_t dB );
+ 
+-		static void				Fade( const char* inSrce, char* inDest, long inBytesPerRow, long inX, long inY, unsigned long* inGrad );
+-		static void				Fade( char* ioPix, long inBytesPerRow, long inX, long inY, DeltaFieldData* inGrad );
++		static void                             Fade( const char* inSrce, char* inDest, int32_t inBytesPerRow, int32_t inX, int32_t inY, uint32_t* inGrad );
++		static void                             Fade( char* ioPix, int32_t inBytesPerRow, int32_t inX, int32_t inY, DeltaFieldData* inGrad );
+ };
+ 
+ #endif
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/LineXX.cpp libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/LineXX.cpp
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/LineXX.cpp	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/LineXX.cpp	2007-02-04 17:25:23.000000000 +0100
+@@ -4,33 +4,33 @@
+ 
+ #if CLR_INTERP
+ 	#if P_SZ != 1
+-	void PixPort::_Line( int sx, int sy, int ex, int ey, const RGBColor& inS, long dR, long dG, long dB ) {
++	void PixPort::_Line( int sx, int sy, int ex, int ey, const RGBColor& inS, int32_t dR, int32_t dG, int32_t dB ) {
+ 	#else
+-	void PixPort::_Line( int sx, int sy, int ex, int ey, long R, long dR ) {
++	void PixPort::_Line( int sx, int sy, int ex, int ey, int32_t R, int32_t dR ) {
+ 	#endif
+ #else
+-	void PixPort::_Line( int sx, int sy, int ex, int ey, long color ) {
++	void PixPort::_Line( int sx, int sy, int ex, int ey, int32_t color ) {
+ #endif
+-	long xDirection, rowOffset, error_term;
++	int32_t xDirection, rowOffset, error_term;
+ 	char* basePtr, *center;
+-	long xmov, ymov, dx, dy, t, j, lw;
+-	long penExtents;
++	int32_t xmov, ymov, dx, dy, t, j, lw;
++	int32_t penExtents;
+ 
+ 	#if CLR_INTERP
+-	long color;
++	int32_t color;
+ 	#if P_SZ != 1
+-	long R = inS.red;
+-	long G = inS.green;
+-	long B = inS.blue;
++	int32_t R = inS.red;
++	int32_t G = inS.green;
++	int32_t B = inS.blue;
+ 	#endif
+ 	#endif
+ 
+ 	// Half the coordinte if it's large (we copy the sign bit in the 2^31 digit)
+ 	// To do: use float clipping
+-	sx = ( ( (long) (sx & 0x80000000) ) >> 1 ) | ( sx & 0x3FFFFFFF );
+-	ex = ( ( (long) (ex & 0x80000000) ) >> 1 ) | ( ex & 0x3FFFFFFF );
+-	sy = ( ( (long) (sy & 0x80000000) ) >> 1 ) | ( sy & 0x3FFFFFFF );
+-	ey = ( ( (long) (ey & 0x80000000) ) >> 1 ) | ( ey & 0x3FFFFFFF );
++	sx = ( ( (int32_t) (sx & 0x80000000) ) >> 1 ) | ( sx & 0x3FFFFFFF );
++	ex = ( ( (int32_t) (ex & 0x80000000) ) >> 1 ) | ( ex & 0x3FFFFFFF );
++	sy = ( ( (int32_t) (sy & 0x80000000) ) >> 1 ) | ( sy & 0x3FFFFFFF );
++	ey = ( ( (int32_t) (ey & 0x80000000) ) >> 1 ) | ( ey & 0x3FFFFFFF );
+ 
+ 	// Modify the line width so that the actual width matches mLineWidth
+ 	lw = mLineWidth;	
+@@ -74,13 +74,13 @@
+ 
+ 		
+ 	#if CLR_INTERP && P_SZ != 1
+-	long len = sqrt( dx * dx + dy * dy ) + 1;
++	int32_t len = sqrt( dx * dx + dy * dy ) + 1;
+ 	dR /= len;
+ 	dG /= len;
+ 	dB /= len;
+ 	color = __Clr( R, G, B );
+ 	#elif CLR_INTERP && P_SZ == 1
+-	long len = sqrt( dx * dx + dy * dy ) + 1;
++	int32_t len = sqrt( dx * dx + dy * dy ) + 1;
+ 	dR /= len;
+ 	color = __Clr( R, G, B );
+ 	#endif
+@@ -128,7 +128,7 @@
+ 	basePtr = mBits + sy * mBytesPerRow + sx * P_SZ;
+ 	error_term = 0;
+ 	
+-	long halfW;
++	int32_t halfW;
+ 
+ 	if ( lw > 1 ) {
+ 	
+@@ -136,14 +136,14 @@
+ 		
+ 		
+ 		// Make a circle for the pen
+-		long c_x, tw = mLineWidth;
++		int32_t c_x, tw = mLineWidth;
+ 		halfW = ( tw ) >> 1;
+ 		
+ 		if ( tw < 12 ) {
+ 			char* c_shape;
+ 			__circ( tw, c_shape )
+ 			for ( j = 0; j < tw; j++ ) {
+-				long tmp = j - halfW;
++				int32_t tmp = j - halfW;
+ 				c_x = c_shape[ j ];
+ 				center = basePtr + (j-halfW) * mBytesPerRow;
+ 				for ( int k = c_x; k < tw - c_x; k++ ){
+@@ -153,8 +153,8 @@
+ 		else {		
+ 		
+ 			for ( j = 0; j < tw; j++ ) {
+-				long tmp = j - halfW;
+-				c_x = halfW - ( ( long ) sqrt( halfW * halfW - tmp * tmp ) );
++				int32_t tmp = j - halfW;
++				c_x = halfW - ( ( int32_t ) sqrt( halfW * halfW - tmp * tmp ) );
+ 				center = basePtr + (j-halfW) * mBytesPerRow;
+ 				for ( int k = c_x; k < tw - c_x; k++ ){
+ 					((PIXTYPE*) center)[k-halfW] = color;
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/PixPort.cpp libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/PixPort.cpp
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/PixPort.cpp	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/PixPort.cpp	2007-02-04 17:11:16.000000000 +0100
+@@ -38,7 +38,7 @@
+ #endif
+ 
+ 
+-long		PixPort::sTempSize			= 0;
++int32_t		PixPort::sTempSize                      = 0;
+ char*		PixPort::sTemp				= 0;
+ 
+ 	
+@@ -175,7 +175,7 @@
+ }
+ 
+ 
+-void PixPort::SetClipRect( long inSX, long inSY, long inEX, long inEY ) {
++void PixPort::SetClipRect( int32_t inSX, int32_t inSY, int32_t inEX, int32_t inEY ) {
+ 
+ 	Rect r;
+ 	
+@@ -321,8 +321,8 @@
+ 	Rect r = inRect;					\
+ 	__clipPt( r.left, r.top )			\
+ 	__clipPt( r.right, r.bottom )		\
+-	long width 	= r.right - r.left;		\
+-	long height = r.bottom - r.top;
++	int32_t width   = r.right - r.left;             \
++	int32_t height = r.bottom - r.top;
+ 
+ 
+ 
+@@ -333,10 +333,10 @@
+ 
+ 
+ 
+-long PixPort::GetPortColor( long inR, long inG, long inB ) {
++int32_t PixPort::GetPortColor( int32_t inR, int32_t inG, int32_t inB ) {
+ 	int bitDepth  =mBytesPerPix << 3;
+ 	
+-	long c;
++	int32_t c;
+ 	
+ 	if ( inR > 0xFFFF )	inR = 0xFFFF;
+ 	if ( inG > 0xFFFF )	inG = 0xFFFF;
+@@ -359,7 +359,7 @@
+ 
+ 
+ 
+-long PixPort::SetBackColor( const RGBColor& RGB ) {
++int32_t PixPort::SetBackColor( const RGBColor& RGB ) {
+ 
+ 	mBackColor = GetPortColor( RGB );
+ 	
+@@ -367,7 +367,7 @@
+ }
+ 
+ 
+-long PixPort::SetBackColor( long inR, long inG, long inB ) {
++int32_t PixPort::SetBackColor( int32_t inR, int32_t inG, int32_t inB ) {
+ 	mBackColor = GetPortColor( inR, inG, inB );
+ 
+ 	return mBackColor;
+@@ -435,18 +435,18 @@
+ 	#endif
+ 
+ 	// 3 box convolutions, 3 colors per pixel, 4 bytes per color
+-	long 	boxTempSize	= 36 * inBoxWidth;
++	int32_t         boxTempSize     = 36 * inBoxWidth;
+ 	char*	tempBits	= 0;
+-	unsigned long*	boxTemp;
+-	long	imgOffset	= mBytesPerPix * r.left + r.top * mBytesPerRow;
+-	long	bytesNeeded	= mBytesPerRow * (mY + 2) + boxTempSize;
++	uint32_t*       boxTemp;
++	int32_t imgOffset       = mBytesPerPix * r.left + r.top * mBytesPerRow;
++	int32_t bytesNeeded     = mBytesPerRow * (mY + 2) + boxTempSize;
+ 	
+ 	
+ 	// Resort to app's heap for temp mem if failed temp mem attempt or in win32
+ 	tempBits = mBlurTemp.Dim( bytesNeeded );
+ 
+ 	// Have the box temp and the pixel temp rgns use the same handle
+-	boxTemp = (unsigned long*) tempBits;
++	boxTemp = (uint32_t*) tempBits;
+ 	tempBits += boxTempSize;
+ 	
+ 	if ( ! inDestBits )
+@@ -477,7 +477,7 @@
+ 	#endif
+ 
+ 	// 3 box convolutions, 3 colors per pixel, 4 bytes per color
+-	long	imgOffset	= mBytesPerPix * r.left + r.top * mBytesPerRow;
++	int32_t imgOffset       = mBytesPerPix * r.left + r.top * mBytesPerRow;
+ 	
+ 	unsigned char* tempBits = (unsigned char*) mBlurTemp.Dim( mX * 3 );
+ 
+@@ -539,8 +539,7 @@
+ 	}
+ }
+ 
+-
+-void PixPort::Line( int sx, int sy, int ex, int ey, long inColor ) {
++void PixPort::Line( int sx, int sy, int ex, int ey, int32_t inColor ) {
+ 	
+ 	if ( mBytesPerPix == 2 ) 
+ 		Line16( sx, sy, ex, ey, inColor );
+@@ -555,7 +554,7 @@
+ #define CLR_LINE_THR	520
+ 
+ void PixPort::Line( int sx, int sy, int ex, int ey, const RGBColor& inS, const RGBColor& inE ) {
+-	long R, G, B, dR, dG, dB;
++	int32_t R, G, B, dR, dG, dB;
+ 	
+ 	R = inS.red;
+ 	G = inS.green;
+@@ -568,7 +567,7 @@
+ 	if (	dR > - CLR_LINE_THR && dR < CLR_LINE_THR &&
+ 			dG > - CLR_LINE_THR && dG < CLR_LINE_THR &&
+ 			dB > - CLR_LINE_THR && dB < CLR_LINE_THR ) {
+-		long color;
++		int32_t color;
+ 
+ 		if ( mBytesPerPix == 2 ) {
+ 			color = __Clr16( R, G, B );
+@@ -758,12 +757,12 @@
+ 
+ 	#ifdef UNIX_X
+ 	/* Palette index got stored */
+-	mfl_SetTextColor(mWorld, *((long *)&inColor) >> 24);
++	mfl_SetTextColor(mWorld, *((int32_t *)&inColor) >> 24);
+ 	#endif
+ }
+ 
+-void PixPort::TextRect( const char* inStr, long& outWidth, long& outHeight ) {
+-	long width, pos;
++void PixPort::TextRect( const char* inStr, int32_t& outWidth, int32_t& outHeight ) {
++	int32_t width, pos;
+ 	char c;
+ 	
+ 	outWidth  = 0;
+@@ -810,9 +809,8 @@
+ }
+ 
+ 
+-
+-void PixPort::DrawText( long inX, long inY, const char* inStr ) {
+-	long pos;
++void PixPort::DrawText( int32_t inX, int32_t inY, const char* inStr ) {
++	int32_t pos;
+ 	char c;
+ 	
+ 	__setupPort
+@@ -849,8 +847,7 @@
+ 	__restorePort
+ }
+ 
+-
+-void PixPort::SetLineWidth( long inLineWidth ) {
++void PixPort::SetLineWidth( int32_t inLineWidth ) {
+ 	if ( inLineWidth <= 0 )
+ 		mLineWidth = 1;
+ 	else if ( inLineWidth > MAX_LINE_WIDTH )
+@@ -894,8 +891,8 @@
+ // Assembly note w/ branch prediction:  the first block is chosen to be more probable
+ 
+ #include <stdio.h>
+-void PixPort::Fade( const char* inSrce, char* inDest, long inBytesPerRow, long inX, long inY, unsigned long* grad ) {
+-	unsigned long x, y, u, v, u1, v1, P1, P2, P3, P4, p;
++void PixPort::Fade( const char* inSrce, char* inDest, int32_t inBytesPerRow, int32_t inX, int32_t inY, uint32_t* grad ) {
++	uint32_t x, y, u, v, u1, v1, P1, P2, P3, P4, p;
+ 	const char* srceMap;
+ 	const char* srce;
+ 
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/math/ExprVirtualMachine.cpp libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/math/ExprVirtualMachine.cpp
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/math/ExprVirtualMachine.cpp	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/math/ExprVirtualMachine.cpp	2007-02-04 17:02:29.000000000 +0100
+@@ -21,7 +21,7 @@
+ 
+ 
+ #define __addInst( opcode, data16 )		long op = (opcode) | (data16);	\
+-										mProgram.Append( &op, 4 );
++										mProgram.Append( &op, sizeof(long) );
+ 					
+ 
+ #define REG_IN_USE	0x1
+@@ -184,7 +184,7 @@
+ void ExprVirtualMachine::Loadi( float* inVal, int inReg ) {
+ 	
+ 	__addInst( OP_LOAD, inReg )
+-	mProgram.Append( &inVal, 4 );
++	mProgram.Append( &inVal, sizeof(float*) );
+ }	
+ 
+ 
+@@ -193,7 +193,7 @@
+ 	
+ 	if ( inFcn ) {
+ 		__addInst( OP_USER_FCN, inReg )
+-		mProgram.Append( &inFcn, 4 );  }
++		mProgram.Append( &inFcn, sizeof(void*) );  }
+ 	else
+ 		Loadi( 0.0, inReg );
+ }
+@@ -246,7 +246,7 @@
+ 	
+ 	while ( PC < end ) {
+ 		inst = *((long*) PC);	
+-		PC += 4;
++		PC += sizeof(long);
+ 
+ 		opcode = inst & 0xFF000000;	
+ 		r1 = inst & 0xFF;
+@@ -254,10 +254,10 @@
+ 		
+ 		if ( opcode == OP_LOADIMMED ) {
+ 			v1 = *((float*) PC);
+-			PC += 4; }
++			PC += sizeof(float); }
+ 		else if ( opcode == OP_LOAD ) {				
+ 			v1 = **((float**) PC);
+-			PC += 4; }
++			PC += sizeof(float*); }
+ 		else {
+ 
+ 			_fetch( r1, v1 )
+@@ -290,7 +290,7 @@
+ 						v1 = fcn -> mFcn[ 0 ];
+ 					else
+ 						v1 = fcn -> mFcn[ size - 1 ];
+-					PC += 4;
++					PC += sizeof(void*);
+ 					break;
+ 				  }	
+ 				case OP_WLINEAR:
+@@ -299,10 +299,10 @@
+ 					float temp = **((float**) PC);
+ 					if ( opcode == OP_WEIGHT ) {
+ 						v1 = temp * v2 + ( 1.0 - temp ) * v1;
+-						PC += 4; }
++						PC += sizeof(float*); }
+ 					else {
+ 						v1 = **((float**) PC) * v1 + **((float**) PC+4) * v2;
+-						PC += 8;
++						PC += sizeof(float*) * 2;
+ 					}
+ 					break;
+ 		
+@@ -331,11 +331,11 @@
+ 	// Note that the output is moved to register 0
+ 	if ( inC2 ) {
+ 		__addInst( OP_WLINEAR, ( tempReg << 8 ) | 0 )
+-		mProgram.Append( &inC1, 4 );
+-		mProgram.Append( &inC2, 4 ); }
++		mProgram.Append( &inC1, sizeof(float*) );
++		mProgram.Append( &inC2, sizeof(float*) ); }
+ 	else {
+ 		__addInst( OP_WEIGHT, ( tempReg << 8 ) | 0 )
+-		mProgram.Append( &inC1, 4 );	
++		mProgram.Append( &inC1, sizeof(float*) ); 
+ 	}
+ 	
+ 	// The reg coloring for this VM is the OR of the two's coloring
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/math/Expression.cpp libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/math/Expression.cpp
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/math/Expression.cpp	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/math/Expression.cpp	2007-02-04 17:30:32.000000000 +0100
+@@ -2,6 +2,7 @@
+ 
+ #include <stdio.h>
+ #include <gettext.h>
++#include <stdlib.h>
+ 
+ #include "Expression.h"
+ 
+@@ -124,7 +125,7 @@
+ 			if ( firstParen > 0 ) {
+ 
+ 				// Translate the string of the fcn to a (one byte) sub op code number
+-				fcnCall = *((long*) inStr);
++				fcnCall = *((int32_t*) inStr);
+ 				#if EG_WIN || (defined(UNIX_X) && !defined(WORDS_BIGENDIAN))
+ 				fcnCall = EgOSUtils::RevBytes( fcnCall );
+ 				#endif
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/GForceCommon/G-Force.cpp libvisual-plugins-0.4.0/plugins/actor/G-Force/GForceCommon/G-Force.cpp
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/GForceCommon/G-Force.cpp	2007-02-04 16:50:10.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/GForceCommon/G-Force.cpp	2007-02-04 17:29:30.000000000 +0100
+@@ -1334,9 +1334,9 @@
+ 
+ 
+ void GForce::CalcTrackTextPos() {
+-	long height, width;
+-	long x = mCurPort -> GetX();
+-	long y = mCurPort -> GetY();
++	int32_t height, width;
++	int32_t x = mCurPort -> GetX();
++	int32_t y = mCurPort -> GetY();
+ 
+ 	mCurPort -> TextRect( mTrackText.getCStr(), width, height );
+ 	
+@@ -1467,8 +1467,8 @@
+ 	if ( inRect )
+ 		r = *inRect;
+ 
+-	long x = r.right - r.left;
+-	long y = r.bottom - r.top;
++	int32_t x = r.right - r.left;
++	int32_t y = r.bottom - r.top;
+ 
+ 	SetPort( 0, r, false );
+ 
+@@ -1480,8 +1480,8 @@
+ 	
+ 
+ void GForce::SetPort( GrafPtr inPort, const Rect& inRect, bool inFullScreen ) {
+-	long x = inRect.right - inRect.left;
+-	long y = inRect.bottom - inRect.top;
++	int32_t x = inRect.right - inRect.left;
++	int32_t y = inRect.bottom - inRect.top;
+ 
+ 	mOutPort = inPort;
+ 	mAtFullScreen = inFullScreen;
+diff -u -r libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/Headers/PixPort.h libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/Headers/PixPort.h
+--- libvisual-plugins-0.4.0.old/plugins/actor/G-Force/Common/UI/Headers/PixPort.h	2007-02-04 17:36:41.000000000 +0100
++++ libvisual-plugins-0.4.0/plugins/actor/G-Force/Common/UI/Headers/PixPort.h	2007-02-04 17:37:45.000000000 +0100
+@@ -124,7 +124,7 @@
+ 
+ 		//	Sets the clip rgn for all drawing operations.  0 for the cliprect means to remove all clipping.
+ 		void					SetClipRect( const Rect* inRect = 0 );
+-		void					SetClipRect( long inSX, long inSY, long inEX, long inEY );
++		void					SetClipRect( int32_t inSX, int32_t inSY, int32_t inEX, int32_t inEY );
+ 		
+ 		//  Note:  For 8 bit ports, the red 0-2^16 component maps directly to 0-255 pixel value
+ 		inline int32_t                          GetPortColor_inline( int32_t inR, int32_t inG, int32_t inB ) {

@@ -1,0 +1,580 @@
+Index: gdb-7.0.50.20100128/gdb/dwarf2read.c
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/dwarf2read.c	2010-01-28 12:53:37.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/dwarf2read.c	2010-01-28 12:54:34.000000000 +0100
+@@ -5818,12 +5818,14 @@ read_set_type (struct die_info *die, str
+   return set_die_type (die, set_type, cu);
+ }
+ 
+-/* First cut: install each common block member as a global variable.  */
++/* Create appropriate locally-scoped variables for all the DW_TAG_common_block
++   entries.  Create also TYPE_CODE_STRUCT listing all such variables to be
++   available for `info common'.  COMMON_BLOCK_DOMAIN is used to sepate the
++   common blocks name namespace from regular variable names.  */
+ 
+ static void
+ read_common_block (struct die_info *die, struct dwarf2_cu *cu)
+ {
+-  struct die_info *child_die;
+   struct attribute *attr;
+   struct symbol *sym;
+   CORE_ADDR base = (CORE_ADDR) 0;
+@@ -5848,10 +5850,40 @@ read_common_block (struct die_info *die,
+     }
+   if (die->child != NULL)
+     {
++      struct objfile *objfile = cu->objfile;
++      struct die_info *child_die;
++      struct type *type;
++      struct field *field;
++      char *name;
++      struct symbol *sym;
++
++      type = alloc_type (objfile);
++      TYPE_CODE (type) = TYPE_CODE_STRUCT;
++      /* Artificial type to be used only by `info common'.  */
++      TYPE_NAME (type) = "<common>";
++
++      child_die = die->child;
++      while (child_die && child_die->tag)
++	{
++	  TYPE_NFIELDS (type)++;
++	  child_die = sibling_die (child_die);
++	}
++
++      TYPE_FIELDS (type) = obstack_alloc (&objfile->objfile_obstack,
++					  sizeof (*TYPE_FIELDS (type))
++					  * TYPE_NFIELDS (type));
++      memset (TYPE_FIELDS (type), 0, sizeof (*TYPE_FIELDS (type))
++				     * TYPE_NFIELDS (type));
++      
++      field = TYPE_FIELDS (type);
+       child_die = die->child;
+       while (child_die && child_die->tag)
+ 	{
++	  /* Create the symbol in the DW_TAG_common_block block in the current
++	     symbol scope.  */
+ 	  sym = new_symbol (child_die, NULL, cu);
++
++	  /* Undocumented in DWARF3, when it can be present?  */
+ 	  attr = dwarf2_attr (child_die, DW_AT_data_member_location, cu);
+ 	  if (attr)
+ 	    {
+@@ -5869,8 +5901,25 @@ read_common_block (struct die_info *die,
+ 	      SYMBOL_VALUE_ADDRESS (sym) = base + byte_offset;
+ 	      add_symbol_to_list (sym, &global_symbols);
+ 	    }
++
++	  if (SYMBOL_CLASS (sym) == LOC_STATIC)
++	    SET_FIELD_PHYSADDR (*field, SYMBOL_VALUE_ADDRESS (sym));
++	  else
++	    SET_FIELD_PHYSNAME (*field, SYMBOL_LINKAGE_NAME (sym));
++	  FIELD_TYPE (*field) = SYMBOL_TYPE (sym);
++	  FIELD_NAME (*field) = SYMBOL_NATURAL_NAME (sym);
++	  field++;
+ 	  child_die = sibling_die (child_die);
+ 	}
++
++      /* TYPE_LENGTH (type) is left 0 - it is only a virtual structure even
++	 with no consecutive address space.  */
++
++      sym = new_symbol (die, type, cu);
++      /* SYMBOL_VALUE_ADDRESS never gets used as all its fields are static.  */
++      SYMBOL_VALUE_ADDRESS (sym) = base;
++
++      set_die_type (die, type, cu);
+     }
+ }
+ 
+@@ -9061,6 +9110,13 @@ new_symbol (struct die_info *die, struct
+ 	    {
+ 	      var_decode_location (attr, sym, cu);
+ 	      attr2 = dwarf2_attr (die, DW_AT_external, cu);
++
++	      /* Fortran explicitly imports any global symbols to the local
++		 scope by DW_TAG_common_block.  */
++	      if (cu->language == language_fortran && die->parent
++		  && die->parent->tag == DW_TAG_common_block)
++		attr2 = NULL;
++
+ 	      if (attr2 && (DW_UNSND (attr2) != 0))
+ 		{
+ 		  struct pending **list_to_add;
+@@ -9245,6 +9301,11 @@ new_symbol (struct die_info *die, struct
+ 	  SYMBOL_DOMAIN (sym) = MODULE_DOMAIN;
+ 	  add_symbol_to_list (sym, &global_symbols);
+ 	  break;
++	case DW_TAG_common_block:
++	  SYMBOL_CLASS (sym) = LOC_STATIC;
++	  SYMBOL_DOMAIN (sym) = COMMON_BLOCK_DOMAIN;
++	  add_symbol_to_list (sym, cu->list_in_scope);
++	  break;
+ 	default:
+ 	  /* Not a tag we recognize.  Hopefully we aren't processing
+ 	     trash data, but since we must specifically ignore things
+Index: gdb-7.0.50.20100128/gdb/f-lang.c
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/f-lang.c	2010-01-28 12:53:38.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/f-lang.c	2010-01-28 12:53:46.000000000 +0100
+@@ -446,27 +446,3 @@ _initialize_f_language (void)
+ 
+   add_language (&f_language_defn);
+ }
+-
+-SAVED_F77_COMMON_PTR head_common_list = NULL;	/* Ptr to 1st saved COMMON  */
+-
+-/* This routine finds the first encountred COMMON block named "name" 
+-   that belongs to function funcname */
+-
+-SAVED_F77_COMMON_PTR
+-find_common_for_function (char *name, char *funcname)
+-{
+-
+-  SAVED_F77_COMMON_PTR tmp;
+-
+-  tmp = head_common_list;
+-
+-  while (tmp != NULL)
+-    {
+-      if (strcmp (tmp->name, name) == 0
+-	  && strcmp (tmp->owning_function, funcname) == 0)
+-	return (tmp);
+-      else
+-	tmp = tmp->next;
+-    }
+-  return (NULL);
+-}
+Index: gdb-7.0.50.20100128/gdb/f-lang.h
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/f-lang.h	2010-01-28 12:53:38.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/f-lang.h	2010-01-28 12:53:46.000000000 +0100
+@@ -51,36 +51,8 @@ enum f90_range_type
+     NONE_BOUND_DEFAULT		/* "(low:high)"  */
+   };
+ 
+-struct common_entry
+-  {
+-    struct symbol *symbol;	/* The symbol node corresponding
+-				   to this component */
+-    struct common_entry *next;	/* The next component */
+-  };
+-
+-struct saved_f77_common
+-  {
+-    char *name;			/* Name of COMMON */
+-    char *owning_function;	/* Name of parent function */
+-    int secnum;			/* Section # of .bss */
+-    CORE_ADDR offset;		/* Offset from .bss for 
+-				   this block */
+-    struct common_entry *entries;	/* List of block's components */
+-    struct common_entry *end_of_entries;	/* ptr. to end of components */
+-    struct saved_f77_common *next;	/* Next saved COMMON block */
+-  };
+-
+-typedef struct saved_f77_common SAVED_F77_COMMON, *SAVED_F77_COMMON_PTR;
+-
+-typedef struct common_entry COMMON_ENTRY, *COMMON_ENTRY_PTR;
+-
+-extern SAVED_F77_COMMON_PTR head_common_list;	/* Ptr to 1st saved COMMON  */
+-
+-extern SAVED_F77_COMMON_PTR find_common_for_function (char *, char *);
+-
+ #define BLANK_COMMON_NAME_ORIGINAL "#BLNK_COM"	/* XLF assigned  */
+ #define BLANK_COMMON_NAME_MF77     "__BLNK__"	/* MF77 assigned  */
+-#define BLANK_COMMON_NAME_LOCAL    "__BLANK"	/* Local GDB */
+ 
+ /* When reasonable array bounds cannot be fetched, such as when 
+    you ask to 'mt print symbols' and there is no stack frame and 
+Index: gdb-7.0.50.20100128/gdb/f-valprint.c
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/f-valprint.c	2010-01-28 12:53:38.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/f-valprint.c	2010-01-28 12:53:46.000000000 +0100
+@@ -34,6 +34,8 @@
+ #include "gdbcore.h"
+ #include "command.h"
+ #include "block.h"
++#include "dictionary.h"
++#include "gdb_assert.h"
+ 
+ extern void _initialize_f_valprint (void);
+ static void info_common_command (char *, int);
+@@ -476,22 +478,54 @@ f_val_print (struct type *type, const gd
+   return 0;
+ }
+ 
+-static void
+-list_all_visible_commons (char *funname)
++static int
++info_common_command_for_block (struct block *block, struct frame_info *frame,
++			       const char *comname)
+ {
+-  SAVED_F77_COMMON_PTR tmp;
+-
+-  tmp = head_common_list;
++  struct dict_iterator iter;
++  struct symbol *sym;
++  int values_printed = 0;
++  const char *name;
++  struct value_print_options opts;
++
++  get_user_print_options (&opts);
++
++  ALL_BLOCK_SYMBOLS (block, iter, sym)
++    if (SYMBOL_DOMAIN (sym) == COMMON_BLOCK_DOMAIN)
++      {
++      	struct type *type = SYMBOL_TYPE (sym);
++	int index;
++
++	gdb_assert (SYMBOL_CLASS (sym) == LOC_STATIC);
++	gdb_assert (TYPE_CODE (type) == TYPE_CODE_STRUCT);
++
++	if (comname && (!SYMBOL_LINKAGE_NAME (sym)
++	                || strcmp (comname, SYMBOL_LINKAGE_NAME (sym)) != 0))
++	  continue;
++
++	values_printed = 1;
++	if (SYMBOL_PRINT_NAME (sym))
++	  printf_filtered (_("Contents of F77 COMMON block '%s':\n"),
++			   SYMBOL_PRINT_NAME (sym));
++	else
++	  printf_filtered (_("Contents of blank COMMON block:\n"));
++	
++	for (index = 0; index < TYPE_NFIELDS (type); index++)
++	  {
++	    struct value *val;
++
++	    gdb_assert (field_is_static (&TYPE_FIELD (type, index)));
++	    val = value_static_field (type, index);
++
++	    printf_filtered ("%s = ", TYPE_FIELD_NAME (type, index));
++	    value_print (val, gdb_stdout, &opts);
++	    putchar_filtered ('\n');
++	  }
+ 
+-  printf_filtered (_("All COMMON blocks visible at this level:\n\n"));
++	putchar_filtered ('\n');
++      }
+ 
+-  while (tmp != NULL)
+-    {
+-      if (strcmp (tmp->owning_function, funname) == 0)
+-	printf_filtered ("%s\n", tmp->name);
+-
+-      tmp = tmp->next;
+-    }
++  return values_printed;
+ }
+ 
+ /* This function is used to print out the values in a given COMMON 
+@@ -501,11 +535,9 @@ list_all_visible_commons (char *funname)
+ static void
+ info_common_command (char *comname, int from_tty)
+ {
+-  SAVED_F77_COMMON_PTR the_common;
+-  COMMON_ENTRY_PTR entry;
+   struct frame_info *fi;
+-  char *funname = 0;
+-  struct symbol *func;
++  struct block *block;
++  int values_printed = 0;
+ 
+   /* We have been told to display the contents of F77 COMMON 
+      block supposedly visible in this function.  Let us 
+@@ -517,74 +549,31 @@ info_common_command (char *comname, int 
+   /* The following is generally ripped off from stack.c's routine 
+      print_frame_info() */
+ 
+-  func = find_pc_function (get_frame_pc (fi));
+-  if (func)
++  block = get_frame_block (fi, 0);
++  if (block == NULL)
+     {
+-      /* In certain pathological cases, the symtabs give the wrong
+-         function (when we are in the first function in a file which
+-         is compiled without debugging symbols, the previous function
+-         is compiled with debugging symbols, and the "foo.o" symbol
+-         that is supposed to tell us where the file with debugging symbols
+-         ends has been truncated by ar because it is longer than 15
+-         characters).
+-
+-         So look in the minimal symbol tables as well, and if it comes
+-         up with a larger address for the function use that instead.
+-         I don't think this can ever cause any problems; there shouldn't
+-         be any minimal symbols in the middle of a function.
+-         FIXME:  (Not necessarily true.  What about text labels) */
+-
+-      struct minimal_symbol *msymbol = 
+-	lookup_minimal_symbol_by_pc (get_frame_pc (fi));
+-
+-      if (msymbol != NULL
+-	  && (SYMBOL_VALUE_ADDRESS (msymbol)
+-	      > BLOCK_START (SYMBOL_BLOCK_VALUE (func))))
+-	funname = SYMBOL_LINKAGE_NAME (msymbol);
+-      else
+-	funname = SYMBOL_LINKAGE_NAME (func);
+-    }
+-  else
+-    {
+-      struct minimal_symbol *msymbol =
+-      lookup_minimal_symbol_by_pc (get_frame_pc (fi));
+-
+-      if (msymbol != NULL)
+-	funname = SYMBOL_LINKAGE_NAME (msymbol);
+-      else /* Got no 'funname', code below will fail.  */
+-	error (_("No function found for frame."));
++      printf_filtered (_("No symbol table info available.\n"));
++      return;
+     }
+ 
+-  /* If comname is NULL, we assume the user wishes to see the 
+-     which COMMON blocks are visible here and then return */
+-
+-  if (comname == 0)
++  while (block)
+     {
+-      list_all_visible_commons (funname);
+-      return;
++      if (info_common_command_for_block (block, fi, comname))
++	values_printed = 1;
++      /* After handling the function's top-level block, stop.  Don't
++         continue to its superblock, the block of per-file symbols.  */
++      if (BLOCK_FUNCTION (block))
++	break;
++      block = BLOCK_SUPERBLOCK (block);
+     }
+ 
+-  the_common = find_common_for_function (comname, funname);
+-
+-  if (the_common)
++  if (!values_printed)
+     {
+-      if (strcmp (comname, BLANK_COMMON_NAME_LOCAL) == 0)
+-	printf_filtered (_("Contents of blank COMMON block:\n"));
++      if (comname)
++	printf_filtered (_("No common block '%s'.\n"), comname);
+       else
+-	printf_filtered (_("Contents of F77 COMMON block '%s':\n"), comname);
+-
+-      printf_filtered ("\n");
+-      entry = the_common->entries;
+-
+-      while (entry != NULL)
+-	{
+-	  print_variable_and_value (NULL, entry->symbol, fi, gdb_stdout, 0);
+-	  entry = entry->next;
+-	}
++	printf_filtered (_("No common blocks.\n"));
+     }
+-  else
+-    printf_filtered (_("Cannot locate the common block %s in function '%s'\n"),
+-		     comname, funname);
+ }
+ 
+ void
+Index: gdb-7.0.50.20100128/gdb/stack.c
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/stack.c	2010-01-28 12:52:19.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/stack.c	2010-01-28 12:53:46.000000000 +0100
+@@ -1474,6 +1474,8 @@ print_block_frame_locals (struct block *
+ 	case LOC_COMPUTED:
+ 	  if (SYMBOL_IS_ARGUMENT (sym))
+ 	    break;
++	  if (SYMBOL_DOMAIN (sym) == COMMON_BLOCK_DOMAIN)
++	    break;
+ 	  values_printed = 1;
+ 	  print_variable_and_value (NULL, sym, frame, stream, 4 * num_tabs);
+ 	  break;
+Index: gdb-7.0.50.20100128/gdb/symtab.h
+===================================================================
+--- gdb-7.0.50.20100128.orig/gdb/symtab.h	2010-01-28 12:52:20.000000000 +0100
++++ gdb-7.0.50.20100128/gdb/symtab.h	2010-01-28 12:53:46.000000000 +0100
+@@ -401,7 +401,10 @@ typedef enum domain_enum_tag
+   TYPES_DOMAIN,
+ 
+   /* Fortran module.  Their naming must be separate.  */
+-  MODULE_DOMAIN
++  MODULE_DOMAIN,
++
++  /* Fortran common blocks.  Their naming must be separate from VAR_DOMAIN.  */
++  COMMON_BLOCK_DOMAIN
+ }
+ domain_enum;
+ 
+Index: gdb-7.0.50.20100128/gdb/testsuite/gdb.fortran/common-block.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.0.50.20100128/gdb/testsuite/gdb.fortran/common-block.exp	2010-01-28 12:53:46.000000000 +0100
+@@ -0,0 +1,101 @@
++# Copyright 2008 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++# This file was written by Jan Kratochvil <jan.kratochvil@redhat.com>.
++
++set testfile "common-block"
++set srcfile ${testfile}.f90
++set binfile ${objdir}/${subdir}/${testfile}
++
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug f77 quiet}] != "" } {
++    untested "Couldn't compile ${srcfile}"
++    return -1
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++if ![runto MAIN__] then {
++    perror "couldn't run to breakpoint MAIN__"
++    continue
++}
++
++gdb_breakpoint [gdb_get_line_number "stop-here-out"]
++gdb_continue_to_breakpoint "stop-here-out"
++
++# Common block naming with source name /foo/:
++#                .symtab  DW_TAG_common_block's DW_AT_name
++# Intel Fortran  foo_     foo_
++# GNU Fortran    foo_     foo
++#set suffix "_"
++set suffix ""
++
++set int4 {(integer\(kind=4\)|INTEGER\(4\))}
++set real4 {(real\(kind=4\)|REAL\(4\))}
++set real8 {(real\(kind=8\)|REAL\(8\))}
++
++gdb_test "whatis foo$suffix" "No symbol \"foo$suffix\" in current context."
++gdb_test "ptype foo$suffix" "No symbol \"foo$suffix\" in current context."
++gdb_test "p foo$suffix" "No symbol \"foo$suffix\" in current context."
++gdb_test "whatis fo_o$suffix" "No symbol \"fo_o$suffix\" in current context."
++gdb_test "ptype fo_o$suffix" "No symbol \"fo_o$suffix\" in current context."
++gdb_test "p fo_o$suffix" "No symbol \"fo_o$suffix\" in current context."
++
++gdb_test "info locals" "ix_x = 11\r\niy_y = 22\r\niz_z = 33\r\nix = 1\r\niy = 2\r\niz = 3" "info locals out"
++gdb_test "info common" "Contents of F77 COMMON block 'fo_o':\r\nix_x = 11\r\niy_y = 22\r\niz_z = 33\r\n\r\nContents of F77 COMMON block 'foo':\r\nix = 1\r\niy = 2\r\niz = 3" "info common out"
++
++gdb_test "ptype ix" "type = $int4" "ptype ix out"
++gdb_test "ptype iy" "type = $real4" "ptype iy out"
++gdb_test "ptype iz" "type = $real8" "ptype iz out"
++gdb_test "ptype ix_x" "type = $int4" "ptype ix_x out"
++gdb_test "ptype iy_y" "type = $real4" "ptype iy_y out"
++gdb_test "ptype iz_z" "type = $real8" "ptype iz_z out"
++
++gdb_test "p ix" " = 1 *" "p ix out"
++gdb_test "p iy" " = 2 *" "p iy out"
++gdb_test "p iz" " = 3 *" "p iz out"
++gdb_test "p ix_x" " = 11 *" "p ix_x out"
++gdb_test "p iy_y" " = 22 *" "p iy_y out"
++gdb_test "p iz_z" " = 33 *" "p iz_z out"
++
++gdb_breakpoint [gdb_get_line_number "stop-here-in"]
++gdb_continue_to_breakpoint "stop-here-in"
++
++gdb_test "whatis foo$suffix" "No symbol \"foo$suffix\" in current context." "whatis foo$suffix in"
++gdb_test "ptype foo$suffix" "No symbol \"foo$suffix\" in current context." "ptype foo$suffix in"
++gdb_test "p foo$suffix" "No symbol \"foo$suffix\" in current context." "p foo$suffix in"
++gdb_test "whatis fo_o$suffix" "No symbol \"fo_o$suffix\" in current context." "whatis fo_o$suffix in"
++gdb_test "ptype fo_o$suffix" "No symbol \"fo_o$suffix\" in current context." "ptype fo_o$suffix in"
++gdb_test "p fo_o$suffix" "No symbol \"fo_o$suffix\" in current context." "p fo_o$suffix in"
++
++gdb_test "info locals" "ix = 11\r\niy2 = 22\r\niz = 33\r\nix_x = 1\r\niy_y = 2\r\niz_z2 = 3\r\niy = 5\r\niz_z = 55" "info locals in"
++gdb_test "info common" "Contents of F77 COMMON block 'fo_o':\r\nix = 11\r\niy2 = 22\r\niz = 33\r\n\r\nContents of F77 COMMON block 'foo':\r\nix_x = 1\r\niy_y = 2\r\niz_z2 = 3" "info common in"
++
++gdb_test "ptype ix" "type = $int4" "ptype ix in"
++gdb_test "ptype iy2" "type = $real4" "ptype iy2 in"
++gdb_test "ptype iz" "type = $real8" "ptype iz in"
++gdb_test "ptype ix_x" "type = $int4" "ptype ix_x in"
++gdb_test "ptype iy_y" "type = $real4" "ptype iy_y in"
++gdb_test "ptype iz_z2" "type = $real8" "ptype iz_z2 in"
++
++gdb_test "p ix" " = 11 *" "p ix in"
++gdb_test "p iy2" " = 22 *" "p iy2 in"
++gdb_test "p iz" " = 33 *" "p iz in"
++gdb_test "p ix_x" " = 1 *" "p ix_x in"
++gdb_test "p iy_y" " = 2 *" "p iy_y in"
++gdb_test "p iz_z2" " = 3 *" "p iz_z2 in"
+Index: gdb-7.0.50.20100128/gdb/testsuite/gdb.fortran/common-block.f90
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.0.50.20100128/gdb/testsuite/gdb.fortran/common-block.f90	2010-01-28 12:53:46.000000000 +0100
+@@ -0,0 +1,67 @@
++! Copyright 2008 Free Software Foundation, Inc.
++!
++! This program is free software; you can redistribute it and/or modify
++! it under the terms of the GNU General Public License as published by
++! the Free Software Foundation; either version 2 of the License, or
++! (at your option) any later version.
++!
++! This program is distributed in the hope that it will be useful,
++! but WITHOUT ANY WARRANTY; without even the implied warranty of
++! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++! GNU General Public License for more details.
++!
++! You should have received a copy of the GNU General Public License
++! along with this program; if not, write to the Free Software
++! Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++!
++! Ihis file is the Fortran source file for dynamic.exp.
++! Original file written by Jakub Jelinek <jakub@redhat.com>.
++! Modified for the GDB testcase by Jan Kratochvil <jan.kratochvil@redhat.com>.
++
++subroutine in
++
++   INTEGER*4            ix
++   REAL*4               iy2
++   REAL*8               iz
++
++   INTEGER*4            ix_x
++   REAL*4               iy_y
++   REAL*8               iz_z2
++
++   common /fo_o/ix,iy2,iz
++   common /foo/ix_x,iy_y,iz_z2
++
++   iy = 5
++   iz_z = 55
++
++   if (ix .ne. 11 .or. iy2 .ne. 22.0 .or. iz .ne. 33.0) call abort
++   if (ix_x .ne. 1 .or. iy_y .ne. 2.0 .or. iz_z2 .ne. 3.0) call abort
++
++   ix = 0					! stop-here-in
++
++end subroutine in
++
++program common_test
++
++   INTEGER*4            ix
++   REAL*4               iy
++   REAL*8               iz
++
++   INTEGER*4            ix_x
++   REAL*4               iy_y
++   REAL*8               iz_z
++
++   common /foo/ix,iy,iz
++   common /fo_o/ix_x,iy_y,iz_z
++
++   ix = 1
++   iy = 2.0
++   iz = 3.0
++
++   ix_x = 11
++   iy_y = 22.0
++   iz_z = 33.0
++
++   call in					! stop-here-out
++
++end program common_test

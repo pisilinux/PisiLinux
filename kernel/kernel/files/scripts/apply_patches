@@ -1,0 +1,155 @@
+#!/bin/sh
+# Copyright (C) 2002,2007 by Mandriva,
+# Juan Quintela,
+# Herton Ronaldo Krzesinski <herton@mandriva.com>,
+# Redistribution of this file is permitted under the terms of the GNU
+# Public License (GPL)
+
+# This scripts applies all patches and 3rparty additions
+
+VERSION=0.4
+
+usage () {
+	echo "usage: `basename $0` [--version] [--start=<patch name>]" >&2
+	echo "                     [--stop=<patch name>] [-v,--verbose]" >&2
+	echo "                     [--keep_origs] [--patch_dir=<patch dir>]" >&2
+	exit 1
+}
+
+# Globals
+
+# verbose messages
+verbose=0
+keep_origs=0
+patch_dir=""
+start_at=""
+stop_at=""
+
+print () {
+	[  $verbose -eq 0 ] && return
+	echo -e "$1"
+}
+
+error () {
+	echo -e "$1" >&2
+	exit $2
+}
+
+# looking for options
+
+while [ $# -gt 0 ]; do
+	case $1 in
+		-v|--verborse)
+			verbose=1
+			;;
+		--keep_origs)
+			keep_origs=1
+			;;
+		--start=*)
+			start_at="`echo $1 | sed -e 's/--start=//'`"
+			;;
+		--stop=*)
+			stop_at=`echo $1 | sed -e 's/--stop=//'`
+			;;
+		--version)
+			echo "`basename $0`: version $VERSION"
+			exit 0
+			;;
+		--patch_dir=*)
+			patch_dir=`echo $1 | sed -e 's/--patch_dir=//'`
+			;;
+		*)
+			usage
+			;;
+	esac
+	shift
+done
+
+if [ -z "$patch_dir" ]; then
+	patch_dir=`dirname $0`/../patches
+fi
+
+if [ ! -d "$patch_dir" ]; then
+	error "$patch_dir is not a directory" 2
+fi
+
+print "patches dir is: $patch_dir"
+
+thirdseries_file="3rdparty.series"
+series_file="series"
+third_party="$patch_dir/$thirdseries_file"
+patch_series="$patch_dir/$series_file"
+
+# verify the integrity of patch dir, all patches must be listed in
+# series file and all third party additions on 3rdparty.series file
+files=""
+cat "$third_party" | grep -v "^[[:space:]]*#.*" > "$third_party".tmp
+cat "$patch_series" | grep -v "^[[:space:]]*#.*" > "$patch_series".tmp
+pushd "$patch_dir" >/dev/null
+	for file in *; do
+		[ "$file" != "$thirdseries_file"     -a \
+		  "$file" != "$series_file"          -a \
+		  "$file" != "$thirdseries_file.tmp" -a \
+		  "$file" != "$series_file.tmp"       ] \
+			|| continue
+		if echo $file | grep -q ".tar$"; then
+			grep -q "$file" "$thirdseries_file.tmp" 2>/dev/null \
+				|| files="$files $file"
+			continue
+		fi
+		if echo $file | grep -q ".patch$"; then
+			grep -q "$file" "$series_file.tmp" 2>/dev/null \
+				|| files="$files $file"
+			continue
+		fi
+		files="$files $file"
+	done
+popd >/dev/null
+rm -f {"$third_party","$patch_series"}.tmp
+if [ -n "$files" ]; then
+	echo -n "Error, unrecognized or missing file(s) from " >&2
+	echo    "$thirdseries_file/$series_file files:" >&2
+	for file in $files; do
+		echo $file >&2
+	done
+	exit 3
+fi
+
+# install third party additions; we separate 3rdparty from main patch
+# series because we can use then series file with quilt
+if [ -f "$third_party" ]; then
+	for file in `cat "$third_party" | grep -v "^[[:space:]]*#.*"`; do
+		print "processing $file"
+		tar -xf "$patch_dir/$file" \
+			|| error "failed to extract '$patch_dir/$file'" 4
+	done
+fi
+
+# patches
+if [ -f "$patch_series" ]; then
+	[ "$verbose" -ne 0 ] && silent="" || silent="-s"
+	for file in `cat "$patch_series" | grep -v "^[[:space:]]*#.*"`; do
+		if [ -n "$start_at" ]; then
+			if [ "$file" != "$start_at" ]; then
+				continue
+			else
+				print "started at $file"
+				unset start_at
+			fi
+		fi
+		if [ -n "$stop_at" ]; then
+			if [ "$file" == "$stop_at" ]; then
+				print "stopped at $file"
+				break
+			fi
+		fi
+		print "processing $file"
+		patch -p1 --fuzz=0 $silent -b -z .`basename $file .patch`.orig \
+			< "$patch_dir/$file"
+		[ "$?" -eq 0 ] || error "patch $file failed" 5
+	done
+fi
+
+[[ $keep_origs -eq 0 ]] && find . -name "*.orig" | xargs rm -f
+
+exit 0

@@ -1,0 +1,171 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.596
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.596
+Problem:    Can't remove all signs for a file or buffer.
+Solution:   Support "*" for the sign id. (Christian Brabandt)
+Files:	    runtime/doc/sign.txt, src/buffer.c, src/ex_cmds.c,
+	    src/proto/buffer.pro
+
+
+*** ../vim-7.3.595/runtime/doc/sign.txt	2010-08-15 21:57:17.000000000 +0200
+--- runtime/doc/sign.txt	2012-07-10 15:05:19.000000000 +0200
+***************
+*** 150,157 ****
+  		Remove the previously placed sign {id} from file {fname}.
+  		See remark above about {fname} |:sign-fname|.
+  
+  :sign unplace {id} buffer={nr}
+! 		Same, but use buffer {nr}.
+  
+  :sign unplace {id}
+  		Remove the previously placed sign {id} from all files it
+--- 153,166 ----
+  		Remove the previously placed sign {id} from file {fname}.
+  		See remark above about {fname} |:sign-fname|.
+  
++ :sign unplace * file={fname}
++ 		Remove all placed signs in file {fname}.
++ 
+  :sign unplace {id} buffer={nr}
+! 		Remove the previously placed sign {id} from buffer {nr}.
+! 
+! :sign unplace * buffer={nr}
+! 		Remove all placed signs in buffer {nr}.
+  
+  :sign unplace {id}
+  		Remove the previously placed sign {id} from all files it
+*** ../vim-7.3.595/src/buffer.c	2012-07-06 16:21:58.000000000 +0200
+--- src/buffer.c	2012-07-10 15:06:05.000000000 +0200
+***************
+*** 57,63 ****
+  
+  #if defined(FEAT_SIGNS)
+  static void insert_sign __ARGS((buf_T *buf, signlist_T *prev, signlist_T *next, int id, linenr_T lnum, int typenr));
+- static void buf_delete_signs __ARGS((buf_T *buf));
+  #endif
+  
+  #if defined(FEAT_WINDOWS) && defined(FEAT_QUICKFIX)
+--- 57,62 ----
+***************
+*** 5537,5543 ****
+  /*
+   * Delete signs in buffer "buf".
+   */
+!     static void
+  buf_delete_signs(buf)
+      buf_T	*buf;
+  {
+--- 5536,5542 ----
+  /*
+   * Delete signs in buffer "buf".
+   */
+!     void
+  buf_delete_signs(buf)
+      buf_T	*buf;
+  {
+*** ../vim-7.3.595/src/ex_cmds.c	2012-05-18 16:24:06.000000000 +0200
+--- src/ex_cmds.c	2012-07-10 15:14:22.000000000 +0200
+***************
+*** 6997,7002 ****
+--- 6997,7012 ----
+  		lnum = atoi((char *)arg);
+  		arg = skiptowhite(arg);
+  	    }
++ 	    else if (STRNCMP(arg, "*", 1) == 0 && idx == SIGNCMD_UNPLACE)
++ 	    {
++ 		if (id != -1)
++ 		{
++ 		    EMSG(_(e_invarg));
++ 		    return;
++ 		}
++ 		id = -2;
++ 		arg = skiptowhite(arg + 1);
++ 	    }
+  	    else if (STRNCMP(arg, "name=", 5) == 0)
+  	    {
+  		arg += 5;
+***************
+*** 7033,7039 ****
+  	{
+  	    EMSG2(_("E158: Invalid buffer name: %s"), arg);
+  	}
+! 	else if (id <= 0)
+  	{
+  	    if (lnum >= 0 || sign_name != NULL)
+  		EMSG(_(e_invarg));
+--- 7043,7049 ----
+  	{
+  	    EMSG2(_("E158: Invalid buffer name: %s"), arg);
+  	}
+! 	else if (id <= 0 && !(idx == SIGNCMD_UNPLACE && id == -2))
+  	{
+  	    if (lnum >= 0 || sign_name != NULL)
+  		EMSG(_(e_invarg));
+***************
+*** 7074,7084 ****
+  	}
+  	else if (idx == SIGNCMD_UNPLACE)
+  	{
+- 	    /* ":sign unplace {id} file={fname}" */
+  	    if (lnum >= 0 || sign_name != NULL)
+  		EMSG(_(e_invarg));
+  	    else
+  	    {
+  		lnum = buf_delsign(buf, id);
+  		update_debug_sign(buf, lnum);
+  	    }
+--- 7084,7100 ----
+  	}
+  	else if (idx == SIGNCMD_UNPLACE)
+  	{
+  	    if (lnum >= 0 || sign_name != NULL)
+  		EMSG(_(e_invarg));
++ 	    else if (id == -2)
++ 	    {
++ 		/* ":sign unplace * file={fname}" */
++ 		redraw_buf_later(buf, NOT_VALID);
++ 		buf_delete_signs(buf);
++ 	    }
+  	    else
+  	    {
++ 		/* ":sign unplace {id} file={fname}" */
+  		lnum = buf_delsign(buf, id);
+  		update_debug_sign(buf, lnum);
+  	    }
+*** ../vim-7.3.595/src/proto/buffer.pro	2012-02-22 14:58:24.000000000 +0100
+--- src/proto/buffer.pro	2012-07-10 15:06:10.000000000 +0200
+***************
+*** 60,65 ****
+--- 60,66 ----
+  int buf_findsign_id __ARGS((buf_T *buf, linenr_T lnum));
+  int buf_findsigntype_id __ARGS((buf_T *buf, linenr_T lnum, int typenr));
+  int buf_signcount __ARGS((buf_T *buf, linenr_T lnum));
++ void buf_delete_signs __ARGS((buf_T *buf));
+  void buf_delete_all_signs __ARGS((void));
+  void sign_list_placed __ARGS((buf_T *rbuf));
+  void sign_mark_adjust __ARGS((linenr_T line1, linenr_T line2, long amount, long amount_after));
+*** ../vim-7.3.595/src/version.c	2012-07-10 14:56:42.000000000 +0200
+--- src/version.c	2012-07-10 15:16:40.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     596,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+105. When someone asks you for your address, you tell them your URL.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

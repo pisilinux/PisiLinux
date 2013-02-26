@@ -1,0 +1,211 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.440
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.440
+Problem:    Vim does not support UTF8_STRING for the X selection.
+Solution:   Add UTF8_STRING atom support. (Alex Efros) Use it only when
+            'encoding' is set to Unicode.
+Files:      src/ui.c
+
+
+*** ../vim-7.3.439/src/ui.c	2012-02-04 21:57:44.000000000 +0100
+--- src/ui.c	2012-02-12 01:28:30.000000000 +0100
+***************
+*** 1917,1922 ****
+--- 1917,1923 ----
+  static Atom	vim_atom;	/* Vim's own special selection format */
+  #ifdef FEAT_MBYTE
+  static Atom	vimenc_atom;	/* Vim's extended selection format */
++ static Atom	utf8_atom;
+  #endif
+  static Atom	compound_text_atom;
+  static Atom	text_atom;
+***************
+*** 1930,1935 ****
+--- 1931,1937 ----
+      vim_atom	       = XInternAtom(dpy, VIM_ATOM_NAME,   False);
+  #ifdef FEAT_MBYTE
+      vimenc_atom	       = XInternAtom(dpy, VIMENC_ATOM_NAME,False);
++     utf8_atom	       = XInternAtom(dpy, "UTF8_STRING",   False);
+  #endif
+      compound_text_atom = XInternAtom(dpy, "COMPOUND_TEXT", False);
+      text_atom	       = XInternAtom(dpy, "TEXT",	   False);
+***************
+*** 2074,2080 ****
+      }
+  #endif
+  
+!     else if (*type == compound_text_atom || (
+  #ifdef FEAT_MBYTE
+  		enc_dbcs != 0 &&
+  #endif
+--- 2076,2086 ----
+      }
+  #endif
+  
+!     else if (*type == compound_text_atom
+! #ifdef FEAT_MBYTE
+! 	    || *type == utf8_atom
+! #endif
+! 	    || (
+  #ifdef FEAT_MBYTE
+  		enc_dbcs != 0 &&
+  #endif
+***************
+*** 2128,2134 ****
+  #else
+  	    1
+  #endif
+! 	    ; i < 5; i++)
+      {
+  	switch (i)
+  	{
+--- 2134,2140 ----
+  #else
+  	    1
+  #endif
+! 	    ; i < 6; i++)
+      {
+  	switch (i)
+  	{
+***************
+*** 2136,2145 ****
+  	    case 0:  type = vimenc_atom;	break;
+  #endif
+  	    case 1:  type = vim_atom;		break;
+! 	    case 2:  type = compound_text_atom; break;
+! 	    case 3:  type = text_atom;		break;
+  	    default: type = XA_STRING;
+  	}
+  	success = MAYBE;
+  	XtGetSelectionValue(myShell, cbd->sel_atom, type,
+  	    clip_x11_request_selection_cb, (XtPointer)&success, CurrentTime);
+--- 2142,2159 ----
+  	    case 0:  type = vimenc_atom;	break;
+  #endif
+  	    case 1:  type = vim_atom;		break;
+! #ifdef FEAT_MBYTE
+! 	    case 2:  type = utf8_atom;		break;
+! #endif
+! 	    case 3:  type = compound_text_atom; break;
+! 	    case 4:  type = text_atom;		break;
+  	    default: type = XA_STRING;
+  	}
++ #ifdef FEAT_MBYTE
++ 	if (type == utf8_atom && !enc_utf8)
++ 	    /* Only request utf-8 when 'encoding' is utf8. */
++ 	    continue;
++ #endif
+  	success = MAYBE;
+  	XtGetSelectionValue(myShell, cbd->sel_atom, type,
+  	    clip_x11_request_selection_cb, (XtPointer)&success, CurrentTime);
+***************
+*** 2230,2247 ****
+      {
+  	Atom *array;
+  
+! 	if ((array = (Atom *)XtMalloc((unsigned)(sizeof(Atom) * 6))) == NULL)
+  	    return False;
+  	*value = (XtPointer)array;
+  	i = 0;
+- 	array[i++] = XA_STRING;
+  	array[i++] = targets_atom;
+  #ifdef FEAT_MBYTE
+  	array[i++] = vimenc_atom;
+  #endif
+  	array[i++] = vim_atom;
+  	array[i++] = text_atom;
+  	array[i++] = compound_text_atom;
+  	*type = XA_ATOM;
+  	/* This used to be: *format = sizeof(Atom) * 8; but that caused
+  	 * crashes on 64 bit machines. (Peter Derr) */
+--- 2244,2266 ----
+      {
+  	Atom *array;
+  
+! 	if ((array = (Atom *)XtMalloc((unsigned)(sizeof(Atom) * 7))) == NULL)
+  	    return False;
+  	*value = (XtPointer)array;
+  	i = 0;
+  	array[i++] = targets_atom;
+  #ifdef FEAT_MBYTE
+  	array[i++] = vimenc_atom;
+  #endif
+  	array[i++] = vim_atom;
++ #ifdef FEAT_MBYTE
++ 	if (enc_utf8)
++ 	    array[i++] = utf8_atom;
++ #endif
++ 	array[i++] = XA_STRING;
+  	array[i++] = text_atom;
+  	array[i++] = compound_text_atom;
++ 
+  	*type = XA_ATOM;
+  	/* This used to be: *format = sizeof(Atom) * 8; but that caused
+  	 * crashes on 64 bit machines. (Peter Derr) */
+***************
+*** 2253,2258 ****
+--- 2272,2278 ----
+      if (       *target != XA_STRING
+  #ifdef FEAT_MBYTE
+  	    && *target != vimenc_atom
++ 	    && *target != utf8_atom
+  #endif
+  	    && *target != vim_atom
+  	    && *target != text_atom
+***************
+*** 2282,2294 ****
+  	return False;
+      }
+  
+!     if (*target == XA_STRING)
+      {
+  	mch_memmove(result, string, (size_t)(*length));
+! 	*type = XA_STRING;
+      }
+!     else if (*target == compound_text_atom
+! 	    || *target == text_atom)
+      {
+  	XTextProperty	text_prop;
+  	char		*string_nt = (char *)alloc((unsigned)*length + 1);
+--- 2302,2317 ----
+  	return False;
+      }
+  
+!     if (*target == XA_STRING
+! #ifdef FEAT_MBYTE
+! 	    || (*target == utf8_atom && enc_utf8)
+! #endif
+! 	    )
+      {
+  	mch_memmove(result, string, (size_t)(*length));
+! 	*type = *target;
+      }
+!     else if (*target == compound_text_atom || *target == text_atom)
+      {
+  	XTextProperty	text_prop;
+  	char		*string_nt = (char *)alloc((unsigned)*length + 1);
+*** ../vim-7.3.439/src/version.c	2012-02-12 00:31:47.000000000 +0100
+--- src/version.c	2012-02-12 01:34:22.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     440,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+42. Your virtual girlfriend finds a new net sweetheart with a larger bandwidth.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

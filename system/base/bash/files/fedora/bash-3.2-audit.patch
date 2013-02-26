@@ -1,0 +1,107 @@
+diff -up bash-4.0/config.h.in.audit bash-4.0/config.h.in
+--- bash-4.0/config.h.in.audit	2009-01-21 11:34:34.000000000 -0500
++++ bash-4.0/config.h.in	2009-01-21 11:34:35.000000000 -0500
+@@ -1077,6 +1077,14 @@
+ 
+ /* End additions for lib/intl */
+ 
++
++/* Additions for lib/readline */
++
++/* Define if you have <linux/audit.h> and it defines AUDIT_USER_TTY */
++#undef HAVE_DECL_AUDIT_USER_TTY
++
++/* End additions for lib/readline */
++
+ #include "config-bot.h"
+ 
+ #endif /* _CONFIG_H_ */
+diff -up bash-4.0/configure.in.audit bash-4.0/configure.in
+--- bash-4.0/configure.in.audit	2009-01-21 11:34:34.000000000 -0500
++++ bash-4.0/configure.in	2009-01-21 11:34:35.000000000 -0500
+@@ -875,6 +875,8 @@ BASH_FUNC_DUP2_CLOEXEC_CHECK
+ BASH_SYS_PGRP_SYNC
+ BASH_SYS_SIGNAL_VINTAGE
+ 
++AC_CHECK_DECLS([AUDIT_USER_TTY],,, [[#include <linux/audit.h>]])
++
+ dnl checking for the presence of certain library symbols
+ BASH_SYS_ERRLIST
+ BASH_SYS_SIGLIST
+diff -up bash-4.0/lib/readline/readline.c.audit bash-4.0/lib/readline/readline.c
+--- bash-4.0/lib/readline/readline.c.audit	2009-01-21 11:34:34.000000000 -0500
++++ bash-4.0/lib/readline/readline.c	2009-01-21 11:40:12.000000000 -0500
+@@ -55,6 +55,12 @@
+ extern int errno;
+ #endif /* !errno */
+ 
++#if defined (HAVE_DECL_AUDIT_USER_TTY)
++#  include <sys/socket.h>
++#  include <linux/audit.h>
++#  include <linux/netlink.h>
++#endif
++
+ /* System-specific feature definitions and include files. */
+ #include "rldefs.h"
+ #include "rlmbutil.h"
+@@ -297,7 +303,47 @@ rl_set_prompt (prompt)
+   rl_visible_prompt_length = rl_expand_prompt (rl_prompt);
+   return 0;
+ }
+-  
++
++#if defined (HAVE_DECL_AUDIT_USER_TTY)
++/* Report STRING to the audit system. */
++static void
++audit_tty (char *string)
++{
++  struct sockaddr_nl addr;
++  struct msghdr msg;
++  struct nlmsghdr nlm;
++  struct iovec iov[2];
++  size_t size;
++  int fd;
++
++  size = strlen (string) + 1;
++  fd = socket (AF_NETLINK, SOCK_RAW, NETLINK_AUDIT);
++  if (fd < 0)
++    return;
++  nlm.nlmsg_len = NLMSG_LENGTH (size);
++  nlm.nlmsg_type = AUDIT_USER_TTY;
++  nlm.nlmsg_flags = NLM_F_REQUEST;
++  nlm.nlmsg_seq = 0;
++  nlm.nlmsg_pid = 0;
++  iov[0].iov_base = &nlm;
++  iov[0].iov_len = sizeof (nlm);
++  iov[1].iov_base = string;
++  iov[1].iov_len = size;
++  addr.nl_family = AF_NETLINK;
++  addr.nl_pid = 0;
++  addr.nl_groups = 0;
++  msg.msg_name = &addr;
++  msg.msg_namelen = sizeof (addr);
++  msg.msg_iov = iov;
++  msg.msg_iovlen = 2;
++  msg.msg_control = NULL;
++  msg.msg_controllen = 0;
++  msg.msg_flags = 0;
++  (void)sendmsg (fd, &msg, 0);
++  close (fd);
++}
++#endif
++
+ /* Read a line of input.  Prompt with PROMPT.  An empty PROMPT means
+    none.  A return value of NULL means that EOF was encountered. */
+ char *
+@@ -348,6 +394,11 @@ readline (prompt)
+     RL_SETSTATE (RL_STATE_CALLBACK);
+ #endif
+ 
++#if defined (HAVE_DECL_AUDIT_USER_TTY)
++  if (value != NULL)
++    audit_tty (value);
++#endif
++
+   return (value);
+ }
+ 

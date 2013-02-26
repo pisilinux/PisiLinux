@@ -1,0 +1,137 @@
+diff -ruNb a//pisi/constants.py b//pisi/constants.py
+--- a//pisi/constants.py	2011-12-21 05:16:48.000000000 +0000
++++ b//pisi/constants.py	2012-12-16 17:21:44.832336063 +0000
+@@ -82,6 +82,7 @@
+         #when constant is the same as string. readability is important...
+         self.__c.actions_file = "actions.py"
+         self.__c.pspec_file = "pspec.xml"
++        self.__c.history_file = "history.xml"
+         self.__c.files_dir = "files"
+         self.__c.metadata_dir = "metadata"
+         self.__c.translations_file = "translations.xml"
+diff -ruNb a//pisi/specfile.py b//pisi/specfile.py
+--- a/pisi/specfile.py	2011-05-26 19:17:29.000000000 +0200
++++ b/pisi/specfile.py	2012-12-24 09:57:13.288825557 +0100
+@@ -387,6 +387,13 @@
+         return s + '\n'
+ 
+ 
++class HistorySpecFile(xmlfile.XmlFile):
++    __metaclass__ = autoxml.autoxml #needed when we specify a superclass
++
++    tag = "PISI"
++
++    t_History = [ [Update], autoxml.mandatory ]
++
+ class SpecFile(xmlfile.XmlFile):
+     __metaclass__ = autoxml.autoxml #needed when we specify a superclass
+ 
+@@ -394,11 +401,14 @@
+ 
+     t_Source = [ Source, autoxml.mandatory]
+     t_Packages = [ [Package], autoxml.mandatory, "Package"]
+-    t_History = [ [Update], autoxml.mandatory]
++    #t_History = [ [Update], autoxml.mandatory]
++    t_History = [ [Update], autoxml.optional]
+     t_Components = [ [component.Component], autoxml.optional, "Component"]
+     t_Groups = [ [group.Group], autoxml.optional, "Group"]
+ 
+     def decode_hook(self, node, errs, where):
++        if len(self.history) == 0:
++            return
+         current_version = self.history[0].version
+         current_release = self.history[0].release
+ 
+@@ -433,6 +443,39 @@
+         except AttributeError:
+             raise Error(_("translations.xml file is badly formed."))
+ 
++    def read_history (self, path, pspec_history = False):
++        ''' Read separate history.xml file '''
++        if not os.path.exists(path):
++            # need to raise errors
++            return
++        spec = HistorySpecFile ()
++        spec.read(path, ctx.config.tmp_dir())
++        if pspec_history:
++            # if exists history in pspec.xml and history.xml merge them  
++            self.history = pspec_history + spec.history
++        else: self.history = spec.history
++
++        if len(self.history) == 0:
++            # Still no history?? tut tut :)
++            raise Error (_("File '%s' has invalid XML") % (path) )
++
++        current_version = self.history[0].version
++        current_release = self.history[0].release
++
++        for package in self.packages:
++            deps = package.packageDependencies[:]
++            deps += sum([x.dependencies for x
++                         in package.packageAnyDependencies], [])
++            for dep in deps:
++                for attr_name, attr_value in dep.__dict__.items():
++                    if attr_value != "current":
++                        continue
++
++                    if attr_name.startswith("version"):
++                        dep.__dict__[attr_name] = current_version
++
++                    elif attr_name.startswith("release"):
++                        dep.__dict__[attr_name] = current_release
+ 
+     def read_translations(self, path):
+         if not os.path.exists(path):
+diff -ruNb a/operations/build.py b/operations/build.py
+--- a/pisi/operations/build.py	2012-12-24 09:58:23.000000000 +0100
++++ b/pisi/operations/build.py	2012-12-24 09:56:37.244826874 +0100
+@@ -211,6 +211,18 @@
+         else:
+             self.specdir = os.path.dirname(self.specuri.get_uri())
+ 
++
++        if len(self.spec.history) == 0:
++            # No history was found in the pspec. Attempt to source it
++            if specuri.is_remote_file ():
++                self.fetch_historyfile(mandatory = True)
++            self.read_history (self.specdir)
++        else:
++            # If exists in pspec.xml try append from history.xml if available
++            if specuri.is_remote_file ():
++                self.fetch_historyfile()
++            self.read_history (self.specdir, self.spec.history)
++
+         # Don't wait until creating .pisi file for complaining about versioning
+         # scheme errors
+         self.check_versioning(self.spec.getSourceVersion(),
+@@ -254,6 +266,11 @@
+         spec.read(self.specuri, ctx.config.tmp_dir())
+         self.spec = spec
+ 
++    def read_history (self, specdir, pspec_history = False):
++        self.spec.read_history (util.join_path (specdir,
++                                ctx.const.history_file),
++                                pspec_history)
++
+     def read_translations(self, specdir):
+         self.spec.read_translations(util.join_path(specdir,
+                                     ctx.const.translations_file))
+@@ -440,6 +457,18 @@
+         actionsuri = util.join_path(self.specdiruri, ctx.const.actions_file)
+         self.download(actionsuri, self.destdir)
+ 
++    def fetch_historyfile(self, mandatory = False):
++        historyuri = util.join_path(self.specdiruri, ctx.const.history_file)
++        if mandatory: self.download(historyuri, self.specdir)
++        else:
++            try:
++                self.download(historyuri, self.specdir)
++            except pisi.fetcher.FetchError:
++                # history.xml is not mandatory for PiSi if history exists in pspec.xml
++                history_partial_file = os.path.join(self.specdir, ctx.const.history_file + ctx.const.partial_suffix)
++                if os.stat(history_partial_file).st_size == 0:
++                    os.remove(history_partial_file)
++
+     def fetch_translationsfile(self):
+         translationsuri = util.join_path(self.specdiruri,
+                                          ctx.const.translations_file)

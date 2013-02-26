@@ -1,0 +1,90 @@
+Tue Jun 15 15:00:40 2010  James Cameron  <quozl@laptop.org>
+
+	* pptp_ctrl.c (pptp_conn_is_dead): immediately destroying the
+	connection and freeing the structure has led to segmentation
+	faults on more recent heap implementations, since we use the
+	structure after it has been freed.
+
+	Defer the free of the structure until after all uses of it have
+	ceased, by adding a connection state for dead and terminating the
+	main loop once it is detected.
+
+--- pptp_callmgr.c	2008-05-14 07:33:55.000000000 +0100
++++ pptp_callmgr.c	2010-06-15 14:32:00.478100392 +0100
+@@ -167,6 +170,7 @@
+     do {
+         int rc;
+         fd_set read_set = call_set, write_set;
++        if (pptp_conn_is_dead(conn)) break;
+         FD_ZERO (&write_set);
+         if (pptp_conn_established(conn)) {
+ 	  FD_SET (unix_sock, &read_set);
+@@ -294,6 +298,7 @@
+ 	}
+         /* with extreme prejudice */
+         pptp_conn_destroy(conn);
++        pptp_conn_free(conn);
+         vector_destroy(call_list);
+     }
+ cleanup:
+--- pptp_ctrl.c	2008-05-14 07:33:55.000000000 +0100
++++ pptp_ctrl.c	2010-06-15 14:32:00.480100647 +0100
+@@ -58,8 +62,11 @@
+ struct PPTP_CONN {
+     int inet_sock;
+     /* Connection States */
+-    enum { 
+-        CONN_IDLE, CONN_WAIT_CTL_REPLY, CONN_WAIT_STOP_REPLY, CONN_ESTABLISHED 
++    enum {
++      CONN_IDLE,
++      CONN_WAIT_CTL_REPLY, CONN_WAIT_STOP_REPLY,
++      CONN_ESTABLISHED,
++      CONN_DEAD
+     } conn_state; /* on startup: CONN_IDLE */
+     /* Keep-alive states */
+     enum { 
+@@ -448,6 +457,16 @@
+     close(conn->inet_sock);
+     /* deallocate */
+     vector_destroy(conn->call);
++    conn->conn_state = CONN_DEAD;
++}
++
++int pptp_conn_is_dead(PPTP_CONN * conn)
++{
++    return conn->conn_state == CONN_DEAD;
++}
++
++void pptp_conn_free(PPTP_CONN * conn)
++{
+     free(conn);
+ }
+ 
+@@ -1038,11 +1059,13 @@
+     int i;
+     /* "Keep Alives and Timers, 1": check connection state */
+     if (global.conn->conn_state != CONN_ESTABLISHED) {
+-        if (global.conn->conn_state == CONN_WAIT_STOP_REPLY) 
++        if (global.conn->conn_state == CONN_WAIT_STOP_REPLY) {
+             /* hard close. */
+             pptp_conn_destroy(global.conn);
+-        else /* soft close */
+-            pptp_conn_close(global.conn, PPTP_STOP_NONE);
++            return;
++        }
++        /* soft close */
++        pptp_conn_close(global.conn, PPTP_STOP_NONE);
+     }
+     /* "Keep Alives and Timers, 2": check echo status */
+     if (global.conn->ka_state == KA_OUTSTANDING) {
+--- pptp_ctrl.h	2008-05-14 07:33:55.000000000 +0100
++++ pptp_ctrl.h	2010-06-15 14:32:00.864975405 +0100
+@@ -33,6 +33,8 @@
+ void pptp_call_close(PPTP_CONN * conn, PPTP_CALL * call);
+ /* hard close. */
+ void pptp_call_destroy(PPTP_CONN *conn, PPTP_CALL *call);
++int pptp_conn_is_dead(PPTP_CONN * conn);
++void pptp_conn_free(PPTP_CONN * conn);
+ /* soft close.  Will callback on completion. */
+ void pptp_conn_close(PPTP_CONN * conn, u_int8_t close_reason);
+ /* hard close */

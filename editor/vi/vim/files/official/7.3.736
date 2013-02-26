@@ -1,0 +1,258 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.736
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.736
+Problem:    File name completion in input() escapes white space. (Frederic
+	    Hardy)
+Solution:   Do not escape white space. (Christian Brabandt)
+Files:	    src/ex_getln.c
+
+
+*** ../vim-7.3.735/src/ex_getln.c	2012-10-11 04:04:32.000000000 +0200
+--- src/ex_getln.c	2012-11-28 16:42:12.000000000 +0100
+***************
+*** 102,108 ****
+  static void	redrawcmdprompt __ARGS((void));
+  static void	cursorcmd __ARGS((void));
+  static int	ccheck_abbr __ARGS((int));
+! static int	nextwild __ARGS((expand_T *xp, int type, int options));
+  static void	escape_fname __ARGS((char_u **pp));
+  static int	showmatches __ARGS((expand_T *xp, int wildmenu));
+  static void	set_expand_context __ARGS((expand_T *xp));
+--- 102,108 ----
+  static void	redrawcmdprompt __ARGS((void));
+  static void	cursorcmd __ARGS((void));
+  static int	ccheck_abbr __ARGS((int));
+! static int	nextwild __ARGS((expand_T *xp, int type, int options, int escape));
+  static void	escape_fname __ARGS((char_u **pp));
+  static int	showmatches __ARGS((expand_T *xp, int wildmenu));
+  static void	set_expand_context __ARGS((expand_T *xp));
+***************
+*** 810,818 ****
+  		    did_wild_list = TRUE;
+  		}
+  		if (wim_flags[wim_index] & WIM_LONGEST)
+! 		    res = nextwild(&xpc, WILD_LONGEST, WILD_NO_BEEP);
+  		else if (wim_flags[wim_index] & WIM_FULL)
+! 		    res = nextwild(&xpc, WILD_NEXT, WILD_NO_BEEP);
+  		else
+  		    res = OK;	    /* don't insert 'wildchar' now */
+  	    }
+--- 810,820 ----
+  		    did_wild_list = TRUE;
+  		}
+  		if (wim_flags[wim_index] & WIM_LONGEST)
+! 		    res = nextwild(&xpc, WILD_LONGEST, WILD_NO_BEEP,
+! 							       firstc != '@');
+  		else if (wim_flags[wim_index] & WIM_FULL)
+! 		    res = nextwild(&xpc, WILD_NEXT, WILD_NO_BEEP,
+! 							       firstc != '@');
+  		else
+  		    res = OK;	    /* don't insert 'wildchar' now */
+  	    }
+***************
+*** 823,831 ****
+  		/* if 'wildmode' first contains "longest", get longest
+  		 * common part */
+  		if (wim_flags[0] & WIM_LONGEST)
+! 		    res = nextwild(&xpc, WILD_LONGEST, WILD_NO_BEEP);
+  		else
+! 		    res = nextwild(&xpc, WILD_EXPAND_KEEP, WILD_NO_BEEP);
+  
+  		/* if interrupted while completing, behave like it failed */
+  		if (got_int)
+--- 825,835 ----
+  		/* if 'wildmode' first contains "longest", get longest
+  		 * common part */
+  		if (wim_flags[0] & WIM_LONGEST)
+! 		    res = nextwild(&xpc, WILD_LONGEST, WILD_NO_BEEP,
+! 							       firstc != '@');
+  		else
+! 		    res = nextwild(&xpc, WILD_EXPAND_KEEP, WILD_NO_BEEP,
+! 							       firstc != '@');
+  
+  		/* if interrupted while completing, behave like it failed */
+  		if (got_int)
+***************
+*** 860,866 ****
+  			    int p_wmnu_save = p_wmnu;
+  			    p_wmnu = 0;
+  #endif
+! 			    nextwild(&xpc, WILD_PREV, 0); /* remove match */
+  #ifdef FEAT_WILDMENU
+  			    p_wmnu = p_wmnu_save;
+  #endif
+--- 864,871 ----
+  			    int p_wmnu_save = p_wmnu;
+  			    p_wmnu = 0;
+  #endif
+! 			    /* remove match */
+! 			    nextwild(&xpc, WILD_PREV, 0, firstc != '@');
+  #ifdef FEAT_WILDMENU
+  			    p_wmnu = p_wmnu_save;
+  #endif
+***************
+*** 874,882 ****
+  			redrawcmd();
+  			did_wild_list = TRUE;
+  			if (wim_flags[wim_index] & WIM_LONGEST)
+! 			    nextwild(&xpc, WILD_LONGEST, WILD_NO_BEEP);
+  			else if (wim_flags[wim_index] & WIM_FULL)
+! 			    nextwild(&xpc, WILD_NEXT, WILD_NO_BEEP);
+  		    }
+  		    else
+  			vim_beep();
+--- 879,889 ----
+  			redrawcmd();
+  			did_wild_list = TRUE;
+  			if (wim_flags[wim_index] & WIM_LONGEST)
+! 			    nextwild(&xpc, WILD_LONGEST, WILD_NO_BEEP,
+! 							       firstc != '@');
+  			else if (wim_flags[wim_index] & WIM_FULL)
+! 			    nextwild(&xpc, WILD_NEXT, WILD_NO_BEEP,
+! 							       firstc != '@');
+  		    }
+  		    else
+  			vim_beep();
+***************
+*** 899,907 ****
+  	/* <S-Tab> goes to last match, in a clumsy way */
+  	if (c == K_S_TAB && KeyTyped)
+  	{
+! 	    if (nextwild(&xpc, WILD_EXPAND_KEEP, 0) == OK
+! 		    && nextwild(&xpc, WILD_PREV, 0) == OK
+! 		    && nextwild(&xpc, WILD_PREV, 0) == OK)
+  		goto cmdline_changed;
+  	}
+  
+--- 906,914 ----
+  	/* <S-Tab> goes to last match, in a clumsy way */
+  	if (c == K_S_TAB && KeyTyped)
+  	{
+! 	    if (nextwild(&xpc, WILD_EXPAND_KEEP, 0, firstc != '@') == OK
+! 		    && nextwild(&xpc, WILD_PREV, 0, firstc != '@') == OK
+! 		    && nextwild(&xpc, WILD_PREV, 0, firstc != '@') == OK)
+  		goto cmdline_changed;
+  	}
+  
+***************
+*** 1418,1424 ****
+  		goto cmdline_not_changed;
+  
+  	case Ctrl_A:	    /* all matches */
+! 		if (nextwild(&xpc, WILD_ALL, 0) == FAIL)
+  		    break;
+  		goto cmdline_changed;
+  
+--- 1425,1431 ----
+  		goto cmdline_not_changed;
+  
+  	case Ctrl_A:	    /* all matches */
+! 		if (nextwild(&xpc, WILD_ALL, 0, firstc != '@') == FAIL)
+  		    break;
+  		goto cmdline_changed;
+  
+***************
+*** 1454,1460 ****
+  #endif
+  
+  		/* completion: longest common part */
+! 		if (nextwild(&xpc, WILD_LONGEST, 0) == FAIL)
+  		    break;
+  		goto cmdline_changed;
+  
+--- 1461,1467 ----
+  #endif
+  
+  		/* completion: longest common part */
+! 		if (nextwild(&xpc, WILD_LONGEST, 0, firstc != '@') == FAIL)
+  		    break;
+  		goto cmdline_changed;
+  
+***************
+*** 1462,1469 ****
+  	case Ctrl_P:	    /* previous match */
+  		if (xpc.xp_numfiles > 0)
+  		{
+! 		    if (nextwild(&xpc, (c == Ctrl_P) ? WILD_PREV : WILD_NEXT, 0)
+! 								      == FAIL)
+  			break;
+  		    goto cmdline_changed;
+  		}
+--- 1469,1476 ----
+  	case Ctrl_P:	    /* previous match */
+  		if (xpc.xp_numfiles > 0)
+  		{
+! 		    if (nextwild(&xpc, (c == Ctrl_P) ? WILD_PREV : WILD_NEXT,
+! 						    0, firstc != '@') == FAIL)
+  			break;
+  		    goto cmdline_changed;
+  		}
+***************
+*** 3338,3347 ****
+   * normal character (instead of being expanded).  This allows :s/^I^D etc.
+   */
+      static int
+! nextwild(xp, type, options)
+      expand_T	*xp;
+      int		type;
+      int		options;	/* extra options for ExpandOne() */
+  {
+      int		i, j;
+      char_u	*p1;
+--- 3345,3355 ----
+   * normal character (instead of being expanded).  This allows :s/^I^D etc.
+   */
+      static int
+! nextwild(xp, type, options, escape)
+      expand_T	*xp;
+      int		type;
+      int		options;	/* extra options for ExpandOne() */
++     int		escape;		/* if TRUE, escape the returned matches */
+  {
+      int		i, j;
+      char_u	*p1;
+***************
+*** 3390,3396 ****
+  	else
+  	{
+  	    int use_options = options |
+! 		    WILD_HOME_REPLACE|WILD_ADD_SLASH|WILD_SILENT|WILD_ESCAPE;
+  
+  	    if (p_wic)
+  		use_options += WILD_ICASE;
+--- 3398,3406 ----
+  	else
+  	{
+  	    int use_options = options |
+! 		    WILD_HOME_REPLACE|WILD_ADD_SLASH|WILD_SILENT;
+! 	    if (escape)
+! 		use_options |= WILD_ESCAPE;
+  
+  	    if (p_wic)
+  		use_options += WILD_ICASE;
+*** ../vim-7.3.735/src/version.c	2012-11-28 16:18:26.000000000 +0100
+--- src/version.c	2012-11-28 16:30:45.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     736,
+  /**/
+
+-- 
+From "know your smileys":
+ ;-0	Can't find shift key
+ ,-9	Kann Umschalttaste nicht finden
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

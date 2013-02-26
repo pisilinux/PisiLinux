@@ -1,0 +1,236 @@
+Index: kdm/kfrontend/kgreeter.cpp
+===================================================================
+--- kdm/kfrontend/kgreeter.cpp.orig	2010-08-05 18:55:46.000000000 +0200
++++ kdm/kfrontend/kgreeter.cpp	2010-11-21 20:47:03.567842759 +0100
+@@ -68,20 +68,20 @@ Foundation, Inc., 51 Franklin Street, Fi
+ 
+ class UserListView : public QListWidget {
+   public:
+-    UserListView(QWidget *parent = 0)
++    UserListView( bool _themed, QWidget *parent = 0)
+         : QListWidget(parent)
+         , cachedSizeHint(-1, 0)
++        , themed (_themed)
+     {
+         setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Ignored);
+         setUniformItemSizes(true);
+         setVerticalScrollMode(ScrollPerPixel);
+         setIconSize(QSize(48, 48));
+-        setAlternatingRowColors(true);
++        setAlternatingRowColors(!themed);
+     }
+ 
+     mutable QSize cachedSizeHint;
+ 
+-  protected:
+     virtual QSize sizeHint() const
+     {
+         if (!cachedSizeHint.isValid()) {
+@@ -149,6 +149,7 @@ class UserListView : public QListWidget
+ 
+   private:
+     bool m_suppressClick;
++	bool themed;
+ };
+ 
+ class UserListViewItem : public QListWidgetItem {
+@@ -185,7 +186,7 @@ KGreeter::KGreeter(bool framed)
+                                 "PrevUser");
+ 
+     if (_userList) {
+-        userView = new UserListView(this);
++        userView = new UserListView(framed, this);
+         connect(userView, SIGNAL(itemClicked(QListWidgetItem *)),
+                 SLOT(slotUserClicked(QListWidgetItem *)));
+         connect(userView, SIGNAL(itemDoubleClicked(QListWidgetItem *)),
+@@ -193,8 +194,6 @@ KGreeter::KGreeter(bool framed)
+     }
+     if (_userCompletion)
+         userList = new QStringList;
+-    if (userView || userList)
+-        insertUsers();
+ 
+     sessMenu = new QMenu(this);
+     connect(sessMenu, SIGNAL(triggered(QAction *)),
+@@ -365,8 +364,11 @@ UserList::UserList(char **in)
+         }
+ }
+ 
++#include <utmp.h>
++#include <utmpx.h>
++
+ void
+-KGreeter::insertUsers()
++KGreeter::insertUsers( int limit_users )
+ {
+     struct passwd *ps;
+ 
+@@ -392,6 +394,9 @@ KGreeter::insertUsers()
+     if (_showUsers == SHOW_ALL) {
+         UserList noUsers(_noUsers);
+         QSet<QString> dupes;
++                QStringList toinsert;
++
++                int count = 0;
+         for (setpwent(); (ps = getpwent()) != 0;) {
+             if (*ps->pw_dir && *ps->pw_shell &&
+                 (ps->pw_uid >= (unsigned)_lowUserId ||
+@@ -403,10 +408,55 @@ KGreeter::insertUsers()
+                 QString username(QFile::decodeName(ps->pw_name));
+                 if (!dupes.contains(username)) {
+                     dupes.insert(username);
+-                    insertUser(default_pix, username, ps);
++                    toinsert.append( username );
++
++                    if ( limit_users >= 0 && ++count > limit_users )
++                        break;
++
++                }
++            }
++        }
++        if ( limit_users >= 0 && ++count > limit_users ) {
++            utmpname( _PATH_WTMP );
++            setutxent();
++            toinsert = QStringList();
++            dupes.clear();
++
++            for ( count = 0; count < limit_users; ) {
++                struct utmpx * ent = getutxent();
++                if ( !ent )
++                    break;
++                struct passwd *ps = getpwnam( ent->ut_user );
++                if (ps && *ps->pw_dir && *ps->pw_shell &&
++                        (ps->pw_uid >= (unsigned)_lowUserId ||
++                         !ps->pw_uid && _showRoot) &&
++                        ( ps->pw_uid <= (unsigned)_highUserId ) &&
++                        !noUsers.hasUser( ps->pw_name ) &&
++                        !noUsers.hasGroup( ps->pw_gid ))
++                {
++                    QString username( QFile::decodeName( ent->ut_user ) );
++                    if (!dupes.contains( username )) {
++                        dupes.insert( username );
++                        toinsert.append( username );
++                        count++;
++                    }
+                 }
++
++
+             }
++            endutxent();
+         }
++
++        for ( QStringList::ConstIterator it = toinsert.begin();
++                it != toinsert.end(); ++it )
++        {
++            // pretty stupid to do another lookup round, but the number is limited
++            // and caching struct passwd is pretty ugly
++            struct passwd *ps = getpwnam( QFile::encodeName( *it ) );
++            if ( ps )
++                insertUser( default_pix, *it, ps );
++        }
++
+     } else {
+         UserList users(_users);
+         if (users.hasGroups()) {
+@@ -783,6 +833,9 @@ KStdGreeter::KStdGreeter()
+         break; }
+     }
+ 
++        if (userView || userList)
++		insertUsers();
++
+     if (userView) {
+         if (clock)
+             inner_box->addWidget(clock, 0, Qt::AlignCenter);
+@@ -895,6 +948,7 @@ KThemedGreeter::KThemedGreeter(KdmThemer
+     setMouseTracking(true);
+ 
+     adjustGeometry();
++    themer->setTypeVisible( "userlist", true );
+ 
+     themer->setWidget(this);
+ 
+@@ -983,6 +1037,13 @@ KThemedGreeter::KThemedGreeter(KdmThemer
+     completeMenu();
+ #endif
+ 
++    if (userView || userList)
++    {
++        insertUsers(7);
++        themer->setTypeVisible( "userlist", true );
++    } else
++        themer->setTypeVisible( "userlist", false );
++
+     if ((system_button = themer->findNode("system_button"))) {
+         if (optMenu)
+             addAction(optMenu->menuAction());
+@@ -1021,6 +1082,8 @@ KThemedGreeter::pluginSetup()
+     inherited::pluginSetup();
+ 
+     if (userView && verify->entitiesLocal() && verify->entityPresettable() && userlist_node) {
++        userView->setHorizontalScrollBarPolicy( Qt::ScrollBarAlwaysOff );
++        userView->setMaximumHeight( userView->sizeHint().height() );
+         userlist_node->setWidget(userView);
+         userlist_rect->setVisible(true);
+     } else {
+Index: kdm/kfrontend/kgreeter.h
+===================================================================
+--- kdm/kfrontend/kgreeter.h.orig	2010-07-06 08:54:31.000000000 +0200
++++ kdm/kfrontend/kgreeter.h	2010-11-21 20:47:03.567842759 +0100
+@@ -70,7 +70,7 @@ class KGreeter : public KGDialog, public
+ 
+   protected:
+     void insertUser(const QImage &, const QString &, struct passwd *);
+-    void insertUsers();
++    void insertUsers(int limit_users = -1);
+     void putSession(const QString &, const QString &, bool, const char *);
+     void insertSessions();
+     virtual void pluginSetup();
+Index: kdm/kfrontend/themer/kdmitem.cpp
+===================================================================
+--- kdm/kfrontend/themer/kdmitem.cpp.orig	2010-07-06 08:54:31.000000000 +0200
++++ kdm/kfrontend/themer/kdmitem.cpp	2010-11-21 20:47:03.567842759 +0100
+@@ -65,7 +65,6 @@ KdmItem::KdmItem(QObject *parent, const
+               !modes.split(",", QString::SkipEmptyParts).contains("console"))))
+         {
+             m_visible = false;
+-            return;
+         }
+ 
+         m_showType = sel.attribute("type");
+@@ -78,7 +77,6 @@ KdmItem::KdmItem(QObject *parent, const
+                 themer()->typeVisible(m_showType) == m_showTypeInvert)
+             {
+                 m_visible = false;
+-                return;
+             }
+         }
+ 
+Index: kdm/kfrontend/themer/kdmlist.cpp
+===================================================================
+--- kdm/kfrontend/themer/kdmlist.cpp.orig	2010-07-06 08:54:31.000000000 +0200
++++ kdm/kfrontend/themer/kdmlist.cpp	2010-11-21 20:47:03.568842387 +0100
+@@ -29,8 +29,6 @@ KdmList::KdmList(QObject *parent, const
+     : KdmItem(parent, node)
+ {
+     itemType = "list";
+-    if (!isVisible())
+-        return;
+ 
+     // Read RECT TAGS
+     QDomNodeList childList = node.childNodes();
+Index: kdm/kfrontend/themer/kdmthemer.cpp
+===================================================================
+--- kdm/kfrontend/themer/kdmthemer.cpp.orig	2010-07-06 08:54:31.000000000 +0200
++++ kdm/kfrontend/themer/kdmthemer.cpp	2010-11-21 20:47:03.568842387 +0100
+@@ -224,10 +224,6 @@ KdmThemer::generateItems(KdmItem *parent
+             } else {
+                 continue;
+             }
+-            if (!newItem->isVisible()) {
+-                delete newItem;
+-                continue;
+-            }
+             connect(newItem, SIGNAL(needUpdate(int, int, int, int)),
+                     SLOT(update(int, int, int, int)));
+             connect(newItem, SIGNAL(needPlacement()),

@@ -1,0 +1,81 @@
+--- gdb/breakpoint.c
++++ gdb/breakpoint.c
+@@ -8999,6 +8999,53 @@ update_breakpoint_locations (struct breakpoint *b,
+   update_global_location_list (1);
+ }
+ 
++/* breakpoint_re_set will keep breakpoint locations disabled iff their
++   addresses match.  Keep the addresses therefore up to date.  */
++
++void
++breakpoints_relocate (struct objfile *objfile, struct section_offsets *delta)
++{
++  struct bp_location *bl, **blp_tmp;
++  int changed = 0;
++
++  /* Ensure the addresses relocation happens only once.  */
++  gdb_assert (objfile->separate_debug_objfile_backlink == NULL);
++
++  ALL_BP_LOCATIONS (bl, blp_tmp)
++    {
++      struct obj_section *osect;
++
++      /* BL->SECTION can be correctly NULL for breakpoints with multiple
++         locations expanded through symtab.  Find it the hard way.  */
++
++      ALL_OBJFILE_OSECTIONS (objfile, osect)
++	{
++	  CORE_ADDR relocated_address;
++	  CORE_ADDR delta_offset;
++
++	  delta_offset = ANOFFSET (delta, osect->the_bfd_section->index);
++	  if (delta_offset == 0)
++	    continue;
++	  relocated_address = bl->address + delta_offset;
++
++	  if (obj_section_addr (osect) <= relocated_address
++	      && relocated_address < obj_section_endaddr (osect))
++	    {
++	      if (bl->inserted)
++		remove_breakpoint (bl, mark_uninserted);
++
++	      bl->address += delta_offset;
++	      bl->requested_address += delta_offset;
++
++	      changed = 1;
++	    }
++	}
++    }
++
++  if (changed)
++    qsort (bp_location, bp_location_count, sizeof (*bp_location),
++	   bp_location_compare);
++}
+ 
+ /* Reset a breakpoint given it's struct breakpoint * BINT.
+    The value we return ends up being the return value from catch_errors.
+--- gdb/breakpoint.h
++++ gdb/breakpoint.h
+@@ -998,4 +998,7 @@ extern struct breakpoint *get_tracepoint_by_number (char **arg, int multi_p,
+    is newly allocated; the caller should free when done with it.  */
+ extern VEC(breakpoint_p) *all_tracepoints (void);
+ 
++extern void breakpoints_relocate (struct objfile *objfile,
++				  struct section_offsets *delta);
++
+ #endif /* !defined (BREAKPOINT_H) */
+--- gdb/objfiles.c
++++ gdb/objfiles.c
+@@ -852,6 +852,12 @@ objfile_relocate1 (struct objfile *objfile, struct section_offsets *new_offsets)
+ 				obj_section_addr (s));
+     }
+ 
++  /* The final call of breakpoint_re_set will keep breakpoint locations
++     disabled iff their addresses match.  */
++
++  if (objfile->separate_debug_objfile_backlink == NULL)
++    breakpoints_relocate (objfile, delta);
++
+   /* Data changed.  */
+   return 1;
+ }

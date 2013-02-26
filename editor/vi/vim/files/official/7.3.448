@@ -1,0 +1,180 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.448
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.448 (after 7.3.447)
+Problem:    Win32: Still a problem with "!start /b".
+Solution:   Escape only '|'. (Yasuhiro Matsumoto)
+Files:	    src/os_win32.c
+
+
+*** ../vim-7.3.447/src/os_win32.c	2012-02-21 21:22:40.000000000 +0100
+--- src/os_win32.c	2012-02-22 13:06:55.000000000 +0100
+***************
+*** 3933,3939 ****
+      else
+      {
+  	/* we use "command" or "cmd" to start the shell; slow but easy */
+! 	char_u *cmdbase = cmd;
+  
+  	/* Skip a leading ", ( and "(. */
+  	if (*cmdbase == '"' )
+--- 3933,3941 ----
+      else
+      {
+  	/* we use "command" or "cmd" to start the shell; slow but easy */
+! 	char_u	*newcmd = NULL;
+! 	char_u	*cmdbase = cmd;
+! 	long_u	cmdlen;
+  
+  	/* Skip a leading ", ( and "(. */
+  	if (*cmdbase == '"' )
+***************
+*** 3971,3982 ****
+  		flags = CREATE_NO_WINDOW;
+  		si.dwFlags = STARTF_USESTDHANDLES;
+  		si.hStdInput = CreateFile("\\\\.\\NUL",	// File name
+! 		    GENERIC_READ,				// Access flags
+  		    0,					// Share flags
+! 		    NULL,					// Security att.
+! 		    OPEN_EXISTING,				// Open flags
+! 		    FILE_ATTRIBUTE_NORMAL,			// File att.
+! 		    NULL);					// Temp file
+  		si.hStdOutput = si.hStdInput;
+  		si.hStdError = si.hStdInput;
+  	    }
+--- 3973,3984 ----
+  		flags = CREATE_NO_WINDOW;
+  		si.dwFlags = STARTF_USESTDHANDLES;
+  		si.hStdInput = CreateFile("\\\\.\\NUL",	// File name
+! 		    GENERIC_READ,			// Access flags
+  		    0,					// Share flags
+! 		    NULL,				// Security att.
+! 		    OPEN_EXISTING,			// Open flags
+! 		    FILE_ATTRIBUTE_NORMAL,		// File att.
+! 		    NULL);				// Temp file
+  		si.hStdOutput = si.hStdInput;
+  		si.hStdError = si.hStdInput;
+  	    }
+***************
+*** 3993,4004 ****
+  		    *--p = NUL;
+  	    }
+  
+  	    /*
+! 	     * Unescape characters in shellxescape. This is workaround for
+! 	     * /b option. Only redirect character should be unescaped.
+  	     */
+! 	    unescape_shellxquote(cmdbase,
+! 			(flags & CREATE_NEW_CONSOLE) ? p_sxe : "<>");
+  
+  	    /*
+  	     * Now, start the command as a process, so that it doesn't
+--- 3995,4030 ----
+  		    *--p = NUL;
+  	    }
+  
++ 	    newcmd = cmdbase;
++ 	    unescape_shellxquote(cmdbase, p_sxe);
++ 
+  	    /*
+! 	     * If creating new console, arguments are passed to the
+! 	     * 'cmd.exe' as-is. If it's not, arguments are not treated
+! 	     * correctly for current 'cmd.exe'. So unescape characters in
+! 	     * shellxescape except '|' for avoiding to be treated as
+! 	     * argument to them. Pass the arguments to sub-shell.
+  	     */
+! 	    if (flags != CREATE_NEW_CONSOLE)
+! 	    {
+! 		char_u	*subcmd;
+! 		char_u	*cmd_shell = default_shell();
+! 
+! 		subcmd = vim_strsave_escaped_ext(cmdbase, "|", '^', FALSE);
+! 		if (subcmd != NULL)
+! 		{
+! 		    /* make "cmd.exe /c arguments" */
+! 		    cmdlen = STRLEN(cmd_shell) + STRLEN(subcmd) + 5;
+! 		    vim_free(subcmd);
+! 
+! 		    newcmd = lalloc(cmdlen, TRUE);
+! 		    if (newcmd != NULL)
+! 			vim_snprintf((char *)newcmd, cmdlen, "%s /c %s",
+! 						       default_shell, subcmd);
+! 		    else
+! 			newcmd = cmdbase;
+! 		}
+! 	    }
+  
+  	    /*
+  	     * Now, start the command as a process, so that it doesn't
+***************
+*** 4006,4012 ****
+  	     * files if we exit before the spawned process
+  	     */
+  	    if (CreateProcess(NULL,		// Executable name
+! 		    cmdbase,			// Command to execute
+  		    NULL,			// Process security attributes
+  		    NULL,			// Thread security attributes
+  		    FALSE,			// Inherit handles
+--- 4032,4038 ----
+  	     * files if we exit before the spawned process
+  	     */
+  	    if (CreateProcess(NULL,		// Executable name
+! 		    newcmd,			// Command to execute
+  		    NULL,			// Process security attributes
+  		    NULL,			// Thread security attributes
+  		    FALSE,			// Inherit handles
+***************
+*** 4023,4028 ****
+--- 4049,4058 ----
+  		EMSG(_("E371: Command not found"));
+  #endif
+  	    }
++ 
++ 	    if (newcmd != cmdbase)
++ 		vim_free(newcmd);
++ 
+  	    if (si.hStdInput != NULL)
+  	    {
+  		/* Close the handle to \\.\NUL */
+***************
+*** 4034,4041 ****
+  	}
+  	else
+  	{
+! 	    char_u *newcmd;
+! 	    long_u cmdlen =  (
+  #ifdef FEAT_GUI_W32
+  		(allowPiping && !p_stmp ? 0 : STRLEN(vimrun_path)) +
+  #endif
+--- 4064,4070 ----
+  	}
+  	else
+  	{
+! 	    cmdlen = (
+  #ifdef FEAT_GUI_W32
+  		(allowPiping && !p_stmp ? 0 : STRLEN(vimrun_path)) +
+  #endif
+*** ../vim-7.3.447/src/version.c	2012-02-21 21:22:40.000000000 +0100
+--- src/version.c	2012-02-22 13:02:15.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     448,
+  /**/
+
+-- 
+From "know your smileys":
+ ~#:-(	I just washed my hair, and I can't do nuthin' with it.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

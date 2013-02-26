@@ -1,0 +1,229 @@
+2012-01-18  Richard Guenther  <rguenther@suse.de>
+
+	* gthr.h (__GTHREAD_MUTEX_INIT_FUNCTION): Adjust specification.
+	* gthr-posix.h (__GTHREAD_MUTEX_INIT_FUNCTION): Define.
+	(__gthread_mutex_init_function): New function.
+	* gthr-single.h (__GTHREAD_MUTEX_INIT_FUNCTION): Define.
+
+	PR gcov/49484
+	* libgcov.c: Include gthr.h.
+	(__gcov_flush_mx): New global variable.
+	(init_mx, init_mx_once): New functions.
+	(__gcov_flush): Protect self with a mutex.
+	(__gcov_fork): Re-initialize mutex after forking.
+	* unwind-dw2-fde.c: Change condition under which to use
+	__GTHREAD_MUTEX_INIT_FUNCTION.
+
+Index: libgcc/libgcov.c
+===================================================================
+*** libgcc/libgcov.c.orig	2012-03-02 12:02:35.000000000 +0100
+--- libgcc/libgcov.c	2012-03-14 13:01:34.000000000 +0100
+*************** see the files COPYING3 and COPYING.RUNTI
+*** 30,35 ****
+--- 30,36 ----
+  #include "coretypes.h"
+  #include "tm.h"
+  #include "libgcc_tm.h"
++ #include "gthr.h"
+  
+  #if defined(inhibit_libc)
+  #define IN_LIBGCOV (-1)
+*************** __gcov_init (struct gcov_info *info)
+*** 705,710 ****
+--- 706,730 ----
+    info->version = 0;
+  }
+  
++ #ifdef __GTHREAD_MUTEX_INIT
++ ATTRIBUTE_HIDDEN __gthread_mutex_t __gcov_flush_mx = __GTHREAD_MUTEX_INIT;
++ #define init_mx_once()
++ #else
++ __gthread_mutex_t __gcov_flush_mx ATTRIBUTE_HIDDEN;
++ 
++ static void
++ init_mx (void)
++ {
++   __GTHREAD_MUTEX_INIT_FUNCTION (&mx);
++ }
++ static void
++ init_mx_once (void)
++ {
++   static __gthread_once_t once = __GTHREAD_ONCE_INIT;
++   __gthread_once (&once, init_mx);
++ }
++ #endif
++ 
+  /* Called before fork or exec - write out profile information gathered so
+     far and reset it to zero.  This avoids duplication or loss of the
+     profile information gathered so far.  */
+*************** __gcov_flush (void)
+*** 714,719 ****
+--- 734,742 ----
+  {
+    const struct gcov_info *gi_ptr;
+  
++   init_mx_once ();
++   __gthread_mutex_lock (&__gcov_flush_mx);
++ 
+    gcov_exit ();
+    for (gi_ptr = gcov_list; gi_ptr; gi_ptr = gi_ptr->next)
+      {
+*************** __gcov_flush (void)
+*** 737,742 ****
+--- 760,767 ----
+  	    }
+  	}
+      }
++ 
++   __gthread_mutex_unlock (&__gcov_flush_mx);
+  }
+  
+  #endif /* L_gcov */
+*************** __gcov_ior_profiler (gcov_type *counters
+*** 975,982 ****
+  pid_t
+  __gcov_fork (void)
+  {
+    __gcov_flush ();
+!   return fork ();
+  }
+  #endif
+  
+--- 1000,1012 ----
+  pid_t
+  __gcov_fork (void)
+  {
++   pid_t pid;
++   extern __gthread_mutex_t __gcov_flush_mx;
+    __gcov_flush ();
+!   pid = fork ();
+!   if (pid == 0)
+!     __GTHREAD_MUTEX_INIT_FUNCTION (&__gcov_flush_mx);
+!   return pid;
+  }
+  #endif
+  
+Index: libgcc/unwind-dw2-fde.c
+===================================================================
+*** libgcc/unwind-dw2-fde.c.orig	2012-03-02 12:02:35.000000000 +0100
+--- libgcc/unwind-dw2-fde.c	2012-03-14 13:01:34.000000000 +0100
+*************** static struct object *seen_objects;
+*** 47,57 ****
+  
+  #ifdef __GTHREAD_MUTEX_INIT
+  static __gthread_mutex_t object_mutex = __GTHREAD_MUTEX_INIT;
+  #else
+  static __gthread_mutex_t object_mutex;
+- #endif
+  
+- #ifdef __GTHREAD_MUTEX_INIT_FUNCTION
+  static void
+  init_object_mutex (void)
+  {
+--- 47,56 ----
+  
+  #ifdef __GTHREAD_MUTEX_INIT
+  static __gthread_mutex_t object_mutex = __GTHREAD_MUTEX_INIT;
++ #define init_object_mutex_once()
+  #else
+  static __gthread_mutex_t object_mutex;
+  
+  static void
+  init_object_mutex (void)
+  {
+*************** init_object_mutex_once (void)
+*** 64,71 ****
+    static __gthread_once_t once = __GTHREAD_ONCE_INIT;
+    __gthread_once (&once, init_object_mutex);
+  }
+- #else
+- #define init_object_mutex_once()
+  #endif
+  
+  /* Called from crtbegin.o to register the unwind info for an object.  */
+--- 63,68 ----
+Index: libgcc/gthr-posix.h
+===================================================================
+*** libgcc/gthr-posix.h.orig	2012-03-02 12:02:35.000000000 +0100
+--- libgcc/gthr-posix.h	2012-03-14 13:02:09.000000000 +0100
+*************** typedef struct timespec __gthread_time_t
+*** 63,68 ****
+--- 63,69 ----
+  #define __GTHREAD_HAS_COND	1
+  
+  #define __GTHREAD_MUTEX_INIT PTHREAD_MUTEX_INITIALIZER
++ #define __GTHREAD_MUTEX_INIT_FUNCTION __gthread_mutex_init_function
+  #define __GTHREAD_ONCE_INIT PTHREAD_ONCE_INIT
+  #if defined(PTHREAD_RECURSIVE_MUTEX_INITIALIZER)
+  #define __GTHREAD_RECURSIVE_MUTEX_INIT PTHREAD_RECURSIVE_MUTEX_INITIALIZER
+*************** typedef struct timespec __gthread_time_t
+*** 76,82 ****
+  
+  #ifdef _GTHREAD_USE_MUTEX_INIT_FUNC
+  # undef __GTHREAD_MUTEX_INIT
+- # define __GTHREAD_MUTEX_INIT_FUNCTION __gthread_mutex_init_function
+  #endif
+  #ifdef _GTHREAD_USE_RECURSIVE_MUTEX_INIT_FUNC
+  # undef __GTHREAD_RECURSIVE_MUTEX_INIT
+--- 77,82 ----
+*************** __gthread_setspecific (__gthread_key_t _
+*** 744,757 ****
+    return __gthrw_(pthread_setspecific) (__key, __ptr);
+  }
+  
+- #ifdef _GTHREAD_USE_MUTEX_INIT_FUNC
+  static inline void
+  __gthread_mutex_init_function (__gthread_mutex_t *__mutex)
+  {
+    if (__gthread_active_p ())
+      __gthrw_(pthread_mutex_init) (__mutex, NULL);
+  }
+- #endif
+  
+  static inline int
+  __gthread_mutex_destroy (__gthread_mutex_t *__mutex)
+--- 744,755 ----
+Index: libgcc/gthr-single.h
+===================================================================
+*** libgcc/gthr-single.h.orig	2012-03-02 12:02:35.000000000 +0100
+--- libgcc/gthr-single.h	2012-03-14 13:01:34.000000000 +0100
+*************** typedef int __gthread_recursive_mutex_t;
+*** 36,41 ****
+--- 36,42 ----
+  
+  #define __GTHREAD_ONCE_INIT 0
+  #define __GTHREAD_MUTEX_INIT 0
++ #define __GTHREAD_MUTEX_INIT_FUNCTION(mx)
+  #define __GTHREAD_RECURSIVE_MUTEX_INIT 0
+  
+  #define UNUSED __attribute__((unused))
+Index: libgcc/gthr.h
+===================================================================
+*** libgcc/gthr.h.orig	2012-03-02 12:02:35.000000000 +0100
+--- libgcc/gthr.h	2012-03-14 13:01:34.000000000 +0100
+*************** see the files COPYING3 and COPYING.RUNTI
+*** 52,62 ****
+       		to initialize __gthread_mutex_t to get a fast
+  		non-recursive mutex.
+       __GTHREAD_MUTEX_INIT_FUNCTION
+!      		some systems can't initialize a mutex without a
+! 		function call.  On such systems, define this to a
+! 		function which looks like this:
+  		  void __GTHREAD_MUTEX_INIT_FUNCTION (__gthread_mutex_t *)
+! 		Don't define __GTHREAD_MUTEX_INIT in this case
+       __GTHREAD_RECURSIVE_MUTEX_INIT
+       __GTHREAD_RECURSIVE_MUTEX_INIT_FUNCTION
+       		as above, but for a recursive mutex.
+--- 52,63 ----
+       		to initialize __gthread_mutex_t to get a fast
+  		non-recursive mutex.
+       __GTHREAD_MUTEX_INIT_FUNCTION
+! 		to initialize __gthread_mutex_t to get a fast
+! 		non-recursive mutex.
+! 		Define this to a function which looks like this:
+  		  void __GTHREAD_MUTEX_INIT_FUNCTION (__gthread_mutex_t *)
+!      		Some systems can't initialize a mutex without a
+! 		function call.  Don't define __GTHREAD_MUTEX_INIT in this case.
+       __GTHREAD_RECURSIVE_MUTEX_INIT
+       __GTHREAD_RECURSIVE_MUTEX_INIT_FUNCTION
+       		as above, but for a recursive mutex.

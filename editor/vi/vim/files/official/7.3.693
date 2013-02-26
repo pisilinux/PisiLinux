@@ -1,0 +1,165 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.693
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.693
+Problem:    Can't make 'softtabstop' follow 'shiftwidth'.
+Solution:   When 'softtabstop' is negative use the value of 'shiftwidth'.
+            (so8res)
+Files:      src/edit.c, src/option.c, src/proto/option.pro
+
+
+*** ../vim-7.3.692/src/edit.c	2012-10-04 22:38:32.000000000 +0200
+--- src/edit.c	2012-10-21 00:01:53.000000000 +0200
+***************
+*** 8885,8891 ****
+  	 */
+  	if (	   mode == BACKSPACE_CHAR
+  		&& ((p_sta && in_indent)
+! 		    || (curbuf->b_p_sts != 0
+  			&& curwin->w_cursor.col > 0
+  			&& (*(ml_get_cursor() - 1) == TAB
+  			    || (*(ml_get_cursor() - 1) == ' '
+--- 8885,8891 ----
+  	 */
+  	if (	   mode == BACKSPACE_CHAR
+  		&& ((p_sta && in_indent)
+! 		    || (get_sts_value() != 0
+  			&& curwin->w_cursor.col > 0
+  			&& (*(ml_get_cursor() - 1) == TAB
+  			    || (*(ml_get_cursor() - 1) == ' '
+***************
+*** 8901,8907 ****
+  	    if (p_sta && in_indent)
+  		ts = (int)get_sw_value();
+  	    else
+! 		ts = (int)curbuf->b_p_sts;
+  	    /* Compute the virtual column where we want to be.  Since
+  	     * 'showbreak' may get in the way, need to get the last column of
+  	     * the previous character. */
+--- 8901,8907 ----
+  	    if (p_sta && in_indent)
+  		ts = (int)get_sw_value();
+  	    else
+! 		ts = (int)get_sts_value();
+  	    /* Compute the virtual column where we want to be.  Since
+  	     * 'showbreak' may get in the way, need to get the last column of
+  	     * the previous character. */
+***************
+*** 9590,9596 ****
+       */
+      if (!curbuf->b_p_et
+  	    && !(p_sta && ind && curbuf->b_p_ts != get_sw_value())
+! 	    && curbuf->b_p_sts == 0)
+  	return TRUE;
+  
+      if (stop_arrow() == FAIL)
+--- 9590,9596 ----
+       */
+      if (!curbuf->b_p_et
+  	    && !(p_sta && ind && curbuf->b_p_ts != get_sw_value())
+! 	    && get_sts_value() == 0)
+  	return TRUE;
+  
+      if (stop_arrow() == FAIL)
+***************
+*** 9606,9613 ****
+  
+      if (p_sta && ind)		/* insert tab in indent, use 'shiftwidth' */
+  	temp = (int)get_sw_value();
+!     else if (curbuf->b_p_sts > 0) /* use 'softtabstop' when set */
+! 	temp = (int)curbuf->b_p_sts;
+      else			/* otherwise use 'tabstop' */
+  	temp = (int)curbuf->b_p_ts;
+      temp -= get_nolist_virtcol() % temp;
+--- 9606,9613 ----
+  
+      if (p_sta && ind)		/* insert tab in indent, use 'shiftwidth' */
+  	temp = (int)get_sw_value();
+!     else if (curbuf->b_p_sts != 0) /* use 'softtabstop' when set */
+! 	temp = (int)get_sts_value();
+      else			/* otherwise use 'tabstop' */
+  	temp = (int)curbuf->b_p_ts;
+      temp -= get_nolist_virtcol() % temp;
+***************
+*** 9635,9641 ****
+      /*
+       * When 'expandtab' not set: Replace spaces by TABs where possible.
+       */
+!     if (!curbuf->b_p_et && (curbuf->b_p_sts || (p_sta && ind)))
+      {
+  	char_u		*ptr;
+  #ifdef FEAT_VREPLACE
+--- 9635,9641 ----
+      /*
+       * When 'expandtab' not set: Replace spaces by TABs where possible.
+       */
+!     if (!curbuf->b_p_et && (get_sts_value() || (p_sta && ind)))
+      {
+  	char_u		*ptr;
+  #ifdef FEAT_VREPLACE
+*** ../vim-7.3.692/src/option.c	2012-08-08 18:01:00.000000000 +0200
+--- src/option.c	2012-10-21 00:05:06.000000000 +0200
+***************
+*** 8509,8519 ****
+  	    p_window = Rows - 1;
+      }
+  
+-     if (curbuf->b_p_sts < 0)
+-     {
+- 	errmsg = e_positive;
+- 	curbuf->b_p_sts = 0;
+-     }
+      if (curbuf->b_p_ts <= 0)
+      {
+  	errmsg = e_positive;
+--- 8509,8514 ----
+***************
+*** 11429,11431 ****
+--- 11424,11436 ----
+  {
+      return curbuf->b_p_sw ? curbuf->b_p_sw : curbuf->b_p_ts;
+  }
++ 
++ /*
++  * Return the effective softtabstop value for the current buffer, using the
++  * 'tabstop' value when 'softtabstop' is negative.
++  */
++     long
++ get_sts_value()
++ {
++     return curbuf->b_p_sts < 0 ? get_sw_value() : curbuf->b_p_sts;
++ }
+*** ../vim-7.3.692/src/proto/option.pro	2012-08-08 18:01:00.000000000 +0200
+--- src/proto/option.pro	2012-10-21 00:01:59.000000000 +0200
+***************
+*** 57,60 ****
+--- 57,61 ----
+  int file_ff_differs __ARGS((buf_T *buf, int ignore_empty));
+  int check_ff_value __ARGS((char_u *p));
+  long get_sw_value __ARGS((void));
++ long get_sts_value __ARGS((void));
+  /* vim: set ft=c : */
+*** ../vim-7.3.692/src/version.c	2012-10-18 05:18:27.000000000 +0200
+--- src/version.c	2012-10-21 00:07:19.000000000 +0200
+***************
+*** 721,722 ****
+--- 721,724 ----
+  {   /* Add new patch number below this line */
++ /**/
++     693,
+  /**/
+
+-- 
+FIRST VILLAGER: We have found a witch.  May we burn her?
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

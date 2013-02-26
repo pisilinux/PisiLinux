@@ -1,0 +1,183 @@
+[ Backported.  ]
+
+commit d5ea7042210f5ad319ad19910bce13fd5717c6d6
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Tue Mar 30 15:45:08 2010 +0000
+
+    Add xmlRegisters= to qSupported packet.
+    
+    gdb/
+    
+    2010-03-30  H.J. Lu  <hongjiu.lu@intel.com>
+    
+    	* NEWS: Mention xmlRegisters= in qSupported packet.
+    
+    	* i386-tdep.c: Include "remote.h".
+    	(_initialize_i386_tdep): Call register_remote_support_xml.
+    
+    	* remote.c (remote_support_xml): New.
+    	(register_remote_support_xml): Likewise.
+    	(remote_query_supported_append): Likewise.
+    	(remote_query_supported): Support remote_support_xml.
+    
+    	* remote.h (register_remote_support_xml): New.
+    
+    gdb/doc/
+    
+    2010-03-30  H.J. Lu  <hongjiu.lu@intel.com>
+    
+    	* gdb.texinfo (General Query Packets): Add xmlRegisters.
+
+--- gdb-7.1-p5/gdb/NEWS	2010-04-03 21:07:46.000000000 +0200
++++ gdb-7.1/gdb/NEWS	2010-04-03 21:10:06.000000000 +0200
+@@ -1,6 +1,11 @@
+ 		What has changed in GDB?
+ 	     (Organized release by release)
+ 
++*** Changes since GDB 7.1
++
++* GDB now sends xmlRegisters= in qSupported packet to indicate that
++  it understands register description.
++
+ *** Changes in GDB 7.1
+ 
+ * C++ Improvements
+--- gdb-7.1-p5/gdb/doc/gdb.texinfo	2010-04-03 21:04:13.000000000 +0200
++++ gdb-7.1/gdb/doc/gdb.texinfo	2010-04-03 21:09:29.000000000 +0200
+@@ -30292,6 +30292,12 @@ extensions to the remote protocol.  @val
+ extensions unless the stub also reports that it supports them by
+ including @samp{multiprocess+} in its @samp{qSupported} reply.
+ @xref{multiprocess extensions}, for details.
++
++@item xmlRegisters
++This feature indicates that @value{GDBN} supports the XML target
++description.  If the stub sees @samp{xmlRegisters=} with target
++specific strings separated by a comma, it will report register
++description.
+ @end table
+ 
+ Stubs should ignore any unknown values for
+--- gdb-7.1-p5/gdb/i386-tdep.c	2010-04-03 21:08:21.000000000 +0200
++++ gdb-7.1/gdb/i386-tdep.c	2010-04-03 21:09:29.000000000 +0200
+@@ -44,6 +44,7 @@
+ #include "value.h"
+ #include "dis-asm.h"
+ #include "disasm.h"
++#include "remote.h"
+ 
+ #include "gdb_assert.h"
+ #include "gdb_string.h"
+@@ -6000,4 +6001,7 @@ is \"default\"."),
+ 
+   /* Initialize the standard target descriptions.  */
+   initialize_tdesc_i386 ();
++
++  /* Tell remote stub that we support XML target description.  */
++  register_remote_support_xml ("i386");
+ }
+--- gdb-7.1-p5/gdb/remote.c	2010-04-03 20:24:51.000000000 +0200
++++ gdb-7.1/gdb/remote.c	2010-04-03 21:09:29.000000000 +0200
+@@ -3467,6 +3467,53 @@ static struct protocol_feature remote_pr
+     PACKET_bs },
+ };
+ 
++static char *remote_support_xml;
++
++/* Register string appended to "xmlRegisters=" in qSupported query.  */
++
++void
++register_remote_support_xml (const char *xml ATTRIBUTE_UNUSED)
++{
++#if defined(HAVE_LIBEXPAT)
++  if (remote_support_xml == NULL)
++    remote_support_xml = concat ("xmlRegisters=", xml, NULL);
++  else
++    {
++      char *copy = xstrdup (remote_support_xml + 13);
++      char *p = strtok (copy, ",");
++
++      do
++	{
++	  if (strcmp (p, xml) == 0)
++	    {
++	      /* already there */
++	      xfree (copy);
++	      return;
++	    }
++	}
++      while ((p = strtok (NULL, ",")) != NULL);
++      xfree (copy);
++
++      p = concat (remote_support_xml, ",", xml, NULL);
++      xfree (remote_support_xml);
++      remote_support_xml = p;
++    }
++#endif
++}
++
++static char *
++remote_query_supported_append (char *msg, const char *append)
++{
++  if (msg)
++    {
++      char *p = concat (msg, ";", append, NULL);
++      xfree (msg);
++      return p;
++    }
++  else
++    return xstrdup (append);
++}
++
+ static void
+ remote_query_supported (void)
+ {
+@@ -3485,24 +3532,27 @@ remote_query_supported (void)
+   rs->buf[0] = 0;
+   if (remote_protocol_packets[PACKET_qSupported].support != PACKET_DISABLE)
+     {
++      char *q = NULL;
+       const char *qsupported = gdbarch_qsupported (target_gdbarch);
++
++      if (rs->extended)
++	q = remote_query_supported_append (q, "multiprocess+");
++      
+       if (qsupported)
++	q = remote_query_supported_append (q, qsupported);
++
++      if (remote_support_xml)
++	q = remote_query_supported_append (q, remote_support_xml);
++
++      if (q)
+ 	{
+-	  char *q;
+-	  if (rs->extended)
+-	    q = concat ("qSupported:multiprocess+;", qsupported, NULL);
+-	  else
+-	    q = concat ("qSupported:", qsupported, NULL);
+-	  putpkt (q);
++	  char *p = concat ("qSupported:", q, NULL);
+ 	  xfree (q);
++	  putpkt (p);
++	  xfree (p);
+ 	}
+       else
+-	{
+-	  if (rs->extended)
+-	    putpkt ("qSupported:multiprocess+");
+-	  else
+-	    putpkt ("qSupported");
+-	}
++	putpkt ("qSupported");
+ 
+       getpkt (&rs->buf, &rs->buf_size, 0);
+ 
+--- gdb-7.1-p5/gdb/remote.h	2010-01-01 08:31:41.000000000 +0100
++++ gdb-7.1/gdb/remote.h	2010-04-03 21:09:29.000000000 +0200
+@@ -66,6 +66,7 @@ extern void (*deprecated_target_wait_loo
+ 
+ void register_remote_g_packet_guess (struct gdbarch *gdbarch, int bytes,
+ 				     const struct target_desc *tdesc);
++void register_remote_support_xml (const char *);
+ 
+ void remote_file_put (const char *local_file, const char *remote_file,
+ 		      int from_tty);

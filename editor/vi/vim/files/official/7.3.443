@@ -1,0 +1,206 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.443
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.443
+Problem:    MS-Windows: 'shcf' and 'shellxquote' defaults are not very good.
+Solution:   Make a better guess when 'shell' is set to "cmd.exe". (Ben Fritz)
+Files:      src/option.c, runtime/doc/options.txt
+
+
+*** ../vim-7.3.442/src/option.c	2012-01-28 18:03:30.000000000 +0100
+--- src/option.c	2012-02-12 23:17:55.000000000 +0100
+***************
+*** 3883,3889 ****
+  
+  #if defined(MSDOS) || defined(WIN3264) || defined(OS2)
+      /*
+!      * Set 'shellcmdflag and 'shellquote' depending on the 'shell' option.
+       * This is done after other initializations, where 'shell' might have been
+       * set, but only if they have not been set before.  Default for p_shcf is
+       * "/c", for p_shq is "".  For "sh" like  shells it is changed here to
+--- 3883,3890 ----
+  
+  #if defined(MSDOS) || defined(WIN3264) || defined(OS2)
+      /*
+!      * Set 'shellcmdflag', 'shellxquote', and 'shellquote' depending on the
+!      * 'shell' option.
+       * This is done after other initializations, where 'shell' might have been
+       * set, but only if they have not been set before.  Default for p_shcf is
+       * "/c", for p_shq is "".  For "sh" like  shells it is changed here to
+***************
+*** 3920,3925 ****
+--- 3921,3962 ----
+  #  endif
+  # endif
+      }
++     else if (strstr((char *)gettail(p_sh), "cmd.exe") != NULL)
++     {
++ 	int	idx3;
++ 
++ 	/*
++ 	 * cmd.exe on Windows will strip the first and last double quote given
++ 	 * on the command line, e.g. most of the time things like:
++ 	 *   cmd /c "my path/to/echo" "my args to echo"
++ 	 * become:
++ 	 *   my path/to/echo" "my args to echo
++ 	 * when executed.
++ 	 *
++ 	 * To avoid this, use the /s argument in addition to /c to force the
++ 	 * stripping behavior, and also set shellxquote to automatically
++ 	 * surround the entire command in quotes (which get stripped as
++ 	 * noted).
++ 	 */
++ 
++ 	/* Set shellxquote default to add the quotes to be stripped. */
++ 	idx3 = findoption((char_u *)"sxq");
++ 	if (idx3 >= 0 && !(options[idx3].flags & P_WAS_SET))
++ 	{
++ 	    p_sxq = (char_u *)"\"";
++ 	    options[idx3].def_val[VI_DEFAULT] = p_sxq;
++ 	}
++ 
++ 	/* Set shellcmdflag default to always strip the quotes, note the order
++ 	 * between /s and /c is important or cmd.exe will treat the /s as part
++ 	 * of the command to be executed.  */
++ 	idx3 = findoption((char_u *)"shcf");
++ 	if (idx3 >= 0 && !(options[idx3].flags & P_WAS_SET))
++ 	{
++ 	    p_shcf = (char_u *)"/s /c";
++ 	    options[idx3].def_val[VI_DEFAULT] = p_shcf;
++ 	}
++     }
+  #endif
+  
+  #ifdef FEAT_TITLE
+*** ../vim-7.3.442/runtime/doc/options.txt	2011-06-26 05:36:07.000000000 +0200
+--- runtime/doc/options.txt	2012-02-12 23:21:59.000000000 +0100
+***************
+*** 5880,5895 ****
+  	security reasons.
+  
+  						*'shellcmdflag'* *'shcf'*
+! 'shellcmdflag' 'shcf'	string	(default: "-c", MS-DOS and Win32, when 'shell'
+! 					does not contain "sh" somewhere: "/c")
+  			global
+  			{not in Vi}
+  	Flag passed to the shell to execute "!" and ":!" commands; e.g.,
+  	"bash.exe -c ls" or "command.com /c dir".  For the MS-DOS-like
+  	systems, the default is set according to the value of 'shell', to
+  	reduce the need to set this option by the user.  It's not used for
+! 	OS/2 (EMX figures this out itself).  See |option-backslash| about
+! 	including spaces and backslashes.  See |dos-shell|.
+  	This option cannot be set from a |modeline| or in the |sandbox|, for
+  	security reasons.
+  
+--- 5899,5919 ----
+  	security reasons.
+  
+  						*'shellcmdflag'* *'shcf'*
+! 'shellcmdflag' 'shcf'	string	(default: "-c";
+! 				 Win32, when 'shell' is cmd.exe: "/s /c";
+! 				 MS-DOS and Win32, when 'shell' neither is
+! 				 cmd.exe nor contains "sh" somewhere: "/c")
+  			global
+  			{not in Vi}
+  	Flag passed to the shell to execute "!" and ":!" commands; e.g.,
+  	"bash.exe -c ls" or "command.com /c dir".  For the MS-DOS-like
+  	systems, the default is set according to the value of 'shell', to
+  	reduce the need to set this option by the user.  It's not used for
+! 	OS/2 (EMX figures this out itself).
+! 	On Unix it can have more than one flag.  Each white space separated
+! 	part is passed as an argument to the shell command.
+! 	See |option-backslash| about including spaces and backslashes.
+! 	Also see |dos-shell| for MS-DOS and MS-Windows.
+  	This option cannot be set from a |modeline| or in the |sandbox|, for
+  	security reasons.
+  
+***************
+*** 5910,5918 ****
+  	For Unix the default it "| tee".  The stdout of the compiler is saved
+  	in a file and echoed to the screen.  If the 'shell' option is "csh" or
+  	"tcsh" after initializations, the default becomes "|& tee".  If the
+! 	'shell' option is "sh", "ksh", "zsh" or "bash" the default becomes
+! 	"2>&1| tee".  This means that stderr is also included.  Before using
+! 	the 'shell' option a path is removed, thus "/bin/sh" uses "sh".
+  	The initialization of this option is done after reading the ".vimrc"
+  	and the other initializations, so that when the 'shell' option is set
+  	there, the 'shellpipe' option changes automatically, unless it was
+--- 5934,5943 ----
+  	For Unix the default it "| tee".  The stdout of the compiler is saved
+  	in a file and echoed to the screen.  If the 'shell' option is "csh" or
+  	"tcsh" after initializations, the default becomes "|& tee".  If the
+! 	'shell' option is "sh", "ksh", "mksh", "pdksh", "zsh" or "bash" the
+! 	default becomes "2>&1| tee".  This means that stderr is also included.
+! 	Before using the 'shell' option a path is removed, thus "/bin/sh" uses
+! 	"sh".
+  	The initialization of this option is done after reading the ".vimrc"
+  	and the other initializations, so that when the 'shell' option is set
+  	there, the 'shellpipe' option changes automatically, unless it was
+***************
+*** 6017,6024 ****
+  
+  						*'shellxquote'* *'sxq'*
+  'shellxquote' 'sxq'	string	(default: "";
+! 					for Win32, when 'shell' contains "sh"
+! 					somewhere: "\""
+  					for Unix, when using system(): "\"")
+  			global
+  			{not in Vi}
+--- 6043,6050 ----
+  
+  						*'shellxquote'* *'sxq'*
+  'shellxquote' 'sxq'	string	(default: "";
+! 					for Win32, when 'shell' is cmd.exe or
+! 					contains "sh" somewhere: "\""
+  					for Unix, when using system(): "\"")
+  			global
+  			{not in Vi}
+***************
+*** 6026,6036 ****
+  	the "!" and ":!" commands.  Includes the redirection.  See
+  	'shellquote' to exclude the redirection.  It's probably not useful
+  	to set both options.
+! 	This is an empty string by default.  Known to be useful for
+! 	third-party shells when using the Win32 version, such as the MKS Korn
+! 	Shell or bash, where it should be "\"".  The default is adjusted
+! 	according the value of 'shell', to reduce the need to set this option
+! 	by the user.  See |dos-shell|.
+  	This option cannot be set from a |modeline| or in the |sandbox|, for
+  	security reasons.
+  
+--- 6052,6063 ----
+  	the "!" and ":!" commands.  Includes the redirection.  See
+  	'shellquote' to exclude the redirection.  It's probably not useful
+  	to set both options.
+! 	This is an empty string by default on most systems, but is known to be
+! 	useful for on Win32 version, either for cmd.exe which automatically
+! 	strips off the first and last quote on a command, or 3rd-party shells
+! 	such as the MKS Korn Shell or bash, where it should be "\"".  The
+! 	default is adjusted according the value of 'shell', to reduce the need
+! 	to set this option by the user.  See |dos-shell|.
+  	This option cannot be set from a |modeline| or in the |sandbox|, for
+  	security reasons.
+  
+*** ../vim-7.3.442/src/version.c	2012-02-12 20:13:55.000000000 +0100
+--- src/version.c	2012-02-12 23:18:40.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     443,
+  /**/
+
+-- 
+CVS sux, men don't like commitment
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

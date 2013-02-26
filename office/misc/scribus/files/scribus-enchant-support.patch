@@ -1,0 +1,1736 @@
+diff -ru scribus-1.3.5.rc2.orig/BUILDING scribus-1.3.5.rc2/BUILDING
+--- scribus-1.3.5.rc2.orig/BUILDING	2009-07-15 09:33:47.000000000 +0100
++++ scribus-1.3.5.rc2/BUILDING	2009-07-15 12:48:37.000000000 +0100
+@@ -255,7 +255,7 @@
+ 	python-devel
+ 	tk
+ 	python-imaging
+-	aspell-devel
++	enchant-devel
+         boost-devel
+ 
+ You can install these packages using YaST. You may find it difficult to compile
+diff -ru scribus-1.3.5.rc2.orig/CMakeLists.txt scribus-1.3.5.rc2/CMakeLists.txt
+--- scribus-1.3.5.rc2.orig/CMakeLists.txt	2009-07-15 09:35:21.000000000 +0100
++++ scribus-1.3.5.rc2/CMakeLists.txt	2009-07-15 12:48:37.000000000 +0100
+@@ -609,15 +609,25 @@
+ ENDIF(NOT WIN32)
+ #>>FontConfig
+ 
+-#<<ASPELL for Speelling support
+-FIND_PACKAGE(ASPELL)
+-IF (ASPELL_FOUND)
+-  MESSAGE("ASpell Found OK")
+-  SET(HAVE_ASPELL 1)
+-ELSE(ASPELL_FOUND)
+-  MESSAGE("ASpell or its developer libraries NOT found - Disabling support for spell checking")
+-ENDIF(ASPELL_FOUND)
+-#>>ASPELL for Speelling support
++#<<ENCHANT for Spelling support
++SET(ENCHANT_DIR ${CMAKE_MODULE_PATH})
++FIND_PACKAGE(ENCHANT)
++IF (ENCHANT_FOUND)
++  MESSAGE("Enchant Found OK")
++  SET(HAVE_ENCHANT 1)
++ELSE(ENCHANT_FOUND)
++  MESSAGE("Enchant or its developer libraries NOT found - Trying aspell instead")
++  #<<ASPELL for Spelling support
++  FIND_PACKAGE(ASPELL)
++  IF (ASPELL_FOUND)
++    MESSAGE("ASpell Found OK")
++    SET(HAVE_ASPELL 1)
++  ELSE(ASPELL_FOUND)
++    MESSAGE("ASpell or its developer libraries NOT found - Disabling support for spell checking")
++  ENDIF(ASPELL_FOUND)
++  #>>ASPELL for Spelling support
++ENDIF(ENCHANT_FOUND)
++#>>ENCHANT for Spelling support
+ 
+ 
+ #<<PoDoFo for AI PDF import
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/CMakeLists.txt scribus-1.3.5.rc2/scribus/plugins/tools/CMakeLists.txt
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/CMakeLists.txt	2009-07-15 09:33:54.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/CMakeLists.txt	2009-07-15 12:48:37.000000000 +0100
+@@ -6,7 +6,9 @@
+ ADD_SUBDIRECTORY(pathfinder)
+ ADD_SUBDIRECTORY(pathstroker)
+ ADD_SUBDIRECTORY(subdivide)
+-if (HAVE_ASPELL)
++if (HAVE_ENCHANT)
+   ADD_SUBDIRECTORY(spellcheck)
+-endif (HAVE_ASPELL)
++elseif (HAVE_ASPELL)
++  ADD_SUBDIRECTORY(spellcheck)
++endif ()
+ ADD_SUBDIRECTORY(transform)
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellpluginbase.ui scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellpluginbase.ui
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellpluginbase.ui	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellpluginbase.ui	2009-07-15 13:04:05.000000000 +0100
+@@ -1,6 +1,6 @@
+ <ui version="4.0" >
+- <class>AspellPluginBase</class>
+- <widget class="QDialog" name="AspellPluginBase" >
++ <class>SpellPluginBase</class>
++ <widget class="QDialog" name="SpellPluginBase" >
+   <property name="geometry" >
+    <rect>
+     <x>0</x>
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellplugin.cpp scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellplugin.cpp
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellplugin.cpp	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellplugin.cpp	2009-07-15 13:07:51.000000000 +0100
+@@ -13,21 +13,21 @@
+ // Please don't implement the functionality of your plugin here; do that
+ // in aspellpluginimpl.h and aspellpluginimpl.cpp .
+ 
+-AspellPlugin::AspellPlugin() : ScActionPlugin()
++SpellPlugin::SpellPlugin() : ScActionPlugin()
+ {
+ 	// Set action info in languageChange, so we only have to do
+ 	// it in one place.
+ 	languageChange();
+ }
+ 
+-AspellPlugin::~AspellPlugin() {};
++SpellPlugin::~SpellPlugin() {};
+ 
+-void AspellPlugin::languageChange()
++void SpellPlugin::languageChange()
+ {
+ 	// Note that we leave the unused members unset. They'll be initialised
+ 	// with their default ctors during construction.
+ 	// Action name
+-	m_actionInfo.name = "AspellPlugin";
++	m_actionInfo.name = "SpellPlugin";
+ 	// Action text for menu, including &accel
+ 	m_actionInfo.text = tr("Spell Checker");
+ 	// Menu
+@@ -51,20 +51,29 @@
+ 	m_actionInfo.enabledOnStartup = false;
+ }
+ 
+-const QString AspellPlugin::fullTrName() const
++const QString SpellPlugin::fullTrName() const
+ {
++#if defined(USE_ENCHANT)
++	return QObject::tr("Spell check (enchant)");
++#else
+ 	return QObject::tr("Spell check (aspell)");
++#endif
+ }
+ 
+-const ScActionPlugin::AboutData* AspellPlugin::getAboutData() const
++const ScActionPlugin::AboutData* SpellPlugin::getAboutData() const
+ {
+ 	AboutData* about = new AboutData;
+ 	Q_CHECK_PTR(about);
+ 	about->authors = "Gora Mohanty <gora@srijan.in>";
+ 	about->shortDescription = tr( "Spell-checking support" );
+ 	about->description =
++#if defined(USE_ENCHANT)
++	  tr( "Adds support for spell-checking via enchant. Languages "
++	      "can be chosen from among the installed enchant "
++#else
+ 	  tr( "Adds support for spell-checking via aspell. Languages "
+ 	      "can be chosen from among the installed aspell "
++#endif
+ 	      "dictionaries, and spell-checking can be done on the "
+ 	      "fly, or on selected text." );
+ 	about->version = tr( "0.1" );
+@@ -73,15 +82,15 @@
+ 	return about;
+ }
+ 
+-void AspellPlugin::deleteAboutData(const AboutData* about) const
++void SpellPlugin::deleteAboutData(const AboutData* about) const
+ {
+ 	Q_ASSERT(about);
+ 	delete about;
+ }
+ 
+-bool AspellPlugin::run(ScribusDoc* doc, QString target)
++bool SpellPlugin::run(ScribusDoc* doc, QString target)
+ {
+-	AspellPluginImpl *myPluginImpl = new AspellPluginImpl( doc );
++	SpellPluginImpl *myPluginImpl = new SpellPluginImpl( doc );
+ 	Q_CHECK_PTR(myPluginImpl);
+ 	// The spellcheck is disabled when there are no available
+ 	// dictionaries.
+@@ -92,7 +101,7 @@
+ 		doc->scMW()->scrActions[m_actionInfo.name]->setEnabled(false);
+ 		doc->scMW()->scrActions[m_actionInfo.name]->setVisible(false);
+ 		QMessageBox::warning(doc->scMW(),
+-							 tr("Aspell Plugin Error"),
++							 tr("Spell Plugin Error"),
+ 							 myPluginImpl->errorMessage());
+ 	}
+ 	delete myPluginImpl;
+@@ -100,21 +109,21 @@
+ }
+ 
+ // Low level plugin API
+-int x_aspellplugin_getPluginAPIVersion()
++int spellplugin_getPluginAPIVersion()
+ {
+ 	return PLUGIN_API_VERSION;
+ }
+ 
+-ScPlugin* x_aspellplugin_getPlugin()
++ScPlugin* spellplugin_getPlugin()
+ {
+-	AspellPlugin* plug = new AspellPlugin();
++	SpellPlugin* plug = new SpellPlugin();
+ 	Q_CHECK_PTR(plug);
+ 	return plug;
+ }
+ 
+-void x_aspellplugin_freePlugin(ScPlugin* plugin)
++void spellplugin_freePlugin(ScPlugin* plugin)
+ {
+-	AspellPlugin* plug = dynamic_cast<AspellPlugin*>(plugin);
++	SpellPlugin* plug = dynamic_cast<SpellPlugin*>(plugin);
+ 	Q_ASSERT(plug);
+ 	delete plug;
+ }
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellplugin.h scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellplugin.h
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellplugin.h	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellplugin.h	2009-07-15 13:01:40.000000000 +0100
+@@ -14,14 +14,14 @@
+ That documentatation is not duplicated here.
+ Please don't implement the functionality of your plugin here; do that
+ in aspellpluginimpl.h and aspellpluginimpl.cpp. */
+-class PLUGIN_API AspellPlugin : public ScActionPlugin
++class PLUGIN_API SpellPlugin : public ScActionPlugin
+ {
+ 	Q_OBJECT
+ 
+ 	public:
+ 		//! \brief Standard plugin implementation
+-		AspellPlugin();
+-		virtual ~AspellPlugin();
++		SpellPlugin();
++		virtual ~SpellPlugin();
+ 		//! \brief main method to run the plug
+ 		virtual bool run(ScribusDoc* doc, QString target = QString::null);
+ 		virtual const QString fullTrName() const;
+@@ -33,8 +33,8 @@
+ 		// Special features (none)
+ };
+ 
+-extern "C" PLUGIN_API int x_aspellplugin_getPluginAPIVersion();
+-extern "C" PLUGIN_API ScPlugin* x_aspellplugin_getPlugin();
+-extern "C" PLUGIN_API void x_aspellplugin_freePlugin(ScPlugin* plugin);
++extern "C" PLUGIN_API int spellplugin_getPluginAPIVersion();
++extern "C" PLUGIN_API ScPlugin* spellplugin_getPlugin();
++extern "C" PLUGIN_API void spellplugin_freePlugin(ScPlugin* plugin);
+ 
+ #endif
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellpluginimpl.cpp scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellpluginimpl.cpp
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellpluginimpl.cpp	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellpluginimpl.cpp	2009-07-15 13:07:20.000000000 +0100
+@@ -10,15 +10,15 @@
+ #include "util.h"
+ #include <QMessageBox>
+ 
+-const char* AspellPluginImpl::kDEF_CONTEXT = "AspellPlugin";
+-const QString AspellPluginImpl::kDEF_ASPELL_ENTRY =
+-	QString( "en" ) + Speller::Aspell::Suggest::kDICT_DELIM +
+-	QString( "en" ) + Speller::Aspell::Suggest::kDICT_DELIM +
+-	QString( "*" ) + Speller::Aspell::Suggest::kDICT_DELIM +
++const char* SpellPluginImpl::kDEF_CONTEXT = "SpellPlugin";
++const QString SpellPluginImpl::kDEF_ASPELL_ENTRY =
++	QString( "en" ) + Speller::Spell::Suggest::kDICT_DELIM +
++	QString( "en" ) + Speller::Spell::Suggest::kDICT_DELIM +
++	QString( "*" ) + Speller::Spell::Suggest::kDICT_DELIM +
+ 	QString( "60" );  // I.e., en/en/*/60 corresponding to default English dictionary
+ 
+ // Initialize members here, if any
+-AspellPluginImpl::AspellPluginImpl(ScribusDoc* doc, QWidget* parent) :
++SpellPluginImpl::SpellPluginImpl(ScribusDoc* doc, QWidget* parent) :
+ 	QDialog( parent ),
+ 	fdoc( doc ),
+ 	m_docIsChanged(false),
+@@ -34,7 +34,12 @@
+ 	// Get stored language, jargon, encoding settings
+ 	fprefs = PrefsManager::instance()->prefsFile->getPluginContext( kDEF_CONTEXT );
+ 	getPreferences();
+-	QString text = tr( "Loaded " ) + (fentry == kDEF_ASPELL_ENTRY ? tr( "default " ) : "") + fentry + tr( " aspell dictionary." );
++	QString text = tr( "Loaded " ) + (fentry == kDEF_ASPELL_ENTRY ? tr( "default " ) : "") + fentry +
++#if defined(USE_ENCHANT)
++		tr( " enchant dictionary." );
++#else
++		tr( " aspell dictionary." );
++#endif
+ 	doc->scMW()->setStatusBarInfoText( text );
+ 	try
+ 	{
+@@ -44,7 +49,11 @@
+ 
+ 		// Create speller, and get list of available aspell
+ 		// dictionaries.
+-		fsuggest = new Speller::Aspell::Suggest( flang.toUtf8().data(), fjargon.toUtf8().data(), fencoding.toUtf8().data() );
++		fsuggest = new Speller::Spell::Suggest( flang.toUtf8().data()
++#if !defined(USE_ENCHANT) 
++			, fjargon.toUtf8().data(), fencoding.toUtf8().data()
++#endif
++		  );
+ 		Q_CHECK_PTR( fsuggest );
+ 
+ 		// Get list of available aspell dictionaries
+@@ -59,16 +68,33 @@
+ 		// check the availability of any dict. If == 0 then the plugin
+ 		// is disabled in all GUI.
+ 		if (flistDicts->count() == 0)
+-			m_errorMessage = tr("No available Aspell dictionaries found. Install some, please.");
++			m_errorMessage = tr("No available spelling dictionaries found. Install some, please.");
+ 		// use dict for system local if there are no preferences set before
+-		QString locale(QLocale::system().name().left(2));
+ 		if (fentry.isEmpty())
+ 		{
+-			int ix = flistDicts->findText(locale, Qt::MatchStartsWith);
++			QString locale = QLocale::system().name();
++			int ix = flistDicts->findText(locale); //Exact match
++			if (ix == -1)
++			{
++				QString language_pattern('^');
++				language_pattern.append(locale);
++				language_pattern.append("([^a-zA-Z]|$).*");
++				ix = flistDicts->findText(language_pattern, Qt::MatchRegExp); //Very close match
++			}
++			if (ix == -1)
++			{
++				QString language_pattern('^');
++				QStringList fields = locale.split( '_' );
++				QString language = fields[0];
++				language_pattern.append(language);
++				language_pattern.append("([^a-zA-Z]|$).*");
++				ix = flistDicts->findText(language_pattern, Qt::MatchRegExp); //Close enough match
++			}
+ 			if (ix != -1)
+ 				flistDicts->setCurrentIndex(ix);
+ 			else
+ 			{
++
+ 				fentry = kDEF_ASPELL_ENTRY;
+ 				setCurrentComboItem(flistDicts, fentry);
+ 			}
+@@ -79,23 +105,23 @@
+ 	}
+ 	catch( const std::invalid_argument& err )
+ 	{
+-		QString warn = tr( "aspellplugin (AspellPluginImpl::"
+-				   "AspellPluginImpl): Error in aspell "
++		QString warn = tr( "aspellplugin (SpellPluginImpl::"
++				   "SpellPluginImpl): Error in "
+ 				   "speller configuration." );
+ 		qWarning( "%s", warn.toUtf8().data() );
+ 	}
+ 	catch( const std::runtime_error& err )
+ 	{
+-		QString warn = tr( "aspellplugin (AspellPluginImpl::"
+-				   "AspellPluginImpl): Error in creating "
+-				   "aspell speller." );
++		QString warn = tr( "aspellplugin (SpellPluginImpl::"
++				   "SpellPluginImpl): Error in creating "
++				   "speller." );
+ 		qWarning( "%s", warn.toUtf8().data() );
+ 	}
+ 	activateSpellGUI(true);
+ 	parseSelection();
+ }
+ //__________________________________________________________________________
+-AspellPluginImpl::~AspellPluginImpl()
++SpellPluginImpl::~SpellPluginImpl()
+ {
+ 	// Destructor
+ 	try
+@@ -104,14 +130,14 @@
+ 	}
+ 	catch( const std::runtime_error& err )
+ 	{
+-		qWarning( "aspellplugin (AspellPluginImpl::~AspellPlugin"
++		qWarning( "aspellplugin (SpellPluginImpl::~SpellPlugin"
+ 			  "Impl): Error in saving aspell word lists." );
+ 	}
+ 
+ 	delete fsuggest;
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::activateSpellGUI(bool active)
++void SpellPluginImpl::activateSpellGUI(bool active)
+ {
+ 	// Activates spell-checking GUI elements in spell-checking
+ 	// tab, i.e., everything except combo box at top
+@@ -129,7 +155,7 @@
+ 	flistDicts->setEnabled( active );
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::nextWord()
++void SpellPluginImpl::nextWord()
+ {
+ 	QChar ch;
+ 	QString wordBoundaries = QString(" .,:;\"'!?\n");
+@@ -164,7 +190,7 @@
+ 	fpos = pa;
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::checkText()
++void SpellPluginImpl::checkText()
+ {
+ 	// Called from parseXXX(), after filling in the currently
+ 	// relevant text into 'fcontent'. Handles spell-checking of
+@@ -228,7 +254,7 @@
+ 	}
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::spellCheckDone()
++void SpellPluginImpl::spellCheckDone()
+ {
+ 	// Called once all words in the current text, i.e., in 'fcontent'
+ 	// have been spell-checked. Pops up an information dialog.
+@@ -250,14 +276,14 @@
+ 	close();
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::on_fcloseBtn_clicked()
++void SpellPluginImpl::on_fcloseBtn_clicked()
+ {
+ 	// Called when the "Close" button is clicked. Makes any pending
+ 	// replacements and closes the spell-checking window.
+ 	spellCheckDone();  // Also closes spell-checking window.
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::on_fchangeBtn_clicked()
++void SpellPluginImpl::on_fchangeBtn_clicked()
+ {
+ 	// Called when the "Change" button is clicked. Replaces the word
+ 	// being spell-checked with the current word in text edit box.
+@@ -292,7 +318,7 @@
+ 	checkText();
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::on_fchangeAllBtn_clicked()
++void SpellPluginImpl::on_fchangeAllBtn_clicked()
+ {
+ 	// Called when the "Change All" button is clicked. Replaces all
+ 	// instances of the word being spell-checked with the current word in
+@@ -329,7 +355,7 @@
+ 	checkText();
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::on_fskipBtn_clicked()
++void SpellPluginImpl::on_fskipBtn_clicked()
+ {
+ 	// Called when the "Skip" button is clicked. Skips the word currently
+ 	// being spell-checked.
+@@ -338,7 +364,7 @@
+ 	checkText();
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::on_fskipAllBtn_clicked()
++void SpellPluginImpl::on_fskipAllBtn_clicked()
+ {
+ 	// Called when the "Skip All" button is clicked. Puts the word
+ 	// currently being spell-checked into the list of words to be ignored
+@@ -355,7 +381,7 @@
+ 	{
+ 		
+ 		QString warn =
+-		  tr( "AspellPluginImpl::on_fskipAllBtn_clicked(): Unable "
++		  tr( "SpellPluginImpl::on_fskipAllBtn_clicked(): Unable "
+ 		      "to skip all instances of \"" ) + fcontent +
+ 		  tr(" by adding it to the session list.");
+ 		qWarning( "%s", warn.toUtf8().data() );
+@@ -365,7 +391,7 @@
+ 	checkText();
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::on_faddWordBtn_clicked()
++void SpellPluginImpl::on_faddWordBtn_clicked()
+ {
+ 	// Called when the "Add word" button is clicked. Adds word to personal
+ 	// word list.
+@@ -378,13 +404,13 @@
+ 	catch( const std::runtime_error& err )
+ 	{
+ 		QString warn =
+-			tr( "AspellPluginImpl::on_faddWordBtn_clicked(): "
++			tr( "SpellPluginImpl::on_faddWordBtn_clicked(): "
+ 			    "Unable to add word to personal list." );
+ 		qWarning( "%s", warn.toUtf8().data() );
+ 	}
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::on_flistReplacements_itemActivated()
++void SpellPluginImpl::on_flistReplacements_itemActivated()
+ {
+ 	// Called when an item in the list of replacements is
+ 	// selected. Replaces current word in text edit box with the text
+@@ -392,27 +418,37 @@
+ 	fcurrWord->setText( flistReplacements->currentItem()->text() );
+ }
+ 
+-bool AspellPluginImpl::handleSpellConfig(const QString & dictFullName)
++bool SpellPluginImpl::handleSpellConfig(const QString & dictFullName)
+ {
+ 	QString entry(dictFullName);
+-	QStringList fields = entry.split( Speller::Aspell::Suggest::kDICT_DELIM );
++	QStringList fields = entry.split( Speller::Spell::Suggest::kDICT_DELIM );
++#if defined(USE_ENCHANT)
++	// Ensure that we have sufficient fields.
++	if( fields.size() > 2 )
++	{
++		fsuggest->resetConfig( fields[1].toAscii().data() );
++		setPreferences( fields[1] );
++		return true;
++	}
++#else
+ 	// Ensure that we have at least the right no.of fields.
+ 	if( fields.size() == 4 )
+ 	{
+ 		QString value =
+-		fields[0] + Speller::Aspell::Suggest::kDICT_DELIM +
+-		fields[1] + Speller::Aspell::Suggest::kDICT_DELIM +
+-		fields[2] + Speller::Aspell::Suggest::kDICT_DELIM +
++		fields[0] + Speller::Spell::Suggest::kDICT_DELIM +
++		fields[1] + Speller::Spell::Suggest::kDICT_DELIM +
++		fields[2] + Speller::Spell::Suggest::kDICT_DELIM +
+ 		fields[3];
+ 		fsuggest->resetConfig( fields[1].toAscii().data(), fields[2].toAscii().data() );
+ 		// FIXME: Handle encodings other than UTF-8.
+-		setPreferences( fields[1], fields[2], Speller::Aspell::Suggest::kDEF_ENCODING, value );
++		setPreferences( fields[1], fields[2], Speller::Spell::Suggest::kDEF_ENCODING, value );
+ 		return true;
+ 	}
++#endif
+ 	return false;
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::on_flistDicts_activated()
++void SpellPluginImpl::on_flistDicts_activated()
+ {
+ 	// Called when an item in the list of available aspell dictionaries is
+ 	// selected, i.e., by double-clicking, or pressing enter. Resets
+@@ -436,38 +472,45 @@
+ 	}
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::getPreferences()
++void SpellPluginImpl::getPreferences()
+ {
+ 	// Retrieves user preferences from saved settings. Defaults are
+ 	// supplied 
+-	flang =	fprefs->get( "lang", Speller::Aspell::Suggest::kDEF_LANG );
+-	fjargon = fprefs->get( "jargon", Speller::Aspell::Suggest::kDEF_JARGON );
++	flang =	fprefs->get( "lang", Speller::Spell::Suggest::kDEF_LANG );
++#if !defined(USE_ENCHANT)
++	fjargon = fprefs->get( "jargon", Speller::Spell::Suggest::kDEF_JARGON );
+ 	// FIXME: Handle encodings other than UTF-8.
+-	fencoding = fprefs->get( "encoding", Speller::Aspell::Suggest::kDEF_ENCODING );
++	fencoding = fprefs->get( "encoding", Speller::Spell::Suggest::kDEF_ENCODING );
+ 	// Don't use kDEF_ASPELL_ENTRY here. It's checked
+ 	// against system locale later when there is no preferences for it.
+ 	fentry = fprefs->get( "entry", "");//kDEF_ASPELL_ENTRY );
++#endif
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::setPreferences(const QString& lang,
+-				      const QString& jargon,
+-				      const QString& encoding,
+-				      const QString& entry)
++void SpellPluginImpl::setPreferences(const QString& lang
++#if !defined(USE_ENCHANT)
++				      , const QString& jargon
++				      , const QString& encoding
++				      , const QString& entry
++#endif
++  )
+ {
+ 	// Saves user preferences using Scribus preferences manager.
+ 	fprefs->set( "lang", lang );
+-	QString val = jargon == Speller::Aspell::Suggest::kEMPTY ? "" : jargon;
++#if !defined(USE_ENCHANT)
++	QString val = jargon == Speller::Spell::Suggest::kEMPTY ? "" : jargon;
+ 	fprefs->set( "jargon", val );
+ 	fprefs->set( "encoding", encoding );
+ 	fprefs->set( "entry", entry );
++#endif
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::languageChange()
++void SpellPluginImpl::languageChange()
+ {
+-	qWarning( "AspellPluginImpl::languageChange(): Not implemented yet" );
++	qWarning( "SpellPluginImpl::languageChange(): Not implemented yet" );
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::parseItem()
++void SpellPluginImpl::parseItem()
+ {
+ 	// Parse text in a frame, and spell-check it.
+ 	// Process only text frames
+@@ -478,7 +521,7 @@
+ 	}
+ }
+ //__________________________________________________________________________
+-void AspellPluginImpl::parseSelection()
++void SpellPluginImpl::parseSelection()
+ {
+ 	fcontent.truncate( 0 );  // Start with empty string
+ 	uint ndocs = fdoc->m_Selection->count();
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellpluginimpl.h scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellpluginimpl.h
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/aspellpluginimpl.h	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/aspellpluginimpl.h	2009-07-15 13:03:49.000000000 +0100
+@@ -27,11 +27,11 @@
+ #include "suggest.h"              // For aspell interface class
+ 
+ /*!
+-\class AspellPluginImpl
++\class SpellPluginImpl
+ \author Gora Mohanty <gora@srijan.in>
+-\brief Implementation of plugin. GUI part is derived from AspellPluginBase class, as aspellpluginbase.{cpp,h} get overwritten by uic. Interface to aspell uses Speller::Aspell::Suggest
++\brief Implementation of plugin. GUI part is derived from SpellPluginBase class, as aspellpluginbase.{cpp,h} get overwritten by uic. Interface to aspell uses Speller::Spell::Suggest
+  */
+-class AspellPluginImpl : public QDialog, private Ui::AspellPluginBase
++class SpellPluginImpl : public QDialog, private Ui::SpellPluginBase
+ {
+ 	Q_OBJECT
+ private:
+@@ -39,8 +39,8 @@
+ 	static const char* kDEF_CONTEXT;
+ 	/*! Formatted string for aspell dictionary entry: Form of <name>--<lang>--<jargon>--<size> */
+ 	static const QString kDEF_ASPELL_ENTRY;
+-	/*! \brief Aspell interface object. */
+-	Speller::Aspell::Suggest* fsuggest;
++	/*! \brief Spell interface object. */
++	Speller::Spell::Suggest* fsuggest;
+ 	/*! \brief Scribus preferences object. */
+ 	PrefsContext* fprefs;
+ 	/*! \brief Language for aspell dictionary. */
+@@ -115,10 +115,13 @@
+ 	  \param encoding: Encoding for aspell dictionary
+ 	  \retval None
+ 	*/
+-	void setPreferences(const QString& lang,
+-			    const QString& jargon,
+-			    const QString& encoding=Speller::Aspell::Suggest::kDEF_ENCODING,
+-			    const QString& entry=kDEF_ASPELL_ENTRY);
++	void setPreferences(const QString& lang
++#if ! defined(USE_ENCHANT)
++			    , const QString& jargon
++			    , const QString& encoding=Speller::Spell::Suggest::kDEF_ENCODING
++			    , const QString& entry=kDEF_ASPELL_ENTRY
++#endif
++	);
+ 	/*!
+ 	  \author Gora Mohanty <gora@srijan.in>
+ 	  \brief Retrieve saved user preferences: language, jargon, encoding.
+@@ -170,14 +173,14 @@
+ 	  \param parent: Parent window that this is a child of.
+ 	  \retval None
+ 	*/
+-	AspellPluginImpl(ScribusDoc* doc, QWidget* parent=NULL);
++	SpellPluginImpl(ScribusDoc* doc, QWidget* parent=NULL);
+ 	/*!
+ 	  \author Gora Mohanty <gora@srijan.in>
+ 	  \brief Destructor for spell-checking plugin implementation.
+ 	  \param None
+ 	  \retval None
+ 	*/
+-	~AspellPluginImpl();
++	~SpellPluginImpl();
+ 
+ 	/*! \brief Returns a error message for caller.
+ 	It should disable the plugin then
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/ChangeLog scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/ChangeLog
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/ChangeLog	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/ChangeLog	2009-07-15 12:48:37.000000000 +0100
+@@ -1,3 +1,6 @@
++2009-06-15  Caolán McNamara <caolanm@redhat.com>
++	* use enchant if available
++
+ 2007-11-23  Franz Schmid
+ 
+ 	* aspellpluginimpl.ui Added proper layouts to the Gui
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/CMakeLists.txt scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/CMakeLists.txt
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/CMakeLists.txt	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/CMakeLists.txt	2009-07-15 13:00:10.000000000 +0100
+@@ -1,10 +1,61 @@
+-IF (ASPELL_FOUND)
++IF (ENCHANT_FOUND)
++  INCLUDE_DIRECTORIES(
++  ${CMAKE_SOURCE_DIR}
++  ${CMAKE_SOURCE_DIR}/scribus
++  ${ENCHANT_INCLUDE_DIR}
++  )
++
++  ADD_DEFINITIONS("-DUSE_ENCHANT")
++
++  SET(ASPELL_PLUGIN_UI_SRC
++    aspellpluginbase.ui
++#  donedlgbase.ui
++  )
++
++  SET(ASPELL_PLUGIN_MOC_CLASSES
++    aspellplugin.h
++    aspellpluginimpl.h
++#  donedlgimpl.h
++  )
++
++  SET(ASPELL_PLUGIN_SOURCES
++    aspellplugin.cpp
++    aspellpluginimpl.cpp
++#  donedlgimpl.cpp
++    suggest.cpp
++  )
++
++  SET(SCRIBUS_ASPELL_PLUGIN "spellplugin")
++
++  QT4_WRAP_UI(ASPELL_PLUGIN_UI_SOURCES ${ASPELL_PLUGIN_UI_SRC} )
++  QT4_WRAP_CPP(ASPELL_PLUGIN_MOC_SOURCES ${ASPELL_PLUGIN_MOC_CLASSES})
++
++  ADD_LIBRARY(${SCRIBUS_ASPELL_PLUGIN} MODULE
++    ${ASPELL_PLUGIN_SOURCES}
++    ${ASPELL_PLUGIN_MOC_SOURCES}
++    ${ASPELL_PLUGIN_UI_SOURCES}
++  )
++
++  TARGET_LINK_LIBRARIES(${SCRIBUS_ASPELL_PLUGIN} ${ENCHANT_LIBRARIES} ${PLUGIN_LIBRARIES})
++
++  INSTALL(TARGETS ${SCRIBUS_ASPELL_PLUGIN}
++    LIBRARY
++    DESTINATION ${PLUGINDIR}
++    PERMISSIONS ${PLUGIN_PERMISSIONS}
++  )
++
++  ADD_DEPENDENCIES(${SCRIBUS_ASPELL_PLUGIN} ${EXE_NAME})
++
++# SET_TARGET_PROPERTIES(${SCRIBUS_ASPELL_PLUGIN} PROPERTIES VERSION "0.0.1")
++ELSEIF (ASPELL_FOUND)
+   INCLUDE_DIRECTORIES(
+   ${CMAKE_SOURCE_DIR}
+   ${CMAKE_SOURCE_DIR}/scribus
+   ${ASPELL_INCLUDE_DIR}
+   )
+ 
++  ADD_DEFINITIONS("-DUSE_ASPELL")
++
+   SET(ASPELL_PLUGIN_UI_SRC
+     aspellpluginbase.ui
+ #  donedlgbase.ui
+@@ -32,7 +83,7 @@
+ # INSTALL(CODE "FILE(MAKE_DIRECTORY ${ENV}${CMAKE_INSTALL_PREFIX}/${ASPELLRELATIVEDICTDIR})")
+ ENDIF (APPLEBUNDLE)
+ 
+-  SET(SCRIBUS_ASPELL_PLUGIN "x_aspellplugin")
++  SET(SCRIBUS_ASPELL_PLUGIN "spellplugin")
+ 
+   QT4_WRAP_UI(ASPELL_PLUGIN_UI_SOURCES ${ASPELL_PLUGIN_UI_SRC} )
+   QT4_WRAP_CPP(ASPELL_PLUGIN_MOC_SOURCES ${ASPELL_PLUGIN_MOC_CLASSES})
+@@ -54,5 +105,4 @@
+   ADD_DEPENDENCIES(${SCRIBUS_ASPELL_PLUGIN} ${EXE_NAME})
+ 
+ # SET_TARGET_PROPERTIES(${SCRIBUS_ASPELL_PLUGIN} PROPERTIES VERSION "0.0.1")
+-ENDIF (ASPELL_FOUND)
+-
++ENDIF ()
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/suggest.cpp scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/suggest.cpp
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/suggest.cpp	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/suggest.cpp	2009-07-15 13:06:19.000000000 +0100
+@@ -8,47 +8,68 @@
+ #include "suggest.h"
+ #include "scpaths.h"
+ #include <QFileInfo>
++#include <algorithm>
+ /*!
+ \brief Delimiter between different components of formatted strings for aspell dictionary entries.
+  */
+-const char* Speller::Aspell::Suggest::kDICT_DELIM = "/";
+-const char* Speller::Aspell::Suggest::kEMPTY = "*";
+-const char* Speller::Aspell::Suggest::kDEF_LANG = "en";
+-const char* Speller::Aspell::Suggest::kDEF_JARGON = "";  // I.e., no jargon
+-const char* Speller::Aspell::Suggest::kDEF_ENCODING = "utf-8";
++#if defined(USE_ENCHANT)
++#include <enchant++.h>
++const char* Speller::Spell::Suggest::kDEF_LANG = "en_US";
++#else
++const char* Speller::Spell::Suggest::kDEF_LANG = "en";
++const char* Speller::Spell::Suggest::kDEF_JARGON = "";  // I.e., no jargon
++const char* Speller::Spell::Suggest::kDEF_ENCODING = "utf-8";
++#endif
++const char* Speller::Spell::Suggest::kDICT_DELIM = "/";
++const char* Speller::Spell::Suggest::kEMPTY = "*";
+ 
+-void Speller::Aspell::Suggest::checkError() throw( std::runtime_error )
++#if ! defined(USE_ENCHANT)
++void Speller::Spell::Suggest::checkError() throw( std::runtime_error )
+ {
+ 	if( aspell_speller_error_number( fspeller ) != 0 )
+ 	{
+ 		std::string err_msg =
+-			std::string( "(Aspell::Speller::Suggest::checkError): "
++			std::string( "(Spell::Speller::Suggest::checkError): "
+ 				     "aspell speller error " ) +
+ 			aspell_speller_error_message( fspeller );
+ 		throw std::runtime_error( err_msg );
+ 	}
+ }
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::checkConfigError()
++void Speller::Spell::Suggest::checkConfigError()
+ 	throw( std::runtime_error )
+ {
+ 	if( aspell_config_error_number( fconfig ) != 0 )
+ 	{
+ 		std::string err_msg =
+-			std::string( "(Aspell::Speller::Suggest::checkConfig"
++			std::string( "(Spell::Speller::Suggest::checkConfig"
+ 				     "Error): aspell speller error " ) +
+ 			aspell_config_error_message( fconfig );
+ 		throw std::runtime_error( err_msg );
+ 	}
+ }
++#endif
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::init(const std::string& lang,
+-				    const std::string& jargon,
+-				    const std::string& encoding)
++void Speller::Spell::Suggest::init(const std::string& lang
++#if ! defined(USE_ENCHANT)
++				    , const std::string& jargon
++				    , const std::string& encoding
++#endif
++)
+ 	throw( std::invalid_argument, std::runtime_error )
+ {
+ 	// Save aspell configuration values
+ 	flang = lang;
++#if defined(USE_ENCHANT)
++	try
++	{
++		fspeller = enchant::Broker::instance()->request_dict(flang);
++	}
++	catch( enchant::Exception& err )
++	{
++		throw std::invalid_argument(err.what());
++	}
++#else
+ 	fjargon = jargon;
+ 	fencoding = encoding;
+ 
+@@ -67,7 +88,7 @@
+ 	if( aspell_error_number( ret ) != 0 )
+ 	{
+ 		delete_aspell_can_have_error( ret );
+-		throw std::runtime_error( "(Aspell::Speller::Suggest::init"
++		throw std::runtime_error( "(Spell::Speller::Suggest::init"
+ 					  "): Error in creating speller." );
+ 	}
+ 	else
+@@ -75,9 +96,11 @@
+ 		fspeller = to_aspell_speller( ret );
+ 		fconfig = aspell_speller_config( fspeller );
+ 	}
++#endif
+ }
++#if ! defined(USE_ENCHANT)
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::listDicts(std::vector<AspellDictInfo>& vals)
++void Speller::Spell::Suggest::listDicts(std::vector<AspellDictInfo>& vals)
+ {
+ 	AspellDictInfoList* dlist = get_aspell_dict_info_list( fconfig );
+ 	AspellDictInfoEnumeration* dinfo_enum =
+@@ -89,9 +112,26 @@
+ 	}
+ 	delete_aspell_dict_info_enumeration( dinfo_enum );
+ }
++#endif
++#if defined(USE_ENCHANT)
++void EnchantDictDescribe(const char * const lang_tag,
++       const char * const ,
++       const char * const ,
++       const char * const ,
++       void * user_data)
++{
++       std::vector<std::string> *detected = (std::vector<std::string>*)user_data;
++       detected->push_back(std::string(lang_tag));
++}
++#endif
++
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::listDicts(std::vector<std::string>& vals)
++void Speller::Spell::Suggest::listDicts(std::vector<std::string>& vals)
+ {
++#if defined(USE_ENCHANT)
++        enchant::Broker::instance()->list_dicts(EnchantDictDescribe, &vals);
++	std::sort(vals.begin(), vals.end());
++#else
+ 	std::vector<AspellDictInfo> entries;
+ 	listDicts( entries );
+ 	for( std::vector<AspellDictInfo>::const_iterator i = entries.begin();
+@@ -105,16 +145,27 @@
+ 			  << i->size;
+                 vals.push_back( fmt_entry.str() );
+         }
++#endif
+ }
+ //__________________________________________________________________________
+ void
+-Speller::Aspell::Suggest::printWordList(const AspellWordList* wlist,
++Speller::Spell::Suggest::printWordList(
++#if defined(USE_ENCHANT)
++	const std::vector<std::string> & wlist,
++#else
++	const AspellWordList* wlist,
++#endif
+ 					char delim)
+ 	throw( std::invalid_argument )
+ {
++#if defined(USE_ENCHANT)
++	std::vector<std::string>::const_iterator aEnd = wlist.end();
++	for (std::vector<std::string>::const_iterator aI = wlist.begin(); aI != aEnd; ++aI)
++		std::cout << *aI << delim;
++#else
+ 	if( ! wlist )
+ 	{
+-		throw std::invalid_argument( "(Aspell.Speller.Suggest.print"
++		throw std::invalid_argument( "(Spell.Speller.Suggest.print"
+ 					     "WordList): word list pointer "
+ 					     "is null." );
+ 	}
+@@ -127,9 +178,11 @@
+ 		std::cout << next << delim;
+ 	}
+ 	delete_aspell_string_enumeration( enum_list );
++#endif
+ }
++#if ! defined(USE_ENCHANT)
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::setConfig() throw( std::invalid_argument )
++void Speller::Spell::Suggest::setConfig() throw( std::invalid_argument )
+ {
+ 	try
+ 	{
+@@ -150,13 +203,13 @@
+ }
+ //__________________________________________________________________________
+ void
+-Speller::Aspell::Suggest::storeWordList(const AspellWordList* wlist,
++Speller::Spell::Suggest::storeWordList(const AspellWordList* wlist,
+ 					std::vector<std::string>& replacement)
+ 	throw( std::invalid_argument )
+ {
+ 	if( ! wlist )
+ 	{
+-		throw std::invalid_argument( "(Aspell.Speller.Suggest.store"
++		throw std::invalid_argument( "(Spell.Speller.Suggest.store"
+ 					     "WordList): word list pointer "
+ 					     "is null." );
+ 	}
+@@ -170,16 +223,24 @@
+ 	}
+ 	delete_aspell_string_enumeration( enum_list );
+ }
++#endif
+ //__________________________________________________________________________
+-Speller::Aspell::Suggest::Suggest(const std::string& lang,
+-				  const std::string& jargon,
+-				  const std::string& encoding)
++Speller::Spell::Suggest::Suggest(const std::string& lang
++#if ! defined(USE_ENCHANT)
++				  , const std::string& jargon
++				  , const std::string& encoding
++#endif
++  )
+ 	throw( std::invalid_argument, std::runtime_error )
+ {
+ 	// Default constructor
+ 	try
+ 	{
+-		init( lang, jargon, encoding );
++		init( lang
++#if ! defined(USE_ENCHANT)
++		, jargon, encoding
++#endif
++		  );
+ 	}
+ 	catch( const std::invalid_argument& err )
+ 	{
+@@ -190,8 +251,9 @@
+ 		throw err;
+ 	}
+ }
++#if ! defined(USE_ENCHANT)
+ //__________________________________________________________________________
+-Speller::Aspell::Suggest::Suggest(const AspellDictInfo* dinfo,
++Speller::Spell::Suggest::Suggest(const AspellDictInfo* dinfo,
+ 				  const std::string& encoding)
+ 	throw( std::invalid_argument, std::runtime_error )
+ {
+@@ -208,10 +270,21 @@
+ 		throw err;
+ 	}
+ }
++#endif
++Speller::Spell::Suggest::~Suggest()
++{
++#if defined(USE_ENCHANT)
++	delete fspeller;
++#endif
++}
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::addPersonalList(const std::string& word)
++void Speller::Spell::Suggest::addPersonalList(const std::string& word)
+ 	throw( std::runtime_error )
+ {
++#if defined(USE_ENCHANT)
++	if (fspeller)
++		fspeller->add(word);
++#else
+ 	//  A std::runtime_error exception is thrown if
+ 	// an error occcurs.
+ 
+@@ -226,20 +299,25 @@
+ 	{
+ 		throw err;
+ 	}
++#endif
+ }
+ //__________________________________________________________________________
+-bool Speller::Aspell::Suggest::checkWord(const std::string& word)
++bool Speller::Spell::Suggest::checkWord(const std::string& word)
+ {
+ 	bool status = true;
+-
++#if defined(USE_ENCHANT)
++	if (fspeller)
++		status = fspeller->check(word);
++#else
+ 	if( aspell_speller_check( fspeller, word.c_str(), -1 ) == 0 )
+ 	{
+ 		status = false;
+ 	}
++#endif
+ 	return status;
+ }
+ //__________________________________________________________________________
+-bool Speller::Aspell::Suggest::checkWord(const std::string& word,
++bool Speller::Spell::Suggest::checkWord(const std::string& word,
+ 					 std::vector<std::string>& replacement,
+ 					 bool always)
+ 	throw( std::invalid_argument )
+@@ -252,8 +330,12 @@
+ 	// 'word'is spelt incorrectly.
+ 	bool status = checkWord( word );
+ 
+-	if( always )
++	if( !status || always )
+ 	{
++#if defined(USE_ENCHANT)
++		if (fspeller)
++			fspeller->suggest (word, replacement);
++#else
+ 		const AspellWordList* wlist =
+ 			aspell_speller_suggest( fspeller, word.c_str(), -1 );
+ 		try
+@@ -264,28 +346,13 @@
+ 		{
+ 			throw err;
+ 		}
+-	}
+-	else
+-	{
+-		if( ! status )
+-		{
+-			const AspellWordList* wlist =
+-				aspell_speller_suggest( fspeller, word.c_str(),
+-							-1 );
+-			try
+-			{
+-				storeWordList( wlist, replacement );
+-			}
+-			catch( const std::invalid_argument& err )
+-			{
+-				throw err;
+-			}
+-		}
++#endif
+ 	}
+ 	return status;
+ }
++#if !defined(USE_ENCHANT)
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::clearSessionList() throw( std::runtime_error )
++void Speller::Spell::Suggest::clearSessionList() throw( std::runtime_error )
+ {
+ 	aspell_speller_clear_session( fspeller );
+ 	try
+@@ -297,35 +364,15 @@
+ 		throw err;
+ 	}  
+ }
++#endif
+ //__________________________________________________________________________
+-std::string Speller::Aspell::Suggest::getConfigOpt(const std::string& opt)
+-{
+-	return std::string( aspell_config_retrieve( fconfig, opt.c_str() ) );
+-}
+-//__________________________________________________________________________
+-void Speller::Aspell::Suggest::getConfigOpt(const std::string& opt,
+-					    std::vector<std::string>& vals)
+-{
+-	// Stores current setting of configuration option, 'opt', which
+-	// has a value of list type, in 'vals'.
+-	AspellStringList* list = new_aspell_string_list();
+-	AspellMutableContainer* lst0 =
+-		aspell_string_list_to_mutable_container( list );
+-	aspell_config_retrieve_list( fconfig, opt.c_str(), lst0 );
+-	AspellStringEnumeration* enum_list =
+-		aspell_string_list_elements( list );
+-	const char* next;
+-	while( (next = aspell_string_enumeration_next( enum_list )) )
+-	{
+-		vals.push_back( next );
+-	}
+-	delete_aspell_string_enumeration( enum_list );
+-	delete_aspell_string_list( list );
+-}
+-//__________________________________________________________________________
+-void Speller::Aspell::Suggest::ignoreWord(const std::string& word)
++void Speller::Spell::Suggest::ignoreWord(const std::string& word)
+ 	throw( std::runtime_error )
+ {
++#if defined(USE_ENCHANT)
++	if (fspeller)
++		fspeller->add_to_session(word);
++#else
+ 	// FIXME: Return value should be something meaningful from
+ 	// aspell_speller_add_to_session.
+ 	aspell_speller_add_to_session( fspeller, word.c_str(), -1 );
+@@ -337,9 +384,11 @@
+ 	{
+ 		throw err;
+ 	}
++#endif
+ }
++#if !defined(USE_ENCHANT)
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::printMainList() throw( std::invalid_argument )
++void Speller::Spell::Suggest::printMainList() throw( std::invalid_argument )
+ {
+ 	const AspellWordList* wlist =
+ 		aspell_speller_main_word_list( fspeller );
+@@ -353,7 +402,7 @@
+ 	}
+ }
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::printPersonalList()
++void Speller::Spell::Suggest::printPersonalList()
+ 	throw( std::invalid_argument )
+ {
+ 	const AspellWordList* wlist =
+@@ -368,7 +417,7 @@
+ 	}
+ }
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::printSessionList()
++void Speller::Spell::Suggest::printSessionList()
+ 	throw( std::invalid_argument )
+ {
+ 	const AspellWordList* wlist =
+@@ -382,8 +431,9 @@
+ 		throw err;
+ 	}
+ }
++#endif
+ //__________________________________________________________________________
+-bool Speller::Aspell::Suggest::printSuggestions(const std::string& word,
++bool Speller::Spell::Suggest::printSuggestions(const std::string& word,
+ 						bool always)
+ 	throw( std::invalid_argument )
+ {
+@@ -394,8 +444,12 @@
+ 	// false, only prints the list if 'word' is incorrect.
+ 	bool status = checkWord( word );
+ 
+-	if( always )
++	if( !status || always )
+ 	{
++#if defined(USE_ENCHANT)
++		if (fspeller)
++			printWordList( fspeller->suggest (word) );
++#else
+ 		const AspellWordList* wlist =
+ 			aspell_speller_suggest( fspeller, word.c_str(), -1 );
+ 		try
+@@ -406,32 +460,21 @@
+ 		{
+ 			throw err;
+ 		}
+-	}
+-	else
+-	{
+-		if( ! status )
+-		{
+-			const AspellWordList* wlist =
+-				aspell_speller_suggest( fspeller, word.c_str(),
+-							-1 );
+-			try
+-			{
+-				printWordList( wlist );
+-			}
+-			catch( const std::invalid_argument& err )
+-			{
+-				throw err;
+-			}
+-		}
++#endif
+ 	}
+ 	return status;  
+ }
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::resetConfig()
++void Speller::Spell::Suggest::resetConfig()
+ 	throw( std::invalid_argument, std::runtime_error )
+ {
++#if defined(USE_ENCHANT)
++	delete fspeller;
++        fspeller = enchant::Broker::instance()->request_dict(flang);
++#else
+ 	delete_aspell_config( fconfig );
+ 	fconfig = new_aspell_config();
++
+ 	try
+ 	{
+ 		setConfig();
+@@ -445,7 +488,7 @@
+ 	if( aspell_error_number( ret ) != 0 )
+ 	{
+ 		delete_aspell_can_have_error( ret );
+-		throw std::runtime_error( "(Aspell::Speller::Suggest::Reset"
++		throw std::runtime_error( "(Spell::Speller::Suggest::Reset"
+ 					  "Config): Error in creating "
+ 					  "speller." );
+ 	}
+@@ -457,17 +500,23 @@
+ 		delete_aspell_config( fconfig );
+ 		fconfig = aspell_speller_config( fspeller );
+ 	}
++#endif
+ }
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::resetConfig(const std::string& lang,
+-					   const std::string& jargon,
+-					   const std::string& encoding)
++void Speller::Spell::Suggest::resetConfig(const std::string& lang
++#if !defined(USE_ENCHANT)
++					   , const std::string& jargon
++					   , const std::string& encoding
++#endif
++  )
+ 	throw( std::invalid_argument, std::runtime_error )
+ {
+ 	// Save new aspell configuration values
+ 	flang = lang;
++#if !defined(USE_ENCHANT)
+ 	fjargon = jargon;
+ 	fencoding = encoding;
++#endif
+ 
+ 	try
+ 	{
+@@ -483,8 +532,9 @@
+ 	}
+ }
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::saveLists() throw( std::runtime_error )
++void Speller::Spell::Suggest::saveLists() throw( std::runtime_error )
+ {
++#if !defined(USE_ENCHANT)
+ 	// Saves all word lists.
+ 	aspell_speller_save_all_word_lists( fspeller );
+ 	try
+@@ -495,9 +545,11 @@
+ 	{
+ 		throw err;
+ 	}
++#endif
+ }
++#if !defined(USE_ENCHANT)
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::setConfigOpt(const std::string& opt,
++void Speller::Spell::Suggest::setConfigOpt(const std::string& opt,
+ 					    const std::string& val)
+ 	throw( std::invalid_argument )
+ {
+@@ -513,7 +565,7 @@
+ }
+ //__________________________________________________________________________
+ void
+-Speller::Aspell::Suggest::StoreMainList(std::vector<std::string>& replacement)
++Speller::Spell::Suggest::StoreMainList(std::vector<std::string>& replacement)
+ 	throw( std::invalid_argument )
+ {
+ 	const AspellWordList* wlist =
+@@ -528,7 +580,7 @@
+ 	}
+ }
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::StorePersonalList(std::vector<std::string>& replacement) throw( std::invalid_argument )
++void Speller::Spell::Suggest::StorePersonalList(std::vector<std::string>& replacement) throw( std::invalid_argument )
+ {
+ 	// Stores personal word list. A std::invalid_argument
+ 	// exception is thrown in case of error.
+@@ -544,7 +596,7 @@
+ 	}
+ }
+ //__________________________________________________________________________
+-void Speller::Aspell::Suggest::StoreSessionList(std::vector<std::string>& replacement) throw( std::invalid_argument )
++void Speller::Spell::Suggest::StoreSessionList(std::vector<std::string>& replacement) throw( std::invalid_argument )
+ {
+ 	// Stores session word list. A std::invalid_argument exception
+ 	// is thrown in case of error.
+@@ -559,5 +611,6 @@
+ 		throw err;
+ 	}
+ }
++#endif
+ //__________________________________________________________________________
+ //@@@@@@@@@@@@@@@@@@@@@@@@@ END OF FILE @@@@@@@@@@@@@@@@@@@@@@@@@
+diff -ru scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/suggest.h scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/suggest.h
+--- scribus-1.3.5.rc2.orig/scribus/plugins/tools/spellcheck/suggest.h	2009-07-15 09:33:53.000000000 +0100
++++ scribus-1.3.5.rc2/scribus/plugins/tools/spellcheck/suggest.h	2009-07-15 13:04:39.000000000 +0100
+@@ -14,22 +14,36 @@
+ #include <string>             // Used in function arguments, errors 
+ #include <vector>             // Used in function arguments
+ #include <iostream>           // Printing to std::cout
++#if defined(USE_ENCHANT)
++// enchant definitions
++namespace enchant
++{
++	class Dict;
++}
++#else
+ // aspell include files
+ #include <aspell.h>
++#endif
+ 
+ /*!
+ \brief Nested namespaces to allow different interfaces to different spell-checking engines.
+  */
+ namespace Speller {
+-  namespace Aspell {
++  namespace Spell {
+ /*!
+-\class Speller::Aspell::Suggest
++\class Speller::Spell::Suggest
+ \author Gora Mohanty <gora@srijan.in>
+ \brief Class for interfacing with aspell. Should work with any aspell version
+ from 0.60 onwards
+  */
+     class Suggest {
+     private:
++#if defined(USE_ENCHANT)
++	    /*! \brief Enchant speller object. */
++	    enchant::Dict* fspeller;
++            /*! \brief Language for aspell dictionary. */
++            std::string    flang;
++#else
+ 	    /*! \brief Aspell configuration object. */
+ 	    AspellConfig*  fconfig;
+ 	    /*! \brief Aspell speller object. */
+@@ -40,7 +54,8 @@
+             std::string    fjargon;
+ 	    /*! \brief Character encoding for words. */
+ 	    std::string    fencoding;
+-
++#endif
++#if ! defined(USE_ENCHANT)
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Checks aspell speller for an error condition.
+@@ -57,6 +72,7 @@
+ 	      \exception std::runtime_error if an error condition exists
+ 	    */
+ 	    void checkConfigError() throw( std::runtime_error );
++#endif
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Initializes aspell: called from constructors.
+@@ -67,8 +83,12 @@
+ 	      \exception std::invalid_argument from setConfig().
+ 	      \exception std::runtime_error for error in creating speller.
+ 	    */
+-	    void init(const std::string& lang, const std::string& jargon,
+-		    const std::string& encoding)
++	    void init(const std::string& lang
++#if ! defined(USE_ENCHANT)
++		    ,const std::string& jargon
++		    ,const std::string& encoding
++#endif
++	    )
+ 		    throw( std::invalid_argument, std::runtime_error );
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+@@ -78,8 +98,24 @@
+ 	      \retval None
+ 	      \exception std::invalid_argument if 'wlist' is null
+ 	    */
++#if defined(USE_ENCHANT)
++	    void printWordList(const std::vector<std::string> & wlist,
++#else
+ 	    void printWordList(const AspellWordList* wlist,
++#endif
+ 			       char delim='\n') throw(std::invalid_argument);
++#if !defined(USE_ENCHANT)
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Sets configuration option, 'opt' to value 'val'.
++	      \param opt: Option to be set.
++	      \param val: Value of option to be set.
++	      \retval None
++	      \exception std::invalid_argument if option value is incorrect
++	    */
++	    void setConfigOpt(const std::string& opt, const std::string& val)
++		    throw( std::invalid_argument );
++#endif
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Sets aspell speller configuration, as per current set of parameters.
+@@ -88,6 +124,18 @@
+ 	      \exception std::invalid_argument from setConfigOpt()
+ 	    */
+ 	    void setConfig() throw( std::invalid_argument );
++
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Resets aspell configuration, as per current set of parameters.
++	      \param None
++	      \retval None
++	      \exception std::invalid_argument from setConfig().
++	      \exception std::runtime_error for error in recreating speller.
++	    */
++	    void resetConfig()
++		    throw( std::invalid_argument, std::runtime_error );
++#if !defined(USE_ENCHANT)
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Stores list of words in 'replacement'.
+@@ -99,7 +147,73 @@
+ 	    void storeWordList(const AspellWordList* wlist,
+ 			       std::vector<std::string>& replacement)
+ 		    throw( std::invalid_argument );
+-
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Obtains list of available aspell dictionaries.
++	      \param vals: Array of aspell dictionary info structs
++	      \retval None
++	    */
++	    void listDicts(std::vector<AspellDictInfo>& vals);
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Clears the current session word list.
++	      \param None
++	      \retval None
++	      \exception std::runtime_error for error in clearing list.
++	    */
++	    void clearSessionList() throw( std::runtime_error );
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Prints main word list. WARNING: This causes a crash due to a bug in aspell, as of aspell version 0.60.3.
++	      \param None
++	      \retval None.
++	      \exception std::invalid_argument from printWordList().
++	    */
++	    void printMainList() throw( std::invalid_argument );
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Prints personal word list.
++	      \param None
++	      \retval None.
++	      \exception std::invalid_argument from printWordList().
++	    */
++	    void printPersonalList() throw( std::invalid_argument );
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Prints session word list.
++	      \param None
++	      \retval None.
++	      \exception std::invalid_argument from printWordList().
++	    */
++	    void printSessionList() throw( std::invalid_argument );
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Stores main word list. WARNING: This causes a crash due to a bug in aspell, as of aspell version 0.60.3.
++	      \param None
++	      \retval None.
++	      \exception std::invalid_argument from storeWordList().
++	    */
++	    void StoreMainList(std::vector<std::string>& replacement)
++		    throw( std::invalid_argument );
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Stores personal word list.
++	      \param None
++	      \retval None.
++	      \exception std::invalid_argument from storeWordList().
++	    */
++	    void StorePersonalList(std::vector<std::string>& replacement)
++		    throw( std::invalid_argument );
++	    /*!
++	      \author Gora Mohanty <gora@srijan.in>
++	      \brief Stores session word list.
++	      \param None
++	      \retval None.
++	      \exception std::invalid_argument from storeWordList().
++	    */
++	    void StoreSessionList(std::vector<std::string>& replacement)
++		    throw( std::invalid_argument );
++#endif
+     public:
+ 	    /*!
+ 	      \brief Delimiter between different components of formatted strings for aspell dictionary entries.
+@@ -111,10 +225,12 @@
+ 	    static const char* kEMPTY;
+ 	    /*! \brief Default language for aspell dictionary. */
+ 	    static const char* kDEF_LANG;
++#if !defined(USE_ENCHANT)
+ 	    /*! \brief Default jargon for aspell dictionary. */
+ 	    static const char* kDEF_JARGON;
+ 	    /*! \brief Default character encoding for words. */
+ 	    static const char* kDEF_ENCODING;
++#endif
+ 
+ 	    // Defaults are for standard aspell English dictionary. Use
+ 	    // "iso8859-1" for Basic Latin. See aspell lang.dat file for
+@@ -129,10 +245,14 @@
+ 	      \exception std::invalid_argument from setConfig().
+ 	      \exception std::runtime_error for error in creating speller.
+ 	    */
+-	    Suggest(const std::string& lang=kDEF_LANG,
+-		    const std::string& jargon=kDEF_JARGON,
+-		    const std::string& encoding=kDEF_ENCODING)
++	    Suggest(const std::string& lang=kDEF_LANG
++#if !defined(USE_ENCHANT)
++		    , const std::string& jargon=kDEF_JARGON
++		    , const std::string& encoding=kDEF_ENCODING
++#endif
++	    )
+ 		    throw( std::invalid_argument, std::runtime_error );
++#if !defined(USE_ENCHANT)
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Constructor for spell-checking class.
+@@ -145,6 +265,8 @@
+ 	    Suggest(const AspellDictInfo* dinfo,
+ 		    const std::string& encoding=kDEF_ENCODING)
+ 		    throw( std::invalid_argument, std::runtime_error );
++#endif
++	    ~Suggest();
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Adds 'word' to personal list.
+@@ -173,30 +295,6 @@
+ 			   bool always=true) throw( std::invalid_argument );
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Clears the current session word list.
+-	      \param None
+-	      \retval None
+-	      \exception std::runtime_error for error in clearing list.
+-	    */
+-	    void clearSessionList() throw( std::runtime_error );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Gets value of configuration option, 'opt'.
+-	      \param opt: Name of option whose setting is to be retrieved.
+-	      \retval Value of option setting.
+-	    */
+-	    std::string getConfigOpt(const std::string& opt);
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Gets value of list type configuration option, 'opt'.
+-	      \param opt: Name of option whose setting is to be retrieved.
+-	      \param vals: Vector for storing values for the list type object.
+-	      \retval None.
+-	    */
+-	    void getConfigOpt(const std::string& opt,
+-			      std::vector<std::string>& vals);
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Ignores 'word' for current session.
+ 	      \param word: Word to be ignored.
+ 	      \retval None.
+@@ -204,13 +302,7 @@
+ 	    */
+ 	    void ignoreWord(const std::string& word)
+ 		    throw( std::runtime_error );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Obtains list of available aspell dictionaries.
+-	      \param vals: Array of aspell dictionary info structs
+-	      \retval None
+-	    */
+-	    void listDicts(std::vector<AspellDictInfo>& vals);
++
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Obtains list of available aspell dictionaries.
+@@ -220,30 +312,6 @@
+ 	    void listDicts(std::vector<std::string>& vals);
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Prints main word list. WARNING: This causes a crash due to a bug in aspell, as of aspell version 0.60.3.
+-	      \param None
+-	      \retval None.
+-	      \exception std::invalid_argument from printWordList().
+-	    */
+-	    void printMainList() throw( std::invalid_argument );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Prints personal word list.
+-	      \param None
+-	      \retval None.
+-	      \exception std::invalid_argument from printWordList().
+-	    */
+-	    void printPersonalList() throw( std::invalid_argument );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Prints session word list.
+-	      \param None
+-	      \retval None.
+-	      \exception std::invalid_argument from printWordList().
+-	    */
+-	    void printSessionList() throw( std::invalid_argument );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Spell-checks word, and prints suggested replacements.
+ 	      \param word: Word to be checked.
+ 	      \param always: If true, replacements are always printed, else only if word is mis-spelt.
+@@ -254,16 +322,6 @@
+ 		    throw( std::invalid_argument );
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Resets aspell configuration, as per current set of parameters.
+-	      \param None
+-	      \retval None
+-	      \exception std::invalid_argument from setConfig().
+-	      \exception std::runtime_error for error in recreating speller.
+-	    */
+-	    void resetConfig()
+-		    throw( std::invalid_argument, std::runtime_error );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+ 	      \brief Resets aspell configuration, as per current set of parameters, after resetting lang, jargon, and encoding.
+ 	      \param lang: Language of aspell dictionary.
+ 	      \param jargon: Jargon for aspell dictionary.
+@@ -272,9 +330,12 @@
+ 	      \exception std::invalid_argument from setConfig().
+ 	      \exception std::runtime_error for error in recreating speller.
+ 	    */
+-	    void resetConfig(const std::string& lang,
+-			     const std::string& jargon,
+-			     const std::string& encoding=kDEF_ENCODING)
++	    void resetConfig(const std::string& lang
++#if ! defined(USE_ENCHANT)
++			     , const std::string& jargon
++			     , const std::string& encoding=kDEF_ENCODING
++#endif
++	    )
+ 		    throw( std::invalid_argument, std::runtime_error );
+ 	    /*!
+ 	      \author Gora Mohanty <gora@srijan.in>
+@@ -284,45 +345,8 @@
+ 	      \exception std::runtime_error for error in saving lists.
+ 	    */
+ 	    void saveLists() throw( std::runtime_error );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Sets configuration option, 'opt' to value 'val'.
+-	      \param opt: Option to be set.
+-	      \param val: Value of option to be set.
+-	      \retval None
+-	      \exception std::invalid_argument if option value is incorrect
+-	    */
+-	    void setConfigOpt(const std::string& opt, const std::string& val)
+-		    throw( std::invalid_argument );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Stores main word list. WARNING: This causes a crash due to a bug in aspell, as of aspell version 0.60.3.
+-	      \param None
+-	      \retval None.
+-	      \exception std::invalid_argument from storeWordList().
+-	    */
+-	    void StoreMainList(std::vector<std::string>& replacement)
+-		    throw( std::invalid_argument );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Stores personal word list.
+-	      \param None
+-	      \retval None.
+-	      \exception std::invalid_argument from storeWordList().
+-	    */
+-	    void StorePersonalList(std::vector<std::string>& replacement)
+-		    throw( std::invalid_argument );
+-	    /*!
+-	      \author Gora Mohanty <gora@srijan.in>
+-	      \brief Stores session word list.
+-	      \param None
+-	      \retval None.
+-	      \exception std::invalid_argument from storeWordList().
+-	    */
+-	    void StoreSessionList(std::vector<std::string>& replacement)
+-		    throw( std::invalid_argument );
+     };  // class Suggest
+-  }  // namespace Aspell
++  }  // namespace Spell
+ }  // namespace Speller
+ #endif  // #ifndef SUGGEST_H
+ //@@@@@@@@@@@@@@@@@@@@@@@@@ END OF FILE @@@@@@@@@@@@@@@@@@@@@@@@@
+--- /dev/null	2009-07-13 20:06:56.536016917 +0100
++++ scribus-1.3.5.rc2/cmake/modules/FindENCHANT.cmake	2009-07-15 12:48:37.000000000 +0100
+@@ -0,0 +1,44 @@
++# - Try to find the Enchant spell checker
++# Once done this will define
++#
++#  ENCHANT_FOUND - system has ENCHANT
++#  ENCHANT_INCLUDE_DIR - the ENCHANT include directory
++#  ENCHANT_LIBRARIES - Link these to use ENCHANT
++#  ENCHANT_DEFINITIONS - Compiler switches required for using ENCHANT
++
++# Copyright (c) 2006, Zack Rusin, <zack@kde.org>
++#
++# Redistribution and use is allowed according to the terms of the BSD license.
++# For details see the accompanying COPYING-CMAKE-SCRIPTS file.
++
++
++if (ENCHANT_INCLUDE_DIR AND ENCHANT_LIBRARIES)
++
++  # in cache already
++  set(ENCHANT_FOUND TRUE)
++
++else (ENCHANT_INCLUDE_DIR AND ENCHANT_LIBRARIES)
++  if (NOT WIN32)
++    # use pkg-config to get the directories and then use these values
++    # in the FIND_PATH() and FIND_LIBRARY() calls
++    find_package(PkgConfig)
++    pkg_check_modules(PC_ENCHANT enchant)
++    set(ENCHANT_DEFINITIONS ${PC_ENCHANT_CFLAGS_OTHER})
++  endif (NOT WIN32)
++
++  find_path(ENCHANT_INCLUDE_DIR 
++            NAMES enchant++.h
++            HINTS ${PC_ENCHANT_INCLUDEDIR}
++                  ${PC_ENCHANT_INCLUDE_DIRS}
++            PATH_SUFFIXES enchant )
++
++  find_library(ENCHANT_LIBRARIES NAMES enchant
++               HINTS ${PC_ENCHANT_LIBDIR}
++                      ${PC_ENCHANT_LIBRARY_DIRS} )
++
++  include(FindPackageHandleStandardArgs)
++  find_package_handle_standard_args(ENCHANT  DEFAULT_MSG  ENCHANT_INCLUDE_DIR ENCHANT_LIBRARIES )
++
++  mark_as_advanced(ENCHANT_INCLUDE_DIR ENCHANT_LIBRARIES)
++
++endif (ENCHANT_INCLUDE_DIR AND ENCHANT_LIBRARIES)

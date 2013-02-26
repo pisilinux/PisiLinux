@@ -1,0 +1,162 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.224
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.224
+Problem:    Can't pass dict to sort function.
+Solution:   Add the optional {dict} argument to sort(). (ZyX)
+Files:      runtime/doc/eval.txt, src/eval.c
+
+
+*** ../mercurial/vim73/runtime/doc/eval.txt	2011-05-19 17:25:36.000000000 +0200
+--- runtime/doc/eval.txt	2011-06-19 02:42:52.000000000 +0200
+***************
+*** 1919,1925 ****
+  simplify( {filename})		String	simplify filename as much as possible
+  sin( {expr})			Float	sine of {expr}
+  sinh( {expr})			Float	hyperbolic sine of {expr}
+! sort( {list} [, {func}])	List	sort {list}, using {func} to compare
+  soundfold( {word})		String	sound-fold {word}
+  spellbadword()			String	badly spelled word at cursor
+  spellsuggest( {word} [, {max} [, {capital}]])
+--- 1922,1929 ----
+  simplify( {filename})		String	simplify filename as much as possible
+  sin( {expr})			Float	sine of {expr}
+  sinh( {expr})			Float	hyperbolic sine of {expr}
+! sort( {list} [, {func} [, {dict}]])
+! 				List	sort {list}, using {func} to compare
+  soundfold( {word})		String	sound-fold {word}
+  spellbadword()			String	badly spelled word at cursor
+  spellsuggest( {word} [, {max} [, {capital}]])
+***************
+*** 5275,5281 ****
+  		{only available when compiled with the |+float| feature}
+  
+  
+! sort({list} [, {func}])					*sort()* *E702*
+  		Sort the items in {list} in-place.  Returns {list}.  If you
+  		want a list to remain unmodified make a copy first: >
+  			:let sortedlist = sort(copy(mylist))
+--- 5279,5285 ----
+  		{only available when compiled with the |+float| feature}
+  
+  
+! sort({list} [, {func} [, {dict}]])			*sort()* *E702*
+  		Sort the items in {list} in-place.  Returns {list}.  If you
+  		want a list to remain unmodified make a copy first: >
+  			:let sortedlist = sort(copy(mylist))
+***************
+*** 5283,5288 ****
+--- 5287,5294 ----
+  		Numbers sort after Strings, |Lists| after Numbers.
+  		For sorting text in the current buffer use |:sort|.
+  		When {func} is given and it is one then case is ignored.
++ 		{dict} is for functions with the "dict" attribute.  It will be
++ 		used to set the local variable "self". |Dictionary-function|
+  		When {func} is a |Funcref| or a function name, this function
+  		is called to compare items.  The function is invoked with two
+  		items as argument and must return zero if they are equal, 1 or
+*** ../mercurial/vim73/src/eval.c	2011-05-19 18:26:34.000000000 +0200
+--- src/eval.c	2011-06-19 02:51:13.000000000 +0200
+***************
+*** 7930,7936 ****
+      {"sin",		1, 1, f_sin},
+      {"sinh",		1, 1, f_sinh},
+  #endif
+!     {"sort",		1, 2, f_sort},
+      {"soundfold",	1, 1, f_soundfold},
+      {"spellbadword",	0, 1, f_spellbadword},
+      {"spellsuggest",	1, 3, f_spellsuggest},
+--- 7930,7936 ----
+      {"sin",		1, 1, f_sin},
+      {"sinh",		1, 1, f_sinh},
+  #endif
+!     {"sort",		1, 3, f_sort},
+      {"soundfold",	1, 1, f_soundfold},
+      {"spellbadword",	0, 1, f_spellbadword},
+      {"spellsuggest",	1, 3, f_spellsuggest},
+***************
+*** 16366,16371 ****
+--- 16366,16372 ----
+  
+  static int	item_compare_ic;
+  static char_u	*item_compare_func;
++ static dict_T	*item_compare_selfdict;
+  static int	item_compare_func_err;
+  #define ITEM_COMPARE_FAIL 999
+  
+***************
+*** 16425,16431 ****
+  
+      rettv.v_type = VAR_UNKNOWN;		/* clear_tv() uses this */
+      res = call_func(item_compare_func, (int)STRLEN(item_compare_func),
+! 				 &rettv, 2, argv, 0L, 0L, &dummy, TRUE, NULL);
+      clear_tv(&argv[0]);
+      clear_tv(&argv[1]);
+  
+--- 16426,16433 ----
+  
+      rettv.v_type = VAR_UNKNOWN;		/* clear_tv() uses this */
+      res = call_func(item_compare_func, (int)STRLEN(item_compare_func),
+! 				 &rettv, 2, argv, 0L, 0L, &dummy, TRUE,
+! 				 item_compare_selfdict);
+      clear_tv(&argv[0]);
+      clear_tv(&argv[1]);
+  
+***************
+*** 16471,16478 ****
+--- 16473,16482 ----
+  
+  	item_compare_ic = FALSE;
+  	item_compare_func = NULL;
++ 	item_compare_selfdict = NULL;
+  	if (argvars[1].v_type != VAR_UNKNOWN)
+  	{
++ 	    /* optional second argument: {func} */
+  	    if (argvars[1].v_type == VAR_FUNC)
+  		item_compare_func = argvars[1].vval.v_string;
+  	    else
+***************
+*** 16487,16492 ****
+--- 16491,16507 ----
+  		else
+  		    item_compare_func = get_tv_string(&argvars[1]);
+  	    }
++ 
++ 	    if (argvars[2].v_type != VAR_UNKNOWN)
++ 	    {
++ 		/* optional third argument: {dict} */
++ 		if (argvars[2].v_type != VAR_DICT)
++ 		{
++ 		    EMSG(_(e_dictreq));
++ 		    return;
++ 		}
++ 		item_compare_selfdict = argvars[2].vval.v_dict;
++ 	    }
+  	}
+  
+  	/* Make an array with each entry pointing to an item in the List. */
+*** ../vim-7.3.223/src/version.c	2011-06-19 01:30:01.000000000 +0200
+--- src/version.c	2011-06-19 02:52:46.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     224,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+193. You ask your girlfriend to drive home so you can sit back with
+     your PDA and download the information to your laptop
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

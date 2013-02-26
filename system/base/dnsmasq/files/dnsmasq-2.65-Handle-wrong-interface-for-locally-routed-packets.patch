@@ -1,0 +1,178 @@
+diff -up dnsmasq-2.65/src/dnsmasq.c.local_queries dnsmasq-2.65/src/dnsmasq.c
+--- dnsmasq-2.65/src/dnsmasq.c.local_queries	2013-01-31 09:07:45.603092125 +0100
++++ dnsmasq-2.65/src/dnsmasq.c	2013-01-31 09:07:45.606092127 +0100
+@@ -1401,20 +1401,29 @@ static void check_dns_listeners(fd_set *
+ 	   else 
+ 	     {
+ 	       int if_index;
+-
++	       char intr_name[IF_NAMESIZE];
++ 
+ 	       /* In full wildcard mode, need to refresh interface list.
+ 		  This happens automagically in CLEVERBIND */
+-	        if (!option_bool(OPT_CLEVERBIND))
+-		  enumerate_interfaces();
+-
+-		/* if we can find the arrival interface, check it's one that's allowed */
+-		if ((if_index = tcp_interface(confd, tcp_addr.sa.sa_family)) != 0)
++	       if (!option_bool(OPT_CLEVERBIND))
++		 enumerate_interfaces();
++	       
++	       /* if we can find the arrival interface, check it's one that's allowed */
++	       if ((if_index = tcp_interface(confd, tcp_addr.sa.sa_family)) != 0 &&
++		   indextoname(listener->tcpfd, if_index, intr_name))
+ 		 {
++		   struct all_addr addr;
++		   addr.addr.addr4 = tcp_addr.in.sin_addr;
++#ifdef HAVE_IPV6
++		   if (tcp_addr.sa.sa_family == AF_INET6)
++		     addr.addr.addr6 = tcp_addr.in6.sin6_addr;
++#endif
++		   
+ 		   for (iface = daemon->interfaces; iface; iface = iface->next)
+ 		     if (iface->index == if_index)
+ 		       break;
+ 		   
+-		   if (!iface)
++		   if (!iface && !loopback_exception(listener->tcpfd, tcp_addr.sa.sa_family, &addr, intr_name))
+ 		     client_ok = 0;
+ 		 }
+ 	       
+@@ -1422,10 +1431,10 @@ static void check_dns_listeners(fd_set *
+ 		 iface = listener->iface; /* May be NULL */
+ 	       else
+ 		 {
+-		   /* Check for allowed interfaces when binding the wildcard address:
+-		      we do this by looking for an interface with the same address as 
+-		      the local address of the TCP connection, then looking to see if that's
+-		      an allowed interface. As a side effect, we get the netmask of the
++		    /* Check for allowed interfaces when binding the wildcard address:
++		       we do this by looking for an interface with the same address as 
++		       the local address of the TCP connection, then looking to see if that's
++		       an allowed interface. As a side effect, we get the netmask of the
+ 		      interface too, for localisation. */
+ 		   
+ 		   for (iface = daemon->interfaces; iface; iface = iface->next)
+diff -up dnsmasq-2.65/src/dnsmasq.h.local_queries dnsmasq-2.65/src/dnsmasq.h
+--- dnsmasq-2.65/src/dnsmasq.h.local_queries	2013-01-31 09:07:45.000000000 +0100
++++ dnsmasq-2.65/src/dnsmasq.h	2013-01-31 09:10:36.091202196 +0100
+@@ -954,6 +954,7 @@ void create_wildcard_listeners(void);
+ void create_bound_listeners(int die);
+ int is_dad_listeners(void);
+ int iface_check(int family, struct all_addr *addr, char *name);
++int loopback_exception(int fd, int family, struct all_addr *addr, char *name);
+ int fix_fd(int fd);
+ int tcp_interface(int fd, int af);
+ struct in_addr get_ifaddr(char *intr);
+diff -up dnsmasq-2.65/src/forward.c.local_queries dnsmasq-2.65/src/forward.c
+--- dnsmasq-2.65/src/forward.c.local_queries	2012-12-14 12:48:26.000000000 +0100
++++ dnsmasq-2.65/src/forward.c	2013-01-31 09:19:58.087573008 +0100
+@@ -759,10 +759,17 @@ void receive_query(struct listener *list
+       
+       /* enforce available interface configuration */
+       
+-      if (!indextoname(listen->fd, if_index, ifr.ifr_name) ||
+-	  !iface_check(listen->family, &dst_addr, ifr.ifr_name))
++      if (!indextoname(listen->fd, if_index, ifr.ifr_name))
+ 	return;
+       
++	   if (!iface_check(listen->family, &dst_addr, ifr.ifr_name))
++	{
++	   if (!option_bool(OPT_CLEVERBIND))
++	     enumerate_interfaces(); 
++	   if (!loopback_exception(listen->fd, listen->family, &dst_addr, ifr.ifr_name))
++	     return;
++	}
++
+       if (listen->family == AF_INET && option_bool(OPT_LOCALISE))
+ 	{
+ 	  struct irec *iface;
+@@ -776,7 +783,7 @@ void receive_query(struct listener *list
+ 	      break;
+ 	  
+ 	  /* interface may be new */
+-	  if (!iface)
++	  if (!iface && !option_bool(OPT_CLEVERBIND))
+ 	    enumerate_interfaces(); 
+ 	  
+ 	  for (iface = daemon->interfaces; iface; iface = iface->next)
+diff -up dnsmasq-2.65/src/network.c.local_queries dnsmasq-2.65/src/network.c
+--- dnsmasq-2.65/src/network.c.local_queries	2013-01-31 09:07:45.000000000 +0100
++++ dnsmasq-2.65/src/network.c	2013-01-31 09:25:28.669822969 +0100
+@@ -144,7 +144,39 @@ int iface_check(int family, struct all_a
+     
+   return ret; 
+ }
+-      
++
++/* Fix for problem that the kernel sometimes reports the loopback inerface as the
++   arrival interface when a packet originates locally, even when sent to address of 
++   an interface other than the loopback. Accept packet if it arrived via a loopback 
++   interface, even when we're not accepting packets that way, as long as the destination
++   address is one we're believing. Interface list must be up-to-date before calling. */
++int loopback_exception(int fd, int family, struct all_addr *addr, char *name)    
++{
++  struct ifreq ifr;
++  struct irec *iface;
++
++  strncpy(ifr.ifr_name, name, IF_NAMESIZE);
++  if (ioctl(fd, SIOCGIFFLAGS, &ifr) != -1 &&
++      ifr.ifr_flags & IFF_LOOPBACK)
++    {
++      for (iface = daemon->interfaces; iface; iface = iface->next)
++	if (iface->addr.sa.sa_family == family)
++	  {
++	    if (family == AF_INET)
++	      {
++		if (iface->addr.in.sin_addr.s_addr == addr->addr.addr4.s_addr)
++		  return 1;
++	      }
++#ifdef HAVE_IPV6
++	    else if (IN6_ARE_ADDR_EQUAL(&iface->addr.in6.sin6_addr, &addr->addr.addr6))
++	      return 1;
++#endif
++	    
++	  }
++    }
++  return 0;
++}
++
+ static int iface_allowed(struct irec **irecp, int if_index, 
+ 			 union mysockaddr *addr, struct in_addr netmask, int dad) 
+ {
+diff -up dnsmasq-2.65/src/tftp.c.local_queries dnsmasq-2.65/src/tftp.c
+--- dnsmasq-2.65/src/tftp.c.local_queries	2012-12-14 12:48:26.000000000 +0100
++++ dnsmasq-2.65/src/tftp.c	2013-01-31 09:49:44.478008214 +0100
+@@ -61,6 +61,7 @@ void tftp_request(struct listener *liste
+   char *name = NULL;
+   char *prefix = daemon->tftp_prefix;
+   struct tftp_prefix *pref;
++  struct all_addr addra;
+ 
+   union {
+     struct cmsghdr align; /* this ensures alignment */
+@@ -190,16 +191,19 @@ void tftp_request(struct listener *liste
+ 
+       name = namebuff;
+ 
++      addra.addr.addr4 = addr.in.sin_addr;
++
+ #ifdef HAVE_IPV6
+       if (listen->family == AF_INET6)
++        addra.addr.addr6 = addr.in6.sin6_addr;
++#endif
++    if (!iface_check(listen->family, &addra, name))
+ 	{
+-	  if (!iface_check(AF_INET6, (struct all_addr *)&addr.in6.sin6_addr, name))
++	  if (!option_bool(OPT_CLEVERBIND))
++	    enumerate_interfaces(); 
++	  if (!loopback_exception(listen->tftpfd, listen->family, &addra, name))
+ 	    return;
+ 	}
+-      else
+-#endif
+-        if (!iface_check(AF_INET, (struct all_addr *)&addr.in.sin_addr, name))
+-	  return;
+ 
+ #ifdef HAVE_DHCP      
+       /* allowed interfaces are the same as for DHCP */

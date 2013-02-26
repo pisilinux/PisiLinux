@@ -1,0 +1,99 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.557
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.557
+Problem:    Crash when an autocommand wipes out a buffer when it is hidden.
+Solution:   Restore the current window when needed. (Christian Brabandt)
+Files:	    src/buffer.c
+
+
+*** ../vim-7.3.556/src/buffer.c	2012-06-13 14:28:16.000000000 +0200
+--- src/buffer.c	2012-06-20 11:49:54.000000000 +0200
+***************
+*** 1363,1368 ****
+--- 1363,1369 ----
+      int		action;
+  {
+      buf_T	*prevbuf;
++     win_T	*prevwin;
+      int		unload = (action == DOBUF_UNLOAD || action == DOBUF_DEL
+  						     || action == DOBUF_WIPE);
+  
+***************
+*** 1402,1423 ****
+  	if (buf_valid(prevbuf))
+  #endif
+  	{
+  	    if (prevbuf == curbuf)
+  		u_sync(FALSE);
+  	    close_buffer(prevbuf == curwin->w_buffer ? curwin : NULL, prevbuf,
+  		    unload ? action : (action == DOBUF_GOTO
+  			&& !P_HID(prevbuf)
+  			&& !bufIsChanged(prevbuf)) ? DOBUF_UNLOAD : 0, FALSE);
+  	}
+      }
+  #ifdef FEAT_AUTOCMD
+      /* An autocommand may have deleted "buf", already entered it (e.g., when
+!      * it did ":bunload") or aborted the script processing! */
+! # ifdef FEAT_EVAL
+!     if (buf_valid(buf) && buf != curbuf && !aborting())
+! # else
+!     if (buf_valid(buf) && buf != curbuf)
+! # endif
+  #endif
+  	enter_buffer(buf);
+  }
+--- 1403,1432 ----
+  	if (buf_valid(prevbuf))
+  #endif
+  	{
++ 	    prevwin = curwin;
+  	    if (prevbuf == curbuf)
+  		u_sync(FALSE);
+  	    close_buffer(prevbuf == curwin->w_buffer ? curwin : NULL, prevbuf,
+  		    unload ? action : (action == DOBUF_GOTO
+  			&& !P_HID(prevbuf)
+  			&& !bufIsChanged(prevbuf)) ? DOBUF_UNLOAD : 0, FALSE);
++ 	    if (curwin != prevwin && win_valid(prevwin))
++ 	      /* autocommands changed curwin, Grr! */
++ 	      curwin = prevwin;
+  	}
+      }
+  #ifdef FEAT_AUTOCMD
+      /* An autocommand may have deleted "buf", already entered it (e.g., when
+!      * it did ":bunload") or aborted the script processing!
+!      * If curwin->w_buffer is null, enter_buffer() will make it valid again */
+!     if ((buf_valid(buf) && buf != curbuf
+! #ifdef FEAT_EVAL
+! 	    && !aborting()
+! #endif
+! #ifdef FEAT_WINDOWS
+! 	 ) || curwin->w_buffer == NULL
+! #endif
+!        )
+  #endif
+  	enter_buffer(buf);
+  }
+*** ../vim-7.3.556/src/version.c	2012-06-14 20:59:20.000000000 +0200
+--- src/version.c	2012-06-20 11:53:56.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     557,
+  /**/
+
+-- 
+Don't read everything you believe.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,52 @@
+--- valgrind/coregrind/m_stacktrace.c.jj	2012-08-05 18:04:16.000000000 +0200
++++ valgrind/coregrind/m_stacktrace.c	2012-08-10 12:13:46.069797051 +0200
+@@ -149,11 +149,23 @@ UInt VG_(get_StackTrace_wrk) ( ThreadId
+       /* Try to derive a new (ip,sp,fp) triple from the current
+          set. */
+ 
+-      /* On x86, first try the old-fashioned method of following the
+-         %ebp-chain.  Code which doesn't use this (that is, compiled
+-         with -fomit-frame-pointer) is not ABI compliant and so
+-         relatively rare.  Besides, trying the CFI first almost always
+-         fails, and is expensive. */
++      /* On x86 GCC 4.6 and later now defaults to -fomit-frame-pointer
++         together with emitting unwind info (-fasynchronous-unwind-tables).
++         So, try CF info first.  */
++      if ( VG_(use_CF_info)( &uregs, fp_min, fp_max ) ) {
++         if (0 == uregs.xip || 1 == uregs.xip) break;
++         if (sps) sps[i] = uregs.xsp;
++         if (fps) fps[i] = uregs.xbp;
++         ips[i++] = uregs.xip - 1; /* -1: refer to calling insn, not the RA */
++         if (debug)
++            VG_(printf)("     ipsC[%d]=0x%08lx\n", i-1, ips[i-1]);
++         uregs.xip = uregs.xip - 1;
++            /* as per comment at the head of this loop */
++         continue;
++      }
++
++      /* And only then the old-fashioned method of following the
++         %ebp-chain.  */
+       /* Deal with frames resulting from functions which begin "pushl%
+          ebp ; movl %esp, %ebp" which is the ABI-mandated preamble. */
+       if (fp_min <= uregs.xbp &&
+@@ -179,20 +191,6 @@ UInt VG_(get_StackTrace_wrk) ( ThreadId
+          uregs.xip = uregs.xip - 1;
+             /* as per comment at the head of this loop */
+          continue;
+-      }
+-
+-      /* That didn't work out, so see if there is any CF info to hand
+-         which can be used. */
+-      if ( VG_(use_CF_info)( &uregs, fp_min, fp_max ) ) {
+-         if (0 == uregs.xip || 1 == uregs.xip) break;
+-         if (sps) sps[i] = uregs.xsp;
+-         if (fps) fps[i] = uregs.xbp;
+-         ips[i++] = uregs.xip - 1; /* -1: refer to calling insn, not the RA */
+-         if (debug)
+-            VG_(printf)("     ipsC[%d]=0x%08lx\n", i-1, ips[i-1]);
+-         uregs.xip = uregs.xip - 1;
+-            /* as per comment at the head of this loop */
+-         continue;
+       }
+ 
+       /* And, similarly, try for MSVC FPO unwind info. */

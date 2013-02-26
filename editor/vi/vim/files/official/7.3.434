@@ -1,0 +1,233 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.434
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.434
+Problem:    Using join() can be slow.
+Solution:   Compute the size of the result before allocation to avoid a lot of
+            allocations and copies. (Taro Muraoka)
+Files:      src/eval.c
+
+
+*** ../vim-7.3.433/src/eval.c	2012-02-05 00:39:14.000000000 +0100
+--- src/eval.c	2012-02-06 00:05:31.000000000 +0100
+***************
+*** 442,447 ****
+--- 442,448 ----
+  static list_T *list_copy __ARGS((list_T *orig, int deep, int copyID));
+  static void list_remove __ARGS((list_T *l, listitem_T *item, listitem_T *item2));
+  static char_u *list2string __ARGS((typval_T *tv, int copyID));
++ static int list_join_inner __ARGS((garray_T *gap, list_T *l, char_u *sep, int echo_style, int copyID, garray_T *join_gap));
+  static int list_join __ARGS((garray_T *gap, list_T *l, char_u *sep, int echo, int copyID));
+  static int free_unref_items __ARGS((int copyID));
+  static void set_ref_in_ht __ARGS((hashtab_T *ht, int copyID));
+***************
+*** 6571,6617 ****
+      return (char_u *)ga.ga_data;
+  }
+  
+! /*
+!  * Join list "l" into a string in "*gap", using separator "sep".
+!  * When "echo_style" is TRUE use String as echoed, otherwise as inside a List.
+!  * Return FAIL or OK.
+!  */
+      static int
+! list_join(gap, l, sep, echo_style, copyID)
+!     garray_T	*gap;
+      list_T	*l;
+      char_u	*sep;
+      int		echo_style;
+      int		copyID;
+  {
+      int		first = TRUE;
+      char_u	*tofree;
+      char_u	numbuf[NUMBUFLEN];
+      listitem_T	*item;
+      char_u	*s;
+  
+      for (item = l->lv_first; item != NULL && !got_int; item = item->li_next)
+      {
+- 	if (first)
+- 	    first = FALSE;
+- 	else
+- 	    ga_concat(gap, sep);
+- 
+  	if (echo_style)
+  	    s = echo_string(&item->li_tv, &tofree, numbuf, copyID);
+  	else
+  	    s = tv2string(&item->li_tv, &tofree, numbuf, copyID);
+- 	if (s != NULL)
+- 	    ga_concat(gap, s);
+- 	vim_free(tofree);
+  	if (s == NULL)
+  	    return FAIL;
+  	line_breakcheck();
+      }
+      return OK;
+  }
+  
+  /*
+   * Garbage collection for lists and dictionaries.
+   *
+   * We use reference counts to be able to free most items right away when they
+--- 6572,6690 ----
+      return (char_u *)ga.ga_data;
+  }
+  
+! typedef struct join_S {
+!     char_u	*s;
+!     char_u	*tofree;
+! } join_T;
+! 
+      static int
+! list_join_inner(gap, l, sep, echo_style, copyID, join_gap)
+!     garray_T	*gap;		/* to store the result in */
+      list_T	*l;
+      char_u	*sep;
+      int		echo_style;
+      int		copyID;
++     garray_T	*join_gap;	/* to keep each list item string */
+  {
++     int		i;
++     join_T	*p;
++     int		len;
++     int		sumlen = 0;
+      int		first = TRUE;
+      char_u	*tofree;
+      char_u	numbuf[NUMBUFLEN];
+      listitem_T	*item;
+      char_u	*s;
+  
++     /* Stringify each item in the list. */
+      for (item = l->lv_first; item != NULL && !got_int; item = item->li_next)
+      {
+  	if (echo_style)
+  	    s = echo_string(&item->li_tv, &tofree, numbuf, copyID);
+  	else
+  	    s = tv2string(&item->li_tv, &tofree, numbuf, copyID);
+  	if (s == NULL)
+  	    return FAIL;
++ 
++ 	len = (int)STRLEN(s);
++ 	sumlen += len;
++ 
++ 	ga_grow(join_gap, 1);
++ 	p = ((join_T *)join_gap->ga_data) + (join_gap->ga_len++);
++ 	if (tofree != NULL || s != numbuf)
++ 	{
++ 	    p->s = s;
++ 	    p->tofree = tofree;
++ 	}
++ 	else
++ 	{
++ 	    p->s = vim_strnsave(s, len);
++ 	    p->tofree = p->s;
++ 	}
++ 
++ 	line_breakcheck();
++     }
++ 
++     /* Allocate result buffer with its total size, avoid re-allocation and
++      * multiple copy operations.  Add 2 for a tailing ']' and NUL. */
++     if (join_gap->ga_len >= 2)
++ 	sumlen += (int)STRLEN(sep) * (join_gap->ga_len - 1);
++     if (ga_grow(gap, sumlen + 2) == FAIL)
++ 	return FAIL;
++ 
++     for (i = 0; i < join_gap->ga_len && !got_int; ++i)
++     {
++ 	if (first)
++ 	    first = FALSE;
++ 	else
++ 	    ga_concat(gap, sep);
++ 	p = ((join_T *)join_gap->ga_data) + i;
++ 
++ 	if (p->s != NULL)
++ 	    ga_concat(gap, p->s);
+  	line_breakcheck();
+      }
++ 
+      return OK;
+  }
+  
+  /*
++  * Join list "l" into a string in "*gap", using separator "sep".
++  * When "echo_style" is TRUE use String as echoed, otherwise as inside a List.
++  * Return FAIL or OK.
++  */
++     static int
++ list_join(gap, l, sep, echo_style, copyID)
++     garray_T	*gap;
++     list_T	*l;
++     char_u	*sep;
++     int		echo_style;
++     int		copyID;
++ {
++     garray_T	join_ga;
++     int		retval;
++     join_T	*p;
++     int		i;
++ 
++     ga_init2(&join_ga, (int)sizeof(join_T), l->lv_len);
++     retval = list_join_inner(gap, l, sep, echo_style, copyID, &join_ga);
++ 
++     /* Dispose each item in join_ga. */
++     if (join_ga.ga_data != NULL)
++     {
++ 	p = (join_T *)join_ga.ga_data;
++ 	for (i = 0; i < join_ga.ga_len; ++i)
++ 	{
++ 	    vim_free(p->tofree);
++ 	    ++p;
++ 	}
++ 	ga_clear(&join_ga);
++     }
++ 
++     return retval;
++ }
++ 
++ /*
+   * Garbage collection for lists and dictionaries.
+   *
+   * We use reference counts to be able to free most items right away when they
+***************
+*** 13406,13412 ****
+      char_u	*rhs;
+      int		mode;
+      int		abbr = FALSE;
+!     int         get_dict = FALSE;
+      mapblock_T	*mp;
+      int		buffer_local;
+  
+--- 13479,13485 ----
+      char_u	*rhs;
+      int		mode;
+      int		abbr = FALSE;
+!     int		get_dict = FALSE;
+      mapblock_T	*mp;
+      int		buffer_local;
+  
+*** ../vim-7.3.433/src/version.c	2012-02-05 23:10:25.000000000 +0100
+--- src/version.c	2012-02-06 00:10:23.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     434,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+30. Even though you died last week, you've managed to retain OPS on your
+    favorite IRC channel.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

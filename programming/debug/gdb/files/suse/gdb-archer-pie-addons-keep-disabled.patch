@@ -1,0 +1,82 @@
+Index: gdb-7.0.50.20100115/gdb/breakpoint.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/breakpoint.c	2010-01-15 21:35:16.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/breakpoint.c	2010-01-15 21:51:20.000000000 +0100
+@@ -9167,6 +9167,49 @@ update_breakpoint_locations (struct brea
+   update_global_location_list (1);
+ }
+ 
++void
++breakpoints_relocate (struct objfile *objfile, struct section_offsets *delta)
++{
++  struct bp_location *bl, **blp_tmp;
++  int changed = 0;
++
++  gdb_assert (objfile->separate_debug_objfile_backlink == NULL);
++
++  ALL_BP_LOCATIONS (bl, blp_tmp)
++    {
++      struct obj_section *osect;
++
++      /* BL->SECTION can be correctly NULL for breakpoints with multiple
++         locations expanded through symtab.  */
++
++      ALL_OBJFILE_OSECTIONS (objfile, osect)
++	{
++	  CORE_ADDR relocated_address;
++	  CORE_ADDR delta_offset;
++
++	  delta_offset = ANOFFSET (delta, osect->the_bfd_section->index);
++	  if (delta_offset == 0)
++	    continue;
++	  relocated_address = bl->address + delta_offset;
++
++	  if (obj_section_addr (osect) <= relocated_address
++	      && relocated_address < obj_section_endaddr (osect))
++	    {
++	      if (bl->inserted)
++		remove_breakpoint (bl, mark_uninserted);
++
++	      bl->address += delta_offset;
++	      bl->requested_address += delta_offset;
++
++	      changed = 1;
++	    }
++	}
++    }
++
++  if (changed)
++    qsort (bp_location, bp_location_count, sizeof (*bp_location),
++	   bp_location_compare);
++}
+ 
+ /* Reset a breakpoint given it's struct breakpoint * BINT.
+    The value we return ends up being the return value from catch_errors.
+Index: gdb-7.0.50.20100115/gdb/breakpoint.h
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/breakpoint.h	2010-01-15 21:35:13.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/breakpoint.h	2010-01-15 21:50:12.000000000 +0100
+@@ -1015,4 +1015,7 @@ extern struct breakpoint *get_tracepoint
+    is newly allocated; the caller should free when done with it.  */
+ extern VEC(breakpoint_p) *all_tracepoints (void);
+ 
++extern void breakpoints_relocate (struct objfile *objfile,
++				  struct section_offsets *delta);
++
+ #endif /* !defined (BREAKPOINT_H) */
+Index: gdb-7.0.50.20100115/gdb/objfiles.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/objfiles.c	2010-01-15 21:35:13.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/objfiles.c	2010-01-15 21:50:45.000000000 +0100
+@@ -856,6 +856,11 @@ objfile_relocate1 (struct objfile *objfi
+ 				obj_section_addr (s));
+     }
+ 
++  /* Final call of breakpoint_re_set can keep breakpoint locations disabled if
++     their addresses match.  */
++  if (objfile->separate_debug_objfile_backlink == NULL)
++    breakpoints_relocate (objfile, delta);
++
+   /* Data changed.  */
+   return 1;
+ }

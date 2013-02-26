@@ -1,0 +1,140 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.520
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.520
+Problem:    Gvim starts up slow on Unbuntu 12.04.
+Solution:   Move the call to gui_mch_init_check() to after fork(). (Yasuhiro
+	    Matsumoto)  Do check $DISPLAY being set.
+Files:	    src/gui.c, src/gui_gtk_x11.c, src/proto/gui_gtk_x11.pro
+
+
+*** ../vim-7.3.519/src/gui.c	2011-10-20 21:27:57.000000000 +0200
+--- src/gui.c	2012-05-18 16:53:14.000000000 +0200
+***************
+*** 270,275 ****
+--- 270,281 ----
+      }
+      /* Child */
+  
++ #ifdef FEAT_GUI_GTK
++     /* Call gtk_init_check() here after fork(). See gui_init_check(). */
++     if (gui_mch_init_check() != OK)
++ 	exit(1);
++ #endif
++ 
+  # if defined(HAVE_SETSID) || defined(HAVE_SETPGID)
+      /*
+       * Change our process group.  On some systems/shells a CTRL-C in the
+***************
+*** 430,436 ****
+--- 436,452 ----
+  #ifdef ALWAYS_USE_GUI
+      result = OK;
+  #else
++ # ifdef FEAT_GUI_GTK
++     /*
++      * Note: Don't call gtk_init_check() before fork, it will be called after
++      * the fork. When calling it before fork, it make vim hang for a while.
++      * See gui_do_fork().
++      * Use a simpler check if the GUI window can probably be opened.
++      */
++     result = gui.dofork ? gui_mch_early_init_check() : gui_mch_init_check();
++ # else
+      result = gui_mch_init_check();
++ # endif
+  #endif
+      return result;
+  }
+*** ../vim-7.3.519/src/gui_gtk_x11.c	2011-10-26 11:36:21.000000000 +0200
+--- src/gui_gtk_x11.c	2012-05-18 17:00:45.000000000 +0200
+***************
+*** 1414,1420 ****
+  }
+  
+  /*
+!  * Check if the GUI can be started.  Called before gvimrc is sourced.
+   * Return OK or FAIL.
+   */
+      int
+--- 1414,1442 ----
+  }
+  
+  /*
+!  * Check if the GUI can be started.  Called before gvimrc is sourced and
+!  * before fork().
+!  * Return OK or FAIL.
+!  */
+!     int
+! gui_mch_early_init_check(void)
+! {
+!     char_u *p;
+! 
+!     /* Guess that when $DISPLAY isn't set the GUI can't start. */
+!     p = mch_getenv((char_u *)"DISPLAY");
+!     if (p == NULL || *p == NUL)
+!     {
+! 	gui.dying = TRUE;
+! 	EMSG(_((char *)e_opendisp));
+! 	return FAIL;
+!     }
+!     return OK;
+! }
+! 
+! /*
+!  * Check if the GUI can be started.  Called before gvimrc is sourced but after
+!  * fork().
+   * Return OK or FAIL.
+   */
+      int
+***************
+*** 3050,3056 ****
+  
+      for (i = 0; i < (int)N_SELECTION_TARGETS; ++i)
+      {
+! 	/* OpenOffice tries to use TARGET_HTML and fails when it doesn't
+  	 * return something, instead of trying another target. Therefore only
+  	 * offer TARGET_HTML when it works. */
+  	if (!clip_html && selection_targets[i].info == TARGET_HTML)
+--- 3072,3078 ----
+  
+      for (i = 0; i < (int)N_SELECTION_TARGETS; ++i)
+      {
+! 	/* OpenOffice tries to use TARGET_HTML and fails when we don't
+  	 * return something, instead of trying another target. Therefore only
+  	 * offer TARGET_HTML when it works. */
+  	if (!clip_html && selection_targets[i].info == TARGET_HTML)
+*** ../vim-7.3.519/src/proto/gui_gtk_x11.pro	2011-08-10 17:44:41.000000000 +0200
+--- src/proto/gui_gtk_x11.pro	2012-05-18 16:54:28.000000000 +0200
+***************
+*** 4,9 ****
+--- 4,10 ----
+  void gui_mch_set_blinking __ARGS((long waittime, long on, long off));
+  void gui_mch_stop_blink __ARGS((void));
+  void gui_mch_start_blink __ARGS((void));
++ int gui_mch_early_init_check __ARGS((void));
+  int gui_mch_init_check __ARGS((void));
+  void gui_mch_show_tabline __ARGS((int showit));
+  int gui_mch_showing_tabline __ARGS((void));
+*** ../vim-7.3.519/src/version.c	2012-05-18 16:35:17.000000000 +0200
+--- src/version.c	2012-05-18 16:45:30.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     520,
+  /**/
+
+-- 
+Bad programs can be written in any language.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,274 @@
+commit f49f91e9c3eaba847f75f5c46e77e261a76d9a9b
+Author: Jan Kratochvil <jan.kratochvil@redhat.com>
+Date:   Mon Jun 28 20:35:51 2010 +0000
+
+    gdb/
+    	* cp-namespace.c (cp_lookup_nested_type): New variable
+    	concatenated_name.  Turn the current return condition into a reverse
+    	one.  Call also lookup_static_symbol_aux on the constructed qualified
+    	name.
+    	* symtab.c (lookup_symbol_aux): Move variable objfile and searching in
+    	other files into a called ...
+    	(lookup_static_symbol_aux): ... new function here.
+    	* symtab.h (lookup_static_symbol_aux): New prototype.
+    	* valops.c (value_maybe_namespace_elt): Call also
+    	lookup_static_symbol_aux if we failed otherwise.
+    
+    gdb/testsuite/
+    	* gdb.cp/namespace.exp (whatis C::cOtherFileType)
+    	(whatis ::C::cOtherFileType, whatis C::cOtherFileVar)
+    	(whatis ::C::cOtherFileVar, print C::cOtherFileVar)
+    	(print ::C::cOtherFileVar)
+    	(whatis C::OtherFileClass::cOtherFileClassType)
+    	(whatis ::C::OtherFileClass::cOtherFileClassType)
+    	(print C::OtherFileClass::cOtherFileClassVar)
+    	(print ::cOtherFileClassVar)
+    	(print ::C::OtherFileClass::cOtherFileClassVar): New tests.
+    	(ptype OtherFileClass, ptype ::C::OtherFileClass): Permit arbitrary
+    	trailing content.
+    	* gdb.cp/namespace1.cc (C::OtherFileClass::cOtherFileClassType)
+    	(C::OtherFileClass::cOtherFileClassVar)
+    	(C::OtherFileClass::cOtherFileClassVar_use, C::cOtherFileType)
+    	(C::cOtherFileVar, C::cOtherFileVar_use): New.
+
+### a/gdb/ChangeLog
+### b/gdb/ChangeLog
+## -1,5 +1,18 @@
+ 2010-06-28  Jan Kratochvil  <jan.kratochvil@redhat.com>
+ 
++	* cp-namespace.c (cp_lookup_nested_type): New variable
++	concatenated_name.  Turn the current return condition into a reverse
++	one.  Call also lookup_static_symbol_aux on the constructed qualified
++	name.
++	* symtab.c (lookup_symbol_aux): Move variable objfile and searching in
++	other files into a called ...
++	(lookup_static_symbol_aux): ... new function here.
++	* symtab.h (lookup_static_symbol_aux): New prototype.
++	* valops.c (value_maybe_namespace_elt): Call also
++	lookup_static_symbol_aux if we failed otherwise.
++
++2010-06-28  Jan Kratochvil  <jan.kratochvil@redhat.com>
++
+ 	Fix PR c++/11703 and PR gdb/1448.
+ 	* c-exp.y (yylex) <last_was_coloncolon && first_was_coloncolon>: Add
+ 	FIRST_ITER check.
+Index: gdb-7.1/gdb/cp-namespace.c
+===================================================================
+--- gdb-7.1.orig/gdb/cp-namespace.c	2010-06-29 17:54:17.000000000 +0200
++++ gdb-7.1/gdb/cp-namespace.c	2010-06-29 17:59:32.000000000 +0200
+@@ -585,10 +585,24 @@ cp_lookup_nested_type (struct type *pare
+ 							 nested_name,
+ 							 block,
+ 							 VAR_DOMAIN);
+-	if (sym == NULL || SYMBOL_CLASS (sym) != LOC_TYPEDEF)
+-	  return NULL;
+-	else
++	char *concatenated_name;
++
++	if (sym != NULL && SYMBOL_CLASS (sym) == LOC_TYPEDEF)
++	  return SYMBOL_TYPE (sym);
++
++	/* Now search all static file-level symbols.  Not strictly correct,
++	   but more useful than an error.  We do not try to guess any imported
++	   namespace as even the fully specified namespace seach is is already
++	   not C++ compliant and more assumptions could make it too magic.  */
++
++	concatenated_name = alloca (strlen (parent_name) + 2
++				    + strlen (nested_name) + 1);
++	sprintf (concatenated_name, "%s::%s", parent_name, nested_name);
++	sym = lookup_static_symbol_aux (concatenated_name, VAR_DOMAIN);
++	if (sym != NULL && SYMBOL_CLASS (sym) == LOC_TYPEDEF)
+ 	  return SYMBOL_TYPE (sym);
++
++	return NULL;
+       }
+     default:
+       internal_error (__FILE__, __LINE__,
+Index: gdb-7.1/gdb/symtab.h
+===================================================================
+--- gdb-7.1.orig/gdb/symtab.h	2010-06-29 17:54:16.000000000 +0200
++++ gdb-7.1/gdb/symtab.h	2010-06-29 18:00:37.000000000 +0200
+@@ -1036,6 +1036,12 @@ extern struct partial_symbol *lookup_par
+ 						     const char *, int,
+ 						     domain_enum);
+ 
++/* Lookup a symbol only in the file static scope of all the objfiles.  */
++
++struct symbol *lookup_static_symbol_aux (const char *name,
++					 const domain_enum domain);
++
++
+ /* lookup a symbol by name, within a specified block */
+ 
+ extern struct symbol *lookup_block_symbol (const struct block *, const char *,
+Index: gdb-7.1/gdb/testsuite/gdb.cp/namespace.exp
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.cp/namespace.exp	2010-06-29 17:54:11.000000000 +0200
++++ gdb-7.1/gdb/testsuite/gdb.cp/namespace.exp	2010-06-29 18:17:17.000000000 +0200
+@@ -217,6 +217,70 @@ gdb_expect {
+ gdb_test "break BBB::Class::xyzq" \
+     "Breakpoint.*at $hex: file.*namespace.cc, line 68\\."
+ 
++# Tests accessing static elements in namespace of other file.
++
++gdb_test "whatis C::cOtherFileType" "type = short"
++gdb_test "whatis ::C::cOtherFileType" "type = short"
++gdb_test "whatis C::cOtherFileVar" "type = const C::cOtherFileType"
++gdb_test "whatis ::C::cOtherFileVar" "type = const C::cOtherFileType"
++gdb_test "print C::cOtherFileVar" "\\$\[0-9\].* = 319"
++gdb_test "print ::C::cOtherFileVar" "\\$\[0-9\].* = 319"
++
++if {[test_compiler_info {gcc-[0-3]-*}]
++    || [test_compiler_info {gcc-4-[0-4]-*}]} {
++    # The type in class is missing in older GCCs.
++    setup_xfail *-*-* 
++}
++gdb_test "whatis C::OtherFileClass::cOtherFileClassType" "type = short"
++if {[test_compiler_info {gcc-[0-3]-*}]
++    || [test_compiler_info {gcc-4-[0-4]-*}]} {
++    # The type in class is missing in older GCCs.
++    setup_xfail *-*-* 
++}
++gdb_test "whatis ::C::OtherFileClass::cOtherFileClassType" "type = short"
++
++set test "print C::OtherFileClass::cOtherFileClassVar"
++gdb_test_multiple $test $test {
++    -re "\\$\[0-9\].* = 318\r\n$gdb_prompt $" {
++	pass $test
++    }
++    -re "static field cOtherFileClassVar has been optimized out\r\n$gdb_prompt $" {
++	setup_kfail "c++/11702" "*-*-*"
++	fail $test
++    }
++}
++
++# FSF GCC <=4.4 creates unqualified DIE "cOtherFileClassVar" ignoring the
++# namespace the same way older GDB did.
++set test "print ::cOtherFileClassVar"
++set test2 "print ::C::OtherFileClass::cOtherFileClassVar"
++gdb_test_multiple $test $test {
++    -re "No symbol \"cOtherFileClassVar\" in current context\\.\r\n$gdb_prompt $" {
++	pass $test
++
++	gdb_test_multiple $test2 $test2 {
++	    -re "\\$\[0-9\].* = 318\r\n$gdb_prompt $" {
++		pass $test2
++	    }
++	    -re "static field cOtherFileClassVar has been optimized out\r\n$gdb_prompt $" {
++		setup_kfail "c++/11702" "*-*-*"
++		fail $test2
++	    }
++	}
++
++    }
++    -re "\\$\[0-9\].* = 318\r\n$gdb_prompt $" {
++	if {[test_compiler_info {gcc-[0-3]-*}]
++	    || [test_compiler_info {gcc-4-[0-4]-*}]} {
++	    # Do not permit to XFAIL on recent GCCs.
++	    setup_xfail *-*-* 
++	}
++	fail $test
++
++	unresolved $test2
++    }
++}
++
+ # Test to see if the appropriate namespaces are in scope when trying
+ # to print out stuff from within a function defined within a
+ # namespace.
+@@ -260,7 +324,7 @@ gdb_test "ptype C::NestedClass" "No symb
+ # Tests involving multiple files
+ 
+ gdb_test "print cOtherFile" "\\$\[0-9\].* = 316"
+-gdb_test "ptype OtherFileClass" "type = (class C::OtherFileClass \{\r\n  public:|struct C::OtherFileClass \{)\r\n    int z;\r\n\}"
++gdb_test "ptype OtherFileClass" "type = (class C::OtherFileClass \{\r\n  public:|struct C::OtherFileClass \{)\r\n    int z;\r\n.*\}"
+ cp_test_ptype_class \
+ 	"ptype ::C::OtherFileClass" "" "class" "C::OtherFileClass" \
+ 	{
+Index: gdb-7.1/gdb/testsuite/gdb.cp/namespace1.cc
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.cp/namespace1.cc	2010-01-01 08:32:01.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.cp/namespace1.cc	2010-06-29 17:56:42.000000000 +0200
+@@ -21,7 +21,15 @@ namespace C
+   class OtherFileClass {
+   public:
+     int z;
++
++    typedef short cOtherFileClassType;
++    static const cOtherFileClassType cOtherFileClassVar = 318;
++    cOtherFileClassType cOtherFileClassVar_use ();
+   };
++  OtherFileClass::cOtherFileClassType OtherFileClass::cOtherFileClassVar_use ()
++  {
++    return cOtherFileClassVar;
++  }
+ 
+   namespace {
+     int cXOtherFile = 29;
+@@ -35,6 +43,13 @@ namespace C
+     static OtherFileClass *c = new OtherFileClass();
+     c->z = cOtherFile + cXOtherFile;
+   }
++
++  typedef short cOtherFileType;
++  static const cOtherFileType cOtherFileVar = 319;
++  cOtherFileType cOtherFileVar_use ()
++  {
++    return cOtherFileVar;
++  }
+ }
+ 
+ namespace {
+Index: gdb-7.1/gdb/valops.c
+===================================================================
+--- gdb-7.1.orig/gdb/valops.c	2010-06-29 17:54:16.000000000 +0200
++++ gdb-7.1/gdb/valops.c	2010-06-29 18:15:00.000000000 +0200
+@@ -3253,9 +3253,17 @@ value_maybe_namespace_elt (const struct 
+   struct symbol *sym;
+   struct value *result;
+ 
+-  sym = cp_lookup_symbol_namespace(namespace_name, name,
+-                                   get_selected_block (0), 
+-                                   VAR_DOMAIN);
++  sym = cp_lookup_symbol_namespace (namespace_name, name,
++				    get_selected_block (0), VAR_DOMAIN);
++
++  if (sym == NULL)
++    {
++      char *concatenated_name = alloca (strlen (namespace_name) + 2
++					+ strlen (name) + 1);
++
++      sprintf (concatenated_name, "%s::%s", namespace_name, name);
++      sym = lookup_static_symbol_aux (concatenated_name, VAR_DOMAIN);
++    }
+ 
+   if (sym == NULL)
+     return NULL;
+--- a/gdb/symtab.c
++++ b/gdb/symtab.c
+@@ -1122,10 +1121,21 @@ lookup_symbol_aux (const char *name, const struct block *block,
+     return sym;
+ 
+   /* Now search all static file-level symbols.  Not strictly correct,
+-     but more useful than an error.  Do the symtabs first, then check
+-     the psymtabs.  If a psymtab indicates the existence of the
+-     desired name as a file-level static, then do psymtab-to-symtab
+-     conversion on the fly and return the found symbol. */
++     but more useful than an error.  */
++
++  return lookup_static_symbol_aux (name, domain);
++}
++
++/* Search all static file-level symbols for NAME from DOMAIN.  Do the symtabs
++   first, then check the psymtabs.  If a psymtab indicates the existence of the
++   desired name as a file-level static, then do psymtab-to-symtab conversion on
++   the fly and return the found symbol. */
++
++struct symbol *
++lookup_static_symbol_aux (const char *name, const domain_enum domain)
++{
++  struct objfile *objfile;
++  struct symbol *sym;
+ 
+   sym = lookup_symbol_aux_symtabs (STATIC_BLOCK, name, domain);
+   if (sym != NULL)

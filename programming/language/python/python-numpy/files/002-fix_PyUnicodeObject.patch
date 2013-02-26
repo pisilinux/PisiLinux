@@ -1,0 +1,75 @@
+diff -up numpy-1.6.2/numpy/core/src/multiarray/scalarapi.c.fix_PyUnicodeObject numpy-1.6.2/numpy/core/src/multiarray/scalarapi.c
+--- numpy-1.6.2/numpy/core/src/multiarray/scalarapi.c.fix_PyUnicodeObject	2012-05-19 09:51:54.000000000 -0400
++++ numpy-1.6.2/numpy/core/src/multiarray/scalarapi.c	2012-08-05 16:07:29.956719007 -0400
+@@ -652,6 +652,40 @@ PyArray_Scalar(void *data, PyArray_Descr
+             itemsize = (((itemsize - 1) >> 2) + 1) << 2;
+         }
+     }
++#if PY_VERSION_HEX >= 0x03030000
++    if (type_num == NPY_UNICODE) {
++        PyObject *u, *args;
++        char *buffer;
++        if (swap) {
++            buffer = malloc(itemsize);
++            if (buffer == NULL) {
++                PyErr_NoMemory();
++                return NULL;
++            }
++            memcpy(buffer, data, itemsize);
++            byte_swap_vector(buffer, itemsize >> 2, 4);
++        } else {
++            buffer = data;
++        }
++        u = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, buffer,
++                itemsize >> 2);
++        if (swap) {
++            free(buffer);
++        }
++        if (u == NULL) {
++            return NULL;
++        }
++        args = Py_BuildValue("(O)", u);
++        if (args == NULL) {
++            Py_DECREF(u);
++            return NULL;
++        }
++        obj = type->tp_new(type, args, NULL);
++        Py_DECREF(u);
++        Py_DECREF(args);
++        return obj;
++    }
++#endif
+     if (type->tp_itemsize != 0) {
+         /* String type */
+         obj = type->tp_alloc(type, itemsize);
+@@ -688,6 +722,7 @@ PyArray_Scalar(void *data, PyArray_Descr
+             memcpy(destptr, data, itemsize);
+             return obj;
+         }
++#if PY_VERSION_HEX < 0x03030000
+         else if (type_num == PyArray_UNICODE) {
+             /* tp_alloc inherited from Python PyBaseObject_Type */
+             PyUnicodeObject *uni = (PyUnicodeObject*)obj;
+@@ -759,6 +794,7 @@ PyArray_Scalar(void *data, PyArray_Descr
+ #endif
+             return obj;
+         }
++#endif // PY_VERSION_HEX < 0x03030000
+         else {
+             PyVoidScalarObject *vobj = (PyVoidScalarObject *)obj;
+             vobj->base = NULL;
+diff -up numpy-1.6.2/numpy/core/src/multiarray/scalartypes.c.src.fix_PyUnicodeObject numpy-1.6.2/numpy/core/src/multiarray/scalartypes.c.src
+--- numpy-1.6.2/numpy/core/src/multiarray/scalartypes.c.src.fix_PyUnicodeObject	2012-05-19 09:51:54.000000000 -0400
++++ numpy-1.6.2/numpy/core/src/multiarray/scalartypes.c.src	2012-08-05 16:05:40.868718999 -0400
+@@ -2323,7 +2323,11 @@ finish:
+     *((npy_@name@ *)dest) = *((npy_@name@ *)src);
+ #elif @default@ == 1 /* unicode and strings */
+     if (itemsize == 0) { /* unicode */
++#if PY_VERSION_HEX >= 0x03030000
++        itemsize = PyUnicode_GetLength(robj) * PyUnicode_KIND(robj);
++#else
+         itemsize = ((PyUnicodeObject *)robj)->length * sizeof(Py_UNICODE);
++#endif
+     }
+     memcpy(dest, src, itemsize);
+     /* @default@ == 2 won't get here */

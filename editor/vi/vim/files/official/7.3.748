@@ -1,0 +1,473 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.748
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.748
+Problem:    Cannot properly test conceal mode.
+Solution:   Add the screencol() and screenrow() functions.  Use them in
+	    test88. (Simon Ruderich)
+Files:	    runtime/doc/eval.txt, src/eval.c, src/proto/screen.pro,
+	    src/screen.c, src/testdir/Make_amiga.mak,
+	    src/testdir/Make_dos.mak, src/testdir/Make_ming.mak,
+	    src/testdir/Make_os2.mak, src/testdir/Make_vms.mms
+	    src/testdir/Makefile, src/testdir/test88.in,
+	    src/testdir/test88.ok
+
+
+*** ../vim-7.3.747/runtime/doc/eval.txt	2012-11-14 18:10:49.000000000 +0100
+--- runtime/doc/eval.txt	2012-12-05 15:45:34.000000000 +0100
+***************
+*** 1892,1897 ****
+--- 1903,1910 ----
+  resolve( {filename})		String	get filename a shortcut points to
+  reverse( {list})		List	reverse {list} in-place
+  round( {expr})			Float	round off {expr}
++ screencol()			Number	current cursor column
++ screenrow()			Number	current cursor row
+  search( {pattern} [, {flags} [, {stopline} [, {timeout}]]])
+  				Number	search for {pattern}
+  searchdecl( {name} [, {global} [, {thisblock}]])
+***************
+*** 4848,4862 ****
+  			echo round(-4.5)
+  <			-5.0
+  		{only available when compiled with the |+float| feature}
+! 		
+! 		
+  search({pattern} [, {flags} [, {stopline} [, {timeout}]]])	*search()*
+  		Search for regexp pattern {pattern}.  The search starts at the
+  		cursor position (you can use |cursor()| to set it).
+  
+  		If there is no match a 0 is returned and the cursor doesn't
+  		move.  No error message is given.
+- 		When a match has been found its line number is returned.
+  
+  		{flags} is a String, which can contain these character flags:
+  		'b'	search backward instead of forward
+--- 4874,4907 ----
+  			echo round(-4.5)
+  <			-5.0
+  		{only available when compiled with the |+float| feature}
+! 
+! screencol()							*screencol()*
+! 		The result is a Number, which is the current screen column of
+! 		the cursor. The leftmost column has number 1.
+! 		This function is mainly used for testing.
+! 
+! 		Note: Always returns the current screen column, thus if used
+! 		in a command (e.g. ":echo screencol()") it will return the
+! 		column inside the command line, which is 1 when the command is
+! 		executed. To get the cursor position in the file use one of
+! 		the following mappings: >
+! 			nnoremap <expr> GG ":echom ".screencol()."\n"
+! 			nnoremap <silent> GG :echom screencol()<CR>
+! <
+! screenrow()							*screenrow()*
+! 		The result is a Number, which is the current screen row of the
+! 		cursor.  The top line has number one.
+! 		This function is mainly used for testing.
+! 
+! 		Note: Same restrictions as with |screencol()|.
+! 
+  search({pattern} [, {flags} [, {stopline} [, {timeout}]]])	*search()*
+  		Search for regexp pattern {pattern}.  The search starts at the
+  		cursor position (you can use |cursor()| to set it).
+  
++ 		When a match has been found its line number is returned.
+  		If there is no match a 0 is returned and the cursor doesn't
+  		move.  No error message is given.
+  
+  		{flags} is a String, which can contain these character flags:
+  		'b'	search backward instead of forward
+*** ../vim-7.3.747/src/eval.c	2012-12-05 15:16:42.000000000 +0100
+--- src/eval.c	2012-12-05 16:03:23.000000000 +0100
+***************
+*** 668,673 ****
+--- 668,675 ----
+  #ifdef FEAT_FLOAT
+  static void f_round __ARGS((typval_T *argvars, typval_T *rettv));
+  #endif
++ static void f_screencol __ARGS((typval_T *argvars, typval_T *rettv));
++ static void f_screenrow __ARGS((typval_T *argvars, typval_T *rettv));
+  static void f_search __ARGS((typval_T *argvars, typval_T *rettv));
+  static void f_searchdecl __ARGS((typval_T *argvars, typval_T *rettv));
+  static void f_searchpair __ARGS((typval_T *argvars, typval_T *rettv));
+***************
+*** 8033,8038 ****
+--- 8035,8042 ----
+  #ifdef FEAT_FLOAT
+      {"round",		1, 1, f_round},
+  #endif
++     {"screencol",	0, 0, f_screencol},
++     {"screenrow",	0, 0, f_screenrow},
+      {"search",		1, 4, f_search},
+      {"searchdecl",	1, 3, f_searchdecl},
+      {"searchpair",	3, 7, f_searchpair},
+***************
+*** 15725,15730 ****
+--- 15729,15758 ----
+  #endif
+  
+  /*
++  * "screencol()" function
++  *
++  * First column is 1 to be consistent with virtcol().
++  */
++     static void
++ f_screencol(argvars, rettv)
++     typval_T	*argvars UNUSED;
++     typval_T	*rettv;
++ {
++     rettv->vval.v_number = screen_screencol() + 1;
++ }
++ 
++ /*
++  * "screenrow()" function
++  */
++     static void
++ f_screenrow(argvars, rettv)
++     typval_T	*argvars UNUSED;
++     typval_T	*rettv;
++ {
++     rettv->vval.v_number = screen_screenrow() + 1;
++ }
++ 
++ /*
+   * "search()" function
+   */
+      static void
+*** ../vim-7.3.747/src/proto/screen.pro	2012-11-20 16:56:49.000000000 +0100
+--- src/proto/screen.pro	2012-12-05 15:57:35.000000000 +0100
+***************
+*** 50,53 ****
+--- 50,55 ----
+  int messaging __ARGS((void));
+  void showruler __ARGS((int always));
+  int number_width __ARGS((win_T *wp));
++ int screen_screencol __ARGS((void));
++ int screen_screenrow __ARGS((void));
+  /* vim: set ft=c : */
+*** ../vim-7.3.747/src/screen.c	2012-12-05 15:32:24.000000000 +0100
+--- src/screen.c	2012-12-05 15:58:02.000000000 +0100
+***************
+*** 10264,10266 ****
+--- 10264,10286 ----
+      return n;
+  }
+  #endif
++ 
++ /*
++  * Return the current cursor column. This is the actual position on the
++  * screen. First column is 0.
++  */
++     int
++ screen_screencol()
++ {
++     return screen_cur_col;
++ }
++ 
++ /*
++  * Return the current cursor row. This is the actual position on the screen.
++  * First row is 0.
++  */
++     int
++ screen_screenrow()
++ {
++     return screen_cur_row;
++ }
+*** ../vim-7.3.747/src/testdir/Make_amiga.mak	2012-06-29 12:54:32.000000000 +0200
+--- src/testdir/Make_amiga.mak	2012-12-05 16:00:14.000000000 +0100
+***************
+*** 31,37 ****
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out test83.out test84.out
+  
+  .SUFFIXES: .in .out
+  
+--- 31,37 ----
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out test83.out test84.out test88.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 135,137 ****
+--- 135,138 ----
+  test82.out: test82.in
+  test83.out: test83.in
+  test84.out: test84.in
++ test88.out: test88.in
+*** ../vim-7.3.747/src/testdir/Make_dos.mak	2012-10-06 19:10:29.000000000 +0200
+--- src/testdir/Make_dos.mak	2012-12-05 16:00:29.000000000 +0100
+***************
+*** 30,36 ****
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+! 		test84.out test85.out test86.out test87.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 30,36 ----
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+! 		test84.out test85.out test86.out test87.out test88.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.747/src/testdir/Make_ming.mak	2012-10-06 19:10:29.000000000 +0200
+--- src/testdir/Make_ming.mak	2012-12-05 16:00:40.000000000 +0100
+***************
+*** 50,56 ****
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+! 		test84.out test85.out test86.out test87.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 50,56 ----
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+! 		test84.out test85.out test86.out test87.out test88.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.747/src/testdir/Make_os2.mak	2012-06-29 12:54:32.000000000 +0200
+--- src/testdir/Make_os2.mak	2012-12-05 16:00:50.000000000 +0100
+***************
+*** 31,37 ****
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out test83.out test84.out
+  
+  .SUFFIXES: .in .out
+  
+--- 31,37 ----
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out test83.out test84.out test88.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../vim-7.3.747/src/testdir/Make_vms.mms	2012-10-06 19:10:29.000000000 +0200
+--- src/testdir/Make_vms.mms	2012-12-05 16:01:03.000000000 +0100
+***************
+*** 4,10 ****
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2012 Oct 06
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+--- 4,10 ----
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2012 Dec 05
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+***************
+*** 76,82 ****
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+  	 test77.out test78.out test79.out test80.out test81.out \
+! 	 test82.out test83.out test84.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+--- 76,82 ----
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+  	 test77.out test78.out test79.out test80.out test81.out \
+! 	 test82.out test83.out test84.out test88.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+*** ../vim-7.3.747/src/testdir/Makefile	2012-10-06 19:10:29.000000000 +0200
+--- src/testdir/Makefile	2012-12-05 15:59:02.000000000 +0100
+***************
+*** 13,19 ****
+  
+  SCRIPTS = test1.out test2.out test3.out test4.out test5.out test6.out \
+  		test7.out test8.out test9.out test10.out test11.out \
+! 		test12.out  test13.out test14.out test15.out test17.out \
+  		test18.out test19.out test20.out test21.out test22.out \
+  		test23.out test24.out test25.out test26.out test27.out \
+  		test28.out test29.out test30.out test31.out test32.out \
+--- 13,19 ----
+  
+  SCRIPTS = test1.out test2.out test3.out test4.out test5.out test6.out \
+  		test7.out test8.out test9.out test10.out test11.out \
+! 		test12.out test13.out test14.out test15.out test17.out \
+  		test18.out test19.out test20.out test21.out test22.out \
+  		test23.out test24.out test25.out test26.out test27.out \
+  		test28.out test29.out test30.out test31.out test32.out \
+***************
+*** 27,33 ****
+  		test69.out test70.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+! 		test84.out test85.out test86.out test87.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 27,33 ----
+  		test69.out test70.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+! 		test84.out test85.out test86.out test87.out test88.out
+  
+  SCRIPTS_GUI = test16.out
+  
+*** ../vim-7.3.747/src/testdir/test88.in	2012-12-05 16:08:56.000000000 +0100
+--- src/testdir/test88.in	2012-12-05 15:40:05.000000000 +0100
+***************
+*** 0 ****
+--- 1,85 ----
++ vim: set ft=vim
++ 
++ Tests for correct display (cursor column position) with +conceal and
++ tabulators.
++ 
++ STARTTEST
++ :so small.vim
++ :if !has('conceal')
++    e! test.ok
++    wq! test.out
++ :endif
++ :" Conceal settings.
++ :set conceallevel=2
++ :set concealcursor=nc
++ :syntax match test /|/ conceal
++ :" Save current cursor position. Only works in <expr> mode, can't be used
++ :" with :normal because it moves the cursor to the command line. Thanks to ZyX
++ :" <zyx.vim@gmail.com> for the idea to use an <expr> mapping.
++ :let positions = []
++ :nnoremap <expr> GG ":let positions += ['".screenrow().":".screencol()."']\n"
++ :" Start test.
++ /^start:
++ :normal ztj
++ GGk
++ :" We should end up in the same column when running these commands on the two
++ :" lines.
++ :normal ft
++ GGk
++ :normal $
++ GGk
++ :normal 0j
++ GGk
++ :normal ft
++ GGk
++ :normal $
++ GGk
++ :normal 0j0j
++ GGk
++ :" Same for next test block.
++ :normal ft
++ GGk
++ :normal $
++ GGk
++ :normal 0j
++ GGk
++ :normal ft
++ GGk
++ :normal $
++ GGk
++ :normal 0j0j
++ GGk
++ :" And check W with multiple tabs and conceals in a line.
++ :normal W
++ GGk
++ :normal W
++ GGk
++ :normal W
++ GGk
++ :normal $
++ GGk
++ :normal 0j
++ GGk
++ :normal W
++ GGk
++ :normal W
++ GGk
++ :normal W
++ GGk
++ :normal $
++ GGk
++ :" Display result.
++ :call append('$', 'end:')
++ :call append('$', positions)
++ :/^end/,$wq! test.out
++ ENDTEST
++ 
++ start:
++ .concealed.     text
++ |concealed|	text
++ 
++ 	.concealed.	text
++ 	|concealed|	text
++ 
++ .a.	.b.	.c.	.d.
++ |a|	|b|	|c|	|d|
+*** ../vim-7.3.747/src/testdir/test88.ok	2012-12-05 16:08:56.000000000 +0100
+--- src/testdir/test88.ok	2012-12-05 15:40:05.000000000 +0100
+***************
+*** 0 ****
+--- 1,23 ----
++ end:
++ 2:1
++ 2:17
++ 2:20
++ 3:1
++ 3:17
++ 3:20
++ 5:8
++ 5:25
++ 5:28
++ 6:8
++ 6:25
++ 6:28
++ 8:1
++ 8:9
++ 8:17
++ 8:25
++ 8:27
++ 9:1
++ 9:9
++ 9:17
++ 9:25
++ 9:26
+*** ../vim-7.3.747/src/version.c	2012-12-05 15:32:24.000000000 +0100
+--- src/version.c	2012-12-05 16:07:46.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     748,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+101. U can read htis w/o ny porblm and cant figur eout Y its evn listd.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

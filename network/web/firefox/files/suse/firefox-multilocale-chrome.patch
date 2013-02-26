@@ -1,0 +1,115 @@
+# HG changeset patch
+# User Wolfgang Rosenauer <wr@rosenauer.org>
+# Parent 1352398be333989afdf06a2d87d63df9fed61333
+Add searchplugins to chrome packaging for proper localization
+
+diff --git a/browser/app/profile/firefox.js b/browser/app/profile/firefox.js
+--- a/browser/app/profile/firefox.js
++++ b/browser/app/profile/firefox.js
+@@ -338,16 +338,20 @@ pref("browser.download.panel.shown", fal
+ pref("browser.download.panel.firstSessionCompleted", false);
+ 
+ // search engines URL
+ pref("browser.search.searchEnginesURL",      "https://addons.mozilla.org/%LOCALE%/firefox/search-engines/");
+ 
+ // pointer to the default engine name
+ pref("browser.search.defaultenginename",      "chrome://browser-region/locale/region.properties");
+ 
++// Tell the search service to load search plugins from the locale JAR
++pref("browser.search.loadFromJars", true);
++pref("browser.search.jarURIs", "chrome://browser/locale/searchplugins/");
++
+ // disable logging for the search service by default
+ pref("browser.search.log", false);
+ 
+ // Ordering of Search Engines in the Engine list. 
+ pref("browser.search.order.1",                "chrome://browser-region/locale/region.properties");
+ pref("browser.search.order.2",                "chrome://browser-region/locale/region.properties");
+ pref("browser.search.order.3",                "chrome://browser-region/locale/region.properties");
+ 
+diff --git a/browser/locales/Makefile.in b/browser/locales/Makefile.in
+--- a/browser/locales/Makefile.in
++++ b/browser/locales/Makefile.in
+@@ -124,39 +124,48 @@ libs:: $(call MERGE_FILES,$(addprefix pr
+ install:: $(DESTDIR)$(mozappdir)/defaults/profile/bookmarks.html ;
+ 
+ install:: $(addprefix generic/profile/,$(PROFILE_FILES))
+ 	$(SYSINSTALL) $(IFLAGS1) $^ $(DESTDIR)$(mozappdir)/defaults/profile
+ 
+ install:: $(call MERGE_FILES,$(addprefix profile/chrome/,$(PROFILE_CHROME)))
+ 	$(SYSINSTALL) $(IFLAGS1) $^ $(DESTDIR)$(mozappdir)/defaults/profile/chrome
+ 
+-SEARCH_PLUGINS = $(shell cat $(call MERGE_FILE,/searchplugins/list.txt))
++SEARCH_PLUGINS = $(shell cat \
++	$(firstword $(wildcard $(LOCALE_SRCDIR)/searchplugins/list.txt) \
++	@srcdir@/en-US/searchplugins/list.txt ) )
+ 
+-libs:: $(addsuffix .xml,$(SEARCH_PLUGINS))
+-	$(NSINSTALL) -D $(FINAL_TARGET)/searchplugins
+-	for SEARCH_PLUGIN in $^; do\
+-	  SEARCH_PLUGIN_BASE=`basename $$SEARCH_PLUGIN`;\
++tmp-search.jar.mn::
++	printf "$(AB_CD).jar:" > $@
++	printf "$(foreach plugin,$(SEARCH_PLUGINS),$(subst __PLUGIN_SUBST__,$(plugin), \n locale/browser/searchplugins/__PLUGIN_SUBST__.xml (__PLUGIN_SUBST__.xml)))" >>  $@
++	@echo   >> $@
++
++searchplugins:: $(addsuffix .xml,$(SEARCH_PLUGINS))
++	for SEARCH_PLUGIN in $^; do \
+ 	  $(PYTHON) $(topsrcdir)/config/Preprocessor.py $(DEFINES) $(ACDEFINES) \
+-	    $$SEARCH_PLUGIN > $(FINAL_TARGET)/searchplugins/$$SEARCH_PLUGIN_BASE; \
++	    $$SEARCH_PLUGIN > $$SEARCH_PLUGIN-new ; \
++	  mv $$SEARCH_PLUGIN-new $$SEARCH_PLUGIN ; \
+ 	done
+ 
+-install:: $(addsuffix .xml,$(SEARCH_PLUGINS))
+-	$(NSINSTALL) -D $(DESTDIR)$(mozappdir)/searchplugins
+-	for i in $^; do \
+-	  SEARCH_PLUGIN_BASE=`basename $$SEARCH_PLUGIN`;\
+-	  $(PYTHON) $(topsrcdir)/config/Preprocessor.py $(DEFINES) $(ACDEFINES) \
+-	    $$SEARCH_PLUGIN > $(DESTDIR)$(mozappdir)/searchplugins/$$SEARCH_PLUGIN_BASE; \
+-	done
++searchplugins:: tmp-search.jar.mn
++	$(PYTHON) $(MOZILLA_DIR)/config/JarMaker.py \
++	  $(QUIET) -j $(FINAL_TARGET)/chrome \
++	  -s $(topsrcdir)/$(relativesrcdir)/en-US/searchplugins \
++	  -s $(LOCALE_SRCDIR)/searchplugins \
++	  $(MAKE_JARS_FLAGS) tmp-search.jar.mn
+ 
++libs:: searchplugins
++
++GARBAGE += tmp-search.jar.mn
+ 
+ libs-%:
+ 	$(NSINSTALL) -D $(DIST)/install
+ 	@$(MAKE) -C ../../toolkit/locales libs-$*
+ 	@$(MAKE) -C ../../services/sync/locales AB_CD=$* XPI_NAME=locale-$*
++	@$(MAKE) -B searchplugins AB_CD=$* XPI_NAME=locale-$*
+ 	@$(MAKE) -C ../../extensions/spellcheck/locales AB_CD=$* XPI_NAME=locale-$*
+ 	@$(MAKE) -C ../../intl/locales AB_CD=$* XPI_NAME=locale-$*
+ 	@$(MAKE) libs AB_CD=$* XPI_NAME=locale-$* PREF_DIR=$(PREF_DIR)
+ 	@$(MAKE) -C $(DEPTH)/$(MOZ_BRANDING_DIRECTORY)/locales AB_CD=$* XPI_NAME=locale-$*
+ 
+ repackage-win32-installer: WIN32_INSTALLER_OUT=$(_ABS_DIST)/$(PKG_INST_PATH)$(PKG_INST_BASENAME).exe
+ repackage-win32-installer: $(call ESCAPE_WILDCARD,$(WIN32_INSTALLER_IN)) $(SUBMAKEFILES) libs-$(AB_CD)
+ 	@echo "Repackaging $(WIN32_INSTALLER_IN) into $(WIN32_INSTALLER_OUT)."
+diff --git a/browser/locales/jar.mn b/browser/locales/jar.mn
+--- a/browser/locales/jar.mn
++++ b/browser/locales/jar.mn
+@@ -108,16 +108,17 @@
+     locale/browser-region/region.properties        (%chrome/browser-region/region.properties)
+ # the following files are browser-specific overrides
+     locale/browser/netError.dtd                (%chrome/overrides/netError.dtd)
+     locale/browser/appstrings.properties       (%chrome/overrides/appstrings.properties)
+     locale/browser/downloads/settingsChange.dtd  (%chrome/overrides/settingsChange.dtd)
+ % override chrome://global/locale/netError.dtd chrome://browser/locale/netError.dtd
+ % override chrome://global/locale/appstrings.properties chrome://browser/locale/appstrings.properties
+ % override chrome://mozapps/locale/downloads/settingsChange.dtd chrome://browser/locale/downloads/settingsChange.dtd
++    locale/browser/searchplugins/list.txt   (%searchplugins/list.txt)
+ % locale testpilot @AB_CD@ %locale/feedback/
+     locale/feedback/main.dtd                       (%feedback/main.dtd)
+     locale/feedback/main.properties                (%feedback/main.properties)
+ % locale pdf.js @AB_CD@ %locale/pdfviewer/
+     locale/pdfviewer/viewer.properties             (%pdfviewer/viewer.properties)
+     locale/pdfviewer/chrome.properties             (%pdfviewer/chrome.properties)
+ #ifdef MOZ_WEBAPP_RUNTIME
+ ../webapprt/chrome/@AB_CD@.jar:

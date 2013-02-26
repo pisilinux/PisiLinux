@@ -1,0 +1,415 @@
+------------------------------------------------------------------------
+r13008 | tom | 2012-09-21 10:57:46 +0200 (Fri, 21 Sep 2012) | 3 lines
+
+When processing DW_OP_plus_uconst make sure we record an add, not
+whatever binary operation we happened to see last.
+
+------------------------------------------------------------------------
+r13009 | tom | 2012-09-21 11:04:27 +0200 (Fri, 21 Sep 2012) | 2 lines
+
+Rename CfiOp to CfiBinop in preparation for adding unary operators.
+
+------------------------------------------------------------------------
+r13010 | tom | 2012-09-21 11:12:30 +0200 (Fri, 21 Sep 2012) | 3 lines
+
+Implement some extra DW_OPs - more constants and some unary operators.
+Patch from Mark Wielaard on BZ#307038.
+
+------------------------------------------------------------------------
+
+Index: valgrind/coregrind/m_debuginfo/readdwarf.c
+===================================================================
+--- valgrind/coregrind/m_debuginfo/readdwarf.c	(revision 13007)
++++ valgrind/coregrind/m_debuginfo/readdwarf.c	(working copy)
+@@ -2728,12 +2728,13 @@
+          sp--;                                     \
+       } while (0)
+ 
+-   Int    ix, ix2, reg;
+-   UChar  opcode;
+-   Word   sw;
+-   UWord  uw;
+-   CfiOp  op;
+-   HChar* opname;
++   Int      ix, ix2, reg;
++   UChar    opcode;
++   Word     sw;
++   UWord    uw;
++   CfiUnop  uop;
++   CfiBinop bop;
++   HChar*   opname;
+ 
+    Int sp; /* # of top element: valid is -1 .. N_EXPR_STACK-1 */
+    Int stack[N_EXPR_STACK];  /* indices into ctx->exprs */
+@@ -2752,7 +2753,7 @@
+       if (ctxs->cfa_is_regoff) {
+          /* cfa is reg +/- offset */
+          ix = ML_(CfiExpr_Binop)( dst,
+-                 Cop_Add,
++                 Cbinop_Add,
+                  ML_(CfiExpr_DwReg)( dst, ctxs->cfa_reg ),
+                  ML_(CfiExpr_Const)( dst, (UWord)(Word)ctxs->cfa_off )
+               );
+@@ -2778,7 +2779,7 @@
+            break;
+       }
+ 
+-      op = 0; opname = NULL; /* excessively conservative */
++      uop = 0; bop = 0; opname = NULL; /* excessively conservative */
+ 
+       opcode = *expr++;
+       switch (opcode) {
+@@ -2798,7 +2799,7 @@
+             vg_assert(reg >= 0 && reg <= 31);
+             sw = read_leb128S( &expr );
+             ix = ML_(CfiExpr_Binop)( dst,
+-                    Cop_Add,
++                    Cbinop_Add,
+                     ML_(CfiExpr_DwReg)( dst, reg ),
+                     ML_(CfiExpr_Const)( dst, (UWord)sw )
+                  );
+@@ -2822,7 +2823,7 @@
+             PUSH( ML_(CfiExpr_Const)( dst, uw ) );
+             POP( ix );
+             POP( ix2 );
+-            PUSH( ML_(CfiExpr_Binop)( dst, op, ix2, ix ) );
++            PUSH( ML_(CfiExpr_Binop)( dst, Cbinop_Add, ix2, ix ) );
+             if (ddump_frames)
+                VG_(printf)("DW_OP_plus_uconst: %lu", uw);
+             break;
+@@ -2836,6 +2837,15 @@
+                VG_(printf)("DW_OP_const4s: %ld", sw);
+             break;
+ 
++         case DW_OP_const2s:
++            /* push: 16-bit signed immediate */
++            sw = read_le_s_encoded_literal( expr, 2 );
++            expr += 2;
++            PUSH( ML_(CfiExpr_Const)( dst, (UWord)sw ) );
++            if (ddump_frames)
++               VG_(printf)("DW_OP_const2s: %ld", sw);
++            break;
++
+          case DW_OP_const1s:
+             /* push: 8-bit signed immediate */
+             sw = read_le_s_encoded_literal( expr, 1 );
+@@ -2845,34 +2855,74 @@
+                VG_(printf)("DW_OP_const1s: %ld", sw);
+             break;
+ 
++         case DW_OP_const1u:
++            /* push: 8-bit unsigned immediate */
++            uw = read_le_u_encoded_literal( expr, 1 );
++            expr += 1;
++            PUSH( ML_(CfiExpr_Const)( dst, uw ) );
++            if (ddump_frames)
++               VG_(printf)("DW_OP_const1: %lu", uw);
++            break;
++
++         case DW_OP_const2u:
++            /* push: 16-bit unsigned immediate */
++            uw = read_le_u_encoded_literal( expr, 2 );
++            expr += 2;
++            PUSH( ML_(CfiExpr_Const)( dst, uw ) );
++            if (ddump_frames)
++               VG_(printf)("DW_OP_const2: %lu", uw);
++            break;
++
++         case DW_OP_const4u:
++            /* push: 32-bit unsigned immediate */
++            uw = read_le_u_encoded_literal( expr, 4 );
++            expr += 4;
++            PUSH( ML_(CfiExpr_Const)( dst, uw ) );
++            if (ddump_frames)
++               VG_(printf)("DW_OP_const4: %lu", uw);
++            break;
++
++         case DW_OP_abs:
++            uop = Cunop_Abs; opname = "abs"; goto unop;
++         case DW_OP_neg:
++            uop = Cunop_Neg; opname = "neg"; goto unop;
++         case DW_OP_not:
++            uop = Cunop_Not; opname = "not"; goto unop;
++         unop:
++            POP( ix );
++            PUSH( ML_(CfiExpr_Unop)( dst, uop, ix ) );
++            if (ddump_frames)
++               VG_(printf)("DW_OP_%s", opname);
++            break;
++
+          case DW_OP_minus:
+-            op = Cop_Sub; opname = "minus"; goto binop;
++            bop = Cbinop_Sub; opname = "minus"; goto binop;
+          case DW_OP_plus:
+-            op = Cop_Add; opname = "plus"; goto binop;
++            bop = Cbinop_Add; opname = "plus"; goto binop;
+          case DW_OP_and:
+-            op = Cop_And; opname = "and"; goto binop;
++            bop = Cbinop_And; opname = "and"; goto binop;
+          case DW_OP_mul:
+-            op = Cop_Mul; opname = "mul"; goto binop;
++            bop = Cbinop_Mul; opname = "mul"; goto binop;
+          case DW_OP_shl:
+-            op = Cop_Shl; opname = "shl"; goto binop;
++            bop = Cbinop_Shl; opname = "shl"; goto binop;
+          case DW_OP_shr:
+-            op = Cop_Shr; opname = "shr"; goto binop;
++            bop = Cbinop_Shr; opname = "shr"; goto binop;
+          case DW_OP_eq:
+-            op = Cop_Eq; opname = "eq"; goto binop;
++            bop = Cbinop_Eq; opname = "eq"; goto binop;
+          case DW_OP_ge:
+-            op = Cop_Ge; opname = "ge"; goto binop;
++            bop = Cbinop_Ge; opname = "ge"; goto binop;
+          case DW_OP_gt:
+-            op = Cop_Gt; opname = "gt"; goto binop;
++            bop = Cbinop_Gt; opname = "gt"; goto binop;
+          case DW_OP_le:
+-            op = Cop_Le; opname = "le"; goto binop;
++            bop = Cbinop_Le; opname = "le"; goto binop;
+          case DW_OP_lt:
+-            op = Cop_Lt; opname = "lt"; goto binop;
++            bop = Cbinop_Lt; opname = "lt"; goto binop;
+          case DW_OP_ne:
+-            op = Cop_Ne; opname = "ne"; goto binop;
++            bop = Cbinop_Ne; opname = "ne"; goto binop;
+          binop:
+             POP( ix );
+             POP( ix2 );
+-            PUSH( ML_(CfiExpr_Binop)( dst, op, ix2, ix ) );
++            PUSH( ML_(CfiExpr_Binop)( dst, bop, ix2, ix ) );
+             if (ddump_frames)
+                VG_(printf)("DW_OP_%s", opname);
+             break;
+Index: coregrind/m_debuginfo/debuginfo.c
+===================================================================
+--- valgrind/coregrind/m_debuginfo/debuginfo.c	(revision 13007)
++++ valgrind/coregrind/m_debuginfo/debuginfo.c	(working copy)
+@@ -2051,30 +2051,40 @@
+ UWord evalCfiExpr ( XArray* exprs, Int ix, 
+                     CfiExprEvalContext* eec, Bool* ok )
+ {
+-   UWord wL, wR;
++   UWord w, wL, wR;
+    Addr  a;
+    CfiExpr* e;
+    vg_assert(sizeof(Addr) == sizeof(UWord));
+    e = VG_(indexXA)( exprs, ix );
+    switch (e->tag) {
++      case Cex_Unop:
++         w = evalCfiExpr( exprs, e->Cex.Unop.ix, eec, ok );
++         if (!(*ok)) return 0;
++         switch (e->Cex.Unop.op) {
++            case Cunop_Abs: return (Word) w < 0 ? - w : w;
++            case Cunop_Neg: return - (Word) w;
++            case Cunop_Not: return ~ w;
++            default: goto unhandled;
++         }
++         /*NOTREACHED*/
+       case Cex_Binop:
+          wL = evalCfiExpr( exprs, e->Cex.Binop.ixL, eec, ok );
+          if (!(*ok)) return 0;
+          wR = evalCfiExpr( exprs, e->Cex.Binop.ixR, eec, ok );
+          if (!(*ok)) return 0;
+          switch (e->Cex.Binop.op) {
+-            case Cop_Add: return wL + wR;
+-            case Cop_Sub: return wL - wR;
+-            case Cop_And: return wL & wR;
+-            case Cop_Mul: return wL * wR;
+-            case Cop_Shl: return wL << wR;
+-            case Cop_Shr: return wL >> wR;
+-            case Cop_Eq: return wL == wR ? 1 : 0;
+-            case Cop_Ge: return (Word) wL >= (Word) wR ? 1 : 0;
+-            case Cop_Gt: return (Word) wL > (Word) wR ? 1 : 0;
+-            case Cop_Le: return (Word) wL <= (Word) wR ? 1 : 0;
+-            case Cop_Lt: return (Word) wL < (Word) wR ? 1 : 0;
+-            case Cop_Ne: return wL != wR ? 1 : 0;
++            case Cbinop_Add: return wL + wR;
++            case Cbinop_Sub: return wL - wR;
++            case Cbinop_And: return wL & wR;
++            case Cbinop_Mul: return wL * wR;
++            case Cbinop_Shl: return wL << wR;
++            case Cbinop_Shr: return wL >> wR;
++            case Cbinop_Eq: return wL == wR ? 1 : 0;
++            case Cbinop_Ge: return (Word) wL >= (Word) wR ? 1 : 0;
++            case Cbinop_Gt: return (Word) wL > (Word) wR ? 1 : 0;
++            case Cbinop_Le: return (Word) wL <= (Word) wR ? 1 : 0;
++            case Cbinop_Lt: return (Word) wL < (Word) wR ? 1 : 0;
++            case Cbinop_Ne: return wL != wR ? 1 : 0;
+             default: goto unhandled;
+          }
+          /*NOTREACHED*/
+Index: valgrind/coregrind/m_debuginfo/storage.c
+===================================================================
+--- valgrind/coregrind/m_debuginfo/storage.c	(revision 13007)
++++ valgrind/coregrind/m_debuginfo/storage.c	(working copy)
+@@ -585,10 +585,19 @@
+    e.Cex.Const.con = con;
+    return (Int)VG_(addToXA)( dst, &e );
+ }
+-Int ML_(CfiExpr_Binop)( XArray* dst, CfiOp op, Int ixL, Int ixR )
++Int ML_(CfiExpr_Unop)( XArray* dst, CfiUnop op, Int ix )
+ {
+    CfiExpr e;
+    VG_(memset)( &e, 0, sizeof(e) );
++   e.tag = Cex_Unop;
++   e.Cex.Unop.op  = op;
++   e.Cex.Unop.ix = ix;
++   return (Int)VG_(addToXA)( dst, &e );
++}
++Int ML_(CfiExpr_Binop)( XArray* dst, CfiBinop op, Int ixL, Int ixR )
++{
++   CfiExpr e;
++   VG_(memset)( &e, 0, sizeof(e) );
+    e.tag = Cex_Binop;
+    e.Cex.Binop.op  = op;
+    e.Cex.Binop.ixL = ixL;
+@@ -612,25 +621,35 @@
+    return (Int)VG_(addToXA)( dst, &e );
+ }
+ 
+-static void ppCfiOp ( CfiOp op ) 
++static void ppCfiUnop ( CfiUnop op ) 
+ {
+    switch (op) {
+-      case Cop_Add: VG_(printf)("+"); break;
+-      case Cop_Sub: VG_(printf)("-"); break;
+-      case Cop_And: VG_(printf)("&"); break;
+-      case Cop_Mul: VG_(printf)("*"); break;
+-      case Cop_Shl: VG_(printf)("<<"); break;
+-      case Cop_Shr: VG_(printf)(">>"); break;
+-      case Cop_Eq: VG_(printf)("=="); break;
+-      case Cop_Ge: VG_(printf)(">="); break;
+-      case Cop_Gt: VG_(printf)(">"); break;
+-      case Cop_Le: VG_(printf)("<="); break;
+-      case Cop_Lt: VG_(printf)("<"); break;
+-      case Cop_Ne: VG_(printf)("!="); break;
+-      default:      vg_assert(0);
++      case Cunop_Abs: VG_(printf)("abs"); break;
++      case Cunop_Neg: VG_(printf)("-"); break;
++      case Cunop_Not: VG_(printf)("~"); break;
++      default:        vg_assert(0);
+    }
+ }
+ 
++static void ppCfiBinop ( CfiBinop op ) 
++{
++   switch (op) {
++      case Cbinop_Add: VG_(printf)("+"); break;
++      case Cbinop_Sub: VG_(printf)("-"); break;
++      case Cbinop_And: VG_(printf)("&"); break;
++      case Cbinop_Mul: VG_(printf)("*"); break;
++      case Cbinop_Shl: VG_(printf)("<<"); break;
++      case Cbinop_Shr: VG_(printf)(">>"); break;
++      case Cbinop_Eq:  VG_(printf)("=="); break;
++      case Cbinop_Ge:  VG_(printf)(">="); break;
++      case Cbinop_Gt:  VG_(printf)(">"); break;
++      case Cbinop_Le:  VG_(printf)("<="); break;
++      case Cbinop_Lt:  VG_(printf)("<"); break;
++      case Cbinop_Ne:  VG_(printf)("!="); break;
++      default:         vg_assert(0);
++   }
++}
++
+ static void ppCfiReg ( CfiReg reg )
+ {
+    switch (reg) {
+@@ -664,11 +683,17 @@
+       case Cex_Const: 
+          VG_(printf)("0x%lx", e->Cex.Const.con); 
+          break;
++      case Cex_Unop: 
++         ppCfiUnop(e->Cex.Unop.op);
++         VG_(printf)("(");
++         ML_(ppCfiExpr)(src, e->Cex.Unop.ix);
++         VG_(printf)(")");
++         break;
+       case Cex_Binop: 
+          VG_(printf)("(");
+          ML_(ppCfiExpr)(src, e->Cex.Binop.ixL);
+          VG_(printf)(")");
+-         ppCfiOp(e->Cex.Binop.op);
++         ppCfiBinop(e->Cex.Binop.op);
+          VG_(printf)("(");
+          ML_(ppCfiExpr)(src, e->Cex.Binop.ixR);
+          VG_(printf)(")");
+Index: valgrind/coregrind/m_debuginfo/priv_storage.h
+===================================================================
+--- valgrind/coregrind/m_debuginfo/priv_storage.h	(revision 13007)
++++ valgrind/coregrind/m_debuginfo/priv_storage.h	(working copy)
+@@ -279,23 +279,31 @@
+ 
+ typedef
+    enum {
+-      Cop_Add=0x321,
+-      Cop_Sub,
+-      Cop_And,
+-      Cop_Mul,
+-      Cop_Shl,
+-      Cop_Shr,
+-      Cop_Eq,
+-      Cop_Ge,
+-      Cop_Gt,
+-      Cop_Le,
+-      Cop_Lt,
+-      Cop_Ne
++      Cunop_Abs=0x231,
++      Cunop_Neg,
++      Cunop_Not
+    }
+-   CfiOp;
++   CfiUnop;
+ 
+ typedef
+    enum {
++      Cbinop_Add=0x321,
++      Cbinop_Sub,
++      Cbinop_And,
++      Cbinop_Mul,
++      Cbinop_Shl,
++      Cbinop_Shr,
++      Cbinop_Eq,
++      Cbinop_Ge,
++      Cbinop_Gt,
++      Cbinop_Le,
++      Cbinop_Lt,
++      Cbinop_Ne
++   }
++   CfiBinop;
++
++typedef
++   enum {
+       Creg_IA_SP=0x213,
+       Creg_IA_BP,
+       Creg_IA_IP,
+@@ -313,6 +321,7 @@
+       Cex_Undef=0x123,
+       Cex_Deref,
+       Cex_Const,
++      Cex_Unop,
+       Cex_Binop,
+       Cex_CfiReg,
+       Cex_DwReg
+@@ -332,7 +341,11 @@
+             UWord con;
+          } Const;
+          struct {
+-            CfiOp op;
++            CfiUnop op;
++            Int ix;
++         } Unop;
++         struct {
++            CfiBinop op;
+             Int ixL;
+             Int ixR;
+          } Binop;
+@@ -350,7 +363,8 @@
+ extern Int ML_(CfiExpr_Undef) ( XArray* dst );
+ extern Int ML_(CfiExpr_Deref) ( XArray* dst, Int ixAddr );
+ extern Int ML_(CfiExpr_Const) ( XArray* dst, UWord con );
+-extern Int ML_(CfiExpr_Binop) ( XArray* dst, CfiOp op, Int ixL, Int ixR );
++extern Int ML_(CfiExpr_Unop)  ( XArray* dst, CfiUnop op, Int ix );
++extern Int ML_(CfiExpr_Binop) ( XArray* dst, CfiBinop op, Int ixL, Int ixR );
+ extern Int ML_(CfiExpr_CfiReg)( XArray* dst, CfiReg reg );
+ extern Int ML_(CfiExpr_DwReg) ( XArray* dst, Int reg );
+ 

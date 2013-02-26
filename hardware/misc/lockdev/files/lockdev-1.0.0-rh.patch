@@ -1,0 +1,470 @@
+Index: lockdev-1.0.3/Makefile
+===================================================================
+--- lockdev-1.0.3.orig/Makefile
++++ lockdev-1.0.3/Makefile
+@@ -6,6 +6,8 @@ pkgname = lockdev
+ objs	= src/lockdev.o
+ shobjs	= src/lockdev.z
+ 
++lockdev	= src/sample.c
++
+ 
+ VER	= $(shell expr `pwd` : '.*-\([0-9.]*\)')
+ MVER	= ${shell expr `pwd` : '.*-\([0-9]*\).[0-9]*'}
+@@ -18,17 +20,18 @@ soname	= ${libname}.so.${MVER}
+ basedir	= /usr/local
+ srcdir=.
+ 
++sbindir	= ${basedir}/sbin
+ libdir	= ${basedir}/lib
+ incdir	= ${basedir}/include
+ mandir	= ${basedir}/share/man
+ 
+ CC	= gcc
+-LCFLAGS	= -g -O2 -fPIC -Wall -pipe -D_REENTRANT 
+-CFLAGS	= -g
++CFLAGS	= -g -O2 -Wall -pipe
++LCFLAGS	= ${CFLAGS} -fPIC -D_REENTRANT 
+ LDLIBS	= -llockdev
+ 
+ .PHONY: shared static perl-lib
+-ALL:	shared static perl-lib
++ALL:	shared static lockdev perl-lib
+ 
+ static ${static}:       ${objs}
+ 	$(AR) $(ARFLAGS) ${static} $^
+@@ -39,6 +42,11 @@ shared ${shared}:	${shobjs}
+ src/lockdev.z: src/lockdev.c
+ 	${CC} ${CFLAGS} -c -fPIC -o $@ $?
+ 
++lockdev.o: ${lockdev}
++	${CC} ${CFLAGS} -I./src -o $@ -c $^
++
++lockdev: lockdev.o ${static}
++	${CC} -o $@ $^
+ 
+ perl-lib:	static
+ 	cd LockDev && perl Makefile.PL INSTALLDIRS=vendor
+@@ -54,6 +62,7 @@ install_dev:	${static} src/lockdev.h
+ 	install -m755 -d	${incdir}
+ 	install -m644 src/lockdev.h	${incdir}
+ 	install -m644 src/ttylock.h	${incdir}
++	install -m644 src/baudboy.h	${incdir}
+ 
+ install_debug:	${static} ${shared}
+ 	install -m755 -d	${libdir}/debug
+@@ -71,7 +80,9 @@ install_doc:	docs/lockdev.3
+ 
+ install_run:	${shared}
+ 	install -m755 -d	${libdir}
+-	install -m644 ${shared}	${libdir}
++	install -m755 ${shared}	${libdir}
++	install -m755 -d	${sbindir}
++	install -m755 lockdev	${sbindir}
+ 
+ .PHONY: clean distclean perl-clean mostyclean 
+ perl-clean:	clean
+Index: lockdev-1.0.3/src/baudboy.h
+===================================================================
+--- /dev/null
++++ lockdev-1.0.3/src/baudboy.h
+@@ -0,0 +1,136 @@
++/* Copyright (C) 2001 Red Hat, Inc.
++
++   This library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public License
++   as published by the Free Software Foundation; either version 2 of
++   the License, or (at your option) any later version.
++
++   It is distributed in the hope that it will be useful, but WITHOUT
++   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General
++   Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with this software; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++
++#ifndef _BAUDBOY_H_
++#define _BAUDBOY_H_
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <signal.h>
++#include <sys/wait.h>
++#include <sys/types.h>
++#include <errno.h>
++#include <unistd.h>
++
++#ifdef	__cplusplus
++extern "C" {
++#endif
++
++#define	LOCKDEV_PATH	"/usr/sbin/lockdev"
++
++static inline int doit(const char * argv[])
++{
++    pid_t child;
++    int status;
++    void (*osig) (int) = signal(SIGCHLD, SIG_IGN);
++    int rc;
++
++    if (!(child = fork())) {
++	int fd;
++        /* these have to be open to something */
++	if ((fd = open("/dev/null", 2)) < 0)
++	    exit(-1);
++	dup2(fd, 0);
++	dup2(fd, 1);
++	dup2(fd, 2);
++	close(fd);
++	/* Swap egid and gid for lockdev's access(2) device check. */
++	setregid(getegid(), getgid());
++	execv(argv[0], (char *const *)argv);
++	exit(-1);
++    }
++
++    rc = (int) waitpid(child, &status, 0);
++    signal(SIGCHLD, osig);
++    if (rc == child && WIFEXITED(status)) {
++	/*
++	 * Exit		dev_lock	dev_unlock	dev_testlock
++	 *	  0	OK		OK		not locked
++	 *	  1	locked other	locked other	locked
++	 *	  2	EACCES
++	 *	  3	EROFS
++	 *	  4	EFAULT
++	 *	  5	EINVAL
++	 *	  6	ENAMETOOLONG
++	 *	  7	ENOENT
++	 *	  8	ENOTDIR
++	 *	  9	ENOMEM
++	 *	 10	ELOOP
++	 *	 11	EIO
++	 *	255	error		error		error
++	 */
++	rc = WEXITSTATUS(status);
++	switch(rc) {
++	case  0:	rc = 0;		break;
++	default:
++	case  1:	rc = -EPERM;	break;
++	case  2:	rc = -EACCES;	break;
++	case  3:	rc = -EROFS;	break;
++	case  4:	rc = -EFAULT;	break;
++	case  5:	rc = -EINVAL;	break;
++	case  6:	rc = -ENAMETOOLONG;	break;
++	case  7:	rc = -ENOENT;	break;
++	case  8:	rc = -ENOTDIR;	break;
++	case  9:	rc = -ENOMEM;	break;
++	case 10:	rc = -ELOOP;	break;
++	case 11:	rc = -EIO;	break;
++	}
++    } else if (rc == -1)
++	rc = -errno;
++    else
++	rc = -ECHILD;
++
++    return rc;
++
++}
++
++static inline int ttylock(const char * devname)
++{
++    const char * argv[] = { LOCKDEV_PATH, "-l", NULL, NULL};
++    argv[2] = devname;
++    return doit(argv);
++}
++
++static inline int ttyunlock(const char * devname)
++{
++    const char * argv[] = { LOCKDEV_PATH, "-u", NULL, NULL};
++    argv[2] = devname;
++    return doit(argv);
++}
++
++static inline int ttylocked(const char * devname)
++{
++    const char * argv[] = { LOCKDEV_PATH, NULL, NULL};
++    argv[1] = devname;
++    return doit(argv);
++}
++
++static inline int ttywait(const char * devname)
++{
++    int rc;
++    while((rc = ttylocked(devname)) == 0)
++	sleep(1);
++    return rc;
++}
++
++#ifdef	__cplusplus
++};
++#endif
++
++#endif /* _BAUDBOY_H_ */
+Index: lockdev-1.0.3/src/lockdev.c
+===================================================================
+--- lockdev-1.0.3.orig/src/lockdev.c
++++ lockdev-1.0.3/src/lockdev.c
+@@ -177,6 +177,19 @@ liblockdev_reset_debug (void)
+ 	liblockdev_debug = 0;
+ }
+ 
++static pid_t dev_pid = 0;
++
++pid_t dev_getpid(void)
++{
++    return (dev_pid ? dev_pid : getpid());
++}
++
++pid_t dev_setpid(pid_t newpid)
++{
++    pid_t oldpid = dev_pid;
++    dev_pid = newpid;
++    return oldpid;
++}
+ 
+ /*
+  * for internal use *
+@@ -423,7 +436,7 @@ _dl_check_lock(const char *lockname)
+ 		 * maybe also this sprintf should be added to the
+ 		 * conditional part, as the others
+ 		 */
+-		sprintf( tpname, "%s/.%d", LOCK_PATH, (int)getpid());
++		sprintf( tpname, "%s/.%d", LOCK_PATH, (int)dev_getpid());
+ 		unlink( tpname);	/* in case there was */
+ 		rename( lockname, tpname);
+ 		if ( ! (fd=fopen( tpname, "r")) ) {
+@@ -520,7 +533,7 @@ dev_testlock(const char *devname)
+ 	 * and minor numbers
+ 	 */
+ 	if ( stat( device, &statbuf) == -1 ) {
+-		close_n_return( -1);
++		close_n_return(-errno);
+ 	}
+ 
+ 	/* first check for the FSSTND-1.2 lock, get the pid of the
+@@ -585,7 +598,7 @@ dev_lock (const char *devname)
+ #endif /* DEBUG */
+ 	_debug( 3, "dev_lock(%s)\n", devname);
+ 	if (oldmask == -1 )
+-		oldmask = umask( 0);	/* give full permissions to files created */
++		oldmask = umask( 002);	/* apply o-w to files created */
+ 	if ( ! (p=_dl_check_devname( devname)) )
+ 	 	close_n_return( -1);
+ 	strcpy( device, DEV_PATH);
+@@ -596,11 +609,14 @@ dev_lock (const char *devname)
+ 	 * and minor numbers
+ 	 */
+ 	if ( stat( device, &statbuf) == -1 ) {
+-		close_n_return( -1);
++		close_n_return(-errno);
++	}
++	if ( access( device, W_OK ) == -1 ) {
++		close_n_return(-errno);
+ 	}
+ 
+ 	/* now get our own pid */
+-	our_pid = getpid();
++	our_pid = dev_getpid();
+ 	_debug( 2, "dev_lock() our own pid = %d\n", (int)our_pid);
+ 
+ 	/* We will use this algorithm:
+@@ -641,8 +657,9 @@ dev_lock (const char *devname)
+ 	_dl_filename_1( lock1, &statbuf);
+ 	while ( ! (pid=_dl_check_lock( lock1)) ) {
+ 		if (( link( lock0, lock1) == -1 ) && ( errno != EEXIST )) {
++			int rc = -errno;
+ 			unlink( lock0);
+-			close_n_return( -1);
++			close_n_return(rc);
+ 		}
+ 	}
+ 	if ( pid != our_pid ) {
+@@ -659,9 +676,10 @@ dev_lock (const char *devname)
+ 	/* lockfile of type /var/lock/LCK..ttyS2 */
+ 	while ( ! (pid=_dl_check_lock( lock2)) ) {
+ 		if (( link( lock0, lock2) == -1 ) && ( errno != EEXIST )) {
++			int rc = -errno;
+ 			unlink( lock0);
+ 			unlink( lock1);
+-			close_n_return( -1);
++			close_n_return(rc);
+ 		}
+ 	}
+ 	if ( pid != our_pid ) {
+@@ -740,7 +758,7 @@ dev_relock (const char  *devname,
+ #endif /* DEBUG */
+ 	_debug( 3, "dev_relock(%s, %d)\n", devname, (int)old_pid);
+ 	if (oldmask == -1 )
+-		oldmask = umask( 0);	/* give full permissions to files created */
++		oldmask = umask( 002);	/* apply o-w to files created */
+ 	if ( ! (p=_dl_check_devname( devname)) )
+ 	 	close_n_return( -1);
+ 	strcpy( device, DEV_PATH);
+@@ -751,11 +769,14 @@ dev_relock (const char  *devname,
+ 	 * and minor numbers
+ 	 */
+ 	if ( stat( device, &statbuf) == -1 ) {
+-		close_n_return( -1);
++		close_n_return(-errno);
++	}
++	if ( access( device, W_OK ) == -1 ) {
++		close_n_return(-errno);
+ 	}
+ 
+ 	/* now get our own pid */
+-	our_pid = getpid();
++	our_pid = dev_getpid();
+ 	_debug( 2, "dev_relock() our own pid = %d\n", (int)our_pid);
+ 
+ 	/* first check for the FSSTND-1.2 lock, get the pid of the
+@@ -825,7 +846,7 @@ dev_unlock (const char *devname,
+ #endif /* DEBUG */
+ 	_debug( 3, "dev_unlock(%s, %d)\n", devname, (int)pid);
+ 	if (oldmask == -1 )
+-		oldmask = umask( 0);	/* give full permissions to files created */
++		oldmask = umask( 002);	/* apply o-w to files created */
+ 	if ( ! (p=_dl_check_devname( devname)) )
+ 	 	close_n_return( -1);
+ 	strcpy( device, DEV_PATH);
+@@ -836,7 +857,10 @@ dev_unlock (const char *devname,
+ 	 * and minor numbers
+ 	 */
+ 	if ( stat( device, &statbuf) == -1 ) {
+-		close_n_return( -1);
++		close_n_return(-errno);
++	}
++	if ( access( device, W_OK ) == -1 ) {
++		close_n_return(-errno);
+ 	}
+ 
+ 	/* first remove the FSSTND-1.2 lock, get the pid of the
+Index: lockdev-1.0.3/src/lockdev.h
+===================================================================
+--- lockdev-1.0.3.orig/src/lockdev.h
++++ lockdev-1.0.3/src/lockdev.h
+@@ -43,12 +43,16 @@ extern "C" {
+ #endif
+ 
+ #include <sys/types.h>
++#include <errno.h>
+ 
+ /* API of the library */
+ 
+ void liblockdev_incr_debug (void);
+ void liblockdev_reset_debug (void);
+ 
++pid_t	dev_getpid __P(( void ));
++pid_t	dev_setpid __P(( pid_t pid ));
++
+ pid_t dev_testlock (const char *devname);
+ 
+ pid_t dev_lock (const char *devname);
+Index: lockdev-1.0.3/src/sample.c
+===================================================================
+--- lockdev-1.0.3.orig/src/sample.c
++++ lockdev-1.0.3/src/sample.c
+@@ -5,7 +5,7 @@
+ void
+ usage (void)
+ {
+-	fprintf( stderr, "Usage: sample [-lurd] <device>\n" );
++	fprintf( stderr, "Usage: %s [-lud] <device>\n", "lockdev" );
+ 	exit( -1 );
+ }
+ 
+@@ -15,7 +15,7 @@ main (int   argc,
+       char *argv[])
+ {
+ 	int i, chld;
+-	char *p, *dev, ch;
++	char *p = NULL, *dev = NULL, ch;
+ 
+ 	ch = '\0';
+ 	for( i = argc - 1; i > 0; i-- ) {
+@@ -23,8 +23,7 @@ main (int   argc,
+ 		if( *p == '-' ) {
+ 			switch( *++p ) {
+ 			case 'l': 
+-			case 'u': 
+-			case 'r': ch = *p; break;
++			case 'u': ch = *p; break;
+ 			case 'd':
+ 				liblockdev_incr_debug();
+ 				break;
+@@ -33,31 +32,52 @@ main (int   argc,
+ 		}
+ 		else dev = p;
+ 	}
+-	fprintf( stderr, "option %c, device %s\n", ch, dev );
+ 	i = 0;
+-	switch( ch ) {
++	(void) dev_setpid(getppid());
++	switch(ch) {
+ 	case 'l':
+-		i = dev_lock( dev);
++		i = dev_lock(dev);
+ 		break;
+ 	case 'u':
+-		i = dev_unlock( dev, 0);
+-		break;
+-	case 'r':
+-		dev_lock( dev);
+-		if(( chld = fork()) == 0 ) {
+-			sleep(5);
+-		}
+-		else {
+-			sleep( 1);
+-			if (( i = dev_relock( dev, chld)) < 0 ) {
+-				fprintf( stderr, "Relock failed in parent.\n" );
+-			}
+-		}
++		i = dev_unlock(dev, 0);
+ 		break;
+ 	default:
+-		i = dev_testlock( dev);
++		if (dev)
++			i = dev_testlock(dev);
+ 		break;
+ 	}
+-	exit( i);
+-}
+ 
++	/*
++	 * Exit		dev_lock	dev_unlock	dev_testlock
++	 *	  0	OK		OK		not locked
++	 *	  1	locked other	locked other	locked
++	 *	  2	EACCES
++	 *	  3	EROFS
++	 *	  4	EFAULT
++	 *	  5	EINVAL
++	 *	  6	ENAMETOOLONG
++	 *	  7	ENOENT
++	 *	  8	ENOTDIR
++	 *	  9	ENOMEM
++	 *	 10	ELOOP
++	 *	 11	EIO
++	 *	255	error		error		error
++	 */
++	switch (i) {
++	case -EACCES:	i = 2;	break;
++	case -EROFS:	i = 3;	break;
++	case -EFAULT:	i = 4;	break;
++	case -EINVAL:	i = 5;	break;
++	case -ENAMETOOLONG:	i = 6;	break;
++	case -ENOENT:	i = 7;	break;
++	case -ENOTDIR:	i = 8;	break;
++	case -ENOMEM:	i = 9;	break;
++	case -ELOOP:	i = 10;	break;
++	case -EIO:	i = 11;	break;
++	default:
++	    if (i < 0) i = 255;
++	    else if (i > 0) 	i = 1;
++	    break;
++	}
++	exit(i);
++}

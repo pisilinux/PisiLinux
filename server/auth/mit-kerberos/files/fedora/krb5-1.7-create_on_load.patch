@@ -1,0 +1,115 @@
+Modify the kdb_db2 backend so that an attempt to "load" a database will
+successfully create it if it didn't already exist.  The internal promotion
+code appears to be built for this to happen, but doesn't always ensure
+that lock files are in place before it attempts to lock them.  We add
+modified interfaces which allow O_CREAT to be passed in and applied in the
+right paths, and change the function which promotes a temporary database
+to a "real" database to do so.  Other code paths shouldn't be affected.
+
+diff -up krb5-1.7/src/plugins/kdb/db2/adb_openclose.c krb5-1.7/src/plugins/kdb/db2/adb_openclose.c
+--- krb5-1.7/src/plugins/kdb/db2/adb_openclose.c	2010-01-05 17:31:01.000000000 -0500
++++ krb5-1.7/src/plugins/kdb/db2/adb_openclose.c	2010-01-05 17:42:11.000000000 -0500
+@@ -110,8 +110,8 @@ krb5_error_code osa_adb_rename_db(char *
+      return 0;
+ }
+ 
+-krb5_error_code osa_adb_init_db(osa_adb_db_t *dbp, char *filename,
+-			      char *lockfilename, int magic)
++krb5_error_code osa_adb_init_db_flags(osa_adb_db_t *dbp, char *filename,
++				      char *lockfilename, int magic, int flags)
+ {
+      osa_adb_db_t db;
+      static struct _locklist *locklist = NULL;
+@@ -198,7 +198,9 @@ krb5_error_code osa_adb_init_db(osa_adb_
+ 	   * POSIX systems
+ 	   */
+ 	  lockp->lockinfo.filename = strdup(lockfilename);
+-	  if ((lockp->lockinfo.lockfile = WRITABLEFOPEN(lockfilename, "r+")) == NULL) {
++	  if ((((flags & O_CREAT) == 0) ||
++	       ((lockp->lockinfo.lockfile = WRITABLEFOPEN(lockfilename, "w+")) == NULL)) &&
++	     ((lockp->lockinfo.lockfile = WRITABLEFOPEN(lockfilename, "r+")) == NULL)) {
+ 	       /*
+ 		* maybe someone took away write permission so we could only
+ 		* get shared locks?
+@@ -226,6 +228,12 @@ krb5_error_code osa_adb_init_db(osa_adb_
+      return OSA_ADB_OK;
+ }
+ 
++krb5_error_code osa_adb_init_db(osa_adb_db_t *dbp, char *filename,
++				char *lockfilename, int magic)
++{
++     return osa_adb_init_db_flags(dbp, filename, lockfilename, magic, 0);
++}
++
+ krb5_error_code osa_adb_fini_db(osa_adb_db_t db, int magic)
+ {
+      if (db->magic != magic)
+diff -up krb5-1.7/src/plugins/kdb/db2/kdb_db2.c krb5-1.7/src/plugins/kdb/db2/kdb_db2.c
+--- krb5-1.7/src/plugins/kdb/db2/kdb_db2.c	2010-01-05 15:49:47.000000000 -0500
++++ krb5-1.7/src/plugins/kdb/db2/kdb_db2.c	2010-01-05 17:45:33.000000000 -0500
+@@ -298,8 +298,8 @@ krb5_db2_db_set_hashfirst(krb5_context c
+  * initialization for data base routines.
+  */
+ 
+-krb5_error_code
+-krb5_db2_db_init(krb5_context context)
++static krb5_error_code
++krb5_db2_db_init_flags(krb5_context context, int flags)
+ {
+     char   *filename = NULL;
+     krb5_db2_context *db_ctx;
+@@ -327,7 +327,7 @@ krb5_db2_db_init(krb5_context context)
+      * should be opened read/write so that write locking can work with
+      * POSIX systems
+      */
+-    if ((db_ctx->db_lf_file = THREEPARAMOPEN(filename, O_RDWR, 0666)) < 0) {
++    if ((db_ctx->db_lf_file = THREEPARAMOPEN(filename, O_RDWR | (flags & O_CREAT), 0666)) < 0) {
+ 	if ((db_ctx->db_lf_file = THREEPARAMOPEN(filename, O_RDONLY, 0666)) < 0) {
+ 	    retval = errno;
+ 	    goto err_out;
+@@ -345,8 +345,9 @@ krb5_db2_db_init(krb5_context context)
+     snprintf(policy_lock_name, sizeof(policy_lock_name),
+ 	     "%s.lock", policy_db_name);
+ 
+-    if ((retval = osa_adb_init_db(&db_ctx->policy_db, policy_db_name,
+-				  policy_lock_name, OSA_ADB_POLICY_DB_MAGIC)))
++    if ((retval = osa_adb_init_db_flags(&db_ctx->policy_db, policy_db_name,
++				        policy_lock_name,
++					OSA_ADB_POLICY_DB_MAGIC, flags)))
+     {
+ 	goto err_out;
+     }
+@@ -358,6 +359,12 @@ krb5_db2_db_init(krb5_context context)
+     return (retval);
+ }
+ 
++krb5_error_code
++krb5_db2_db_init(krb5_context context)
++{
++    return krb5_db2_db_init_flags(context, 0);
++}
++
+ /*
+  * gracefully shut down database--must be called by ANY program that does
+  * a krb5_db2_db_init
+@@ -1760,7 +1767,7 @@ krb5_db2_db_rename(context, from, to)
+     if (retval)
+ 	goto errout;
+ 
+-    retval = krb5_db2_db_init(context);
++    retval = krb5_db2_db_init_flags(context, O_CREAT);
+     if (retval)
+ 	goto errout;
+ 
+diff -up krb5-1.7/src/plugins/kdb/db2/policy_db.h krb5-1.7/src/plugins/kdb/db2/policy_db.h
+--- krb5-1.7/src/plugins/kdb/db2/policy_db.h	2010-01-05 17:24:44.000000000 -0500
++++ krb5-1.7/src/plugins/kdb/db2/policy_db.h	2010-01-05 17:30:46.000000000 -0500
+@@ -75,6 +75,8 @@ krb5_error_code   osa_adb_rename_db(char
+ 				  char *fileto, char *lockto, int magic);
+ krb5_error_code	osa_adb_init_db(osa_adb_db_t *dbp, char *filename,
+ 				char *lockfile, int magic);
++krb5_error_code	osa_adb_init_db_flags(osa_adb_db_t *dbp, char *filename,
++				      char *lockfile, int magic, int flags);
+ krb5_error_code	osa_adb_fini_db(osa_adb_db_t db, int magic);
+ krb5_error_code	osa_adb_get_lock(osa_adb_db_t db, int mode);
+ krb5_error_code	osa_adb_release_lock(osa_adb_db_t db);

@@ -1,0 +1,121 @@
+http://sourceware.org/ml/gdb-patches/2009-11/msg00592.html
+Subject: [patch] Fix syscall restarts for amd64->i386 biarch
+
+Hi,
+
+tested only on recent Linux kernels, it should apply also on vanilla ones.
+There were various changes of the kernels behavior in the past.
+
+FSF GDB HEAD state:
+kernel debugger inferior state
+x86_64 x86_64   x86_64   PASS
+x86_64 x86_64   i386     FAIL without this patch, PASS with this patch
+x86_64 i386     i386     PASS on recent kernels
+                         (FAIL: kernel-2.6.31.5-127.fc12.x86_64 - Fedora 12)
+                         (PASS: kernel-2.6.32-0.55.rc8.git1.fc13.x86_64)
+i386   i386     i386     PASS
+
+
+Currently gdb.base/interrupt.exp fails on amd64 host running under
+--target_board unix/-m32 with:
+	continue
+	Continuing.
+	Unknown error 512
+
+<linux/errno.h>:
+/*
+ * These should never be seen by user programs.  To return one of ERESTART*
+ * codes, signal_pending() MUST be set.  Note that ptrace can observe these
+ * at syscall exit tracing, but they will never be left for the debugged user
+ * process to see.
+ */
+#define ERESTARTSYS     512
+
+"Unknown error 512" printed above is printed by the inferior itself, not by GDB.
+
+It is because GDB reads it as 0xfffffffffffffe00 but writes it back as
+0xfffffe00.
++      /* Sign-extend %eax as during return from a syscall it is being checked
++	 for -ERESTART* values -512 being above 0xfffffffffffffe00; tested by
++	 interrupt.exp.  */
+
+
+Quote of Roland McGrath from IRC:
+
+roland: in the user_regset model, there are 64-bit user_regset flavors and
+32-bit user_regset flavors, so at the kabi level the (kernel) caller can say
+what it means: calls on the 32-bit user_regset flavor will behave as if on
+a 32-bit kernel/userland.  in ptrace, there is no way for x86_64 ptrace calls
+to say "i think of the inferior as being 32 bits, so act accordingly" (tho ppc
+and/or sparc have ptr
+roland: ace requests that do that iirc)
+roland: ergo 64-bit ptrace callers must either save/restore full 64-bits so
+the kernel's sign-extension choices are preserved, or else grok magic ways to
+expand stored 32-bit register contents to 64-bit values to stuff via 64-bit
+ptrace
+[...]
+roland: there is a "32-bit-flavored task", but it's not really true that it
+has 32-bit registers.  there is no 32-bit-only userland condition.  any task
+can always ljmp to the 64-bit code segment and run 64-bit insns including
+a 64-bit syscall
+roland: so a 64-bit debugger should see and be able to fiddle the full
+registers.  it can even change cs via ptrace to force the inferior into
+running 32 or 64 bit code.
+
+
+Saving whole 64bits for i386 targets on x86_64 hosts does not much match the
+GDB architecture as `struct type' for these registers still should be 32bit
+etc.   Therefore provided just this exception.
+
+The problem is reproducible only if one does an inferior call during the
+interruption to do full inferior save/restore from GDB regcache.
+
+Regression tested on {x86_64,x86_64-m32,i686}-fedora12-linux-gnu.
+
+
+Thanks,
+Jan
+
+
+gdb/
+2009-11-29  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* amd64-nat.c (amd64_collect_native_gregset): Do not pre-clear %eax.
+	Sign extend it afterwards.
+
+--- a/gdb/amd64-nat.c
++++ b/gdb/amd64-nat.c
+@@ -131,9 +131,9 @@ amd64_collect_native_gregset (const struct regcache *regcache,
+     {
+       num_regs = amd64_native_gregset32_num_regs;
+ 
+-      /* Make sure %eax, %ebx, %ecx, %edx, %esi, %edi, %ebp, %esp and
++      /* Make sure %ebx, %ecx, %edx, %esi, %edi, %ebp, %esp and
+          %eip get zero-extended to 64 bits.  */
+-      for (i = 0; i <= I386_EIP_REGNUM; i++)
++      for (i = I386_ECX_REGNUM; i <= I386_EIP_REGNUM; i++)
+ 	{
+ 	  if (regnum == -1 || regnum == i)
+ 	    memset (regs + amd64_native_gregset_reg_offset (gdbarch, i), 0, 8);
+@@ -159,4 +159,20 @@ amd64_collect_native_gregset (const struct regcache *regcache,
+ 	    regcache_raw_collect (regcache, i, regs + offset);
+ 	}
+     }
++
++  if (gdbarch_ptr_bit (gdbarch) == 32)
++    {
++      /* Sign-extend %eax as during return from a syscall it is being checked
++	 for -ERESTART* values -512 being above 0xfffffffffffffe00; tested by
++	 interrupt.exp.  */
++
++      int i = I386_EAX_REGNUM;
++
++      if (regnum == -1 || regnum == i)
++	{
++	  void *ptr = regs + amd64_native_gregset_reg_offset (gdbarch, i);
++
++	  *(int64_t *) ptr = *(int32_t *) ptr;
++	}
++    }
+ }
+

@@ -1,0 +1,568 @@
+Index: Lib/test/test_bz2.py
+===================================================================
+--- Lib/test/test_bz2.py.orig
++++ Lib/test/test_bz2.py
+@@ -4,6 +4,7 @@ from test.test_support import TESTFN, im
+ 
+ import unittest
+ from cStringIO import StringIO
++from io import BytesIO
+ import os
+ import subprocess
+ import sys
+@@ -53,13 +54,13 @@ class BZ2FileTest(BaseTest):
+         if os.path.isfile(self.filename):
+             os.unlink(self.filename)
+ 
+-    def createTempFile(self, crlf=0):
++    def createTempFile(self, crlf=0, streams=1):
+         with open(self.filename, "wb") as f:
+             if crlf:
+                 data = self.DATA_CRLF
+             else:
+                 data = self.DATA
+-            f.write(data)
++            f.write(data*streams)
+ 
+     def testRead(self):
+         # "Test BZ2File.read()"
+@@ -68,6 +69,14 @@ class BZ2FileTest(BaseTest):
+             self.assertRaises(TypeError, bz2f.read, None)
+             self.assertEqual(bz2f.read(), self.TEXT)
+ 
++    def testReadMultiStream(self):
++        # "Test BZ2File.read() for a multistream file"
++        self.createTempFile(streams=5)
++        bz2f = BZ2File(self.filename)
++        self.assertRaises(TypeError, bz2f.read, None)
++        self.assertEqual(bz2f.read(), self.TEXT*5)
++        bz2f.close()
++
+     def testRead0(self):
+         # Test BBZ2File.read(0)"
+         self.createTempFile()
+@@ -87,6 +96,19 @@ class BZ2FileTest(BaseTest):
+                 text += str
+             self.assertEqual(text, self.TEXT)
+ 
++    def testReadChunk10MultiStream(self):
++        # "Test BZ2File.read() in chunks of 10 bytes for a multistream file"
++        self.createTempFile(streams=5)
++        bz2f = BZ2File(self.filename)
++        text = b''
++        while 1:
++            str = bz2f.read(10)
++            if not str:
++                break
++            text += str
++        self.assertEqual(text, self.TEXT*5)
++        bz2f.close()
++
+     def testRead100(self):
+         # "Test BZ2File.read(100)"
+         self.createTempFile()
+@@ -102,6 +124,16 @@ class BZ2FileTest(BaseTest):
+             for line in sio.readlines():
+                 self.assertEqual(bz2f.readline(), line)
+ 
++    def testReadLineMultiStream(self):
++        # "Test BZ2File.readline() for a multistream file"
++        self.createTempFile(streams=5)
++        bz2f = BZ2File(self.filename)
++        self.assertRaises(TypeError, bz2f.readline, None)
++        sio = BytesIO(self.TEXT*5)
++        for line in sio.readlines():
++            self.assertEqual(bz2f.readline(), line)
++        bz2f.close()
++
+     def testReadLines(self):
+         # "Test BZ2File.readlines()"
+         self.createTempFile()
+@@ -110,6 +142,15 @@ class BZ2FileTest(BaseTest):
+             sio = StringIO(self.TEXT)
+             self.assertEqual(bz2f.readlines(), sio.readlines())
+ 
++    def testReadLinesMultiStream(self):
++        # "Test BZ2File.readlines() for a multistream file"
++        self.createTempFile(streams=5)
++        bz2f = BZ2File(self.filename)
++        self.assertRaises(TypeError, bz2f.readlines, None)
++        sio = BytesIO(self.TEXT*5)
++        self.assertEqual(bz2f.readlines(), sio.readlines())
++        bz2f.close()
++
+     def testIterator(self):
+         # "Test iter(BZ2File)"
+         self.createTempFile()
+@@ -117,6 +158,14 @@ class BZ2FileTest(BaseTest):
+             sio = StringIO(self.TEXT)
+             self.assertEqual(list(iter(bz2f)), sio.readlines())
+ 
++    def testIteratorMultiStream(self):
++        # "Test iter(BZ2File) for a multistream file"
++        self.createTempFile(streams=5)
++        bz2f = BZ2File(self.filename)
++        sio = BytesIO(self.TEXT*5)
++        self.assertEqual(list(iter(bz2f)), sio.readlines())
++        bz2f.close()
++
+     def testClosedIteratorDeadlock(self):
+         # "Test that iteration on a closed bz2file releases the lock."
+         # http://bugs.python.org/issue3309
+@@ -192,6 +241,19 @@ class BZ2FileTest(BaseTest):
+             self.assertRaises(IOError, bz2f.write, "a")
+             self.assertRaises(IOError, bz2f.writelines, ["a"])
+ 
++    def testAppend(self):
++        # "Test BZ2File.write() on BZ2File opened in append mode"
++        bz2f = BZ2File(self.filename, 'w')
++        bz2f.write(self.TEXT)
++        bz2f.close()
++        bz2f = BZ2File(self.filename, 'a')
++        self.assertRaises(TypeError, bz2f.write)
++        bz2f.write(self.TEXT)
++        bz2f.close()
++        f = open(self.filename, 'rb')
++        self.assertEqual(self.decompress(f.read()), self.TEXT*2)
++        f.close()
++
+     def testSeekForward(self):
+         # "Test BZ2File.seek(150, 0)"
+         self.createTempFile()
+@@ -200,6 +262,15 @@ class BZ2FileTest(BaseTest):
+             bz2f.seek(150)
+             self.assertEqual(bz2f.read(), self.TEXT[150:])
+ 
++    def testSeekForwardMultiStream(self):
++        # "Test BZ2File.seek(150, 0) for a multistream file"
++        self.createTempFile(streams=2)
++        bz2f = BZ2File(self.filename)
++        self.assertRaises(TypeError, bz2f.seek)
++        bz2f.seek(len(self.TEXT)+150)
++        self.assertEqual(bz2f.read(), self.TEXT[150:])
++        bz2f.close()
++
+     def testSeekBackwards(self):
+         # "Test BZ2File.seek(-150, 1)"
+         self.createTempFile()
+@@ -208,6 +279,17 @@ class BZ2FileTest(BaseTest):
+             bz2f.seek(-150, 1)
+             self.assertEqual(bz2f.read(), self.TEXT[500-150:])
+ 
++    def testSeekBackwardsMultiStream(self):
++        # "Test BZ2File.seek(-150, 1) across stream boundaries"
++        self.createTempFile(streams=2)
++        bz2f = BZ2File(self.filename)
++        readto = len(self.TEXT)+100
++        while readto > 0:
++            readto -= len(bz2f.read(readto))
++        bz2f.seek(-150, 1)
++        self.assertEqual(bz2f.read(), self.TEXT[100-150:]+self.TEXT)
++        bz2f.close()
++
+     def testSeekBackwardsFromEnd(self):
+         # "Test BZ2File.seek(-150, 2)"
+         self.createTempFile()
+@@ -215,6 +297,14 @@ class BZ2FileTest(BaseTest):
+             bz2f.seek(-150, 2)
+             self.assertEqual(bz2f.read(), self.TEXT[len(self.TEXT)-150:])
+ 
++    def testSeekBackwardsFromEndMultiStream(self):
++        # "Test BZ2File.seek(-1000, 2), across stream boundaries"
++        self.createTempFile(streams=2)
++        bz2f = BZ2File(self.filename)
++        bz2f.seek(-1000, 2)
++        self.assertEqual(bz2f.read(), (self.TEXT*2)[-1000:])
++        bz2f.close()
++
+     def testSeekPostEnd(self):
+         # "Test BZ2File.seek(150000)"
+         self.createTempFile()
+@@ -223,6 +313,15 @@ class BZ2FileTest(BaseTest):
+             self.assertEqual(bz2f.tell(), len(self.TEXT))
+             self.assertEqual(bz2f.read(), "")
+ 
++    def testSeekPostEndMultiStream(self):
++        # "Test BZ2File.seek(150000) for a multistream file"
++        self.createTempFile(streams=5)
++        bz2f = BZ2File(self.filename)
++        bz2f.seek(150000)
++        self.assertEqual(bz2f.tell(), len(self.TEXT)*5)
++        self.assertEqual(bz2f.read(), b"")
++        bz2f.close()
++
+     def testSeekPostEndTwice(self):
+         # "Test BZ2File.seek(150000) twice"
+         self.createTempFile()
+@@ -232,6 +331,16 @@ class BZ2FileTest(BaseTest):
+             self.assertEqual(bz2f.tell(), len(self.TEXT))
+             self.assertEqual(bz2f.read(), "")
+ 
++    def testSeekPostEndTwiceMultiStream(self):
++        # "Test BZ2File.seek(150000) twice for a multistream file"
++        self.createTempFile(streams=5)
++        bz2f = BZ2File(self.filename)
++        bz2f.seek(150000)
++        bz2f.seek(150000)
++        self.assertEqual(bz2f.tell(), len(self.TEXT)*5)
++        self.assertEqual(bz2f.read(), b"")
++        bz2f.close()
++
+     def testSeekPreStart(self):
+         # "Test BZ2File.seek(-150, 0)"
+         self.createTempFile()
+@@ -240,6 +349,15 @@ class BZ2FileTest(BaseTest):
+             self.assertEqual(bz2f.tell(), 0)
+             self.assertEqual(bz2f.read(), self.TEXT)
+ 
++    def testSeekPreStartMultiStream(self):
++        # "Test BZ2File.seek(-150, 0) for a multistream file"
++        self.createTempFile(streams=2)
++        bz2f = BZ2File(self.filename)
++        bz2f.seek(-150)
++        self.assertEqual(bz2f.tell(), 0)
++        self.assertEqual(bz2f.read(), self.TEXT*2)
++        bz2f.close()
++
+     def testOpenDel(self):
+         # "Test opening and deleting a file many times"
+         self.createTempFile()
+@@ -407,6 +525,11 @@ class FuncTest(BaseTest):
+         # "Test decompress() function with incomplete data"
+         self.assertRaises(ValueError, bz2.decompress, self.DATA[:-10])
+ 
++    def testDecompressMultiStream(self):
++        # "Test decompress() function for data with multiple streams"
++        text = bz2.decompress(self.DATA*5)
++        self.assertEqual(text, self.TEXT*5)
++
+ def test_main():
+     test_support.run_unittest(
+         BZ2FileTest,
+Index: Modules/bz2module.c
+===================================================================
+--- Modules/bz2module.c.orig
++++ Modules/bz2module.c
+@@ -5,6 +5,16 @@ python-bz2 - python bz2 library interfac
+ Copyright (c) 2002  Gustavo Niemeyer <niemeyer@conectiva.com>
+ Copyright (c) 2002  Python Software Foundation; All Rights Reserved
+ 
++Portions Copyright 2009 VMware, Inc., incorporated from a patch provided
++under the following terms:
++
++"VMware, Inc. is providing this bz2 module patch to you under the terms
++of the Apache License 2.0 with the understanding that you plan to
++re-license this under the terms and conditions of the Python License.
++This patch is provided as is, with no warranties or support. VMware
++disclaims all liability in connection with the use/inability to use this
++patch. Any use of the attached is considered acceptance of the above."
++
+ */
+ 
+ #include "Python.h"
+@@ -218,6 +228,51 @@ Util_CatchBZ2Error(int bzerror)
+     return ret;
+ }
+ 
++/* Any time we hit a BZ_STREAM_END there are a number of bookkeeping details
++ * in opening the next stream in the file.  Handle those here.
++ *
++ * If this is really EOF, then set f->mode to MODE_READ_EOF and f->size to
++ * f->pos.
++ *
++ * This function returns 0 on success, 1 if there's an error.
++ */
++static int
++Util_HandleBZStreamEnd(BZ2FileObject *f)
++{
++    int bzerror = 0;
++    char unused[BZ_MAX_UNUSED];
++    void *tmpunused = NULL;
++    int nunused=0;
++
++    /* get any unused data */
++    BZ2_bzReadGetUnused(&bzerror, f->fp, &tmpunused, &nunused);
++    if (bzerror != BZ_OK)
++        return Util_CatchBZ2Error(bzerror);
++    memcpy((void*)unused, tmpunused, nunused);
++
++    /* close the current stream */
++    BZ2_bzReadClose(&bzerror, f->fp);
++    f->fp = NULL;
++    f->mode = MODE_CLOSED;
++    if (bzerror != BZ_OK)
++        return Util_CatchBZ2Error(bzerror);
++
++    /* open the next stream */
++    f->fp = BZ2_bzReadOpen(&bzerror, PyFile_AsFile(f->file), 0, 0,
++                           (void*)unused, nunused);
++    if (bzerror != BZ_OK)
++        return Util_CatchBZ2Error(bzerror);
++    f->mode = MODE_READ;
++
++    /* check for EOF */
++    if (nunused == 0 && feof(PyFile_AsFile(f->file))) {
++        f->mode = MODE_READ_EOF;
++        f->size = f->pos;
++    }
++
++    return 0;
++}
++
+ #if BUFSIZ < 8192
+ #define SMALLCHUNK 8192
+ #else
+@@ -306,9 +361,13 @@ Util_GetLine(BZ2FileObject *f, int n)
+         f->f_newlinetypes = newlinetypes;
+         f->f_skipnextlf = skipnextlf;
+         if (bzerror == BZ_STREAM_END) {
+-            f->size = f->pos;
+-            f->mode = MODE_READ_EOF;
+-            break;
++            if (!Util_HandleBZStreamEnd(f)) {
++                if (f->mode == MODE_READ_EOF)
++                    break;
++            } else {
++                Py_DECREF(v);
++                return NULL;
++            }
+         } else if (bzerror != BZ_OK) {
+             Util_CatchBZ2Error(bzerror);
+             Py_DECREF(v);
+@@ -446,8 +505,10 @@ Util_ReadAhead(BZ2FileObject *f, int buf
+     Py_END_ALLOW_THREADS
+     f->pos += chunksize;
+     if (bzerror == BZ_STREAM_END) {
+-        f->size = f->pos;
+-        f->mode = MODE_READ_EOF;
++        if (Util_HandleBZStreamEnd(f)) {
++            Util_DropReadAhead(f);
++            return -1;
++        }
+     } else if (bzerror != BZ_OK) {
+         Util_CatchBZ2Error(bzerror);
+         Util_DropReadAhead(f);
+@@ -572,9 +633,14 @@ BZ2File_read(BZ2FileObject *self, PyObje
+         Py_END_ALLOW_THREADS
+         bytesread += chunksize;
+         if (bzerror == BZ_STREAM_END) {
+-            self->size = self->pos;
+-            self->mode = MODE_READ_EOF;
+-            break;
++            if (!Util_HandleBZStreamEnd(self)) {
++                if (self->mode == MODE_READ_EOF)
++                    break;
++            } else {
++                Py_DECREF(ret);
++                ret = NULL;
++                goto cleanup;
++            }
+         } else if (bzerror != BZ_OK) {
+             Util_CatchBZ2Error(bzerror);
+             Py_DECREF(ret);
+@@ -586,7 +652,10 @@ BZ2File_read(BZ2FileObject *self, PyObje
+             if (_PyString_Resize(&ret, buffersize) < 0)
+                 goto cleanup;
+         } else {
+-            break;
++            /* Issue 1625 again: In multistream files, we have to continue
++             * to read the unused bytes to correctly uncompress the file in chunks */
++            if (bytesrequested == bytesread)
++                break;
+         }
+     }
+     if (bytesread != buffersize)
+@@ -708,13 +777,16 @@ BZ2File_readlines(BZ2FileObject *self, P
+         self->pos += nread;
+         Py_END_ALLOW_THREADS
+         if (bzerror == BZ_STREAM_END) {
+-            self->size = self->pos;
+-            self->mode = MODE_READ_EOF;
+-            if (nread == 0) {
+-                sizehint = 0;
+-                break;
++            if (!Util_HandleBZStreamEnd(self)) {
++                if (nread == 0) {
++                    sizehint = 0;
++                    break;
++                }
++                if (self->mode == MODE_READ_EOF)
++                    shortread = 1;
++            } else {
++                goto error;
+             }
+-            shortread = 1;
+         } else if (bzerror != BZ_OK) {
+             Util_CatchBZ2Error(bzerror);
+           error:
+@@ -730,7 +802,8 @@ BZ2File_readlines(BZ2FileObject *self, P
+             buffersize *= 2;
+             if (buffersize > INT_MAX) {
+                 PyErr_SetString(PyExc_OverflowError,
+-                "line is longer than a Python string can hold");
++                "line is longer than a Python string can "
++                "hold");
+                 goto error;
+             }
+             if (big_buffer == NULL) {
+@@ -1077,15 +1150,20 @@ BZ2File_seek(BZ2FileObject *self, PyObje
+ 
+                 bytesread += chunksize;
+                 if (bzerror == BZ_STREAM_END) {
+-                    break;
++                    if (!Util_HandleBZStreamEnd(self)) {
++                        if (self->mode ==
++                                       MODE_READ_EOF)
++                            break;
++                    } else {
++                        goto cleanup;
++                    }
+                 } else if (bzerror != BZ_OK) {
+                     Util_CatchBZ2Error(bzerror);
+                     goto cleanup;
+                 }
+             }
+-            self->mode = MODE_READ_EOF;
+-            self->size = self->pos;
+             bytesread = 0;
++            self->size = self->pos;
+         }
+         offset = self->size + offset;
+     } else if (where == 1) {
+@@ -1094,7 +1172,6 @@ BZ2File_seek(BZ2FileObject *self, PyObje
+ 
+     /* Before getting here, offset must be the absolute position the file
+      * pointer should be set to. */
+-
+     if (offset >= self->pos) {
+         /* we can move forward */
+         offset -= self->pos;
+@@ -1146,9 +1223,12 @@ BZ2File_seek(BZ2FileObject *self, PyObje
+         Py_END_ALLOW_THREADS
+         bytesread += chunksize;
+         if (bzerror == BZ_STREAM_END) {
+-            self->size = self->pos;
+-            self->mode = MODE_READ_EOF;
+-            break;
++            if (!Util_HandleBZStreamEnd(self)) {
++                if (self->mode == MODE_READ_EOF)
++                    break;
++            } else {
++                goto cleanup;
++            }
+         } else if (bzerror != BZ_OK) {
+             Util_CatchBZ2Error(bzerror);
+             goto cleanup;
+@@ -1211,11 +1291,13 @@ BZ2File_close(BZ2FileObject *self)
+     switch (self->mode) {
+         case MODE_READ:
+         case MODE_READ_EOF:
+-            BZ2_bzReadClose(&bzerror, self->fp);
++            if (self->fp)
++                BZ2_bzReadClose(&bzerror, self->fp);
+             break;
+         case MODE_WRITE:
+-            BZ2_bzWriteClose(&bzerror, self->fp,
+-                             0, NULL, NULL);
++            if (self->fp)
++                BZ2_bzWriteClose(&bzerror, self->fp,
++                                 0, NULL, NULL);
+             break;
+     }
+     if (self->fp) {
+@@ -1391,6 +1473,7 @@ BZ2File_init(BZ2FileObject *self, PyObje
+         switch (*mode) {
+             case 'r':
+             case 'w':
++            case 'a':
+                 if (mode_char)
+                     error = 1;
+                 mode_char = *mode;
+@@ -1425,7 +1508,20 @@ BZ2File_init(BZ2FileObject *self, PyObje
+         mode_char = 'r';
+     }
+ 
+-    mode = (mode_char == 'r') ? "rb" : "wb";
++    switch (mode_char) {
++        case 'w':
++            mode = "wb";
++            break;
++
++        case 'a':
++            mode = "ab";
++            break;
++
++        case 'r':
++        default:
++            mode = "rb";
++            break;
++    }
+ 
+     self->file = PyObject_CallFunction((PyObject*)&PyFile_Type, "(Osi)",
+                                        name, mode, buffering);
+@@ -1484,11 +1580,13 @@ BZ2File_dealloc(BZ2FileObject *self)
+     switch (self->mode) {
+         case MODE_READ:
+         case MODE_READ_EOF:
+-            BZ2_bzReadClose(&bzerror, self->fp);
++            if (self->fp)
++                BZ2_bzReadClose(&bzerror, self->fp);
+             break;
+         case MODE_WRITE:
+-            BZ2_bzWriteClose(&bzerror, self->fp,
+-                             0, NULL, NULL);
++            if (self->fp)
++                BZ2_bzWriteClose(&bzerror, self->fp,
++                                 0, NULL, NULL);
+             break;
+     }
+     if (self->fp) {
+@@ -2223,6 +2321,7 @@ bz2_decompress(PyObject *self, PyObject
+     bz_stream _bzs;
+     bz_stream *bzs = &_bzs;
+     int bzerror;
++    Py_ssize_t total_out = 0;
+ 
+     if (!PyArg_ParseTuple(args, "s*:decompress", &pdata))
+         return NULL;
+@@ -2260,7 +2359,19 @@ bz2_decompress(PyObject *self, PyObject
+         bzerror = BZ2_bzDecompress(bzs);
+         Py_END_ALLOW_THREADS
+         if (bzerror == BZ_STREAM_END) {
+-            break;
++            if (bzs->avail_in > 0) {
++                total_out += (Py_ssize_t) BZS_TOTAL_OUT(bzs);
++                BZ2_bzDecompressEnd(bzs);
++                bzerror = BZ2_bzDecompressInit(bzs, 0, 0);
++                if (bzerror != BZ_OK) {
++                    Util_CatchBZ2Error(bzerror);
++                    Py_DECREF(ret);
++                    PyBuffer_Release(&pdata);
++                    return NULL;
++                }
++            } else {
++                break;
++            }
+         } else if (bzerror != BZ_OK) {
+             BZ2_bzDecompressEnd(bzs);
+             Util_CatchBZ2Error(bzerror);
+@@ -2284,13 +2395,16 @@ bz2_decompress(PyObject *self, PyObject
+                 Py_DECREF(ret);
+                 return NULL;
+             }
+-            bzs->next_out = BUF(ret) + BZS_TOTAL_OUT(bzs);
++            bzs->next_out = BUF(ret) + total_out +
++                            BZS_TOTAL_OUT(bzs);
+             bzs->avail_out = bufsize - (bzs->next_out - BUF(ret));
+         }
+     }
+ 
+-    if (bzs->avail_out != 0)
+-        _PyString_Resize(&ret, (Py_ssize_t)BZS_TOTAL_OUT(bzs));
++    if (bzs->avail_out != 0) {
++        total_out += BZS_TOTAL_OUT(bzs);
++        _PyString_Resize(&ret, total_out);
++    }
+     BZ2_bzDecompressEnd(bzs);
+     PyBuffer_Release(&pdata);
+ 

@@ -1,0 +1,183 @@
+Index: gdb-7.0.50.20100115/gdb/linux-nat.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/linux-nat.c	2010-01-15 11:53:34.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/linux-nat.c	2010-01-15 12:13:53.000000000 +0100
+@@ -208,6 +208,9 @@ blocked.  */
+ static struct target_ops *linux_ops;
+ static struct target_ops linux_ops_saved;
+ 
++/* PID of the inferior stopped by SIGSTOP before attaching (or zero).  */
++static pid_t pid_was_stopped;
++
+ /* The method to call, if any, when a new thread is attached.  */
+ static void (*linux_nat_new_thread) (ptid_t);
+ 
+@@ -933,7 +936,14 @@ Attaching after process %d fork to child
+ 	  parent_inf->waiting_for_vfork_done = 0;
+ 	}
+       else if (detach_fork)
+-	target_detach (NULL, 0);
++	{
++	  /* We should check PID_WAS_STOPPED and detach it stopped accordingly.
++	     In this point of code it cannot be 1 as we would not get FORK
++	     executed without CONTINUE first which resets PID_WAS_STOPPED.
++	     We would have to first TARGET_STOP and WAITPID it as with running
++	     inferior PTRACE_DETACH, SIGSTOP will ignore the signal.  */
++	  target_detach (NULL, 0);
++	}
+ 
+       /* Note that the detach above makes PARENT_INF dangling.  */
+ 
+@@ -1427,6 +1437,7 @@ linux_nat_post_attach_wait (ptid_t ptid,
+       if (debug_linux_nat)
+ 	fprintf_unfiltered (gdb_stdlog,
+ 			    "LNPAW: Attaching to a stopped process\n");
++      pid_was_stopped = GET_PID (ptid);
+ 
+       /* The process is definitely stopped.  It is in a job control
+ 	 stop, unless the kernel predates the TASK_STOPPED /
+@@ -1757,6 +1768,9 @@ GPT: lwp %s had signal %s, but it is in 
+ 			    target_signal_to_string (signo));
+     }
+ 
++  if (*status == 0 && GET_PID (lp->ptid) == pid_was_stopped)
++    *status = W_STOPCODE (SIGSTOP);
++
+   return 0;
+ }
+ 
+@@ -1866,6 +1880,8 @@ linux_nat_detach (struct target_ops *ops
+     }
+   else
+     linux_ops->to_detach (ops, args, from_tty);
++
++  pid_was_stopped = 0;
+ }
+ 
+ /* Resume LP.  */
+@@ -2031,6 +2047,14 @@ linux_nat_resume (struct target_ops *ops
+      resume_callback.  */
+   lp->stopped = 0;
+ 
++  /* At this point, we are going to resume the inferior and if we
++     have attached to a stopped process, we no longer should leave
++     it as stopped if the user detaches.  PTID variable has PID set to LWP
++     while we need to check the real PID here.  */
++
++  if (!step && lp && pid_was_stopped == GET_PID (lp->ptid))
++    pid_was_stopped = 0;
++
+   if (resume_many)
+     iterate_over_lwps (ptid, resume_callback, NULL);
+ 
+@@ -3923,6 +3947,8 @@ linux_nat_mourn_inferior (struct target_
+        there are other viable forks to debug.  Delete the exiting
+        one and context-switch to the first available.  */
+     linux_fork_mourn_inferior ();
++
++  pid_was_stopped = 0;
+ }
+ 
+ /* Convert a native/host siginfo object, into/from the siginfo in the
+Index: gdb-7.0.50.20100115/gdb/testsuite/gdb.threads/attach-stopped.exp
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/testsuite/gdb.threads/attach-stopped.exp	2010-01-01 08:32:06.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/testsuite/gdb.threads/attach-stopped.exp	2010-01-15 11:54:57.000000000 +0100
+@@ -62,7 +62,65 @@ proc corefunc { threadtype } {
+     gdb_reinitialize_dir $srcdir/$subdir
+     gdb_load ${binfile}
+ 
+-    # Verify that we can attach to the stopped process.
++    # Verify that we can attach to the process by first giving its
++    # executable name via the file command, and using attach with the
++    # process ID.
++
++    set test "$threadtype: set file, before attach1 to stopped process"
++    gdb_test_multiple "file $binfile" "$test" {
++       -re "Load new symbol table from.*y or n. $" {
++	    gdb_test "y" "Reading symbols from $escapedbinfile\.\.\.*done." \
++		    "$test (re-read)"
++	}
++	-re "Reading symbols from $escapedbinfile\.\.\.*done.*$gdb_prompt $" {
++	    pass "$test"
++	}
++    }
++
++    set test "$threadtype: attach1 to stopped, after setting file"
++    gdb_test_multiple "attach $testpid" "$test" {
++	-re "Attaching to program.*`?$escapedbinfile'?, process $testpid.*$gdb_prompt $" {
++	    pass "$test"
++	}
++    }
++
++    # ".*sleep.*clone.*" would fail on s390x as bt stops at START_THREAD there.
++    if {[string equal $threadtype threaded]} {
++	gdb_test "thread apply all bt" ".*sleep.*start_thread.*" "$threadtype: attach1 to stopped bt"
++    } else {
++	gdb_test "bt" ".*sleep.*main.*" "$threadtype: attach1 to stopped bt"
++    }
++
++    # Exit and detach the process.
++       
++    gdb_exit
++
++    # Avoid some race:
++    sleep 2
++
++    if [catch {open /proc/${testpid}/status r} fileid] {
++	set line2 "NOTFOUND"
++    } else {
++	gets $fileid line1;
++	gets $fileid line2;
++	close $fileid;
++    }
++
++    set test "$threadtype: attach1, exit leaves process stopped"
++    if {[string match "*(stopped)*" $line2]} {
++      pass $test
++    } else {
++      fail $test
++    }
++
++    # At this point, the process should still be stopped
++
++    gdb_start
++    gdb_reinitialize_dir $srcdir/$subdir
++    gdb_load ${binfile}
++
++    # Verify that we can attach to the process just by giving the
++    # process ID.
+        
+     set test "$threadtype: attach2 to stopped, after setting file"
+     gdb_test_multiple "attach $testpid" "$test" {
+Index: gdb-7.0.50.20100115/gdb/testsuite/gdb.threads/attachstop-mt.exp
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/testsuite/gdb.threads/attachstop-mt.exp	2010-01-01 08:32:06.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/testsuite/gdb.threads/attachstop-mt.exp	2010-01-15 11:54:57.000000000 +0100
+@@ -176,12 +176,23 @@ gdb_test "bt" ".*sleep.*(func|main).*" "
+ # Exit and detach the process.
+ gdb_exit
+ 
+-# Stop the program 
+-remote_exec build "kill -s STOP ${testpid}"
+-
+ # No race
+ sleep 2
+ 
++set fileid3 [open $status2 r];
++gets $fileid3 line1;
++gets $fileid3 line2;
++close $fileid3;
++
++set test "attach3, exit leaves process stopped"
++if {[string match "*(stopped)*" $line2]} {
++  pass $test
++} else {
++  fail $test
++}
++
++# At this point, the process should still be stopped
++
+ # Continue the test as we would hit another expected bug regarding
+ # 	Program received signal SIGSTOP, Stopped (signal).
+ # across NPTL threads.

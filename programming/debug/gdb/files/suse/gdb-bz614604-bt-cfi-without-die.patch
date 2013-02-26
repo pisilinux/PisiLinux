@@ -1,0 +1,239 @@
+http://sourceware.org/ml/archer/2010-q3/msg00028.html
+Subject: [delayed-symfile] [commit] Fix a regression on CFI without DIE  [Re:
+
+On Wed, 25 Feb 2009 00:14:29 +0100, Jan Kratochvil wrote:
+> commit 6a37c2b9962258ecf9299cc34a650e64a06acaa5
+> 
+> There was a regression on gdb.base/savedregs.exp.
+> 
+> quick_addrmap/require_partial_symbols should be used even for the unwind debug
+> info checking as its load has been also delayed by this branch.
+[...]
+> --- a/gdb/dwarf2-frame.c
+> +++ b/gdb/dwarf2-frame.c
+[...]
+> @@ -1499,6 +1500,14 @@ dwarf2_frame_find_fde (CORE_ADDR *pc)
+>        struct dwarf2_fde *fde;
+>        CORE_ADDR offset;
+>  
+> +      if (objfile->quick_addrmap)
+> +	{
+> +	  if (!addrmap_find (objfile->quick_addrmap, *pc))
+> +	    continue;
+> +	}
+> +      /* FIXME: Read-in only .debug_frame/.eh_frame without .debug_info?  */
+> +      require_partial_symbols (objfile);
+> +
+
+but this has caused a different regression (as discussed in the confcall).
+
+QUICK_ADDRMAP is built only from .debug_aranges.  But we can have existing
+built .debug_aranges for CUs in OBJFILE but still some CUs do not need to have
+DWARF at all while they can feature CFIs (.eh_frame or .debug_frame).
+It has been described by Daniel Jacobowitz at:
+	Re: [2/4] RFC: check psymtabs_addrmap before reading FDEs
+	http://sourceware.org/ml/gdb-patches/2010-07/msg00012.html
+
+Sorry for this regression by me (in that fix of a different regression).
+
+Fixed it the "slow way" as this branch is now obsoleted by .gdb-index.
+
+No regressions on {x86_64,x86_64-m32,i686}-fedora13-linux-gnu.
+
+Checked-in.
+
+
+Thanks,
+Jan
+
+
+eb8df8566acc1ed963e3e9b77c13b9c2c3db03fb
+
+Test CFI is parsed even for range (function) not described by any DIE.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=614028
+
+gdb/
+	* dwarf2-frame.c (dwarf2_frame_find_fde): Remove the
+	OBJFILE->QUICK_ADDRMAP check.  New comment why.
+
+gdb/testsuite/
+	* gdb.base/cfi-without-die.exp, gdb.base/cfi-without-die-main.c,
+	gdb.base/cfi-without-die-caller.c: New files.
+---
+ gdb/dwarf2-frame.c                              |    8 +--
+ gdb/testsuite/gdb.base/cfi-without-die-caller.c |   28 ++++++++++
+ gdb/testsuite/gdb.base/cfi-without-die-main.c   |   32 +++++++++++
+ gdb/testsuite/gdb.base/cfi-without-die.exp      |   67 +++++++++++++++++++++++
+ 4 files changed, 130 insertions(+), 5 deletions(-)
+ create mode 100644 gdb/testsuite/gdb.base/cfi-without-die-caller.c
+ create mode 100644 gdb/testsuite/gdb.base/cfi-without-die-main.c
+ create mode 100644 gdb/testsuite/gdb.base/cfi-without-die.exp
+
+diff --git a/gdb/dwarf2-frame.c b/gdb/dwarf2-frame.c
+index 5915249..1dc2754 100644
+--- a/gdb/dwarf2-frame.c
++++ b/gdb/dwarf2-frame.c
+@@ -1583,11 +1583,9 @@ dwarf2_frame_find_fde (CORE_ADDR *pc)
+       CORE_ADDR offset;
+       CORE_ADDR seek_pc;
+ 
+-      if (objfile->quick_addrmap)
+-	{
+-	  if (!addrmap_find (objfile->quick_addrmap, *pc))
+-	    continue;
+-	}
++      /* OBJFILE->QUICK_ADDRMAP contains offsets only for DIEs.  It does not
++         contain ranges of CFIs.  */
++
+       /* FIXME: Read-in only .debug_frame/.eh_frame without .debug_info?  */
+       require_partial_symbols (objfile);
+ 
+diff --git a/gdb/testsuite/gdb.base/cfi-without-die-caller.c b/gdb/testsuite/gdb.base/cfi-without-die-caller.c
+new file mode 100644
+index 0000000..afdfd53
+--- /dev/null
++++ b/gdb/testsuite/gdb.base/cfi-without-die-caller.c
+@@ -0,0 +1,28 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2005, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++typedef int (*callback_t) (void);
++
++int
++caller (callback_t callback)
++{
++  /* Ensure some frame content to push away the return address.  */
++  volatile const long one = 1;
++
++  /* Modify the return value to prevent any tail-call optimization.  */
++  return (*callback) () - one;
++}
+diff --git a/gdb/testsuite/gdb.base/cfi-without-die-main.c b/gdb/testsuite/gdb.base/cfi-without-die-main.c
+new file mode 100644
+index 0000000..8451c4b
+--- /dev/null
++++ b/gdb/testsuite/gdb.base/cfi-without-die-main.c
+@@ -0,0 +1,32 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2005, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++typedef int (*callback_t) (void);
++
++extern int caller (callback_t callback);
++
++int
++callback (void)
++{
++  return 1;
++}
++
++int
++main (void)
++{
++  return caller (callback);
++}
+diff --git a/gdb/testsuite/gdb.base/cfi-without-die.exp b/gdb/testsuite/gdb.base/cfi-without-die.exp
+new file mode 100644
+index 0000000..db6d248
+--- /dev/null
++++ b/gdb/testsuite/gdb.base/cfi-without-die.exp
+@@ -0,0 +1,67 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# Test CFI is parsed even for range (function) not described by any DIE.
++
++set testfile cfi-without-die
++set srcmainfile ${testfile}-main.c
++set srccallerfile ${testfile}-caller.c
++set executable ${testfile}
++set objmainfile ${objdir}/${subdir}/${testfile}-main.o
++set objcallerfile ${objdir}/${subdir}/${testfile}-caller.o
++set binfile ${objdir}/${subdir}/${executable}
++
++if { [gdb_compile "${srcdir}/${subdir}/${srccallerfile}" ${objcallerfile} \
++      object [list {additional_flags=-fomit-frame-pointer -fno-unwind-tables -fno-asynchronous-unwind-tables}]] != ""
++     || [gdb_compile "${srcdir}/${subdir}/${srcmainfile}" ${objmainfile} object {debug}] != ""
++     || [gdb_compile "${objmainfile} ${objcallerfile}" ${binfile} executable {}] != "" } {
++     untested ${testfile}.exp
++     return -1
++}
++
++clean_restart $executable
++
++if ![runto callback] then {
++   fail "verify unwinding: Can't run to callback"
++   return 0
++}
++set test "verify unwinding breaks without CFI"
++gdb_test_multiple "bt" $test {
++    -re " in main .*\r\n$gdb_prompt $" {
++	fail $test
++    }
++    -re "\r\n$gdb_prompt $" {
++	pass $test
++    }
++}
++
++if { [gdb_compile "${srcdir}/${subdir}/${srccallerfile}" ${objcallerfile} \
++      object [list {additional_flags=-fomit-frame-pointer -funwind-tables -fasynchronous-unwind-tables}]] != ""
++     || [gdb_compile "${srcdir}/${subdir}/${srcmainfile}" ${objmainfile} object {debug}] != ""
++     || [gdb_compile "${objmainfile} ${objcallerfile}" ${binfile} executable {}] != "" } {
++     untested ${testfile}.exp
++     return -1
++}
++
++clean_restart $executable
++
++if ![runto callback] then {
++   fail "test CFI without DIEs: Can't run to callback"
++   return 0
++}
++# #0  callback () at ...
++# #1  0x00000000004004e9 in caller ()
++# #2  0x00000000004004cd in main () at ...
++gdb_test "bt" "#0 +callback \[^\r\n\]+\r\n#1 \[^\r\n\]+ in caller \[^\r\n\]+\r\n#2 \[^\r\n\]+ in main \[^\r\n\]+" "verify unwindin works for CFI without DIEs"
+-- 
+1.7.1.1
+

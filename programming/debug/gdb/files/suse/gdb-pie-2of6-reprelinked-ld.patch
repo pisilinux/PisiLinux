@@ -1,0 +1,87 @@
+http://sourceware.org/ml/gdb-patches/2010-03/msg01000.html
+Subject: [patch 2/6] PIE: Attach binary even after ld.so re-prelinked  underneath
+
+Hi,
+
+when I have seen the PIE-binary-changed-sice-start tested also
+ld.so-changed-since-start and it did not work.
+
+There is questionable when to print and when to not to print non-fatal memory
+read errors.  Similar change I requested in
+	Re: [RFC/ia64] memory error when reading wrong core file
+	http://sourceware.org/ml/gdb-patches/2010-02/msg00001.html
+so that GDB prints at least as a warning
+	Cannot access memory at address ...
+when some unexpected error happens.
+
+Contrary to it there is not such warning present in the code below as in the
+case of non-valgrind PIE with re-prelinked ld.so the memory read error happens
+there.  Some GDB code rework could probably avoid it.
+
+Just for example all the memory read errors in read_program_header or even
+- primarily - scan_dyntag are currently IMO-incorrectly silent and others.
+Therefore posted the patch this way, making all these warnings printed and
+possibly fixing code attempting incorrect reads along the way could be done by
+a different patch.
+
+No regressions on {x86_64,x86_64-m32,i686}-fedora12-linux-gnu for the whole
+patch series together.
+
+
+Thanks,
+Jan
+
+
+gdb/
+2010-03-29  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* auxv.c (ld_so_xfer_auxv): Do not error on failed read of data_address.
+
+gdb/testsuite/
+2010-03-29  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/break-interp.exp (test_attach): Keep $interp changed.  Move
+	its restore after the <$relink_args != ""> loop.  new comment.
+
+--- a/gdb/auxv.c
++++ b/gdb/auxv.c
+@@ -96,7 +96,16 @@ ld_so_xfer_auxv (gdb_byte *readbuf,
+ 
+   pointer_address = SYMBOL_VALUE_ADDRESS (msym);
+ 
+-  data_address = read_memory_typed_address (pointer_address, ptr_type);
++  /* While it is an error I am not aware how to solve attaching to PIE under
++     valgrind --db-attach=yes different way when ld.so on-disk file has prelink
++     change in the meantime.  Currently GDB will drop back to procfs_xfer_auxv
++     (so that at least non-valgrind PIE attachments with prelink change of
++     ld.so work).  To make it working even with valgrind is PR 11440 requiring
++     a valgrind extension.  */
++  if (target_read_memory (pointer_address, ptr_buf, ptr_size) != 0)
++    return -1;
++
++  data_address = extract_typed_address (ptr_buf, ptr_type);
+ 
+   /* Possibly still not initialized such as during an inferior startup.  */
+   if (data_address == 0)
+--- a/gdb/testsuite/gdb.base/break-interp.exp
++++ b/gdb/testsuite/gdb.base/break-interp.exp
+@@ -419,12 +419,16 @@ proc test_attach {file displacement {relink_args ""}} {
+ 	global exec interp_saved interp
+ 
+ 	foreach relink {YES NO} {
+-	    if {[prelink$relink $relink_args [file tail $exec]]
+-	        && [copy $interp_saved $interp]} {
++	    # It would be more correct to also [copy $interp_saved $interp]
++	    # here to really test just different prelink of $exec.
++	    # But we would need a separate test for different prelink of ld.so
++	    # where a bug occured.  It is now all merged into this single test.
++	    if [prelink$relink $relink_args [file tail $exec]] {
+ 		# /proc/PID/exe cannot be loaded as it is "EXECNAME (deleted)".
+ 		test_attach_gdb $exec $pid $displacement "attach-relink$relink"
+ 	    }
+ 	}
++	copy $interp_saved $interp
+     }
+ 
+     remote_exec host "kill -9 $pid"
+

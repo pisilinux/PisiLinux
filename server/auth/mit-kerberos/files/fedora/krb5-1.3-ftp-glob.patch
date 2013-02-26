@@ -1,0 +1,273 @@
+--- krb5-1.3/src/appl/gssftp/ftp/cmds.c
++++ krb5-1.3/src/appl/gssftp/ftp/cmds.c
+@@ -99,6 +99,62 @@
+ static void quote1 (char *, int, char **);
+ static char *dotrans (char *);
+ static char *domap (char *);
++static int checkglob(const char *filename, const char *pattern);
++
++/*
++ * pipeprotect: protect against "special" local filenames by prepending
++ * "./". Special local filenames are "-" and any "filename" which begins
++ * with either "|" or "/".
++ */
++static char *pipeprotect(char *name) 
++{
++	static char nu[MAXPATHLEN];
++	if ((name == NULL) ||
++	    ((strcmp(name, "-") != 0) && (*name != '|') && (*name != '/'))) {
++		return name;
++	}
++	strcpy(nu, ".");
++	if (*name != '/') strcat(nu, "/");
++	if (strlen(nu) + strlen(name) >= sizeof(nu)) {
++		return NULL;
++	}
++	strcat(nu, name);
++	return nu;
++}
++
++/*
++ * Look for embedded ".." in a pathname and change it to "!!", printing
++ * a warning.
++ */
++static char *pathprotect(char *name)
++{
++	int gotdots=0, i, len;
++	
++	/* Convert null terminator to trailing / to catch a trailing ".." */
++	len = strlen(name)+1;
++	name[len-1] = '/';
++
++	/*
++	 * State machine loop. gotdots is < 0 if not looking at dots,
++	 * 0 if we just saw a / and thus might start getting dots,
++	 * and the count of dots seen so far if we have seen some.
++	 */
++	for (i=0; i<len; i++) {
++		if (name[i]=='.' && gotdots>=0) gotdots++;
++		else if (name[i]=='/' && gotdots<0) gotdots=0;
++		else if (name[i]=='/' && gotdots==2) {
++		    printf("Warning: embedded .. in %.*s (changing to !!)\n",
++			   len-1, name);
++		    name[i-1] = '!';
++		    name[i-2] = '!';
++		    gotdots = 0;
++		}
++		else if (name[i]=='/') gotdots = 0;
++		else gotdots = -1;
++	}
++	name[len-1] = '\0';
++	return name;
++}
+ 
+ /*
+  * `Another' gets another argument, and stores the new argc and argv.
+@@ -844,7 +900,15 @@
+ 
+ 	if (argc == 2) {
+ 		argc++;
+-		argv[2] = argv[1];
++		/* 
++		 * Protect the user from accidentally retrieving special
++		 * local names.
++		 */
++		argv[2] = pipeprotect(argv[1]);
++		if (!argv[2]) {
++			code = -1;
++			return 0;
++		}
+ 		loc++;
+ 	}
+ 	if (argc < 2 && !another(&argc, &argv, "remote-file"))
+@@ -1016,8 +1080,19 @@
+ 			if (mapflag) {
+ 				tp = domap(tp);
+ 			}
+-			recvrequest("RETR", tp, cp, "w",
+-			    tp != cp || !interactive, 1);
++
++			/* Reject embedded ".." */
++			tp = pathprotect(tp);
++
++			/* Prepend ./ to "-" or "!*" or leading "/" */
++			tp = pipeprotect(tp);
++			if (tp == NULL) {
++				/* hmm... how best to handle this? */
++				mflag = 0;
++			} else {
++				recvrequest("RETR", tp, cp, "w",
++					    tp != cp || !interactive, 1);
++			}
+ 			if (!mflag && fromatty) {
+ 				ointer = interactive;
+ 				interactive = 1;
+@@ -1045,8 +1120,8 @@
+ 	static char buf[MAXPATHLEN];
+ 	static FILE *ftemp = NULL;
+ 	static char **args;
+-	int oldverbose, oldhash;
+-	char *cp, *rmode;
++	int oldverbose, oldhash, badglob = 0;
++	char *cp;
+ 
+ 	if (!mflag) {
+ 		if (!doglob) {
+@@ -1075,23 +1150,46 @@
+ 			return (NULL);
+ 		}
+ #else
+-		(void) strncpy(temp, _PATH_TMP, sizeof(temp) - 1);
+-		temp[sizeof(temp) - 1] = '\0';
+-		(void) mktemp(temp);
++		int fd;
++		mode_t oldumask;
++		(void) strcpy(temp, _PATH_TMP);
++
++		/* libc 5.2.18 creates with mode 0666, which is dumb */
++		oldumask = umask(077);
++		fd = mkstemp(temp);
++		umask(oldumask);
++
++		if (fd<0) {
++			printf("Error creating temporary file, oops\n");
++			return NULL;
++		}
++		close(fd);
+ #endif /* !_WIN32 */
+ 		oldverbose = verbose, verbose = 0;
+ 		oldhash = hash, hash = 0;
+ 		if (doswitch) {
+ 			pswitch(!proxy);
+ 		}
+-		for (rmode = "w"; *++argv != NULL; rmode = "a")
+-			recvrequest ("NLST", temp, *argv, rmode, 0, 0);
++
++		while (*++argv != NULL) {
++			recvrequest ("NLST", temp, *argv, "a", 0, 0);
++			if (!checkglob(temp, *argv)) {
++				badglob = 1;
++				break;
++			}
++		}
++
+ 		if (doswitch) {
+ 			pswitch(!proxy);
+ 		}
+ 		verbose = oldverbose; hash = oldhash;
+ 		ftemp = fopen(temp, "r");
+ 		(void) unlink(temp);
++		if (badglob) {
++			printf("Refusing to handle insecure file list\n");
++			fclose(ftemp);
++			return NULL;
++		}
+ #ifdef _WIN32
+ 		free(temp);
+ 		temp = NULL;
+@@ -1110,6 +1208,105 @@
+ 	return (buf);
+ }
+ 
++/*
++ * Check whether given pattern matches `..'
++ * We assume only a glob pattern starting with a dot will match
++ * dot entries on the server.
++ */
++static int
++isdotdotglob(const char *pattern)
++{
++	int     havedot = 0;
++	char    c;
++
++	if (*pattern++ != '.')
++		return 0;
++	while ((c = *pattern++) != '\0' && c != '/') {
++		if (c == '*' || c == '?')
++			continue;
++		if (c == '.' && havedot++)
++			return 0;
++	}
++	return 1;
++}
++
++/*
++ * This function makes sure the list of globbed files returned from
++ * the server doesn't contain anything dangerous such as
++ * /home/<yourname>/.forward, or ../.forward,
++ * or |mail foe@doe </etc/passwd, etc.
++ * Covered areas:
++ *  - returned name starts with / but glob pattern doesn't
++ *  - glob pattern starts with / but returned name doesn't
++ *  - returned name starts with |
++ *  - returned name contains .. in a position where glob
++ *    pattern doesn't match ..
++ *    I.e. foo/.* allows foo/../bar but not foo/.bar/../fly
++ *
++ * Note that globbed names starting with / should really be stored
++ * under the current working directory; this is handled in mget above.
++ *                                            --okir
++ */
++static int
++checkglob(const char *filename, const char *pattern)
++{
++	const char      *sp;
++	char            buffer[MAXPATHLEN], dotdot[MAXPATHLEN];
++	int             okay = 1, nrslash, initial, nr;
++	FILE            *fp;
++
++	/* Find slashes in glob pattern, and verify whether component
++	 * matches `..'
++	 */
++	initial = (pattern[0] == '/');
++	for (sp = pattern, nrslash = 0; sp != 0; sp = strchr(sp, '/')) {
++		while (*sp == '/')
++			sp++;
++		if (nrslash >= MAXPATHLEN) {
++			printf("Incredible pattern: %s\n", pattern);
++			return 0;
++		}
++		dotdot[nrslash++] = isdotdotglob(sp);
++	}
++
++	fp = fopen(filename, "r");
++	if (fp == NULL) {
++		perror("fopen");
++		return 0;
++	}
++
++	while (okay && fgets(buffer, sizeof(buffer), fp) != NULL) {
++		char    *sp;
++
++		if ((sp = strchr(buffer, '\n')) != 0) {
++			*sp = '\0';
++		} else {
++			printf("Extremely long filename from server: %s",
++			       buffer);
++			okay = 0;
++			break;
++		}
++		if (buffer[0] == '|'
++		    || (buffer[0] != '/' && initial)
++		    || (buffer[0] == '/' && !initial))
++			okay = 0;
++		for (sp = buffer, nr = 0; sp; sp = strchr(sp, '/'), nr++) {
++			while (*sp == '/')
++				sp++;
++			if (sp[0] == '.' && !strncmp(sp, "../", 3)
++			    && (nr >= nrslash || !dotdot[nr]))
++				okay = 0;
++		}
++	}
++
++	if (!okay)
++		printf("Filename provided by server "
++		       "doesn't match pattern `%s': %s\n", pattern, buffer);
++
++	fclose(fp);
++	return okay;
++}
++
+ static char *
+ onoff(bool)
+ 	int bool;

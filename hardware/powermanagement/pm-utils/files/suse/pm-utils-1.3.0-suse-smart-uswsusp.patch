@@ -1,0 +1,142 @@
+---
+ pm/defaults         |   20 +++++++++++++++-
+ pm/module.d/uswsusp |   64 +++++++++++++++++++++++++++++++++++++++++++++++-----
+ 2 files changed, 78 insertions(+), 6 deletions(-)
+
+Index: pm-utils-1.3.0/pm/defaults
+===================================================================
+--- pm-utils-1.3.0.orig/pm/defaults	2009-06-14 03:56:08.000000000 +0200
++++ pm-utils-1.3.0/pm/defaults	2010-05-06 09:27:09.228673127 +0200
+@@ -27,8 +27,26 @@
+ #   tuxonice  If your system has support for tuxonice, use this.
+ #
+ # The system defaults to "kernel" if this is commented out.
+-# SLEEP_MODULE="kernel"
++SLEEP_MODULE="uswsusp"
+ 
++#######################################################################
++# the variables below here are specific to the SUSE package right now
++# and are used only if SLEEP_MODULE is uswsusp
++
++# what options should be passed to s2ram?
++# see http://en.opensuse.org/S2ram for more information
++# If this option is set, it overrides S2RAM_QUIRKS_SOURCE below
++S2RAM_OPTS=""
++
++# where should pm-utils get the s2ram quirks from?
++# s2ram - use the whitelist in s2ram, if the machine is known.
++# hal   - ignored, exists only for comparibility purposes pm-utils 1.3.0+ has
++#         HAL quirks built-in
++# everything else: try to be smart in figuring out the correct quirks.
++# if S2RAM_OPTS is set, it overrides S2RAM_QUIRKS_SOURCE!
++S2RAM_QUIRKS_SOURCE=""
++
++#######################################################################
+ # These variables will be handled specially when we load files in 
+ # /etc/pm/config.d.
+ # Multiple declarations of these environment variables will result in 
+Index: pm-utils-1.3.0/pm/module.d/uswsusp
+===================================================================
+--- pm-utils-1.3.0.orig/pm/module.d/uswsusp	2009-12-11 05:36:38.000000000 +0100
++++ pm-utils-1.3.0/pm/module.d/uswsusp	2010-05-06 09:27:37.540671614 +0200
+@@ -5,6 +5,7 @@
+ uswsusp_hooks()
+ {
+ 	disablehook 99video "disabled by uswsusp"
++	disablehook 90chvt "disabled by uswsusp"
+ }
+ 
+ # Since we disabled 99video, we need to take responsibility for proper
+@@ -35,8 +36,52 @@
+ 	# if we were told to ignore quirks, do so.
+ 	# This is arguably not the best way to do things, but...
+ 	[ "$QUIRK_NONE" = "true" ] && OPTS=""
++        S2RAM_OPTS="$S2RAM_OPTS $OPTS"
++        echo "INFO: S2RAM_OPTS from HAL quirks: '$S2RAM_OPTS'."
+ }
+ 
++# this function tries to assemble the best s2ram options from various sources, falling back
++# to other methods...
++get_s2ram_opts()
++{
++    # if S2RAM_OPTS is set - then use it. The user told us so. Obey his wish.
++    if [ -n "$S2RAM_OPTS" ]; then
++        echo "INFO: using user-supplied options: S2RAM_OPTS='$S2RAM_OPTS' for suspending."
++        return
++    fi
++
++    # ... try to use s2ram as a source
++    if [ "$S2RAM_QUIRKS_SOURCE" = "s2ram" ]; then
++        if  /usr/sbin/s2ram -n >/dev/null; then
++            echo "INFO: using s2ram built-in database, machine is supported."
++            return
++        else
++            echo "WARN: S2RAM_QUIRKS_SOURCE=s2ram, but machine is unknown, continuing..."
++        fi
++    fi
++
++    # ... if is not known or not set as a source, use the built-in database
++    echo "INFO: using built-in quirks database from HAL."
++    uswsusp_get_quirks
++    if [ -n "$S2RAM_OPTS" ]; then
++        S2RAM_OPTS="--force "$S2RAM_OPTS
++    fi
++
++    # ... in a case we still don't have any quirk, try s2ram for sure
++    if [ -z "$S2RAM_OPTS" ]; then
++        # ... machine could be in s2ram whitelist
++        if /usr/sbin/s2ram -n >/dev/null; then
++            echo "INFO: machine is in s2ram database, using it."
++            return;
++        else
++            # if we came here and S2RAM_OPTS is empty, suspend won't work :-(
++            echo "WARNING: smart uswsusp did not found any appropriate option, suspend probably don't work"
++        fi
++    fi
++       
++}
++
++
+ # Since we disabled 99video, we also need to handle displaying
+ # help info for the quirks we handle.
+ uswsusp_help()
+@@ -70,8 +115,8 @@
+ 	SUSPEND_MODULE="uswsusp"
+ 	do_suspend()
+ 	{
+-		uswsusp_get_quirks
+-		s2ram --force $OPTS
++		get_s2ram_opts
++		s2ram $S2RAM_OPTS
+ 	}
+ 	if [ "$METHOD" = "suspend" ]; then
+ 		add_before_hooks uswsusp_hooks
+@@ -87,7 +132,12 @@
+ 	HIBERNATE_MODULE="uswsusp"
+ 	do_hibernate()
+ 	{
+-		s2disk
++		get_s2ram_opts
++		if [ -z "${S2DISK_CONF}" ]; then
++			s2disk
++		else
++			s2disk --config $S2DISK_CONF
++		fi
+ 	}
+ fi
+ 
+@@ -98,8 +148,12 @@
+ 	SUSPEND_HYBRID_MODULE="uswsusp"
+ 	do_suspend_hybrid()
+ 	{
+-		uswsusp_get_quirks
+-		s2both --force $OPTS 
++		get_s2ram_opts
++		if [ -z "${S2DISK_CONF}" ]; then
++			s2both --force $S2RAM_OPTS
++		else
++			s2both --config $S2DISK_CONF $S2RAM_OPTS
++		fi
+ 	}
+ 	if [ "$METHOD" = "suspend_hybrid" ]; then
+ 		add_before_hooks uswsusp_hooks

@@ -1,0 +1,592 @@
+#!/bin/sh
+#
+# Simple init script that should handle both
+# livecd/livedisk, thinclient and hdd boot
+#
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+INITRAMFSCONF="/etc/initramfs.conf"
+
+ROOT_LINKS="bin sbin lib boot usr opt"
+ROOT_TREES="etc root home var run"
+TMPFS_DIRS="dev mnt mnt/cdrom mnt/livecd mnt/thin tmp sys proc media"
+LOOPBACKFILE="/isolinux/images/anka.sqfs"
+
+NORESUME=0
+LIVE=0
+NFSROOT=0
+QUIET=0
+RAID_INCREMENTAL=1
+RAID=0
+LVM=0
+COPYTORAM=0
+SPLASH=0
+WIPEMEM=0
+
+HOTPLUG="/sbin/hotplug"
+
+MNTDIR=""
+FS_TYPE=""
+INITRAMFS=""
+ROOT_FLAGS=""
+ROOT_DEVICE=""
+ROOT_TARGET=""
+RESUME_DEVICE=""
+WIPEMEM_OPTS="-llv"
+
+###########################
+# Miscellaneous functions #
+###########################
+
+info() {
+    echo "<6>initramfs: $1" > /dev/kmsg
+}
+
+log_output() {
+    $@ | echo "<6>`sed 's#^\(.*\)$#initramfs:\1#g'`" > /dev/kmsg
+}
+
+fall2sh() {
+    # Kill any possible plymouth instances
+    test -x /bin/plymouth && /bin/plymouth quit &> /dev/null
+    kill -9 $(pidof plymouthd) &> /dev/null
+
+    echo "--> $*"
+    echo "Reboot with initramfs=shell(noprobe) to further debug the issue."
+
+    # Use a login shell for sourcing /etc/profile
+    /bin/sh -l
+}
+
+run_dhcpc() {
+    udhcpc -C -i eth0 -s /etc/udhcpc.script
+}
+
+##################
+# Device probers #
+##################
+
+probe_devices() {
+    # Set hotplug helper for firmware loading
+    echo $HOTPLUG > /proc/sys/kernel/hotplug
+
+    if [ "x$1" = "x--with-kms" ]; then
+        probe_kms
+        test -x /bin/plymouth && /bin/plymouth show-splash
+    fi
+
+    probe_pci_devices
+    probe_virtio_devices
+    probe_usb_devices
+
+    # Unset hotplug helper
+    echo > /proc/sys/kernel/hotplug
+
+    [ "${RAID}" -eq "1" ] && probe_raid
+    [ "${LVM}" -eq "1" ] && probe_lvm
+}
+
+probe_kms() {
+    for device in /sys/bus/pci/devices/*/boot_vga; do
+        [ -f $device ] || continue
+        info "Loading KMS driver"
+        grep -q 1 $device && modprobe -bq `cat ${device%boot_vga}modalias`
+    done
+    if [ ! -c /dev/fb0 ]; then
+        echo "options uvesafb scroll=ywrap mtrr=0 nocrtc=1 mode_option=1024x768-32" > /etc/modprobe.d/uvesafb.conf
+        modprobe -bq uvesafb
+    fi
+}
+
+probe_pci_devices() {
+    info "Probing PCI devices"
+    local MODULES=""
+    for module in /sys/bus/pci/devices/*/modalias; do
+        [ -f $module ] || continue
+        MODULES="$MODULES $(cat $module)"
+    done
+    modprobe -bqa $MODULES
+}
+
+probe_usb_devices() {
+    info "Probing USB devices"
+    local MODULES=""
+    for module in /sys/bus/usb/devices/*/modalias; do
+        [ -f $module ] || continue
+        MODULES="$MODULES $(cat $module)"
+    done
+    modprobe -bqa $MODULES
+}
+
+probe_raid() {
+    info "Probing RAID devices"
+    modprobe -bqa dm-mod raid0 raid1 raid10 raid456
+    if [ -x /sbin/mdadm ]
+    then
+        /sbin/mdadm --examine --scan > /etc/mdadm.conf
+        /sbin/mdadm -As
+    fi
+}
+
+probe_lvm() {
+    info "Probing LVM devices"
+    modprobe -qa dm-mod
+    if [ -x /sbin/lvm ]
+    then
+        /sbin/lvm vgscan --ignorelockingfailure &> /dev/null
+        /sbin/lvm vgchange -ay --ignorelockingfailure &> /dev/null
+    fi
+}
+probe_virtio_devices() {
+    local MODULES=""
+    for module in /sys/bus/virtio/devices/*/modalias; do
+        [ -f $module ] || continue
+        MODULES="$MODULES $(cat $module)"
+    done
+    modprobe -bqa $MODULES
+}
+
+#################################
+# Filesystem specific functions #
+#################################
+
+mount_rootfs() {
+    FS_TYPE=`disktype $ROOT_DEVICE | grep KERNELMODULE | awk '{print $2}'`
+    info "Mounting rootfs: $ROOT_DEVICE ($FS_TYPE)"
+    mount -r -t $FS_TYPE -n ${ROOT_FLAGS} ${ROOT_DEVICE} /newroot
+}
+
+find_live_mount() {
+    if [ "$#" -gt "0" ]
+    then
+        for x in $*
+        do
+            # this is used for non Linux fs detection
+            FS_TYPE=`disktype $1 | grep KERNELMODULE | awk '{print $2}'`
+            if [ -n "$FS_TYPE" -a -f /lib/modules/*/$FS_TYPE.ko ]
+            then
+                modprobe $FS_TYPE 1> /dev/null 2>&1
+            fi
+
+            mount -r ${x} /newroot/mnt/cdrom > /dev/null 2>&1
+
+            if [ "$?" = "0" ]
+            then
+                # Check for cdroot image
+                if [ -e /newroot/mnt/cdrom/${LOOPBACKFILE} ]
+                then
+                    ROOT_DEVICE="/newroot${x}"
+                    if [ "$COPYTORAM" == "1" ]
+                    then
+                        info "Copying Live Media files to RAM"
+                        mkdir /newroot/mnt/cdromtemp
+                        cp -af /newroot/mnt/cdrom/* /newroot/mnt/cdromtemp/
+                        umount /newroot/mnt/cdrom
+                        rmdir /newroot/mnt/cdrom
+                        mv /newroot/mnt/cdromtemp /newroot/mnt/cdrom
+                    fi
+                    break
+                else
+                    umount /newroot/mnt/cdrom
+                fi
+            fi
+        done
+    fi
+}
+
+manage_tmpfs() {
+    mount -t tmpfs tmpfs /newroot
+
+    for d in ${TMPFS_DIRS}; do
+        mkdir -p "/newroot/${d}"
+    done
+}
+
+mount_nfs() {
+    FS_LOCATION='mnt/thin'
+
+    # Change directory to /newroot
+    cd /newroot
+
+    # FIXME: busybox mount does not load automatically
+    modprobe -q nfs
+
+    # mount nfs
+    if [ -z "/etc/udhcpc.info" ]
+    then
+        fall2sh "/etc/udhcpc.info not found"
+    fi
+
+    . /etc/udhcpc.info
+
+    if [ -z "${ROOTPATH}" ]
+    then
+        fall2sh "NFS rootpath not found"
+    fi
+
+    echo "Mounting NFS from $ROOTPATH"
+    mount -o tcp,nolock,ro $ROOTPATH /newroot/mnt/thin
+
+    if [ "$?" != '0' ]
+    then
+        fall2sh "Could not nfs root"
+    fi
+
+    # Create necessary links
+    for x in ${ROOT_LINKS}; do
+        ln -s "${FS_LOCATION}/${x}" "${x}"
+    done
+
+    if [ -e "${FS_LOCATION}/lib32" ]
+    then
+        ln -s "${FS_LOCATION}/lib32" "lib32"
+    fi
+
+    # We need this for x86_64
+    ln -s "${FS_LOCATION}/lib" "lib64"
+
+    chmod 1777 tmp
+    (cd /newroot/${FS_LOCATION}; cp -a ${ROOT_TREES} /newroot)
+
+    # Needed for ltspfs mechanism
+    echo "$IP    $HOSTNAME" >> /newroot/etc/hosts
+}
+
+mount_cdroot() {
+    FS_LOCATION="mnt/livecd"
+
+    # Change directory to /newroot
+    cd /newroot
+
+    # These are not loaded automatically
+    modprobe -q squashfs
+
+    # Loop type squashfs
+    mount -t squashfs -o loop,ro /newroot/mnt/cdrom/${LOOPBACKFILE} /newroot/mnt/livecd
+
+    if [ "$?" != "0" ]
+    then
+        fall2sh "Could not mount root image"
+    fi
+
+    # Create necessary links
+    for x in ${ROOT_LINKS}; do
+        ln -s "${FS_LOCATION}/${x}" "${x}"
+    done
+
+    if [ -e "${FS_LOCATION}/lib32" ]
+    then
+        ln -s "${FS_LOCATION}/lib32" "lib32"
+    fi
+
+    # We need this for x86_64
+    ln -s "${FS_LOCATION}/lib" "lib64"
+
+    chmod 1777 tmp
+    (cd /newroot/${FS_LOCATION}; cp -a ${ROOT_TREES} /newroot)
+
+    # FIXME: the device list is taken from udev, we can't rely on sys entries since pluggable means different
+    #        in kernel world. Suggestions that do not include this kind of regexp mania are welcome
+
+    # for userspace applications
+    REAL_ROOT_TYPE=`echo "${ROOT_DEVICE}" | sed -e 's/^\/newroot\/dev\///' | grep -qE '^sr[0-9]*|^hd[a-z]|^pcd[0-9]|^xvd*' && echo "optical" || echo "harddisk"`
+    echo "${REAL_ROOT_TYPE}" > /newroot/run/pardus/livemedia
+
+    # this is needed for yali
+    MNTDIR=`grep \/mnt\/cdrom\  /proc/mounts|sed 's/\/newroot//g'`
+    echo "$MNTDIR" >> /newroot/etc/fstab
+}
+
+##############################
+# Config and cmdline parsers #
+##############################
+
+# FIXME: maybe we should just source the file instead of parsing
+#        also consider merging conf parser and cmdline parser
+parse_config() {
+    while read inputline;
+    do
+        case "${inputline}" in
+            raid=*)
+                RAID=$(echo $inputline|cut -f2- -d=)
+            ;;
+            lvm=*)
+                LVM=$(echo $inputline|cut -f2- -d=)
+            ;;
+            thin=*)
+                NFSROOT=$(echo $inputline|cut -f2- -d=)
+            ;;
+            root=*)
+                ROOT_TARGET=$(echo $inputline|cut -f2- -d=)
+            ;;
+            rootflags=*)
+                ROOT_FLAGS=$(echo $inputline|cut -f2- -d=)
+            ;;
+            liveroot=*)
+                # Installation or livecd, enable RAID by default
+                # to be able to read existing RAID installations
+                LIVE=1
+                RAID_INCREMENTAL=0
+                LIVEROOT=$(echo $inputline|cut -f2- -d=)
+            ;;
+            resume=*)
+                RESUME_DEVICE="${inputline#resume=}"
+            ;;
+            noresume)
+                NORESUME=1
+            ;;
+            copytoram)
+                COPYTORAM=1
+            ;;
+            wipemem)
+                WIPEMEM=1
+            ;;
+            wipememopts=*)
+                WIPEMEM=1
+                WIPEMEM_OPTS=$(echo $inputline|cut -f2- -d=)
+            ;;
+            splash)
+                SPLASH=1
+            ;;
+            init=*)
+                INIT="${inputline#INIT=}"
+            ;;
+        esac
+    done < $INITRAMFSCONF
+}
+
+parse_cmdline() {
+    for x in `cat /proc/cmdline`; do
+        case "${x}" in
+            [0123456Ss])
+                # Normalize 'S' to 's'
+                LEVEL=`echo ${x}|tr A-Z a-z`
+            ;;
+            mudur=*)
+                for m in `echo ${x}|cut -f2 -d=|sed 's/,/ /g'`; do
+                    case "${m}" in
+                        livecd)
+                            LIVE=1
+                        ;;
+                        livedisk)
+                            LIVE=1
+                        ;;
+                        raid)
+                            RAID=1
+                        ;;
+                        lvm)
+                            LVM=1
+                        ;;
+                        thin)
+                            NFSROOT=1
+                        ;;
+                    esac
+                done
+            ;;
+            initramfs=*)
+                INITRAMFS=`echo ${x}|cut -f2- -d=`
+            ;;
+            root=*)
+                ROOT_TARGET=`echo ${x}|cut -f2- -d=`
+            ;;
+            rootflags=*)
+                ROOT_FLAGS="-o ${x#rootflags=}"
+            ;;
+            liveroot=*)
+                LIVE=1
+                LIVEROOT=$(echo ${x}|cut -f2- -d=)
+            ;;
+            resume=*)
+                RESUME_DEVICE="${x#resume=}"
+            ;;
+            noresume)
+                NORESUME=1
+            ;;
+            init=*)
+                INIT="${x#init=}"
+            ;;
+            copytoram)
+                COPYTORAM=1
+            ;;
+            wipemem)
+                WIPEMEM=1
+            ;;
+            wipememopts=*)
+                WIPEMEM=1
+                WIPEMEM_OPTS=$(echo $x|cut -f2- -d=)
+            ;;
+            splash)
+                SPLASH=1
+            ;;
+            single)
+                LEVEL="s"
+            ;;
+            quiet)
+                QUIET=1
+            ;;
+            blacklist=*)
+                modules=${x#blacklist=}
+                for module in ${modules//,/ }; do
+                    echo "blacklist $module" >> /etc/modprobe.d/cmdline.conf
+                done
+            ;;
+        esac
+    done
+
+    if [ -f /etc/modprobe.d/cmdline.conf ]; then
+        cp /etc/modprobe.d/cmdline.conf /dev/.modprobe.initramfs.conf
+    fi
+}
+
+
+####################
+# init starts here #
+####################
+
+info "Starting init on initramfs"
+
+# Mount needed filesystems
+mount -n -t proc proc /proc
+mount -n -t sysfs sysfs /sys
+# Added to start udev properly
+mkdir -m  0755 /run
+mount -t tmpfs tmpfs /run
+
+# Prepare /dev (Needs kernel >= 2.6.32)
+mount -t devtmpfs devtmpfs /dev
+mkdir -m 0755 /dev/pts
+mount -t devpts -o gid=5,mode=620 devpts /dev/pts
+
+# First parse config file, then cmdline to allow overwriting internal config
+if [ -f "$INITRAMFSCONF" ]
+then
+    #. $INITRAMFSCONF
+    parse_config
+fi
+
+# Parse command line parameters
+parse_cmdline
+
+# Minimize printk log
+test "x$QUIET" = "x1" && echo "1" > /proc/sys/kernel/printk
+
+# Initialize plymouth daemon if found and splash is true
+# Don't even launch plymouthd if we're in single-user mode
+if [ "$LEVEL" != "s" -a "$SPLASH" = "1" -a -x /sbin/plymouthd ]; then
+    /sbin/plymouthd --attach-to-session
+fi
+
+# Handle initramfs= parameter
+if [ "${INITRAMFS}" == "shellnoprobe" ]
+then
+    fall2sh "Starting up a shell without probing"
+elif [ "${INITRAMFS}" == "shell" ]
+then
+    probe_devices --with-kms
+    fall2sh "Starting up a shell"
+fi
+
+if [ "${WIPEMEM}" = "1" ]
+then
+    info "Wiping out memory, system will be shutdown after completion"
+    sdmem ${WIPEMEM_OPTS}
+    poweroff -f
+fi
+
+# Probe devices
+probe_devices --with-kms
+
+if [ -x /bin/resume -a -b "$RESUME_DEVICE" -a "x$NORESUME" != "x1" ]
+then
+    if [ "x$SPLASH" == "x1" ]
+    then
+        SPLASHPARAM="-P splash=y"
+    else
+        SPLASHPARAM="-P splash=n"
+    fi
+    # FIXME: This will fail if resume= contains LABEL/UUID
+    info "Attempting to resume from hibernation"
+    /bin/resume $SPLASHPARAM $RESUME_DEVICE
+fi
+
+echo 0x0100 > /proc/sys/kernel/real-root-dev
+
+if [ "${LIVE}" -eq "1" ]
+then
+    ROOT_DEVICE=""
+    manage_tmpfs
+
+    # modprobe filesystems that are not in kernel, for live disks
+    modprobe -qa nls_cp857 nls_utf8 vfat
+
+    for i in `seq 50`
+    do
+        t=`findfs ${LIVEROOT} 2>/dev/null`
+        find_live_mount "$t"
+
+        if [ "${ROOT_DEVICE}" != "" ]
+        then
+            break
+        else
+            probe_devices
+            usleep 200000
+        fi
+    done
+
+    if [ "${ROOT_DEVICE}" == "" ]
+    then
+        fall2sh "Could not find mount media"
+    fi
+
+    mount_cdroot
+
+elif [ "${NFSROOT}" -eq "1" ]
+then
+    run_dhcpc
+    manage_tmpfs
+    mount_nfs
+
+    # set hostname for mudur
+    hostname $HOSTNAME
+
+else
+    # Wait until ROOT_DEVICE appears
+    for i in `seq 50`
+    do
+        # let findfs handle all conversion
+        ROOT_DEVICE=`findfs ${ROOT_TARGET} 2>/dev/null`
+
+        if [ ! -b "${ROOT_DEVICE}" ]
+        then
+            probe_devices
+            usleep 200000
+        else
+            break
+        fi
+    done
+    if [ ! -b "${ROOT_DEVICE}" ]
+    then
+        fall2sh "Could not find boot device"
+    else
+        mount_rootfs
+    fi
+fi
+
+[ "${INIT}" == "" ] && INIT="/sbin/init";
+
+# This stops /lib/udev/rules.d/65-md-incremental.rules from medling with mdraid sets.
+[ "${RAID_INCREMENTAL}" -eq "0" ] && touch /dev/.in_sysinit
+
+# Move mounts instead of umount/mount
+mount --move /dev /newroot/dev
+mount --move /proc /newroot/proc
+mount --move /sys /newroot/sys
+# Added to start udev properly
+mount --move /run /newroot/run
+
+
+# And we start
+info "Switching to the real root"
+test -x /bin/plymouth && /bin/plymouth update-root-fs --new-root-dir=/newroot
+exec /bin/switch_root -c /dev/console /newroot ${INIT} ${LEVEL}
+

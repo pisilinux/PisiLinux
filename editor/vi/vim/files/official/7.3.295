@@ -1,0 +1,109 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.295
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.295
+Problem:    When filtering text with an external command Vim may not read all
+	    the output.
+Solution:   When select() is interrupted loop and try again. (James Vega)
+Files:	    src/os_unix.c
+
+
+*** ../vim-7.3.294/src/os_unix.c	2011-08-04 20:31:50.000000000 +0200
+--- src/os_unix.c	2011-09-07 13:34:09.000000000 +0200
+***************
+*** 4819,4825 ****
+  
+  /*
+   * Wait "msec" msec until a character is available from file descriptor "fd".
+!  * Time == -1 will block forever.
+   * When a GUI is being used, this will not be used for input -- webb
+   * Returns also, when a request from Sniff is waiting -- toni.
+   * Or when a Linux GPM mouse event is waiting.
+--- 4819,4826 ----
+  
+  /*
+   * Wait "msec" msec until a character is available from file descriptor "fd".
+!  * "msec" == 0 will check for characters once.
+!  * "msec" == -1 will block until a character is available.
+   * When a GUI is being used, this will not be used for input -- webb
+   * Returns also, when a request from Sniff is waiting -- toni.
+   * Or when a Linux GPM mouse event is waiting.
+***************
+*** 5057,5063 ****
+  	/*
+  	 * Select on ready for reading and exceptional condition (end of file).
+  	 */
+! 	FD_ZERO(&rfds); /* calls bzero() on a sun */
+  	FD_ZERO(&efds);
+  	FD_SET(fd, &rfds);
+  # if !defined(__QNX__) && !defined(__CYGWIN32__)
+--- 5058,5065 ----
+  	/*
+  	 * Select on ready for reading and exceptional condition (end of file).
+  	 */
+! select_eintr:
+! 	FD_ZERO(&rfds);
+  	FD_ZERO(&efds);
+  	FD_SET(fd, &rfds);
+  # if !defined(__QNX__) && !defined(__CYGWIN32__)
+***************
+*** 5117,5122 ****
+--- 5119,5132 ----
+  # else
+  	ret = select(maxfd + 1, &rfds, NULL, &efds, tvp);
+  # endif
++ # ifdef EINTR
++ 	if (ret == -1 && errno == EINTR)
++ 	    /* Interrupted by a signal, need to try again.  We ignore msec
++ 	     * here, because we do want to check even after a timeout if
++ 	     * characters are available.  Needed for reading output of an
++ 	     * external command after the process has finished. */
++ 	    goto select_eintr;
++ # endif
+  # ifdef __TANDEM
+  	if (ret == -1 && errno == ENOTSUP)
+  	{
+***************
+*** 5124,5130 ****
+  	    FD_ZERO(&efds);
+  	    ret = 0;
+  	}
+! #endif
+  # ifdef FEAT_MZSCHEME
+  	if (ret == 0 && mzquantum_used)
+  	    /* loop if MzThreads must be scheduled and timeout occurred */
+--- 5134,5140 ----
+  	    FD_ZERO(&efds);
+  	    ret = 0;
+  	}
+! # endif
+  # ifdef FEAT_MZSCHEME
+  	if (ret == 0 && mzquantum_used)
+  	    /* loop if MzThreads must be scheduled and timeout occurred */
+*** ../vim-7.3.294/src/version.c	2011-09-05 20:13:37.000000000 +0200
+--- src/version.c	2011-09-07 14:05:05.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     295,
+  /**/
+
+-- 
+"You're fired." (1980)
+"You're laid off." (1985)
+"You're downsized." (1990)
+"You're rightsized." (1992)
+				(Scott Adams - The Dilbert principle)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

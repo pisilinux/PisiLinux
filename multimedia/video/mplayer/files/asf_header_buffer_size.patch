@@ -1,0 +1,75 @@
+--- stream/asf_mmst_streaming.c~	2008-05-17 18:03:00.000000000 +0200
++++ stream/asf_mmst_streaming.c	2008-05-18 16:53:35.000000000 +0200
+@@ -225,12 +225,16 @@
+ 
+ }
+ 
+-static int get_header (int s, uint8_t *header, streaming_ctrl_t *streaming_ctrl)
++static int get_header (int s, uint8_t **pheader, streaming_ctrl_t *streaming_ctrl)
+ {
+   unsigned char  pre_header[8];
+   int            header_len;
++  unsigned char header_start[24];
++  int header_size;
++  uint8_t *header;
+ 
+   header_len = 0;
++  header_size = 0;
+ 
+   while (1) {
+     if (!get_data (s, pre_header, 8)) {
+@@ -245,7 +249,34 @@
+ 
+ //      mp_msg(MSGT_NETWORK,MSGL_INFO,"asf header packet detected, len=%d\n", packet_len);
+ 
+-      if (packet_len < 0 || packet_len > HDR_BUF_SIZE - header_len) {
++      if (header_size == 0) {
++        // first packet
++
++        if (packet_len < 30) {
++          mp_msg(MSGT_NETWORK, MSGL_FATAL, MSGTR_MPDEMUX_MMST_InvalidHeaderSize);
++          return 0;
++        }
++        // read as much as necessary to get entire header size
++        if (!get_data(s, header_start, 24)) {
++          mp_msg(MSGT_NETWORK,MSGL_ERR,MSGTR_MPDEMUX_MMST_HeaderDataReadFailed);
++          return 0;
++        }
++        header_size = header_start[16] | header_start[17] << 8 | header_start[18] << 16 | header_start[19] << 24;
++        if (header_size < 30 || header_size > 1000000) {
++          mp_msg(MSGT_NETWORK, MSGL_FATAL, MSGTR_MPDEMUX_MMST_InvalidHeaderSize);
++          return 0;
++        }
++        // last packet contains extra 50 bytes
++        header_size += 50;
++        *pheader = malloc(header_size);
++        header = *pheader;
++        memcpy(header, header_start, 24);
++        header_len = 24;
++        packet_len -= 24;
++
++      }
++
++      if (packet_len < 0 || packet_len > header_size - header_len) {
+         mp_msg(MSGT_NETWORK, MSGL_FATAL, MSGTR_MPDEMUX_MMST_InvalidHeaderSize);
+         return 0;
+       }
+@@ -529,7 +560,7 @@
+ {
+   char                 str[1024];
+   char                 data[BUF_SIZE];
+-  uint8_t              asf_header[HDR_BUF_SIZE];
++  uint8_t              *asf_header;
+   int                  asf_header_len;
+   int                  len, i, packet_length;
+   char                *path, *unescpath;
+@@ -627,7 +658,7 @@
+   num_stream_ids = 0;
+   /* get_headers(s, asf_header);  */
+ 
+-  asf_header_len = get_header (s, asf_header, stream->streaming_ctrl);
++  asf_header_len = get_header (s, &asf_header, stream->streaming_ctrl);
+ //  mp_msg(MSGT_NETWORK,MSGL_INFO,"---------------------------------- asf_header %d\n",asf_header);
+   if (asf_header_len==0) { //error reading header
+     closesocket(s);
+

@@ -1,0 +1,243 @@
+Description: Fix elm_toolbar on python-elementary
+Author: Bruno Dilly <bdilly@profusion.mobi>
+Origin: backport, http://trac.enlightenment.org/e/changeset/53900/trunk/BINDINGS/python/python-elementary
+Forwarded: not-needed
+Last-Update: 2011-08-18
+
+Index: b/elementary/elementary.c_elementary_toolbar.pxi
+===================================================================
+--- a/elementary/elementary.c_elementary_toolbar.pxi
++++ b/elementary/elementary.c_elementary_toolbar.pxi
+@@ -54,11 +54,29 @@
+ 
+         self.cbt = (toolbar, callback, self, args, kargs)
+         cbdata = <void*>self.cbt
+-        self.obj = elm_toolbar_item_add(toolbar.obj, icon, label, cb, cbdata)
++        self.obj = elm_toolbar_item_append(toolbar.obj, icon, label, cb, cbdata)
+ 
+         Py_INCREF(self)
+         elm_toolbar_item_del_cb_set(self.obj, _toolbar_item_del_cb)
+ 
++    def next_get(self):
++        cdef Elm_Toolbar_Item *it
++        it = elm_toolbar_item_next_get(self.obj)
++        return _elm_toolbar_item_to_python(it)
++
++    property next:
++        def __get__(self):
++            return self.next_get()
++
++    def prev_get(self):
++        cdef Elm_Toolbar_Item *it
++        it = elm_toolbar_item_prev_get(self.obj)
++        return _elm_toolbar_item_to_python(it)
++
++    property prev:
++        def __get__(self):
++            return self.prev_get()
++
+     def delete(self):
+         """Delete the item"""
+         if self.obj == NULL:
+@@ -102,9 +120,32 @@
+         def __set__(self, value):
+             self.label_set(value)
+ 
+-    def select(self):
++    def data_get(self):
++        cdef void* data
++        data = elm_toolbar_item_data_get(self.obj)
++        if data == NULL:
++            return None
++        else:
++            (tb, func, it, a, ka) = <object>data
++            return (a, ka)
++
++    property data:
++        def __get__(self):
++            return self.data_get()
++
++    def selected_set(self, selected):
+         """Select the item"""
+-        elm_toolbar_item_select(self.obj)
++        elm_toolbar_item_selected_set(self.obj, selected)
++
++    def selected_get(self):
++        return elm_toolbar_item_selected_get(self.obj)
++
++    property selected:
++        def __set__(self, selected):
++            elm_toolbar_item_selected_set(self.obj, selected)
++
++        def __get__(self):
++            return elm_toolbar_item_selected_get(self.obj)
+ 
+     def disabled_set(self, disabled):
+         elm_toolbar_item_disabled_set(self.obj, disabled)
+@@ -255,6 +296,17 @@
+         """
+         return elm_toolbar_item_cursor_engine_only_get(self.obj)
+ 
++cdef _elm_toolbar_item_to_python(Elm_Toolbar_Item *it):
++    cdef void *data
++    cdef object prm
++    if it == NULL:
++        return None
++    data = elm_toolbar_item_data_get(it)
++    if data == NULL:
++        return None
++    prm = <object>data
++    return prm[2]
++
+ 
+ cdef class Toolbar(Object):
+     """
+@@ -301,15 +353,36 @@
+         def __get__(self):
+             return elm_toolbar_icon_size_get(self.obj)
+ 
+-    def item_unselect_all(self):
+-        elm_toolbar_item_unselect_all(self.obj)
++    def selected_item_get(self):
++        cdef Elm_Toolbar_Item *it
++        it = elm_toolbar_selected_item_get(self.obj)
++        return _elm_toolbar_item_to_python(it)
+ 
+-    def item_add(self, c_evas.Object icon, label, callback = None, *args, **kargs):
+-        """
+-        Adds a new item to the toolbar
++    property selected_item:
++        def __get__(self):
++            return self.selected_item_get()
++
++    def first_item_get(self):
++        cdef Elm_Toolbar_Item *it
++        it = elm_toolbar_first_item_get(self.obj)
++        return _elm_toolbar_item_to_python(it)
+ 
+-        @note: Never pass the the same icon object to more than one item. For
+-               a every item you must create a new icon!
++    property first_item:
++        def __get__(self):
++            return self.first_item_get()
++
++    def last_item_get(self):
++        cdef Elm_Toolbar_Item *it
++        it = elm_toolbar_last_item_get(self.obj)
++        return _elm_toolbar_item_to_python(it)
++
++    property last_item:
++        def __get__(self):
++            return self.last_item_get()
++
++    def item_append(self, icon, label, callback = None, *args, **kargs):
++        """
++        Appends a new item to the toolbar
+ 
+         @parm: L{icon} icon for the item
+         @parm: L{label} label for the item
+Index: b/include/elementary/c_elementary.pxd
+===================================================================
+--- a/include/elementary/c_elementary.pxd
++++ b/include/elementary/c_elementary.pxd
+@@ -532,23 +532,31 @@
+     evas.c_evas.Evas_Object *elm_toolbar_add(evas.c_evas.Evas_Object *parent)
+     void elm_toolbar_icon_size_set(evas.c_evas.Evas_Object *obj, int icon_size)
+     int elm_toolbar_icon_size_get(evas.c_evas.Evas_Object *obj)
+-    Elm_Toolbar_Item *elm_toolbar_item_add(evas.c_evas.Evas_Object *obj,
+-                                           char *icon, char *label,
+-                                           void (*func) (void *data, evas.c_evas.Evas_Object *obj, void *event_info), void *data)
++    Elm_Toolbar_Item *elm_toolbar_item_append(evas.c_evas.Evas_Object *obj, char *icon, char *label, void (*func) (void *data, evas.c_evas.Evas_Object *obj, void *event_info), void *data)
++    Elm_Toolbar_Item *elm_toolbar_item_prepend(evas.c_evas.Evas_Object *obj, char *icon, char *label, void (*func) (void *data, evas.c_evas.Evas_Object *obj, void *event_info), void *data)
++    Elm_Toolbar_Item *elm_toolbar_item_insert_before(evas.c_evas.Evas_Object *obj, Elm_Toolbar_Item *before, char *icon, char *label, void (*func) (void *data, evas.c_evas.Evas_Object *obj, void *event_info), void *data)
++    Elm_Toolbar_Item *elm_toolbar_item_insert_after(evas.c_evas.Evas_Object *obj, Elm_Toolbar_Item *after, char *icon, char *label, void (*func) (void *data, evas.c_evas.Evas_Object *obj, void *event_info), void *data)
++    Elm_Toolbar_Item *elm_toolbar_first_item_get(evas.c_evas.Evas_Object *obj)
++    Elm_Toolbar_Item *elm_toolbar_last_item_get(evas.c_evas.Evas_Object *obj)
++    Elm_Toolbar_Item *elm_toolbar_item_next_get(Elm_Toolbar_Item *item)
++    Elm_Toolbar_Item *elm_toolbar_item_prev_get(Elm_Toolbar_Item *item)
+     evas.c_evas.Evas_Object *elm_toolbar_item_icon_get(Elm_Toolbar_Item *item)
+     char *elm_toolbar_item_icon_name_get(Elm_Toolbar_Item *item)
+     char *elm_toolbar_item_label_get(Elm_Toolbar_Item *item)
+     void  elm_toolbar_item_label_set(Elm_Toolbar_Item *item, char *label)
++    void *elm_toolbar_item_data_get(Elm_Toolbar_Item *item)
++    void  elm_toolbar_item_data_set(Elm_Toolbar_Item *item, void *data)
+     void  elm_toolbar_item_del(Elm_Toolbar_Item *item)
+     void  elm_toolbar_item_del_cb_set(Elm_Toolbar_Item *it, void (*func)(void *data, evas.c_evas.Evas_Object *obj, void *event_info))
+-    void  elm_toolbar_item_select(Elm_Toolbar_Item *item)
++    void  elm_toolbar_item_selected_set(Elm_Toolbar_Item *item, evas.c_evas.Eina_Bool selected)
++    evas.c_evas.Eina_Bool elm_toolbar_item_selected_get(Elm_Toolbar_Item *item)
+     evas.c_evas.Eina_Bool elm_toolbar_item_disabled_get(Elm_Toolbar_Item *item)
++    Elm_Toolbar_Item *elm_toolbar_selected_item_get(evas.c_evas.Evas_Object *obj)
+     void  elm_toolbar_item_disabled_set(Elm_Toolbar_Item *item, evas.c_evas.Eina_Bool disabled)
+     void  elm_toolbar_item_separator_set(Elm_Toolbar_Item *item, evas.c_evas.Eina_Bool separator)
+     evas.c_evas.Eina_Bool elm_toolbar_item_separator_get(Elm_Toolbar_Item *item)
+     void  elm_toolbar_homogenous_set(evas.c_evas.Evas_Object *obj, evas.c_evas.Eina_Bool homogenous)
+     void  elm_toolbar_menu_parent_set(evas.c_evas.Evas_Object *obj, evas.c_evas.Evas_Object *parent)
+-    void  elm_toolbar_item_unselect_all(evas.c_evas.Evas_Object *obj)
+     void  elm_toolbar_align_set(evas.c_evas.Evas_Object *obj, double align)
+     void  elm_toolbar_item_menu_set(Elm_Toolbar_Item *item, evas.c_evas.Eina_Bool menu)
+     evas.c_evas.Evas_Object *elm_toolbar_item_menu_get(Elm_Toolbar_Item *item)
+Index: b/tests/test_toolbar.py
+===================================================================
+--- a/tests/test_toolbar.py
++++ b/tests/test_toolbar.py
+@@ -46,31 +46,19 @@
+     ph3 = elementary.Photo(win)
+     ph4 = elementary.Photo(win)
+ 
+-    ic = elementary.Icon(win)
+-    ic.file_set("images/logo_small.png")
+-    item = tb.item_add(ic, "Hello", tb_1)
++    item = tb.item_append("document-print", "Hello", tb_1)
+     item.disabled = True
+ 
+-    ic = elementary.Icon(win)
+-    ic.file_set("images/logo_small.png")
+-    item = tb.item_add(ic, "World,", tb_2, ph2)
+-    item.select()
+-
+-    ic = elementary.Icon(win)
+-    ic.file_set("images/logo_small.png")
+-    tb.item_add(ic, "here", tb_3, ph4)
+-
+-    ic = elementary.Icon(win)
+-    ic.file_set("images/logo_small.png")
+-    tb.item_add(ic, "comes", tb_4, ph4)
+-
+-    ic = elementary.Icon(win)
+-    ic.file_set("images/logo_small.png")
+-    tb.item_add(ic, "python-elementary!", tb_5, ph4)
+-
+-    ic = elementary.Icon(win)
+-    ic.file_set("images/logo_small.png")
+-    item = tb.item_add(ic, "Menu", tb_5, ph4)
++    item = tb.item_append("clock", "World,", tb_2, ph2)
++    item.selected_set(True)
++
++    tb.item_append("folder-new", "here", tb_3, ph4)
++
++    tb.item_append("clock", "comes", tb_4, ph4)
++
++    tb.item_append("folder-new", "python-elementary!", tb_5, ph4)
++
++    item = tb.item_append("clock", "Menu", tb_5, ph4)
+     item.menu_set(True)
+     tb.menu_parent_set(win)
+     menu = item.menu_get()
+Index: b/tests/test_tooltip.py
+===================================================================
+--- a/tests/test_tooltip.py
++++ b/tests/test_tooltip.py
+@@ -51,10 +51,10 @@
+     bx.pack_end(tb)
+     tb.show()
+ 
+-    ti = tb.item_add(None, "Open", None, None)
++    ti = tb.item_append("folder-new", "Open", None, None)
+     ti.tooltip_text_set("Opens a file")
+ 
+-    ti = tb.item_add(None, "Icon", None, None)
++    ti = tb.item_append("clock", "Icon", None, None)
+     ti.tooltip_content_cb_set(_tt_item_icon, None)
+     ti.tooltip_style_set("transparent")
+ 

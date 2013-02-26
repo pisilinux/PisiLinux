@@ -1,0 +1,120 @@
+diff -up vsftpd-2.1.0/logging.c.userlist_log vsftpd-2.1.0/logging.c
+--- vsftpd-2.1.0/logging.c.userlist_log	2008-12-17 20:56:45.000000000 +0100
++++ vsftpd-2.1.0/logging.c	2009-02-24 09:12:42.000000000 +0100
+@@ -95,6 +95,13 @@ vsf_log_line(struct vsf_session* p_sess,
+   vsf_log_common(p_sess, 1, what, p_str);
+ }
+ 
++void
++vsf_log_failed_line(struct vsf_session* p_sess, enum EVSFLogEntryType what,
++             struct mystr* p_str)
++{
++  vsf_log_common(p_sess, 0, what, p_str);
++}
++
+ int
+ vsf_log_entry_pending(struct vsf_session* p_sess)
+ {
+diff -up vsftpd-2.1.0/logging.h.userlist_log vsftpd-2.1.0/logging.h
+--- vsftpd-2.1.0/logging.h.userlist_log	2008-07-30 03:29:21.000000000 +0200
++++ vsftpd-2.1.0/logging.h	2009-02-24 09:12:42.000000000 +0100
+@@ -80,5 +80,16 @@ void vsf_log_do_log(struct vsf_session* 
+ void vsf_log_line(struct vsf_session* p_sess, enum EVSFLogEntryType what,
+                   struct mystr* p_str);
+ 
++/* vsf_log_failed_line()
++ * PURPOSE
++ * Same as vsf_log_line(), except that it logs the line as failed operation.
++ * PARAMETERS
++ * p_sess       - the current session object
++ * what         - the type of operation to log
++ * p_str        - the string to log
++ */
++void vsf_log_failed_line(struct vsf_session* p_sess, enum EVSFLogEntryType what,
++                  struct mystr* p_str);
++
+ #endif /* VSF_LOGGING_H */
+ 
+diff -up vsftpd-2.1.0/parseconf.c.userlist_log vsftpd-2.1.0/parseconf.c
+--- vsftpd-2.1.0/parseconf.c.userlist_log	2008-12-18 07:21:41.000000000 +0100
++++ vsftpd-2.1.0/parseconf.c	2009-02-24 09:12:42.000000000 +0100
+@@ -96,6 +96,7 @@ parseconf_bool_array[] =
+   { "mdtm_write", &tunable_mdtm_write },
+   { "lock_upload_files", &tunable_lock_upload_files },
+   { "pasv_addr_resolve", &tunable_pasv_addr_resolve },
++  { "userlist_log", &tunable_userlist_log },
+   { "debug_ssl", &tunable_debug_ssl },
+   { "require_cert", &tunable_require_cert },
+   { "validate_cert", &tunable_validate_cert },
+diff -up vsftpd-2.1.0/prelogin.c.userlist_log vsftpd-2.1.0/prelogin.c
+--- vsftpd-2.1.0/prelogin.c.userlist_log	2009-02-18 23:23:53.000000000 +0100
++++ vsftpd-2.1.0/prelogin.c	2009-02-24 09:17:41.000000000 +0100
+@@ -220,6 +220,20 @@ handle_user_command(struct vsf_session* 
+       check_login_delay();
+       vsf_cmdio_write(p_sess, FTP_LOGINERR, "Permission denied.");
+       check_login_fails(p_sess);
++      if (tunable_userlist_log)
++      {
++        struct mystr str_log_line = INIT_MYSTR;
++        if (tunable_userlist_deny)
++        {
++          str_alloc_text(&str_log_line, "User is in the deny user list.");
++        }
++        else
++        {
++          str_alloc_text(&str_log_line, "User is not in the allow user list.");
++        }
++        vsf_log_failed_line(p_sess, kVSFLogEntryLogin, &str_log_line);
++        str_free(&str_log_line);
++      }
+       str_empty(&p_sess->user_str);
+       return;
+     }
+diff -up vsftpd-2.1.0/tunables.c.userlist_log vsftpd-2.1.0/tunables.c
+--- vsftpd-2.1.0/tunables.c.userlist_log	2009-02-24 09:12:42.000000000 +0100
++++ vsftpd-2.1.0/tunables.c	2009-02-24 09:12:42.000000000 +0100
+@@ -72,6 +72,7 @@ int tunable_force_anon_data_ssl;
+ int tunable_mdtm_write;
+ int tunable_lock_upload_files;
+ int tunable_pasv_addr_resolve;
++int tunable_userlist_log;
+ int tunable_debug_ssl;
+ int tunable_require_cert;
+ int tunable_validate_cert;
+@@ -206,6 +207,7 @@ tunables_load_defaults()
+   tunable_mdtm_write = 1;
+   tunable_lock_upload_files = 1;
+   tunable_pasv_addr_resolve = 0;
++  tunable_userlist_log = 0;
+   tunable_debug_ssl = 0;
+   tunable_require_cert = 0;
+   tunable_validate_cert = 0;
+diff -up vsftpd-2.1.0/tunables.h.userlist_log vsftpd-2.1.0/tunables.h
+--- vsftpd-2.1.0/tunables.h.userlist_log	2008-12-17 06:47:11.000000000 +0100
++++ vsftpd-2.1.0/tunables.h	2009-02-24 09:12:42.000000000 +0100
+@@ -73,6 +73,7 @@ extern int tunable_force_anon_data_ssl; 
+ extern int tunable_mdtm_write;                /* Allow MDTM to set timestamps */
+ extern int tunable_lock_upload_files;         /* Lock uploading files */
+ extern int tunable_pasv_addr_resolve;         /* DNS resolve pasv_addr */
++extern int tunable_userlist_log;              /* Log every failed login attempt */
+ extern int tunable_debug_ssl;                 /* Verbose SSL logging */
+ extern int tunable_require_cert;              /* SSL client cert required */
+ extern int tunable_validate_cert;             /* SSL certs must be valid */
+diff -up vsftpd-2.1.0/vsftpd.conf.5.userlist_log vsftpd-2.1.0/vsftpd.conf.5
+--- vsftpd-2.1.0/vsftpd.conf.5.userlist_log	2009-02-24 09:12:42.000000000 +0100
++++ vsftpd-2.1.0/vsftpd.conf.5	2009-02-24 09:12:42.000000000 +0100
+@@ -585,6 +585,14 @@ Self-signed certs do not constitute OK v
+ 
+ Default: NO
+ .TP
++.B userlist_log
++This option is examined if
++.BR userlist_enable
++is activated. If enabled, every login denial based on the user list will be
++logged.
++
++Default: NO
++.TP
+ .B virtual_use_local_privs
+ If enabled, virtual users will use the same privileges as local users. By
+ default, virtual users will use the same privileges as anonymous users, which

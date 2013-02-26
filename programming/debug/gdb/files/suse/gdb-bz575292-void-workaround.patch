@@ -1,0 +1,187 @@
+http://sourceware.org/ml/gdb-patches/2010-03/msg01039.html
+Subject: [patch] Fix crash on NULL function's TYPE_FIELD_TYPE
+
+Hi,
+
+seen one possibility of a crash.
+
+#0  c_print_type (type=0x0, ...)
+#1  in c_type_print_args (type=0xfceb890,
+
+(The real reason of a reported GDB crash was different, though.)
+
+
+Thanks,
+Jan
+
+
+gdb/
+2010-03-30  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Fix crash on reading wrong function declaration DWARF.
+	* dwarf2read.c (read_subroutine_type): New variable void_type.
+	Pre-fill all TYPE_FIELD_TYPEs.  Move nparams and iparams initialization
+	more close to their use.
+
+gdb/testsuite/
+2010-03-30  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.dwarf2/dw2-bad-parameter-type.exp,
+	gdb.dwarf2/dw2-bad-parameter-type.S: New.
+
+--- a/gdb/dwarf2read.c
++++ b/gdb/dwarf2read.c
+@@ -5938,13 +5938,14 @@ read_subroutine_type (struct die_info *die, struct dwarf2_cu *cu)
+   
+   if (die->child != NULL)
+     {
++      struct type *void_type = objfile_type (cu->objfile)->builtin_void;
+       struct die_info *child_die;
+-      int nparams = 0;
+-      int iparams = 0;
++      int nparams, iparams;
+ 
+       /* Count the number of parameters.
+          FIXME: GDB currently ignores vararg functions, but knows about
+          vararg member functions.  */
++      nparams = 0;
+       child_die = die->child;
+       while (child_die && child_die->tag)
+ 	{
+@@ -5960,6 +5961,12 @@ read_subroutine_type (struct die_info *die, struct dwarf2_cu *cu)
+       TYPE_FIELDS (ftype) = (struct field *)
+ 	TYPE_ZALLOC (ftype, nparams * sizeof (struct field));
+ 
++      /* TYPE_FIELD_TYPE must never be NULL.  Pre-fill the array to ensure it
++	 even if we error out during the parameters reading below.  */
++      for (iparams = 0; iparams < nparams; iparams++)
++	TYPE_FIELD_TYPE (ftype, iparams) = void_type;
++
++      iparams = 0;
+       child_die = die->child;
+       while (child_die && child_die->tag)
+ 	{
+--- /dev/null
++++ b/gdb/testsuite/gdb.dwarf2/dw2-bad-parameter-type.S
+@@ -0,0 +1,73 @@
++/* Copyright 2010 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++	.section	.debug_info
++debug_start:
++	.long	debug_end - 1f	/* Length of Compilation Unit Info */
++1:
++	.2byte	0x3	/* DWARF version number */
++	.long	.Ldebug_abbrev0	/* Offset Into Abbrev. Section */
++	.byte	0x4	/* Pointer Size (in bytes) */
++	.uleb128 0x1	/* (DIE (0xb) DW_TAG_compile_unit) */
++	.ascii "GNU C 4.4.3\0"	/* DW_AT_producer */
++	.byte	0x1	/* DW_AT_language */
++	.ascii "1.c\0"	/* DW_AT_name */
++	.uleb128 0x4	/* (DIE (0x3c) DW_TAG_subprogram) */
++	.ascii "f\0"	/* DW_AT_name */
++/* Value 0 would require has_section_at_zero != 0 (which is true, though).  */
++	.long	1	/* DW_AT_low_pc */
++	.long	2	/* DW_AT_high_pc */
++	.byte	0x1	/* DW_AT_prototyped */
++	.uleb128 0x5	/* (DIE (0x42) DW_TAG_formal_parameter) */
++/* Invalid value.  */
++	.long	0x0	/* DW_AT_type */
++	.byte	0x0	/* end of children of DIE 0x3c */
++	.byte	0x0	/* end of children of DIE 0xb */
++debug_end:
++
++	.section	.debug_abbrev
++.Ldebug_abbrev0:
++	.uleb128 0x1	/* (abbrev code) */
++	.uleb128 0x11	/* (TAG: DW_TAG_compile_unit) */
++	.byte	0x1	/* DW_children_yes */
++	.uleb128 0x25	/* (DW_AT_producer) */
++	.uleb128 0x8	/* (DW_FORM_string) */
++	.uleb128 0x13	/* (DW_AT_language) */
++	.uleb128 0xb	/* (DW_FORM_data1) */
++	.uleb128 0x3	/* (DW_AT_name) */
++	.uleb128 0x8	/* (DW_FORM_string) */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x4	/* (abbrev code) */
++	.uleb128 0x2e	/* (TAG: DW_TAG_subprogram) */
++	.byte	0x1	/* DW_children_yes */
++	.uleb128 0x3	/* (DW_AT_name) */
++	.uleb128 0x8	/* (DW_FORM_string) */
++	.uleb128 0x11	/* (DW_AT_low_pc) */
++	.uleb128 0x1	/* (DW_FORM_addr) */
++	.uleb128 0x12	/* (DW_AT_high_pc) */
++	.uleb128 0x1	/* (DW_FORM_addr) */
++	.uleb128 0x27	/* (DW_AT_prototyped) */
++	.uleb128 0xc	/* (DW_FORM_flag) */
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x5	/* (abbrev code) */
++	.uleb128 0x5	/* (TAG: DW_TAG_formal_parameter) */
++	.byte	0x0	/* DW_children_no */
++	.uleb128 0x49	/* (DW_AT_type) */
++	.uleb128 0x13	/* (DW_FORM_ref4) */
++	.byte	0x0
++	.byte	0x0
++	.byte	0x0
+--- /dev/null
++++ b/gdb/testsuite/gdb.dwarf2/dw2-bad-parameter-type.exp
+@@ -0,0 +1,44 @@
++# Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# This test can only be run on targets which support DWARF-2 and use gas.
++# For now pick a sampling of likely targets.
++if {![istarget *-*-linux*]
++    && ![istarget *-*-gnu*]
++    && ![istarget *-*-elf*]
++    && ![istarget *-*-openbsd*]
++    && ![istarget arm-*-eabi*]
++    && ![istarget powerpc-*-eabi*]} {
++    return 0  
++}
++
++set testfile "dw2-bad-parameter-type"
++set srcfile ${testfile}.S
++set executable ${testfile}.x
++set binfile ${objdir}/${subdir}/${executable}
++
++# First try referencing DW_AT_frame_base which is not defined.
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" object {}] != "" } {
++    return -1
++}
++
++clean_restart $executable
++
++# The first access (as we do not use -readnow) prints some:
++# Dwarf Error: Cannot find DIE at 0x0 referenced from DIE at 0x29 [in module ...]
++gdb_test "ptype f"
++
++gdb_test "ptype f"
++gdb_test "p 5" " = 5" "is alive"
+

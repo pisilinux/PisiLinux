@@ -1,0 +1,367 @@
+Index: quilt-0.46/quilt/expand.in
+===================================================================
+--- /dev/null
++++ quilt-0.46/quilt/expand.in
+@@ -0,0 +1,236 @@
++#! @BASH@
++
++#  This script is free software; you can redistribute it and/or modify
++#  it under the terms of the GNU General Public License version 2 as
++#  published by the Free Software Foundation.
++#
++#  See the COPYING and AUTHORS files for more details.
++
++# Read in library functions
++if [ "$(type -t patch_file_name)" != function ]
++then
++	if ! [ -r $QUILT_DIR/scripts/patchfns ]
++	then
++		echo "Cannot read library @SCRIPTS@/patchfns" >&2
++		exit 1
++	fi
++	. $QUILT_DIR/scripts/patchfns
++fi
++
++usage()
++{
++	printf $"Usage: quilt expand [patch]\n"
++	if [ x$1 = x-h ]
++	then
++		printf $"
++Expand the topmost or specified collapsed patch into its individual patches.
++"
++		exit 0
++	else
++		exit 1
++	fi
++}
++
++fill_orig() {
++	local orig=$1 patch exclude
++
++	cp -rld "$QUILT_PC/$combined_patch" "$orig"
++
++	for patch in $(patches_after "$combined_patch")
++	do
++		is_applied "$patch" || break
++		( cd "$QUILT_PC/$patch" \
++		  && find -type f \
++		  | xargs -r cp -il --parents --target-directory "$orig" \
++		    2> /dev/null
++		)
++	done
++
++	if [ ${QUILT_PATCHES:0:1} != / ]
++	then
++		exclude="$exclude"'-path "./$QUILT_PATCHES" -prune -o '
++	fi
++	if [ ${QUILT_PC:0:1} != / ]
++	then
++		exclude="$exclude"'-path "./$QUILT_PC" -prune -o '
++	fi
++	eval find $exclude -type f -print \
++	| xargs -r cp -il --parents --target-directory "$orig" \
++	  2> /dev/null
++
++	find "$orig" -size 0 \
++	| xargs -r rm -f
++}
++
++move_pc_dirs() {
++	local pc_dir=$1
++
++	for ((n = 0; n < ${#patches[@]}; n++))
++	do
++		mkdir -p $(dirname "$QUILT_PC/${patches[n]}") \
++		&& mv "$pc_dir/${patches[n]}" "$QUILT_PC/${patches[n]}" \
++		|| return 1
++	done
++}
++
++expand_in_list() {
++	local series=$1 replace=$2 tmpfile=$(gen_tempfile $series.XXXXXX)
++	awk '
++	/^'"$(quote_re $combined_patch)"'([ \t]|$)/ \
++		{ print patches
++		  replaced++
++		  next }
++		{ print }
++	END	{ exit (replaced != 1) }
++	' patches="$replace" \
++	< $series > $tmpfile
++	if [ $? = 0 ]
++	then
++		mv $tmpfile $series
++	else
++		rm -f $tmpfile
++		return 1
++	fi
++}
++
++options=`getopt -o h --long help: -- "$@"`
++
++if [ $? -ne 0 ]
++then
++	usage
++fi
++
++eval set -- "$options"
++
++while true
++do
++	case "$1" in
++	-h)
++		usage -h ;;
++	--)
++		shift
++		break ;;
++	esac
++done
++
++if [ $# -gt 1 ]
++then
++	usage
++fi
++
++if [ -n "$1" ]
++then
++	if ! combined_patch=$(find_patch $1)
++	then
++		printf $"Patch %s is not in series file\n" "$1" >&2
++		exit 1
++	fi
++else
++	if ! combined_patch=$(top_patch)
++	then
++		printf $"No patches applied\n" >&2
++		exit 1
++	fi
++fi
++
++combined_series=$(patch_file_name $combined_patch \
++                  | sed -e 's:\.gz$::' -e 's:\.bz2$::').series
++
++if ! [ -f "$combined_series" ]
++then
++	printf $"Patch %s is not a combined patch\n" "$(print_patch "$1")"
++	exit 1
++fi
++
++patches=( $(sed -e $'s:[ \t].*::' $combined_series) )
++
++if ! is_applied "$combined_patch"
++then
++	for ((n = 0; n < ${#patches[@]}; n++))
++	do
++		printf $"Applying patch %s\n" "$(print_patch "${patches[n]}")"
++	done
++	if ! expand_in_list "$SERIES" "$(< "$combined_series")"
++	then
++		printf "Expanding %s failed\n" \
++		       "$(print_patch "$combined_patch")"
++		exit 1
++	fi
++	exit 0
++fi
++
++for ((n = 0; n < ${#patches[@]}; n++))
++do
++	patch=${patches[n]}
++	if ! [ -e "$(patch_file_name "$patch")" ]
++	then
++		printf $"Component patch %s of %s not found\n" "$patch" \
++		       "$(print_patch "$combined_patch")"
++		exit 1
++	fi
++	if is_applied "$patch"
++	then
++		printf $"Component patch %s of %s appears to be applied\n" \
++		       "$(print_patch "$patch")" \
++		       "$(print_patch "$combined_patch")"
++		exit 1
++	fi
++done
++
++tmpdir=$(gen_tempfile -d $QUILT_PC/expand)
++trap "rm -rf $tmpdir" EXIT
++
++[ "${tmpdir:0:1}" = / ] || tmpdir=$PWD/$tmpdir
++
++fill_orig $tmpdir/orig
++cp -rld $tmpdir/orig $tmpdir/tree
++
++for ((n = 0; n < ${#patches[@]}; n++))
++do
++	patch=${patches[n]}
++	pc_dir=$tmpdir/pc/$patch
++	patch_args=$(SERIES=$combined_series; patch_args $patch)
++
++	printf $"Applying patch %s\n" "$(print_patch "$patch")"
++	if ! cat_file "$(patch_file_name "$patch")" \
++	     | patch $QUILT_PATCH_OPTS $patch_args \
++		     --backup --prefix="$pc_dir/" \
++		     -Efs -d "$tmpdir/tree" >/dev/null
++	then
++		printf $"Patch %s does not apply; aborting expand\n" \
++		       "$(print_patch "$patch")"
++		exit 1
++	fi
++	touch $pc_dir/.timestamp
++done
++
++printf $"Verifying against patch %s\n" "$(print_patch "$combined_patch")"
++if ! cat_file "$(patch_file_name "$combined_patch")" \
++     | patch $QUILT_PATCH_OPTS $(patch_args $combined_patch) \
++	     --no-backup-if-mismatch -Efs -d "$tmpdir/orig" >/dev/null
++then
++	printf $"Patch %s does not apply; aborting expand\n" \
++	       "$(print_patch "combined_patch")"
++	exit 1
++fi
++
++if ! diff -Nqr "$tmpdir/orig" "$tmpdir/tree" > /dev/null
++then
++	diff -Nur "$tmpdir/orig" "$tmpdir/tree"
++	printf $"The patches do not add up to the combined patch\n"
++	exit 1
++fi
++
++if ! move_pc_dirs "$tmpdir/pc" ||
++   ! expand_in_list $DB "$(sed -e $'s:[ \t].*::' "$combined_series")" ||
++   ! expand_in_list "$SERIES" "$(< "$combined_series")" ||
++   ! rm -rf $QUILT_PC/$combined_patch
++then
++	printf "Expanding %s failed\n" "$(print_patch "$combined_patch")"
++	exit 1
++fi
++
++### Local Variables:
++### mode: shell-script
++### End:
++# vim:filetype=sh
+Index: quilt-0.46/test/expand.test
+===================================================================
+--- /dev/null
++++ quilt-0.46/test/expand.test
+@@ -0,0 +1,121 @@
++	$ rm -rf d
++	$ mkdir -p d/patches
++	$ cd d
++
++	$ echo not part of any > patch
++	$ echo foo > foo
++	$ echo bar > bar
++	$ echo void > void
++	$ quilt new patch1
++	> Patch patches/patch1 is now on top
++
++	$ quilt add foo
++	> File foo added to patch patches/patch1
++
++	$ echo foo2 > foo
++	$ quilt refresh
++	> Refreshed patch patches/patch1
++
++	$ quilt new subdir/patch2
++	> Patch patches/subdir/patch2 is now on top
++
++	$ quilt add bar void
++	> File bar added to patch patches/subdir/patch2
++	> File void added to patch patches/subdir/patch2
++
++	$ echo bar2 > bar
++	$ rm void
++	$ quilt refresh
++	> Refreshed patch patches/subdir/patch2
++
++	$ quilt diff -p0 --combine - --no-index > patches/combined
++	$ quilt pop -qa
++	> Removing patch patches/subdir/patch2
++	> Removing patch patches/patch1
++	> No patches applied
++
++	$ mv patches/series patches/combined.series
++	$ echo combined -p0 > patches/series
++	$ quilt push -q
++	> Applying patch patches/combined
++	> Now at patch patches/combined
++
++	$ quilt expand
++	> Applying patch patches/patch1
++	> Applying patch patches/subdir/patch2
++	> Verifying against patch patches/combined
++
++	$ quilt series
++	> patches/patch1
++	> patches/subdir/patch2
++
++	$ quilt pop -qaR
++	> Removing patch patches/subdir/patch2
++	> Removing patch patches/patch1
++	> No patches applied
++
++	$ quilt push -qa
++	> Applying patch patches/patch1
++	> Applying patch patches/subdir/patch2
++	> Now at patch patches/subdir/patch2
++
++	$ quilt new patch3
++	> Patch patches/patch3 is now on top
++
++	$ quilt add void
++	> File void added to patch patches/patch3
++
++	$ echo void > void
++	$ quilt refresh -p0
++	> Refreshed patch patches/patch3
++
++	$ mkdir -p patches/subdir2
++	$ quilt diff -p1 --combine - --no-index > patches/subdir2/combined2
++	$ quilt pop -qaR
++	> Removing patch patches/patch3
++	> Removing patch patches/subdir/patch2
++	> Removing patch patches/patch1
++	> No patches applied
++
++	$ mv patches/series patches/subdir2/combined2.series
++	$ echo subdir2/combined2 > patches/series
++	$ quilt push -q
++	> Applying patch patches/subdir2/combined2
++	> Now at patch patches/subdir2/combined2
++
++	$ quilt expand
++	> Applying patch patches/patch1
++	> Applying patch patches/subdir/patch2
++	> Applying patch patches/patch3
++	> Verifying against patch patches/subdir2/combined2
++
++	$ quilt series
++	> patches/patch1
++	> patches/subdir/patch2
++	> patches/patch3
++
++	$ quilt pop -qaR
++	> Removing patch patches/patch3
++	> Removing patch patches/subdir/patch2
++	> Removing patch patches/patch1
++	> No patches applied
++
++	$ cat foo bar void
++	> foo
++	> bar
++	> void
++
++	$ echo subdir2/combined2 > patches/series
++
++	$ quilt expand subdir2/combined2
++	> Applying patch patches/patch1
++	> Applying patch patches/subdir/patch2
++	> Applying patch patches/patch3
++
++	$ quilt series
++	> patches/patch1
++	> patches/subdir/patch2
++	> patches/patch3
++
++	$ cd ..
++	$ rm -rf d

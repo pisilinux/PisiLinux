@@ -1,0 +1,121 @@
+--- uClibc-0.9.30.1/libc/stdio/_scanf.c.a_flag~	2008-09-09 15:01:58.000000000 +0200
++++ uClibc-0.9.30.1/libc/stdio/_scanf.c	2009-12-07 01:32:49.000000000 +0100
+@@ -105,12 +105,11 @@ libc_hidden_proto(__ctype_b)
+ #endif
+ 
+ #ifdef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
+-#ifdef L_vfscanf
+-/* only emit this once */
+-#warning Forcing undef of __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__ until implemented!
+-#endif
++#ifdef L_vfwscanf
++#warning Forcing undef of __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__ until implemented for wchar!
+ #undef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
+ #endif
++#endif
+ 
+ #undef __STDIO_HAS_VSSCANF
+ #if defined(__STDIO_BUFFERS) || !defined(__UCLIBC_HAS_WCHAR__) || defined(__UCLIBC_HAS_GLIBC_CUSTOM_STREAMS__)
+@@ -934,7 +933,6 @@ int attribute_hidden __psfs_parse_spec(r
+ 			int p_m_spec_chars = p - spec_chars;
+ 
+ #ifdef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
+-#error implement gnu a flag
+ 			if ((*p == 'a')
+ 				&& ((psfs->fmt[1] == '[') || ((psfs->fmt[1]|0x20) == 's'))
+ 				) {		/* Assumes ascii for 's' and 'S' test. */
+@@ -1184,6 +1182,12 @@ int VFSCANF (FILE *__restrict fp, const 
+ 
+ 	int i;
+ 
++#ifdef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
++#define MALLOC_CHUNK_SIZE	64
++	unsigned int  alen, aoffset;
++	unsigned char *abuf;
++#endif
++
+ #ifdef __UCLIBC_MJN3_ONLY__
+ #warning TODO: Fix MAX_DIGITS.  We do not do binary, so...!
+ #endif
+@@ -1408,12 +1412,32 @@ int VFSCANF (FILE *__restrict fp, const 
+ 				b = (psfs.store ? ((unsigned char *) psfs.cur_ptr) : buf);
+ 				fail = 1;
+ 
++#ifdef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
++				if (psfs.flags & FLAG_MALLOC) {
++					alen = MALLOC_CHUNK_SIZE;
++					if ((abuf = (unsigned char *) malloc(alen)) == NULL) {
++						goto NEXT_FMT;
++					}
++					b = abuf;
++				}
++#endif
++
+ 				if (psfs.conv_num == CONV_c) {
+ 					if (sc.width == INT_MAX) {
+ 						sc.width = 1;
+ 					}
+ 
+ 					while (__scan_getc(&sc) >= 0) {
++#ifdef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
++						aoffset = (unsigned int) b - (unsigned int) abuf;
++						if ((psfs.flags & FLAG_MALLOC) && ( aoffset + psfs.store >= alen)) {
++							alen += MALLOC_CHUNK_SIZE;
++							if ((abuf = (unsigned char *) realloc(abuf, alen)) == NULL) {
++								break;
++							}
++							b = abuf + aoffset;
++						}
++#endif
+ 						zero_conversions = 0;
+ 						*b = sc.cc;
+ 						b += psfs.store;
+@@ -1429,6 +1453,17 @@ int VFSCANF (FILE *__restrict fp, const 
+ 				if (psfs.conv_num == CONV_s) {
+ 					/* Yes, believe it or not, a %s conversion can store nuls. */
+ 					while ((__scan_getc(&sc) >= 0) && !isspace(sc.cc)) {
++#ifdef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
++						aoffset = (unsigned int) b - (unsigned int) abuf;
++						if ((psfs.flags & FLAG_MALLOC) && ( aoffset + psfs.store >= alen)) {
++							alen += MALLOC_CHUNK_SIZE;
++							if ((abuf = (unsigned char *) realloc(abuf, alen)) == NULL) {
++								fail = 1;
++								break;
++							}
++							b = abuf + aoffset;
++						}
++#endif
+ 						zero_conversions = 0;
+ 						*b = sc.cc;
+ 						b += psfs.store;
+@@ -1489,6 +1524,17 @@ int VFSCANF (FILE *__restrict fp, const 
+ 						if (!scanset[sc.cc]) {
+ 							break;
+ 						}
++#ifdef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
++						aoffset = (unsigned int) b - (unsigned int) abuf;
++						if ((psfs.flags & FLAG_MALLOC) && ( aoffset + psfs.store >= alen)) {
++							alen += MALLOC_CHUNK_SIZE;
++							if ((abuf = (unsigned char *) realloc(abuf, alen)) == NULL) {
++								fail = 1;
++								break;
++							}
++							b = abuf + aoffset;
++						}
++#endif
+ 						*b = sc.cc;
+ 						b += psfs.store;
+ 						fail = 0;
+@@ -1496,6 +1542,12 @@ int VFSCANF (FILE *__restrict fp, const 
+ 				}
+ 				/* Common tail for processing of %s and %[. */
+ 
++#ifdef __UCLIBC_HAS_SCANF_GLIBC_A_FLAG__
++				if (psfs.flags & FLAG_MALLOC) {
++					/* store the ptr to allocated string space, or even null */
++					* (unsigned char **) psfs.cur_ptr = abuf;
++				}
++#endif
+ 				__scan_ungetc(&sc);
+ 				if (fail) {	/* nothing stored! */
+ 					goto DONE;

@@ -1,0 +1,146 @@
+diff -u -X /home/jkratoch/.diffi.list -ruNp gdb-6.5/gdb/testsuite/gdb.base/gcore-excessive-memory.c gdb-6.5-unknown/gdb/testsuite/gdb.base/gcore-excessive-memory.c
+--- gdb-6.5/gdb/testsuite/gdb.base/gcore-excessive-memory.c	1970-01-01 01:00:00.000000000 +0100
++++ gdb-6.5-unknown/gdb/testsuite/gdb.base/gcore-excessive-memory.c	2008-01-08 11:25:45.000000000 +0100
+@@ -0,0 +1,37 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2008 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++ 
++   You should have received a copy of the GNU General Public License
++   along with this program; if not, write to the Free Software
++   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++
++   Please email any bugs, comments, and/or additions to this file to:
++   bug-gdb@prep.ai.mit.edu  */
++
++#include <unistd.h>
++#include <stdlib.h>
++
++#define MEGS 64
++
++int main()
++{
++  void *mem;
++  
++  mem = malloc (MEGS * 1024ULL * 1024ULL);
++
++  for (;;)
++    sleep (1);
++
++  return 0;
++}
+diff -u -X /home/jkratoch/.diffi.list -ruNp gdb-6.5/gdb/testsuite/gdb.base/gcore-excessive-memory.exp gdb-6.5-unknown/gdb/testsuite/gdb.base/gcore-excessive-memory.exp
+--- gdb-6.5/gdb/testsuite/gdb.base/gcore-excessive-memory.exp	1970-01-01 01:00:00.000000000 +0100
++++ gdb-6.5-unknown/gdb/testsuite/gdb.base/gcore-excessive-memory.exp	2008-01-08 11:47:32.000000000 +0100
+@@ -0,0 +1,101 @@
++# Copyright 2008 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
++
++if $tracelevel then {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++set testfile gcore-excessive-memory
++set srcfile ${testfile}.c
++set shfile ${objdir}/${subdir}/${testfile}-gdb.sh
++set corefile ${objdir}/${subdir}/${testfile}.core
++set binfile ${objdir}/${subdir}/${testfile}
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
++    untested "Couldn't compile test program"
++    return -1
++}
++
++set f [open "|getconf PAGESIZE" "r"]
++gets $f pagesize
++close $f
++
++set pid_of_bin [eval exec $binfile &]
++sleep 2
++
++# Get things started.
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++set pid_of_gdb [exp_pid -i [board_info host fileid]]
++
++gdb_test "attach $pid_of_bin" "Attaching to .*" "attach"
++gdb_test "up 99" "in main .*" "verify we can get to main"
++
++proc memory_v_pages_get {} {
++    global pid_of_gdb pagesize
++    set fd [open "/proc/$pid_of_gdb/statm"]
++    gets $fd line
++    close $fd
++    # number of pages of virtual memory
++    scan $line "%d" drs
++    return $drs
++}
++
++set pages_found [memory_v_pages_get]
++
++# It must be definitely less than `MEGS' of `gcore-excessive-memory.c'.
++set mb_gcore_reserve 4
++verbose -log "pages_found = $pages_found, mb_gcore_reserve = $mb_gcore_reserve"
++set kb_found [expr $pages_found * $pagesize / 1024]
++set kb_permit [expr $kb_found + 1 * 1024 + $mb_gcore_reserve * 1024]
++verbose -log "kb_found = $kb_found, kb_permit = $kb_permit"
++
++# Create the ulimit wrapper.
++set f [open $shfile "w"]
++puts $f "#! /bin/sh"
++puts $f "ulimit -v $kb_permit"
++puts $f "exec $GDB \"\$@\""
++close $f
++remote_exec host "chmod +x $shfile"
++
++gdb_exit
++set GDBold $GDB
++set GDB "$shfile"
++gdb_start
++set GDB $GDBold
++
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++set pid_of_gdb [exp_pid -i [board_info host fileid]]
++
++gdb_test "attach $pid_of_bin" "Attaching to .*" "attach"
++gdb_test "up 99" "in main .*" "verify we can get to main"
++
++verbose -log "kb_found before gcore = [expr [memory_v_pages_get] * $pagesize / 1024]"
++
++gdb_test "gcore $corefile" "Saved corefile \[^\n\r\]*" "Save the core file"
++
++verbose -log "kb_found after gcore = [expr [memory_v_pages_get] * $pagesize / 1024]"
++
++# Cleanup.
++exec kill -9 $pid_of_bin

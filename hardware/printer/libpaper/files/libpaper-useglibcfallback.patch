@@ -1,0 +1,80 @@
+diff -ru libpaper-1.1.23.orig/lib/paper.c libpaper-1.1.23/lib/paper.c
+--- libpaper-1.1.23.orig/lib/paper.c	2008-08-12 13:20:48.000000000 +0100
++++ libpaper-1.1.23/lib/paper.c	2008-08-12 14:26:44.000000000 +0100
+@@ -22,6 +22,9 @@
+ 
+ #include <stdlib.h>
+ 
++#include <locale.h>
++#include <langinfo.h>
++
+ #include "paper.h"
+ 
+ struct paper {
+@@ -110,6 +113,27 @@
+ }
+ 
+ const char* defaultpapername(void) {
++#if defined(LC_PAPER) && defined(_GNU_SOURCE)
++
++#define NL_PAPER_GET(x)         \
++  ((union { char *string; unsigned int word; })nl_langinfo(x)).word
++
++#define PT_TO_MM(v) (unsigned int)((v * 2.54 * 10 / 72) + 0.5)
++
++    const struct paper* pp;
++
++    unsigned int w = NL_PAPER_GET(_NL_PAPER_WIDTH);
++    unsigned int h = NL_PAPER_GET(_NL_PAPER_HEIGHT);
++
++    for (pp = paperfirst(); pp; pp = papernext(pp)) {
++	if (
++             PT_TO_MM(pp->pswidth) == w &&
++             PT_TO_MM(pp->psheight) == h
++           ) {
++	    return pp->name;
++	}
++    }
++#endif
+     return PAPERSIZE;
+ }
+ 
+diff -ru libpaper-1.1.23.orig/man/paperconf.1.in libpaper-1.1.23/man/paperconf.1.in
+--- libpaper-1.1.23.orig/man/paperconf.1.in	2008-08-12 13:20:48.000000000 +0100
++++ libpaper-1.1.23/man/paperconf.1.in	2008-08-12 14:34:06.000000000 +0100
+@@ -48,10 +48,12 @@
+ .B @PAPERSIZEVAR@
+ environment variable, at the contents of the file specified by the
+ .B @PAPERCONFVAR@
+-environment variable, at the contects of
++environment variable, at the contents of the file
+ .B @PAPERCONF@
+-or by using
+-.B letter
++, consulting the values controlled by the
++.B LC_PAPER
++locale setting, or by using
++.B @PAPERSIZE@
+ as a fall-back value if none of the other alternatives are successful.
+ By default, width and height of the paper are printed in PostScript points.
+ .SH OPTIONS
+diff -ru libpaper-1.1.23.orig/src/paperconf.c libpaper-1.1.23/src/paperconf.c
+--- libpaper-1.1.23.orig/src/paperconf.c	2008-08-12 13:20:48.000000000 +0100
++++ libpaper-1.1.23/src/paperconf.c	2008-08-12 14:13:33.000000000 +0100
+@@ -13,6 +13,7 @@
+ #include <errno.h>
+ 
+ #include <paper.h>
++#include <locale.h>
+ 
+ 
+ /* needed for GNU/Hurd */
+@@ -99,6 +100,8 @@
+ 
+     const char* progname;
+ 
++    setlocale(LC_ALL, "");
++
+     progname = strrchr(*argv, '/');
+     if (progname) {
+ 	++progname;

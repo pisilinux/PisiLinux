@@ -1,0 +1,134 @@
+diff -Naurp dietlibc-0.32-20080509/diet.c dietlibc-0.32-20080509.oden/diet.c
+--- dietlibc-0.32-20080509/diet.c	2006-08-27 09:49:00.000000000 -0400
++++ dietlibc-0.32-20080509.oden/diet.c	2008-06-08 12:01:47.000000000 -0400
+@@ -71,6 +71,7 @@ int main(int argc,char *argv[]) {
+   int shared=0;
+ #endif
+   char* shortplatform=0;
++  char* shortplatform32=0;
+ #ifdef WANT_SAFEGUARD
+   char safeguard1[]="-include";
+   char* safeguard2;
+@@ -155,6 +156,7 @@ int main(int argc,char *argv[]) {
+ #endif
+ #ifdef __powerpc64__
+       shortplatform="ppc64";
++      shortplatform32="ppc";
+ #endif
+ #ifdef __i386__
+       shortplatform="i386";
+@@ -182,11 +184,26 @@ int main(int argc,char *argv[]) {
+       shortplatform="parisc";
+ #endif
+ #ifdef __x86_64__
+-      shortplatform=(m==32?"i386":"x86_64");
++      shortplatform="x86_64";
++      shortplatform32="i386";
+ #endif
+ #ifdef __ia64__
+       shortplatform="ia64";
+ #endif
++	/* Check for -m32 on biarch platforms */
++	/* NOTE: though it's wrong to pass both -m32/-m64 flags to
++	 * gcc at once, we pick up the last one only */
++      if (shortplatform32) {
++	      int i, m64=1;
++	      for (i=0; i<argc; ++i) {
++		      if (!strcmp(argv[i],"-m32"))
++			      m64=0;
++		      else if (!strcmp(argv[i],"-m64"))
++			      m64=1;
++	      }
++	      if (!m64)
++		      shortplatform=shortplatform32;
++      }
+       {
+ 	char *tmp=platform+strlen(platform);
+ 	strcpy(tmp,shortplatform);
+diff -Naurp dietlibc-0.32-20080509/Makefile dietlibc-0.32-20080509.oden/Makefile
+--- dietlibc-0.32-20080509/Makefile	2008-06-08 12:37:26.000000000 -0400
++++ dietlibc-0.32-20080509.oden/Makefile	2008-06-08 12:39:29.000000000 -0400
+@@ -24,6 +24,7 @@ ARCH=ppc
+ else
+ ifeq ($(MYARCH),ppc64)
+ ARCH=ppc64
++ARCH32=ppc
+ else
+ ifeq ($(MYARCH),arm)
+ ARCH=arm
+@@ -52,6 +53,7 @@ MYARCH=parisc
+ else
+ ifeq ($(MYARCH),x86_64)
+ ARCH=x86_64
++ARCH32=i386
+ else
+ ifeq ($(MYARCH),ia64)
+ ARCH=ia64
+@@ -89,16 +91,23 @@ ILIBDIR=$(INSTALLHOME)/lib-$(ARCH)
+ 
+ HOME=$(shell pwd)
+ 
+-WHAT=	$(OBJDIR) $(OBJDIR)/start.o $(OBJDIR)/dyn_start.o $(OBJDIR)/dyn_stop.o \
++LIBS=	$(OBJDIR) $(OBJDIR)/start.o $(OBJDIR)/dyn_start.o $(OBJDIR)/dyn_stop.o \
+ 	$(OBJDIR)/dietlibc.a $(OBJDIR)/liblatin1.a \
+ 	$(OBJDIR)/libcompat.a $(OBJDIR)/libm.a \
+ 	$(OBJDIR)/librpc.a $(OBJDIR)/libpthread.a \
+-	$(OBJDIR)/libcrypt.a \
+-	$(OBJDIR)/diet $(OBJDIR)/diet-i $(OBJDIR)/elftrunc \
+-	$(OBJDIR)/dnsd
++	$(OBJDIR)/libcrypt.a
+ 
+-all: $(WHAT)
++all: all_32 libs $(OBJDIR)/diet $(OBJDIR)/diet-i
++ 
++libs: $(LIBS)
+ 
++ifeq (,$(ARCH32))
++all_32:
++else
++all_32:
++	$(MAKE) MYARCH=$(ARCH32) CC="$(CC) -m32" libs
++endif
++	
+ profiling: $(OBJDIR)/libgmon.a $(OBJDIR)/pstart.o
+ 
+ CFLAGS=-pipe -nostdinc
+@@ -353,17 +362,19 @@ t:
+ t1:
+ 	$(CROSS)$(CC) -g -o t1 t.c
+ 
+-install-bin: $(OBJDIR)/start.o $(OBJDIR)/dietlibc.a $(OBJDIR)/librpc.a $(OBJDIR)/liblatin1.a $(OBJDIR)/libcompat.a $(OBJDIR)/elftrunc $(OBJDIR)/diet-i
+-	$(INSTALL) -d $(DESTDIR)$(ILIBDIR) $(DESTDIR)$(MAN1DIR) $(DESTDIR)$(BINDIR)
++install-lib: $(OBJDIR)/start.o $(OBJDIR)/dietlibc.a $(OBJDIR)/librpc.a $(OBJDIR)/liblatin1.a $(OBJDIR)/libcompat.a
++	$(INSTALL) -d $(DESTDIR)$(ILIBDIR)
+ 	$(INSTALL) $(OBJDIR)/start.o $(DESTDIR)$(ILIBDIR)/start.o
+ 	$(INSTALL) -m 644 $(OBJDIR)/libm.a $(OBJDIR)/libpthread.a $(OBJDIR)/librpc.a \
+ $(OBJDIR)/liblatin1.a $(OBJDIR)/libcompat.a $(OBJDIR)/libcrypt.a $(DESTDIR)$(ILIBDIR)
+ 	$(INSTALL) -m 644 $(OBJDIR)/dietlibc.a $(DESTDIR)$(ILIBDIR)/libc.a
++
++install-bin: $(OBJDIR)/diet-i
++	$(INSTALL) -d $(DESTDIR)$(MAN1DIR) $(DESTDIR)$(BINDIR)
+ ifeq ($(MYARCH),$(ARCH))
+ 	$(INSTALL) $(OBJDIR)/diet-i $(DESTDIR)$(BINDIR)/diet
+ 	-$(INSTALL) $(PICODIR)/diet-dyn-i $(DESTDIR)$(BINDIR)/diet-dyn
+ endif
+-	$(INSTALL) -m 755 $(OBJDIR)/elftrunc $(OBJDIR)/dnsd $(DESTDIR)$(BINDIR)
+ 	$(INSTALL) -m 644 diet.1 $(DESTDIR)$(MAN1DIR)/diet.1
+ 
+ install-profiling:
+@@ -383,8 +394,14 @@ install-pic:
+ install-headers:
+ 	for i in `find include -name \*.h`; do install -m 644 -D $$i $(DESTDIR)$(INSTALLHOME)/$$i; done
+ 
++ifeq (,$(ARCH32))
++install-32:
++else
++install-32:
++	$(MAKE) MYARCH=$(ARCH32) CC="$(CC) -m32" install-lib
++endif
+ 
+-install: install-bin install-profiling install-pic install-headers
++install: install-32 install-lib install-bin install-profiling install-pic install-headers
+ 
+ uninstall:
+ 	for i in start.o libm.a libpthread.a librpc.a liblatin1.a libcompat.a libcrypt.a libc.a; do rm -f $(DESTDIR)$(ILIBDIR)/$$i; done

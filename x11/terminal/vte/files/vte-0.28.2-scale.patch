@@ -1,0 +1,348 @@
+diff -NurpP --minimal vte-0.28.2.orig/src/vte-private.h vte-0.28.2/src/vte-private.h
+--- vte-0.28.2.orig/src/vte-private.h	2011-08-16 21:52:48.000000000 +0000
++++ vte-0.28.2/src/vte-private.h	2012-04-06 00:23:46.000000000 +0000
+@@ -281,6 +281,9 @@ struct _VteTerminalPrivate {
+ 	gboolean scroll_on_keystroke;
+ 	long scrollback_lines;
+ 
++	/* Scaling options */
++	gboolean scale_background;
++
+ 	/* Cursor shape */
+ 	VteTerminalCursorShape cursor_shape;
+         float cursor_aspect_ratio;
+diff -NurpP --minimal vte-0.28.2.orig/src/vte.c vte-0.28.2/src/vte.c
+--- vte-0.28.2.orig/src/vte.c	2011-08-28 21:31:45.000000000 +0000
++++ vte-0.28.2/src/vte.c	2012-04-06 00:23:46.000000000 +0000
+@@ -179,7 +179,8 @@ enum {
+         PROP_SCROLL_ON_OUTPUT,
+         PROP_WINDOW_TITLE,
+         PROP_WORD_CHARS,
+-        PROP_VISIBLE_BELL
++        PROP_VISIBLE_BELL,
++        PROP_SCALE_BACKGROUND
+ };
+ 
+ /* these static variables are guarded by the GDK mutex */
+@@ -11179,6 +11180,10 @@ vte_terminal_paint(GtkWidget *widget, Gd
+ 							0,
+ 							terminal->pvt->screen->scroll_delta *
+ 							terminal->char_height);
++		} else if (terminal->pvt->scale_background) {
++			_vte_draw_set_background_scale(terminal->pvt->draw,
++						       terminal->char_width * terminal->column_count,
++						       terminal->char_height * terminal->row_count);
+ 		} else {
+ 			_vte_draw_set_background_scroll(terminal->pvt->draw, 0, 0);
+ 		}
+@@ -11574,6 +11579,9 @@ vte_terminal_get_property (GObject *obje
+                 case PROP_SCROLL_BACKGROUND:
+                         g_value_set_boolean (value, pvt->scroll_background);
+                         break;
++                case PROP_SCALE_BACKGROUND:
++                        g_value_set_boolean (value, pvt->scale_background);
++                        break;
+                 case PROP_SCROLLBACK_LINES:
+                         g_value_set_uint (value, pvt->scrollback_lines);
+                         break;
+@@ -11680,6 +11688,9 @@ vte_terminal_set_property (GObject *obje
+                 case PROP_PTY_OBJECT:
+                         vte_terminal_set_pty_object (terminal, g_value_get_object (value));
+                         break;
++                case PROP_SCALE_BACKGROUND:
++                        vte_terminal_set_scale_background (terminal, g_value_get_boolean (value));
++                        break;
+                 case PROP_SCROLL_BACKGROUND:
+                         vte_terminal_set_scroll_background (terminal, g_value_get_boolean (value));
+                         break;
+@@ -12697,6 +12708,19 @@ vte_terminal_class_init(VteTerminalClass
+                                       G_PARAM_STATIC_STRINGS));
+ 
+         /**
++         * VteTerminal:scale-background:
++         *
++         * Controls whether or not the terminal will scale the background image
++         * (if one is set) 
++         */
++        g_object_class_install_property
++                (gobject_class,
++                 PROP_SCALE_BACKGROUND,
++                 g_param_spec_boolean ("scale-background", NULL, NULL,
++                                       FALSE,
++                                       G_PARAM_READWRITE | STATIC_PARAMS));
++     
++        /**
+          * VteTerminal:scroll-background:
+          *
+          * Controls whether or not the terminal will scroll the background image (if
+@@ -12991,6 +13015,36 @@ vte_terminal_get_allow_bold(VteTerminal
+ }
+ 
+ /**
++ * vte_terminal_set_scale_background:
++ * @terminal: a #VteTerminal
++ * @scale: whether the terminal should scale the background
++ *
++ * Controls whether or not the terminal will scale the background image (if
++ * one is set) to the widget size.
++ *
++ * Since: 0.11
++ */
++void
++vte_terminal_set_scale_background(VteTerminal *terminal, gboolean scale)
++{
++        VteTerminalPrivate *pvt;
++
++	g_return_if_fail(VTE_IS_TERMINAL(terminal));
++
++        pvt = terminal->pvt;
++
++        scale = scale != FALSE;
++        if (scale == pvt->scale_background)
++                return;
++
++	pvt->scale_background = scale;
++
++        g_object_notify (G_OBJECT (terminal), "scale-background");
++
++        vte_terminal_queue_background_update(terminal);
++}
++
++/**
+  * vte_terminal_set_scroll_background:
+  * @terminal: a #VteTerminal
+  * @scroll: whether the terminal should scroll the background image along with
+diff -NurpP --minimal vte-0.28.2.orig/src/vte.c.orig vte-0.28.2/src/vte.c.orig
+diff -NurpP --minimal vte-0.28.2.orig/src/vte.h vte-0.28.2/src/vte.h
+--- vte-0.28.2.orig/src/vte.h	2011-08-16 21:52:48.000000000 +0000
++++ vte-0.28.2/src/vte.h	2012-04-06 00:23:46.000000000 +0000
+@@ -306,6 +306,7 @@ void vte_terminal_set_audible_bell(VteTe
+ gboolean vte_terminal_get_audible_bell(VteTerminal *terminal);
+ void vte_terminal_set_visible_bell(VteTerminal *terminal, gboolean is_visible);
+ gboolean vte_terminal_get_visible_bell(VteTerminal *terminal);
++void vte_terminal_set_scale_background(VteTerminal *terminal, gboolean scale);
+ void vte_terminal_set_scroll_background(VteTerminal *terminal, gboolean scroll);
+ void vte_terminal_set_scroll_on_output(VteTerminal *terminal, gboolean scroll);
+ void vte_terminal_set_scroll_on_keystroke(VteTerminal *terminal,
+diff -NurpP --minimal vte-0.28.2.orig/src/vte.h.orig vte-0.28.2/src/vte.h.orig
+diff -NurpP --minimal vte-0.28.2.orig/src/vteapp.c vte-0.28.2/src/vteapp.c
+--- vte-0.28.2.orig/src/vteapp.c	2011-08-16 21:52:48.000000000 +0000
++++ vte-0.28.2/src/vteapp.c	2012-04-06 00:23:46.000000000 +0000
+@@ -553,7 +553,7 @@ main(int argc, char **argv)
+ 	const char *background = NULL;
+ 	gboolean transparent = FALSE, audible = TRUE,
+ 		 debug = FALSE, dingus = FALSE, dbuffer = TRUE,
+-		 console = FALSE, scroll = FALSE, keep = FALSE,
++		 console = FALSE, scroll = FALSE, scale = FALSE, keep = FALSE,
+ 		 icon_title = FALSE, shell = TRUE, highlight_set = FALSE,
+ 		 cursor_set = FALSE, reverse = FALSE, use_geometry_hints = TRUE,
+ 		 antialias = TRUE, use_scrolled_window = FALSE,
+@@ -669,6 +669,11 @@ main(int argc, char **argv)
+ 			"Set cursor shape (block|underline|ibeam)", NULL
+ 		},
+ 		{
++			"scale-background", 'z', 0,
++			G_OPTION_ARG_NONE, &scale,
++			"Enable a scaling background", NULL
++		},
++		{
+ 			"scroll-background", 's', 0,
+ 			G_OPTION_ARG_NONE, &scroll,
+ 			"Enable a scrolling background", NULL
+@@ -891,6 +896,7 @@ main(int argc, char **argv)
+ 	vte_terminal_set_audible_bell(terminal, audible);
+ 	vte_terminal_set_visible_bell(terminal, !audible);
+ 	vte_terminal_set_cursor_blink_mode(terminal, cursor_blink_mode);
++	vte_terminal_set_scale_background(terminal, scale);
+ 	vte_terminal_set_scroll_background(terminal, scroll);
+ 	vte_terminal_set_scroll_on_output(terminal, FALSE);
+ 	vte_terminal_set_scroll_on_keystroke(terminal, TRUE);
+diff -NurpP --minimal vte-0.28.2.orig/src/vteapp.c.orig vte-0.28.2/src/vteapp.c.orig
+diff -NurpP --minimal vte-0.28.2.orig/src/vtebg.c vte-0.28.2/src/vtebg.c
+--- vte-0.28.2.orig/src/vtebg.c	2011-08-16 21:52:48.000000000 +0000
++++ vte-0.28.2/src/vtebg.c	2012-04-06 00:23:46.000000000 +0000
+@@ -56,6 +56,8 @@ typedef struct {
+ 	PangoColor tint_color;
+ 	double saturation;
+ 	cairo_surface_t *surface;
++	int width;
++	int height;
+ } VteBgCacheItem;
+ 
+ static void vte_bg_cache_item_free(VteBgCacheItem *item);
+@@ -321,6 +323,8 @@ static void item_surface_destroy_func(vo
+                          "VteBgCacheItem %p surface destroyed\n", item);
+ 
+ 	item->surface = NULL;
++	item->width = 1;
++	item->height = 1;
+ }
+ 
+ /*
+@@ -364,7 +368,9 @@ vte_bg_cache_search(VteBg *bg,
+ 		    const GdkPixbuf *source_pixbuf,
+ 		    const char *source_file,
+ 		    const PangoColor *tint,
+-		    double saturation)
++		    double saturation,
++		    int *surface_width,
++		    int *surface_height)
+ {
+ 	GList *i;
+ 
+@@ -392,6 +398,11 @@ vte_bg_cache_search(VteBg *bg,
+ 				break;
+ 			}
+ 
++			if (surface_width)
++				*surface_width = item->width;
++			if (surface_height)
++				*surface_height = item->height;
++
+ 			return cairo_surface_reference(item->surface);
+ 		}
+ 	}
+@@ -407,6 +418,8 @@ vte_bg_cache_search(VteBg *bg,
+  * @tint: a #PangoColor to use as tint color
+  * @saturation: the saturation as a value between 0.0 and 1.0
+  * @other: a #cairo_surface_t
++ * @surface_width: pointer to store the surface width
++ * @surface_height: pointer to store the surface height
+  *
+  * Returns: a reference to a #cairo_surface_t, or %NULL on failure
+  */
+@@ -417,7 +430,9 @@ vte_bg_get_surface(VteBg *bg,
+ 		   const char *source_file,
+ 		   const PangoColor *tint,
+ 		   double saturation,
+-		   cairo_surface_t *other)
++		   cairo_surface_t *other,
++		   int *surface_width,
++		   int *surface_height)
+ {
+         VteBgPrivate *pvt;
+ 	VteBgCacheItem *item;
+@@ -440,7 +455,8 @@ vte_bg_get_surface(VteBg *bg,
+ 
+ 	cached = vte_bg_cache_search(bg, source_type,
+ 				     source_pixbuf, source_file,
+-				     tint, saturation);
++				     tint, saturation,
++				     surface_width, surface_height);
+ 	if (cached != NULL) {
+ 		return cached;
+ 	}
+@@ -494,6 +510,13 @@ vte_bg_get_surface(VteBg *bg,
+         else
+                 goto out;
+ 
++	if (surface_width)
++		*surface_width = width;
++	if (surface_height)
++		*surface_height = height;
++
++        item->width = width;
++        item->height = height;
+ 	item->surface =
+ 		cairo_surface_create_similar(other, CAIRO_CONTENT_COLOR_ALPHA,
+ 					     width, height);
+diff -NurpP --minimal vte-0.28.2.orig/src/vtebg.c.orig vte-0.28.2/src/vtebg.c.orig
+diff -NurpP --minimal vte-0.28.2.orig/src/vtebg.h vte-0.28.2/src/vtebg.h
+--- vte-0.28.2.orig/src/vtebg.h	2011-08-16 21:52:48.000000000 +0000
++++ vte-0.28.2/src/vtebg.h	2012-04-06 00:23:46.000000000 +0000
+@@ -63,7 +63,9 @@ vte_bg_get_surface(VteBg *bg,
+ 		   const char *source_file,
+ 		   const PangoColor *tint,
+ 		   double saturation,
+-		   cairo_surface_t *other);
++		   cairo_surface_t *other,
++		   int *surface_width,
++		   int *surface_height);
+ 
+ G_END_DECLS
+ 
+diff -NurpP --minimal vte-0.28.2.orig/src/vtedraw.c vte-0.28.2/src/vtedraw.c
+--- vte-0.28.2.orig/src/vtedraw.c	2011-08-16 21:52:48.000000000 +0000
++++ vte-0.28.2/src/vtedraw.c	2012-04-06 00:23:46.000000000 +0000
+@@ -752,6 +752,7 @@ struct _vte_draw {
+ 	struct font_info *font;
+ 	struct font_info *font_bold;
+ 	cairo_pattern_t *bg_pattern;
++	gint bg_width, bg_height;
+ 
+ 	cairo_t *cr;
+ };
+@@ -839,6 +840,8 @@ _vte_draw_set_background_solid(struct _v
+ 						      green,
+ 						      blue,
+ 						      opacity);
++	draw->bg_width = 1;
++	draw->bg_height = 1;
+ }
+ 
+ void
+@@ -850,6 +853,7 @@ _vte_draw_set_background_image (struct _
+ 			        double saturation)
+ {
+ 	cairo_surface_t *surface;
++	int surface_width, surface_height;
+ 
+ 	/* Need a valid draw->cr for cairo_get_target () */
+ 	_vte_draw_start (draw);
+@@ -857,7 +861,8 @@ _vte_draw_set_background_image (struct _
+ 	surface = vte_bg_get_surface (vte_bg_get_for_screen (gtk_widget_get_screen (draw->widget)),
+ 				     type, pixbuf, filename,
+ 				     color, saturation,
+-				     cairo_get_target(draw->cr));
++				     cairo_get_target(draw->cr),
++				     &surface_width, &surface_height);
+ 
+ 	_vte_draw_end (draw);
+ 
+@@ -868,6 +873,8 @@ _vte_draw_set_background_image (struct _
+ 		cairo_pattern_destroy (draw->bg_pattern);
+ 
+ 	draw->bg_pattern = cairo_pattern_create_for_surface (surface);
++	draw->bg_width = surface_width;
++	draw->bg_height = surface_height;
+ 	cairo_surface_destroy (surface);
+ 	cairo_pattern_set_extend (draw->bg_pattern, CAIRO_EXTEND_REPEAT);
+ }
+@@ -888,6 +895,24 @@ _vte_draw_set_background_scroll (struct
+ 	cairo_pattern_set_matrix (draw->bg_pattern, &matrix);
+ }
+ 
++void
++_vte_draw_set_background_scale (struct _vte_draw *draw,
++				gint sx, gint sy)
++{
++	cairo_matrix_t matrix;
++
++	_vte_debug_print (VTE_DEBUG_DRAW,
++			"draw_set_scale (%d, %d)\n",
++			sx, sy);
++
++	g_return_if_fail (draw->bg_pattern != NULL);
++
++	cairo_matrix_init_scale (&matrix,
++			         (1.0 * draw->bg_width) / sx,
++				 (1.0 * draw->bg_height) / sy);
++	cairo_pattern_set_matrix (draw->bg_pattern, &matrix);
++}
++
+ void
+ _vte_draw_clip (struct _vte_draw *draw, GdkRegion *region)
+ {
+diff -NurpP --minimal vte-0.28.2.orig/src/vtedraw.c.orig vte-0.28.2/src/vtedraw.c.orig
+diff -NurpP --minimal vte-0.28.2.orig/src/vtedraw.h vte-0.28.2/src/vtedraw.h
+--- vte-0.28.2.orig/src/vtedraw.h	2011-08-16 21:52:48.000000000 +0000
++++ vte-0.28.2/src/vtedraw.h	2012-04-06 00:23:46.000000000 +0000
+@@ -82,6 +82,8 @@ void _vte_draw_set_background_image(stru
+ 				    double saturation);
+ void _vte_draw_set_background_scroll(struct _vte_draw *draw,
+ 				     gint x, gint y);
++void _vte_draw_set_background_scale(struct _vte_draw *draw,
++				    gint sx, gint sy);
+ 
+ void _vte_draw_clip(struct _vte_draw *draw, GdkRegion *region);
+ void _vte_draw_clear(struct _vte_draw *draw,

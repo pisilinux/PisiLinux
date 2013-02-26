@@ -1,0 +1,89 @@
+Index: pyuic/uic/driver.py
+===================================================================
+--- pyuic/uic/driver.py.orig
++++ pyuic/uic/driver.py
+@@ -2,7 +2,19 @@ import sys
+ import logging
+ 
+ from PyQt4.uic import compileUi, loadUi
++from PyQt4.uic.Compiler import qtproxies
+ 
++original_i18n_string = qtproxies.i18n_string
++class i18n_string(qtproxies.i18n_string):
++    def __init__(self, string, disambig=None):
++        original_i18n_string.__init__(self, string, disambig)
++    def __str__(self):
++        return "i18n(%s)" % (qtproxies.as_string(self.string, encode=False),)
++
++_gettext_header = """import gettext
++__trans = gettext.translation('%s', fallback=True)
++i18n = __trans.ugettext
++"""
+ 
+ class Driver(object):
+     """ This encapsulates access to the pyuic functionality so that it can be
+@@ -16,6 +28,8 @@ class Driver(object):
+         name of the .ui file.
+         """
+ 
++        self.gettext_header = ''
++
+         if opts.debug:
+             logger = logging.getLogger(self.LOGGER_NAME)
+             handler = logging.StreamHandler()
+@@ -23,6 +37,10 @@ class Driver(object):
+             logger.addHandler(handler)
+             logger.setLevel(logging.DEBUG)
+ 
++        if not opts.gettext_domain == '':
++            qtproxies.i18n_string = i18n_string
++            self.gettext_header = _gettext_header % opts.gettext_domain
++
+         self._opts = opts
+         self._ui_file = ui_file
+ 
+@@ -60,7 +78,7 @@ class Driver(object):
+             pyfile = open(self._opts.output, 'wt', encoding='utf8')
+ 
+         compileUi(self._ui_file, pyfile, self._opts.execute, self._opts.indent,
+-                self._opts.pyqt3_wrapper, self._opts.from_imports)
++                self._opts.pyqt3_wrapper, self._opts.from_imports, self.gettext_header)
+ 
+     def on_IOError(self, e):
+         """ Handle an IOError exception. """
+Index: pyuic/uic/__init__.py
+===================================================================
+--- pyuic/uic/__init__.py.orig
++++ pyuic/uic/__init__.py
+@@ -98,7 +98,7 @@ def compileUiDir(dir, recurse=False, map
+                 compile_ui(dir, ui)
+ 
+ 
+-def compileUi(uifile, pyfile, execute=False, indent=4, pyqt3_wrapper=False, from_imports=False):
++def compileUi(uifile, pyfile, execute=False, indent=4, pyqt3_wrapper=False, from_imports=False, additional_text=''):
+     """compileUi(uifile, pyfile, execute=False, indent=4, pyqt3_wrapper=False, from_imports=False)
+ 
+     Creates a Python module from a Qt Designer .ui file.
+@@ -127,6 +127,9 @@ def compileUi(uifile, pyfile, execute=Fa
+ 
+     pyfile.write(_header % (uifname, ctime(), PYQT_VERSION_STR))
+ 
++    if not additional_text == '':
++        pyfile.write(additional_text)
++
+     winfo = compiler.UICompiler().compileUi(uifile, pyfile, from_imports)
+ 
+     if pyqt3_wrapper:
+Index: pyuic/uic/pyuic.py
+===================================================================
+--- pyuic/uic/pyuic.py.orig
++++ pyuic/uic/pyuic.py
+@@ -26,6 +26,8 @@ parser.add_option("-x", "--execute", des
+         help="generate extra code to test and display the class")
+ parser.add_option("-d", "--debug", dest="debug", action="store_true",
+         default=False, help="show debug output")
++parser.add_option("-g", "--use-gettext", dest="gettext_domain", action="store", type="str",
++        default='', help="use gettext for following domain")
+ parser.add_option("-i", "--indent", dest="indent", action="store", type="int",
+         default=4, metavar="N",
+         help="set indent width to N spaces, tab if N is 0 (default: 4)")

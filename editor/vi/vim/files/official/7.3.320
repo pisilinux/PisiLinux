@@ -1,0 +1,130 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.320
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.320
+Problem:    When a 0xa0 character is in a sourced file the error message for
+	    unrecognized command does not show the problem.
+Solution:   Display 0xa0 as <a0>.
+Files:	    src/ex_docmd.c
+
+
+*** ../vim-7.3.319/src/ex_docmd.c	2011-07-20 16:36:35.000000000 +0200
+--- src/ex_docmd.c	2011-09-21 19:02:15.000000000 +0200
+***************
+*** 61,66 ****
+--- 61,67 ----
+  static char_u	*do_one_cmd __ARGS((char_u **, int, char_u *(*fgetline)(int, void *, int), void *cookie));
+  static int	if_level = 0;		/* depth in :if */
+  #endif
++ static void	append_command __ARGS((char_u *cmd));
+  static char_u	*find_command __ARGS((exarg_T *eap, int *full));
+  
+  static void	ex_abbreviate __ARGS((exarg_T *eap));
+***************
+*** 2136,2145 ****
+  	{
+  	    STRCPY(IObuff, _("E492: Not an editor command"));
+  	    if (!sourcing)
+! 	    {
+! 		STRCAT(IObuff, ": ");
+! 		STRNCAT(IObuff, *cmdlinep, 40);
+! 	    }
+  	    errormsg = IObuff;
+  	}
+  	goto doend;
+--- 2137,2143 ----
+  	{
+  	    STRCPY(IObuff, _("E492: Not an editor command"));
+  	    if (!sourcing)
+! 		append_command(*cmdlinep);
+  	    errormsg = IObuff;
+  	}
+  	goto doend;
+***************
+*** 2708,2715 ****
+  		STRCPY(IObuff, errormsg);
+  		errormsg = IObuff;
+  	    }
+! 	    STRCAT(errormsg, ": ");
+! 	    STRNCAT(errormsg, *cmdlinep, IOSIZE - STRLEN(IObuff) - 1);
+  	}
+  	emsg(errormsg);
+      }
+--- 2706,2712 ----
+  		STRCPY(IObuff, errormsg);
+  		errormsg = IObuff;
+  	    }
+! 	    append_command(*cmdlinep);
+  	}
+  	emsg(errormsg);
+      }
+***************
+*** 2797,2802 ****
+--- 2794,2835 ----
+  }
+  
+  /*
++  * Append "cmd" to the error message in IObuff.
++  * Takes care of limiting the length and handling 0xa0, which would be
++  * invisible otherwise.
++  */
++     static void
++ append_command(cmd)
++     char_u *cmd;
++ {
++     char_u *s = cmd;
++     char_u *d;
++ 
++     STRCAT(IObuff, ": ");
++     d = IObuff + STRLEN(IObuff);
++     while (*s != NUL && d - IObuff < IOSIZE - 7)
++     {
++ 	if (
++ #ifdef FEAT_MBYTE
++ 		enc_utf8 ? (s[0] == 0xc2 && s[1] == 0xa0) :
++ #endif
++ 		*s == 0xa0)
++ 	{
++ 	    s +=
++ #ifdef FEAT_MBYTE
++ 		enc_utf8 ? 2 :
++ #endif
++ 		1;
++ 	    STRCPY(d, "<a0>");
++ 	    d += 4;
++ 	}
++ 	else
++ 	    MB_COPY_CHAR(s, d);
++     }
++     *d = NUL;
++ }
++ 
++ /*
+   * Find an Ex command by its name, either built-in or user.
+   * Start of the name can be found at eap->cmd.
+   * Returns pointer to char after the command name.
+*** ../vim-7.3.319/src/version.c	2011-09-21 18:23:02.000000000 +0200
+--- src/version.c	2011-09-21 19:04:35.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     320,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+28. You have comandeered your teenager's phone line for the net and even his
+    friends know not to call on his line anymore.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

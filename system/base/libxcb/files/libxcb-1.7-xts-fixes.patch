@@ -1,0 +1,79 @@
+diff --git a/src/xcb_conn.c b/src/xcb_conn.c
+index 7e18891..e30c5ca 100644
+--- a/src/xcb_conn.c
++++ b/src/xcb_conn.c
+@@ -42,13 +42,18 @@
+ #include <sys/select.h>
+ #endif
+ 
++/* SHUT_RDWR is fairly recent and is not available on all platforms */
++#if !defined(SHUT_RDWR)
++#define SHUT_RDWR 2
++#endif
++
+ typedef struct {
+     uint8_t  status;
+     uint8_t  pad0[5];
+     uint16_t length;
+ } xcb_setup_generic_t;
+ 
+-static const int error_connection = 1;
++const int error_connection = 1;
+ 
+ static int set_fd_flags(const int fd)
+ {
+@@ -243,10 +248,13 @@ xcb_connection_t *xcb_connect_to_fd(int fd, xcb_auth_info_t *auth_info)
+ 
+ void xcb_disconnect(xcb_connection_t *c)
+ {
+-    if(c->has_error)
++    if(c == (xcb_connection_t *) &error_connection)
+         return;
+ 
+     free(c->setup);
++
++    /* disallow further sends and receives */
++    shutdown(c->fd, SHUT_RDWR);
+     close(c->fd);
+ 
+     pthread_mutex_destroy(&c->iolock);
+@@ -311,6 +319,13 @@ int _xcb_conn_wait(xcb_connection_t *c, pthread_cond_t *cond, struct iovec **vec
+     do {
+ #if USE_POLL
+         ret = poll(&fd, 1, -1);
++        /* If poll() returns an event we didn't expect, such as POLLNVAL, treat
++         * it as if it failed. */
++        if(ret >= 0 && (fd.revents & ~fd.events))
++        {
++            ret = -1;
++            break;
++        }
+ #else
+         ret = select(c->fd + 1, &rfds, &wfds, 0, 0);
+ #endif
+diff --git a/src/xcb_util.c b/src/xcb_util.c
+index 5a82ac1..07fa4a3 100644
+--- a/src/xcb_util.c
++++ b/src/xcb_util.c
+@@ -49,8 +49,6 @@
+ #include "xcbext.h"
+ #include "xcbint.h"
+ 
+-static const int error_connection = 1;
+-
+ int xcb_popcount(uint32_t mask)
+ {
+     uint32_t y;
+diff --git a/src/xcbint.h b/src/xcbint.h
+index f07add8..6991238 100644
+--- a/src/xcbint.h
++++ b/src/xcbint.h
+@@ -174,6 +174,8 @@ void _xcb_ext_destroy(xcb_connection_t *c);
+ 
+ /* xcb_conn.c */
+ 
++extern const int error_connection;
++
+ struct xcb_connection_t {
+     int has_error;
+ 

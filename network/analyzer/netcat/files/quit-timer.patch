@@ -1,0 +1,88 @@
+Index: netcat-openbsd-1.89/netcat.c
+===================================================================
+--- netcat-openbsd-1.89.orig/netcat.c	2008-06-19 16:49:57.000000000 -0400
++++ netcat-openbsd-1.89/netcat.c	2008-06-19 16:50:46.000000000 -0400
+@@ -47,6 +47,7 @@
+ #include <errno.h>
+ #include <netdb.h>
+ #include <poll.h>
++#include <signal.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -82,6 +83,7 @@
+ int	nflag;					/* Don't do name look up */
+ char   *Pflag;					/* Proxy username */
+ char   *pflag;					/* Localport flag */
++int	qflag = -1;				/* Quit after some secs */
+ int	rflag;					/* Random ports flag */
+ char   *sflag;					/* Source Address */
+ int	tflag;					/* Telnet Emulation */
+@@ -114,6 +116,7 @@
+ 
+ static int connect_with_timeout(int fd, const struct sockaddr *sa, 
+ 		                socklen_t salen, int ctimeout);
++static void quit();
+ 
+ int
+ main(int argc, char *argv[])
+@@ -137,7 +140,7 @@
+ 	sv = NULL;
+ 
+ 	while ((ch = getopt(argc, argv,
+-	    "46Ddhi:jklnP:p:rSs:tT:Uuvw:X:x:zC")) != -1) {
++	    "46Ddhi:jklnP:p:q:rSs:tT:Uuvw:X:x:zC")) != -1) {
+ 		switch (ch) {
+ 		case '4':
+ 			family = AF_INET;
+@@ -187,6 +190,9 @@
+ 		case 'p':
+ 			pflag = optarg;
+ 			break;
++		case 'q':
++			qflag = (int)strtoul(optarg, &endp, 10);
++			break;
+ 		case 'r':
+ 			rflag = 1;
+ 			break;
+@@ -756,7 +762,17 @@
+ 		    }
+ 		    else if (pfd[1].revents & POLLHUP) {
+ 		    shutdown_wr:
+-			shutdown(nfd, SHUT_WR);
++			/* if the user asked to exit on EOF, do it */
++			if (qflag == 0) {
++				 shutdown(nfd, SHUT_WR);
++				 close(wfd);
++				 exit(0);
++			}
++			/* if user asked to die after a while, arrange for it */
++			if (qflag > 0) {
++				 signal(SIGALRM, quit);
++				 alarm(qflag);
++			}
+ 			pfd[1].fd = -1;
+ 			pfd[1].events = 0;
+ 		    }
+@@ -951,6 +967,7 @@
+ 	\t-n		Suppress name/port resolutions\n\
+ 	\t-P proxyuser\tUsername for proxy authentication\n\
+ 	\t-p port\t	Specify local port for remote connects\n\
++	\t-q secs\t	quit after EOF on stdin and delay of secs\n\
+ 	\t-r		Randomize remote ports\n "
+ #ifdef TCP_MD5SIG
+ "	\t-S		Enable the TCP MD5 signature option\n"
+@@ -979,3 +996,13 @@
+ 	if (ret)
+ 		exit(1);
+ }
++
++/*
++ * quit()
++ * handler for a "-q" timeout (exit 0 instead of 1)
++ */
++static void quit()
++{
++	/* XXX: should explicitly close fds here */
++	exit(0);
++}

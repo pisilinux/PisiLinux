@@ -1,0 +1,54 @@
+---
+ libhfs/os/unix.c |   18 ++++++++++++++----
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+--- a/libhfs/os/unix.c
++++ b/libhfs/os/unix.c
+@@ -47,6 +47,13 @@ int fstat(int, struct stat *);
+ # include "libhfs.h"
+ # include "os.h"
+ 
++/* do not write to a block device if the partition is busy */
++static int path_is_blockdevice(const char *path)
++{
++	struct stat sb;
++	return (stat(path, &sb) == 0 && S_ISBLK(sb.st_mode));
++}
++
+ /*
+  * NAME:	os->open()
+  * DESCRIPTION:	open and lock a new descriptor from the given path and mode
+@@ -55,26 +62,29 @@ int os_open(void **priv, const char *pat
+ {
+   long int fd;
+   struct flock lock;
++  int os_mode = 0;
+ 
+   switch (mode)
+     {
+     case HFS_MODE_RDONLY:
+-      mode = O_RDONLY;
++      os_mode |= O_RDONLY;
+       break;
+ 
+     case HFS_MODE_RDWR:
++      if (path_is_blockdevice(path))
++	      os_mode |= O_EXCL;
+     default:
+-      mode = O_RDWR;
++      os_mode |= O_RDWR;
+       break;
+     }
+ 
+-  fd = open(path, mode);
++  fd = open(path, os_mode);
+   if (fd == -1)
+     ERROR(errno, "error opening medium");
+ 
+   /* lock descriptor against concurrent access */
+ 
+-  lock.l_type   = (mode == O_RDONLY) ? F_RDLCK : F_WRLCK;
++  lock.l_type   = (os_mode == O_RDONLY) ? F_RDLCK : F_WRLCK;
+   lock.l_start  = 0;
+   lock.l_whence = SEEK_SET;
+   lock.l_len    = 0;

@@ -1,0 +1,488 @@
+Fix resolving of variables at locations lists in prelinked libs (BZ 466901).
+
+Index: gdb-6.8.50.20090909/gdb/dwarf2loc.c
+===================================================================
+--- gdb-6.8.50.20090909.orig/gdb/dwarf2loc.c	2009-09-09 20:08:03.000000000 +0200
++++ gdb-6.8.50.20090909/gdb/dwarf2loc.c	2009-09-09 20:10:35.000000000 +0200
+@@ -56,7 +56,9 @@ find_location_expression (struct dwarf2_
+   CORE_ADDR low, high;
+   gdb_byte *loc_ptr, *buf_end;
+   int length;
+-  struct objfile *objfile = dwarf2_per_cu_objfile (baton->per_cu);
++  struct objfile *objfile1 = dwarf2_per_cu_objfile (baton->per_cu);
++  struct objfile *objfile = objfile1->separate_debug_objfile
++			    ? objfile1->separate_debug_objfile : objfile1;
+   struct gdbarch *gdbarch = get_objfile_arch (objfile);
+   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+   unsigned int addr_size = dwarf2_per_cu_addr_size (baton->per_cu);
+Index: gdb-6.8.50.20090909/gdb/testsuite/gdb.dwarf2/dw2-loclist-prelinked.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20090909/gdb/testsuite/gdb.dwarf2/dw2-loclist-prelinked.exp	2009-09-09 20:10:35.000000000 +0200
+@@ -0,0 +1,102 @@
++# Copyright 2008 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++
++# Minimal DWARF-2 unit test
++
++# This test can only be run on i386/x86_64 targets which support DWARF-2.
++# For now pick a sampling of likely targets.
++if {(![istarget *-*-linux*]
++     && ![istarget *-*-gnu*]
++     && ![istarget *-*-elf*]
++     && ![istarget *-*-openbsd*])
++    || (![istarget "i?86-*-*"] && ![istarget "x86_64-*-*"])} {
++    return 0  
++}
++
++set testfile "dw2-loclist-prelinked"
++set srcfuncfile ${testfile}-func.S
++set binsharedfuncfile ${objdir}/${subdir}/${testfile}.so
++set srcmainfile ${testfile}-main.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++remote_exec build "rm -f ${binfile}"
++
++# get the value of gcc_compiled
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++# This test can only be run on gcc as we use additional_flags=FIXME
++if {$gcc_compiled == 0} {
++    return 0
++}
++
++if  { [gdb_compile_shlib "${srcdir}/${subdir}/${srcfuncfile}" "${binsharedfuncfile}" {debug additional_flags=-m32}] != "" } {
++    untested "Couldn't compile test library"
++    return -1
++}
++
++# The new separate debug info file will be stored in the .debug subdirectory.
++
++if [gdb_gnu_strip_debug ${binsharedfuncfile}] {
++    # check that you have a recent version of strip and objcopy installed
++    unsupported "cannot produce separate debug info files"
++    return -1
++}
++
++if {[catch "system \"/usr/sbin/prelink -qNR --no-exec-shield ${binsharedfuncfile}\""] != 0} {
++    # Maybe we don't have prelink.
++    return -1
++}
++
++if  { [gdb_compile "${srcdir}/${subdir}/${srcmainfile}" \
++		   "${binfile}" executable [list debug additional_flags=-m32 shlib=${binsharedfuncfile}]] != "" } {
++    return -1
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++gdb_load ${binfile}
++
++gdb_run_cmd
++
++gdb_test "" "Program received signal SIGABRT, Aborted..*" "Enter abort()"
++
++# Incorrect:
++# #0  0x00110430 in __kernel_vsyscall ()
++# No symbol table info available.
++# #1  0x003d44c0 in raise () from /lib/libc.so.6
++# No symbol table info available.
++# #2  0x003d5e88 in abort () from /lib/libc.so.6
++# No symbol table info available.
++# #3  0x44f10437 in func () at dw2-loclist-prelinked.c:8
++# 	i = Could not find the frame base for "func".
++
++# Correct:
++# #0  0x00110430 in __kernel_vsyscall ()
++# No symbol table info available.
++# #1  0x003d44c0 in raise () from /lib/libc.so.6
++# No symbol table info available.
++# #2  0x003d5e88 in abort () from /lib/libc.so.6
++# No symbol table info available.
++# #3  0x4ae36437 in func () at dw2-loclist-prelinked.c:8
++# 	i = 3827288
++# #4  0x0804851a in main () at ../../../gdb/testsuite/gdb.dwarf2/dw2-loclist-prelinked-main.c:24
++# No locals.
++
++# `abort' can get expressed as `*__GI_abort'.
++gdb_test "bt full" "in \[^ \]*abort \\(.*in func \\(.*\r\n\[\t \]+i = -?\[0-9\].*in main \\(.*" "Backtrace after abort()"
+Index: gdb-6.8.50.20090909/gdb/testsuite/gdb.dwarf2/dw2-loclist-prelinked-main.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20090909/gdb/testsuite/gdb.dwarf2/dw2-loclist-prelinked-main.c	2009-09-09 20:10:35.000000000 +0200
+@@ -0,0 +1,26 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2008 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++/* dw2-loclist-prelinked-func.S */
++extern void func (void);
++
++int
++main (void)
++{
++  func ();
++  return 0;
++}
+Index: gdb-6.8.50.20090909/gdb/testsuite/gdb.dwarf2/dw2-loclist-prelinked-func.S
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20090909/gdb/testsuite/gdb.dwarf2/dw2-loclist-prelinked-func.S	2009-09-09 20:10:35.000000000 +0200
+@@ -0,0 +1,328 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2008 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++/*
++#include <stdlib.h>
++
++void
++func (void)
++{
++  int i;
++
++  abort ();
++}
++*/
++	.file	"dw2-loclist-prelinked.c"
++	.section	.debug_abbrev,"",@progbits
++.Ldebug_abbrev0:
++	.section	.debug_info,"",@progbits
++.Ldebug_info0:
++	.section	.debug_line,"",@progbits
++.Ldebug_line0:
++	.text
++.Ltext0:
++.globl func
++	.type	func, @function
++func:
++.LFB2:
++	.file 1 "dw2-loclist-prelinked.c"
++	.loc 1 5 0
++	pushl	%ebp
++.LCFI0:
++	movl	%esp, %ebp
++.LCFI1:
++	subl	$24, %esp
++.LCFI2:
++	.loc 1 8 0
++	call	abort
++.LFE2:
++	.size	func, .-func
++	.section	.debug_frame,"",@progbits
++.Lframe0:
++	.long	.LECIE0-.LSCIE0
++.LSCIE0:
++	.long	0xffffffff
++	.byte	0x1
++	.string	""
++	.uleb128 0x1
++	.sleb128 -4
++	.byte	0x8
++	.byte	0xc
++	.uleb128 0x4
++	.uleb128 0x4
++	.byte	0x88
++	.uleb128 0x1
++	.align 4
++.LECIE0:
++.LSFDE0:
++	.long	.LEFDE0-.LASFDE0
++.LASFDE0:
++	.long	.Lframe0
++	.long	.LFB2
++	.long	.LFE2-.LFB2
++	.byte	0x4
++	.long	.LCFI0-.LFB2
++	.byte	0xe
++	.uleb128 0x8
++	.byte	0x85
++	.uleb128 0x2
++	.byte	0x4
++	.long	.LCFI1-.LCFI0
++	.byte	0xd
++	.uleb128 0x5
++	.align 4
++.LEFDE0:
++	.text
++.Letext0:
++	.section	.debug_loc,"",@progbits
++.Ldebug_loc0:
++.LLST0:
++	.long	.LFB2-.Ltext0
++	.long	.LCFI0-.Ltext0
++	.value	0x2
++	.byte	0x74
++	.sleb128 4
++	.long	.LCFI0-.Ltext0
++	.long	.LCFI1-.Ltext0
++	.value	0x2
++	.byte	0x74
++	.sleb128 8
++	.long	.LCFI1-.Ltext0
++	.long	.LFE2-.Ltext0
++	.value	0x2
++	.byte	0x75
++	.sleb128 8
++	.long	0x0
++	.long	0x0
++	.section	.debug_info
++	.long	0x94
++	.value	0x2
++	.long	.Ldebug_abbrev0
++	.byte	0x4
++	.uleb128 0x1
++	.long	.LASF10
++	.byte	0x1
++	.long	.LASF11
++	.long	.LASF12
++	.long	.Ltext0
++	.long	.Letext0
++	.long	.Ldebug_line0
++	.uleb128 0x2
++	.byte	0x4
++	.byte	0x7
++	.long	.LASF0
++	.uleb128 0x3
++	.byte	0x4
++	.byte	0x5
++	.string	"int"
++	.uleb128 0x2
++	.byte	0x4
++	.byte	0x5
++	.long	.LASF1
++	.uleb128 0x2
++	.byte	0x1
++	.byte	0x8
++	.long	.LASF2
++	.uleb128 0x2
++	.byte	0x2
++	.byte	0x7
++	.long	.LASF3
++	.uleb128 0x2
++	.byte	0x4
++	.byte	0x7
++	.long	.LASF4
++	.uleb128 0x2
++	.byte	0x1
++	.byte	0x6
++	.long	.LASF5
++	.uleb128 0x2
++	.byte	0x2
++	.byte	0x5
++	.long	.LASF6
++	.uleb128 0x2
++	.byte	0x8
++	.byte	0x5
++	.long	.LASF7
++	.uleb128 0x2
++	.byte	0x8
++	.byte	0x7
++	.long	.LASF8
++	.uleb128 0x4
++	.byte	0x4
++	.byte	0x7
++	.uleb128 0x2
++	.byte	0x1
++	.byte	0x6
++	.long	.LASF9
++	.uleb128 0x5
++	.byte	0x1
++	.long	.LASF13
++	.byte	0x1
++	.byte	0x5
++	.byte	0x1
++	.long	.LFB2
++	.long	.LFE2
++	.long	.LLST0
++	.uleb128 0x6
++	.string	"i"
++	.byte	0x1
++	.byte	0x6
++	.long	0x2c
++	.byte	0x2
++	.byte	0x91
++	.sleb128 -12
++	.byte	0x0
++	.byte	0x0
++	.section	.debug_abbrev
++	.uleb128 0x1
++	.uleb128 0x11
++	.byte	0x1
++	.uleb128 0x25
++	.uleb128 0xe
++	.uleb128 0x13
++	.uleb128 0xb
++	.uleb128 0x3
++	.uleb128 0xe
++	.uleb128 0x1b
++	.uleb128 0xe
++	.uleb128 0x11
++	.uleb128 0x1
++	.uleb128 0x12
++	.uleb128 0x1
++	.uleb128 0x10
++	.uleb128 0x6
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x2
++	.uleb128 0x24
++	.byte	0x0
++	.uleb128 0xb
++	.uleb128 0xb
++	.uleb128 0x3e
++	.uleb128 0xb
++	.uleb128 0x3
++	.uleb128 0xe
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x3
++	.uleb128 0x24
++	.byte	0x0
++	.uleb128 0xb
++	.uleb128 0xb
++	.uleb128 0x3e
++	.uleb128 0xb
++	.uleb128 0x3
++	.uleb128 0x8
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x4
++	.uleb128 0x24
++	.byte	0x0
++	.uleb128 0xb
++	.uleb128 0xb
++	.uleb128 0x3e
++	.uleb128 0xb
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x5
++	.uleb128 0x2e
++	.byte	0x1
++	.uleb128 0x3f
++	.uleb128 0xc
++	.uleb128 0x3
++	.uleb128 0xe
++	.uleb128 0x3a
++	.uleb128 0xb
++	.uleb128 0x3b
++	.uleb128 0xb
++	.uleb128 0x27
++	.uleb128 0xc
++	.uleb128 0x11
++	.uleb128 0x1
++	.uleb128 0x12
++	.uleb128 0x1
++	.uleb128 0x40
++	.uleb128 0x6
++	.byte	0x0
++	.byte	0x0
++	.uleb128 0x6
++	.uleb128 0x34
++	.byte	0x0
++	.uleb128 0x3
++	.uleb128 0x8
++	.uleb128 0x3a
++	.uleb128 0xb
++	.uleb128 0x3b
++	.uleb128 0xb
++	.uleb128 0x49
++	.uleb128 0x13
++	.uleb128 0x2
++	.uleb128 0xa
++	.byte	0x0
++	.byte	0x0
++	.byte	0x0
++	.section	.debug_pubnames,"",@progbits
++	.long	0x17
++	.value	0x2
++	.long	.Ldebug_info0
++	.long	0x98
++	.long	0x75
++	.string	"func"
++	.long	0x0
++	.section	.debug_aranges,"",@progbits
++	.long	0x1c
++	.value	0x2
++	.long	.Ldebug_info0
++	.byte	0x4
++	.byte	0x0
++	.value	0x0
++	.value	0x0
++	.long	.Ltext0
++	.long	.Letext0-.Ltext0
++	.long	0x0
++	.long	0x0
++	.section	.debug_str,"MS",@progbits,1
++.LASF7:
++	.string	"long long int"
++.LASF0:
++	.string	"unsigned int"
++.LASF11:
++	.string	"dw2-loclist-prelinked.c"
++.LASF12:
++	.string	"gdb-6.8/gdb/testsuite/gdb.dwarf2"
++.LASF4:
++	.string	"long unsigned int"
++.LASF8:
++	.string	"long long unsigned int"
++.LASF2:
++	.string	"unsigned char"
++.LASF9:
++	.string	"char"
++.LASF1:
++	.string	"long int"
++.LASF3:
++	.string	"short unsigned int"
++.LASF5:
++	.string	"signed char"
++.LASF10:
++	.string	"GNU C 4.3.2 20081007 (Red Hat 4.3.2-6)"
++.LASF13:
++	.string	"func"
++.LASF6:
++	.string	"short int"
++	.ident	"GCC: (GNU) 4.3.2 20081007 (Red Hat 4.3.2-6)"
++	.section	.note.GNU-stack,"",@progbits

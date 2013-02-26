@@ -1,0 +1,519 @@
+From 9164b0e9b5e7b8f2d5109b2b8fef2145b95f3f92 Mon Sep 17 00:00:00 2001
+From: unknown author <cooker@mandrivalinux.org>
+Date: Mon, 7 Sep 2009 09:36:26 +0000
+Subject: [PATCH 14/15] plymouth
+
+---
+ Makefile.am      |   15 +++
+ configure.ac     |   22 +++++
+ plymouth-test.c  |   72 +++++++++++++++
+ plymouth_funcs.c |  259 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ plymouth_funcs.h |   28 ++++++
+ splash.c         |   10 ++
+ 6 files changed, 406 insertions(+), 0 deletions(-)
+ create mode 100644 plymouth-test.c
+ create mode 100644 plymouth_funcs.c
+ create mode 100644 plymouth_funcs.h
+
+diff --git a/Makefile.am b/Makefile.am
+index af6693d..42a5ed2 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -29,6 +29,9 @@ if ENABLE_DEBUG
+ if ENABLE_FBSPLASH
+ noinst_PROGRAMS+=fbsplash-test
+ endif
++if ENABLE_PLYMOUTH
++noinst_PROGRAMS+=plymouth-test
++endif
+ endif
+ noinst_LIBRARIES=\
+ 	libsuspend-common.a
+@@ -88,6 +91,12 @@ AM_CFLAGS+=\
+ common_s2disk_libs+=\
+ 	${FBSPLASH_LIBS}
+ endif
++if ENABLE_PLYMOUTH
++AM_CFLAGS+=\
++	${PLYMOUTH_CFLAGS}
++common_s2disk_libs+=\
++	${PLYMOUTH_LIBS}
++endif
+ 
+ libsuspend_common_a_SOURCES=\
+ 	swsusp.h suspend_ioctls.h \
+@@ -99,6 +108,7 @@ libsuspend_common_a_SOURCES=\
+ 	splash.h splash.c \
+ 	splashy_funcs.h splashy_funcs.c \
+ 	fbsplash_funcs.h fbsplash_funcs.c \
++	plymouth_funcs.h plymouth_funcs.c \
+ 	bootsplash.h bootsplash.c \
+ 	memalloc.h memalloc.c load.c \
+ 	whitelist.h whitelist.c \
+@@ -173,6 +183,11 @@ fbsplash_test_SOURCES=\
+ fbsplash_test_LDADD=\
+ 	$(FBSPLASH_LIBS)
+ 
++plymouth_test_SOURCES=\
++	plymouth_funcs.c \
++	plymouth-test.c
++plymouth_test_LDADD=\
++	$(PLYMOUTH_LIBS)
+ #
+ # Misc functions
+ #
+diff --git a/configure.ac b/configure.ac
+index c90d3ca..c3f800e 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -74,6 +74,12 @@ AC_ARG_ENABLE(
+ 	,
+ 	[enable_fbsplash="no"]
+ )
++AC_ARG_ENABLE(
++	[plymouth],
++	[AC_HELP_STRING([--enable-plymouth], [enable plymouth support])],
++	,
++	[enable_plymouth="no"]
++)
+ AC_ARG_WITH(
+ 	[devdir],
+ 	[AC_HELP_STRING([--with-devdir=DIR], [use if --enable-create-device, put devices in this directory, default /dev])],
+@@ -248,6 +254,21 @@ if test "${enable_fbsplash}" = "yes"; then
+ 	)
+ fi
+ 
++if test "${enable_plymouth}" = "yes"; then
++	CONFIG_FEATURES="${CONFIG_FEATURES} plymouth"
++	AC_DEFINE([CONFIG_PLYMOUTH], [1], [Define if plymouth enabled])
++	PKG_CHECK_MODULES(
++		[PLYMOUTH],
++		[ply-splash-core],
++		,
++		[AC_MSG_ERROR([Required plymouth-devel was not found])]
++	)
++	AC_DEFINE_UNQUOTED([PLYMOUTH_THEMESDIR],["`$PKG_CONFIG --variable=themesdir ply-splash-core`"], [Plymouth theme directory])
++	AC_DEFINE_UNQUOTED([PLYMOUTH_PLUGINSDIR],["`$PKG_CONFIG --variable=pluginsdir ply-splash-core`"], [Plymouth plugins directory])
++	AC_DEFINE_UNQUOTED([PLYMOUTH_CONFDIR],["`$PKG_CONFIG --variable=confdir ply-splash-core`"], [Plymouth configuration directory])
++	AC_DEFINE_UNQUOTED([PLYMOUTH_POLICYDIR],["`$PKG_CONFIG --variable=policydir ply-splash-core`"], [Plymouth policy directory])
++fi
++
+ if test "${enable_threads}" = "yes"; then
+ 	CONFIG_FEATURES="${CONFIG_FEATURES} threads"
+ 	AC_DEFINE([CONFIG_THREADS], [1], [Define if threads enabled])
+@@ -300,6 +321,7 @@ AM_CONDITIONAL([ENABLE_RESUME_STATIC], [test "${enable_resume_static}" = "yes"])
+ AM_CONDITIONAL([ENABLE_CREATE_DEVICE], [test "${enable_create_device}" = "yes"])
+ AM_CONDITIONAL([ENABLE_SPLASHY], [test "${enable_splashy}" = "yes"])
+ AM_CONDITIONAL([ENABLE_FBSPLASH], [test "${enable_fbsplash}" = "yes"])
++AM_CONDITIONAL([ENABLE_PLYMOUTH], [test "${enable_plymouth}" = "yes"])
+ AC_CONFIG_FILES([
+ 	Makefile
+ 	doc/Makefile
+diff --git a/plymouth-test.c b/plymouth-test.c
+new file mode 100644
+index 0000000..9783a85
+--- /dev/null
++++ b/plymouth-test.c
+@@ -0,0 +1,72 @@
++/*
++ * plymouth-test.c
++ *
++ * plymouth (framebuffer splash) splash method support
++ *
++ * Copyright (c) 2009 Frederic Crozat <fcrozat@mandriva.com>
++ *
++ * This file is released under the GPLv2.
++ *
++ */
++
++#include "config.h"
++
++#include <string.h>
++#include <stdio.h>
++#include <linux/types.h>
++#include <syscall.h>
++#include <sys/ioctl.h>
++#include <sys/types.h>
++#include <errno.h>
++
++#include "swsusp.h"
++#include "splash.h"
++#include "plymouth_funcs.h"
++
++int main (void)
++{
++	char c;
++	int r;
++	int i;
++	printf("plymouth_open...\n");
++	r = plymouth_open(SPL_SUSPEND);
++	printf("plymouth_open=%d\n", r);
++	if (r) {
++		return 1;
++	}
++
++	for (i=0; i<=100; i+=10) {
++		printf("plymouth_progress (%d)...\n", i);
++		plymouth_progress(i);
++		sleep(1);
++		if (i == 50) {
++			printf("plymouth_dialog()...\n");
++			printf("plymouth_dialog=%c\n", plymouth_dialog ("Hello world!\nPlease press a key: "));
++		}
++#ifdef CONFIG_ENCRYPT
++		else if (i==60) {
++			char pass[PASS_SIZE];
++			printf("plymouth_read_password(,0)..\n");
++			plymouth_read_password(pass, 0);
++			printf("plymouth_read_password=%s\n", pass);
++		}
++		else if (i==80) {
++			char pass[PASS_SIZE];
++			printf("plymouth_read_password(,1)..\n");
++			plymouth_read_password(pass, 1);
++			printf("plymouth_read_password=%s\n", pass);
++		}
++#endif
++		
++		c = plymouth_key_pressed();
++		if (c) {
++			char buffer[SPLASH_GENERIC_MESSAGE_SIZE];
++			sprintf(buffer, "Key %c (%02x) pressed", c, (unsigned char)c);
++			plymouth_set_caption(buffer);
++		}
++	}
++
++	printf("plymouth_finish...\n");
++	plymouth_finish();
++	return 0;
++}
+diff --git a/plymouth_funcs.c b/plymouth_funcs.c
+new file mode 100644
+index 0000000..f4c2e50
+--- /dev/null
++++ b/plymouth_funcs.c
+@@ -0,0 +1,259 @@
++/*
++ * plymouth_funcs.c
++ *
++ * Plymouth (userspace splash) splash method support
++ *
++ * Copyright (c) 2009 Frederic Crozat <fcrozat@mandriva.com>
++ *
++ * This file is released under the GPLv2.
++ *
++ */
++
++#include "config.h"
++
++#ifdef CONFIG_PLYMOUTH
++#include <string.h>
++#include <stdio.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <stdlib.h>
++
++#include "splash.h"
++#include "encrypt.h"
++#include "plymouth_funcs.h"
++#include <ply-event-loop.h>
++#include <ply-boot-splash-plugin.h>
++#include <ply-boot-splash.h>
++//#include <ply-window.h>
++#include <ply-progress.h>
++#include <ply-utils.h>
++#include <ply-terminal.h>
++#include <ply-keyboard.h>
++#include <ply-pixel-display.h>
++#include <ply-text-display.h>
++#include <ply-renderer.h>
++
++static    ply_boot_splash_t *ply_splash;
++static    ply_buffer_t *buffer;
++//static    ply_window_t *window;
++static    ply_keyboard_t *keyboard;
++static    ply_terminal_t *terminal;
++static    ply_progress_t *ply_progress;
++static	  ply_renderer_t *renderer;
++static	  ply_list_t *pixel_displays;
++static	  ply_text_display_t *text_display;
++static    int key_pressed = 0;
++static	  char last_key = -1;
++
++static void keyboard_input_handler (void *user_data, const char *keyboard_input, size_t      character_size) {
++	fprintf(stderr, "key pressed\n");
++	key_pressed = 1;
++	if (character_size > 0) {
++		last_key = keyboard_input[character_size - 1];
++	}
++}
++
++int plymouth_update(const char *arg) {
++	const char *cmd = "/bin/plymouth";
++	pid_t pid = fork();
++	if (!pid) {
++		int fd = open("/dev/null", O_RDWR);
++		dup2(fd, 2);
++		close(fd);
++		execl(cmd, cmd, arg, (char *) NULL);
++	}
++	else {
++		int status;
++		waitpid(pid, &status, 0);
++		return status;
++	}
++}
++
++void terminate_plymouth() {
++        ply_keyboard_stop_watching_for_input (keyboard);
++	ply_keyboard_remove_input_handler (keyboard, keyboard_input_handler); 
++        ply_boot_splash_unset_keyboard (ply_splash);
++	ply_boot_splash_hide (ply_splash);
++	ply_boot_splash_free (ply_splash);
++	ply_progress_free (ply_progress);
++	ply_renderer_close (renderer);
++	ply_renderer_free (renderer);
++	ply_terminal_close (terminal);
++	ply_terminal_free (terminal);
++	ply_buffer_free (buffer);
++}
++
++static int plymouth_init() {
++	
++	int ret;
++	ply_key_file_t *key_file;
++	char *splash_string;
++	char *splash_path;
++	ply_list_t *heads;
++	ply_list_node_t *node;
++
++
++
++	plymouth_update ("quit");
++	buffer = ply_buffer_new ();
++
++	key_file = ply_key_file_new (PLYMOUTH_CONFDIR "plymouthd.conf");
++
++	if ((ret = ply_key_file_load (key_file)) == 0)
++	{
++		return ret;
++	}
++	splash_string = ply_key_file_get_value (key_file, "Daemon", "Theme");
++
++	asprintf(&splash_path, PLYMOUTH_THEMESDIR "%s/%s.plymouth", splash_string, splash_string);
++	free (splash_string);
++	terminal =  ply_terminal_new ("tty63");
++	ply_splash = ply_boot_splash_new (splash_path, PLYMOUTH_PLUGINSDIR, buffer, terminal);
++	free (splash_path);
++	if ((ret = ply_boot_splash_load (ply_splash)) == 0) {
++		fprintf(stderr,"could not open splash\n");
++		return ret;
++	}
++	renderer = ply_renderer_new (NULL, terminal);
++	if ((ret = ply_renderer_open (renderer))== 0) {
++		fprintf(stderr,"could not open renderer /dev/fb\n");
++		return ret;
++	}
++	keyboard =  ply_keyboard_new_for_terminal (terminal);
++
++	text_display = ply_text_display_new (terminal);
++  	ply_boot_splash_add_text_display (ply_splash, text_display);
++
++	heads = ply_renderer_get_heads (renderer);
++	pixel_displays = ply_list_new();
++
++
++	node = ply_list_get_first_node (heads);
++
++	while (node != NULL)
++        { 
++	  ply_list_node_t *next_node;
++          ply_renderer_head_t *head;
++          ply_pixel_display_t *display;
++
++          head = ply_list_node_get_data (node);
++	  next_node = ply_list_get_next_node (heads, node);
++
++	  display = ply_pixel_display_new (renderer, head);
++
++	  ply_list_append_data (pixel_displays, display);
++          node = next_node;
++          ply_boot_splash_add_pixel_display (ply_splash, display);
++         }
++
++	ply_progress = ply_progress_new();
++	ply_boot_splash_attach_progress (ply_splash, ply_progress);
++	ply_boot_splash_attach_to_event_loop (ply_splash, ply_event_loop_get_default());
++
++
++	ply_keyboard_add_input_handler(keyboard, keyboard_input_handler, NULL); 
++	return ret;
++
++}
++
++int plymouth_open(int mode)
++{
++	int ret;
++
++	if ((ret = plymouth_init ()) == 0 )
++	{
++		fprintf(stderr,"could not initialize plymouth : error %d \n",ret);
++		return -1;
++	}
++
++	ply_boot_splash_set_keyboard (ply_splash, keyboard);
++	ply_renderer_activate (renderer);
++	if (mode==SPL_RESUME) {
++		ply_boot_splash_show (ply_splash, PLY_BOOT_SPLASH_MODE_RESUME);
++	}
++	else {
++		ply_boot_splash_show (ply_splash, PLY_BOOT_SPLASH_MODE_SUSPEND);
++	       	ply_boot_splash_display_message (ply_splash, "Suspending..." );
++	}
++	ply_keyboard_watch_for_input(keyboard);
++
++	ply_event_loop_process_pending_events (ply_event_loop_get_default());
++
++	return 0;
++}
++
++
++inline int plymouth_finish(void)
++{
++
++	terminate_plymouth();
++
++	return 0;
++}
++
++inline int plymouth_progress(int p)
++{
++	ply_progress_set_percentage (ply_progress, (double) p / 100);
++
++	ply_event_loop_process_pending_events (ply_event_loop_get_default());
++
++	return 0;
++}
++
++
++void plymouth_read_password(char *buf, int vrfy)
++{
++#if 0
++#if CONFIG_ENCRYPT
++        char *vrfy_buf = vrfy ? buf + PASS_SIZE : buf;
++
++        do {
++            while (plymouth_get_password(buf,PASS_SIZE, 
++                        "Passphrase please (must be non-empty): ") <= 0);
++            
++            if (vrfy)
++                while (plymouth_get_password(vrfy_buf,PASS_SIZE,
++                            "Verify passphrase: ") <= 0);
++            
++    	} while (vrfy && strncmp(buf, vrfy_buf, PASS_SIZE));
++#endif
++#endif
++}
++
++
++void plymouth_set_caption(const char *message)
++{
++	ply_boot_splash_display_message (ply_splash, message);
++	ply_event_loop_process_pending_events (ply_event_loop_get_default());
++}
++
++int plymouth_dialog(const char *prompt) 
++{
++	key_pressed = 0;
++	ply_progress_pause (ply_progress);
++       	ply_boot_splash_display_message (ply_splash, prompt);
++	while (key_pressed == 0) {
++		ply_event_loop_process_pending_events (ply_event_loop_get_default());
++	}
++	ply_progress_unpause (ply_progress);
++	return last_key;
++}
++
++char plymouth_key_pressed(void) {
++#if 1
++	ply_event_loop_process_pending_events (ply_event_loop_get_default());
++	if (key_pressed == 0) {
++	       return 0;
++	}
++	else {
++		int key = last_key;
++		last_key = -1;
++		key_pressed = 0;
++		return key;
++	}
++#endif
++//	return 0;
++}
++
++
++#endif
+diff --git a/plymouth_funcs.h b/plymouth_funcs.h
+new file mode 100644
+index 0000000..ef92b7f
+--- /dev/null
++++ b/plymouth_funcs.h
+@@ -0,0 +1,28 @@
++/*
++ * plymouth_funcs.h
++ *
++ * Boot splash related definitions for plymouth method
++ *
++ * Copyright (C) 2009 Frederic Crozat <fcrozat@mandriva.com>
++ *
++ * This file is released under the GPLv2.
++ *
++ */
++
++#ifndef PLYMOUTH_FUNCS_H
++#define PLYMOUTH_FUNCS_H
++#ifdef CONFIG_PLYMOUTH
++
++int plymouth_open(int mode);
++int plymouth_finish(void);
++int plymouth_progress(int p);
++void plymouth_read_password(char *, int);
++int plymouth_dialog(const char *);
++void plymouth_set_caption(const char *message);
++char plymouth_key_pressed(void);
++
++
++
++#endif
++#endif /* PLYMOUTH_FUNCS_H */
++
+diff --git a/splash.c b/splash.c
+index b22dc7f..5b6218a 100644
+--- a/splash.c
++++ b/splash.c
+@@ -27,6 +27,7 @@
+ #include "bootsplash.h"
+ #include "splashy_funcs.h"
+ #include "fbsplash_funcs.h"
++#include "plymouth_funcs.h"
+ #include "encrypt.h"
+ 
+ #define INPUT_PATH "/dev/input/by-path"
+@@ -235,6 +236,15 @@ void splash_prepare(struct splash *splash, int mode)
+ 		if (!open_input_fd())
+ 			splash->key_pressed = key_pressed;
+ #endif
++#ifdef CONFIG_PLYMOUTH
++	} else if (!plymouth_open(mode)) {
++		splash->finish      = plymouth_finish;
++		splash->progress    = plymouth_progress;
++		splash->dialog	    = plymouth_dialog;
++		splash->read_password   = plymouth_read_password;
++		if (!open_input_fd())
++			splash->key_pressed = key_pressed;
++#endif
+ 	} else if (0) {
+ 		/* add another splash system here */
+ 	} else {
+-- 
+1.7.0.5
+

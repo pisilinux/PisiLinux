@@ -1,0 +1,165 @@
+Fix Valgrind paste of >= 256 * (screen width) characters (as 130001).
+
+Invalid write of size 4
+   at 0x8203BD9: rl_redisplay (display.c:812)
+   by 0x81F5130: _rl_internal_char_cleanup (readline.c:427)
+   by 0x81F52B3: readline_internal_char (readline.c:508)
+   by 0x8209817: rl_callback_read_char (callback.c:184)
+   by 0x8135312: rl_callback_read_char_wrapper (event-top.c:179)
+   by 0x8135B7B: stdin_event_handler (event-top.c:432)
+   by 0x81349F2: handle_file_event (event-loop.c:730)
+   by 0x81342AB: process_event (event-loop.c:343)
+   by 0x81342F4: gdb_do_one_event (event-loop.c:380)
+   by 0x81313AC: catch_errors (exceptions.c:515)
+   by 0x80CE8CA: tui_command_loop (tui-interp.c:151)
+   by 0x81318B9: current_interp_command_loop (interps.c:278)
+ Address 0x43DCEB8 is 0 bytes after a block of size 1,024 alloc'd
+   at 0x4005400: malloc (vg_replace_malloc.c:149)
+   by 0x8087084: xmalloc (utils.c:959)
+   by 0x8202CA7: init_line_structures (display.c:440)
+   by 0x8202D14: rl_redisplay (display.c:471)
+   by 0x81F4F53: readline_internal_setup (readline.c:363)
+   by 0x820958C: _rl_callback_newline (callback.c:89)
+   by 0x82095BB: rl_callback_handler_install (callback.c:101)
+   by 0x80CE896: tui_command_loop (tui-interp.c:138)
+   by 0x81318B9: current_interp_command_loop (interps.c:278)
+   by 0x807E69A: captured_command_loop (main.c:101)
+   by 0x81313AC: catch_errors (exceptions.c:515)
+   by 0x807F55A: captured_main (main.c:826)
+
+
+2006-11-08  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* readline/display.c (line_state, line_state_array, line_state_visible,
+	line_state_invisible): Encapsulate _rl_wrapped_line, inv_lbreaks,
+	inv_lbsize, vis_lbreaks, vis_lbsize, visible_line, invisible_line.
+	(init_line_structures): Initialize both _rl_wrapped_line ones now.
+	(rl_redisplay): Fix _rl_wrapped_line handling by using its own size.
+	Swap whole `line_state_visible' / `line_state_invisible' structures.
+	(update_line): Update for new `_rl_wrapped_line'.
+
+
+Index: ./readline/display.c
+===================================================================
+--- ./readline/display.c	5 May 2006 18:26:12 -0000	1.11
++++ ./readline/display.c	8 Nov 2006 18:23:33 -0000
+@@ -73,15 +73,31 @@ static void delete_chars PARAMS((int));
+ static void insert_some_chars PARAMS((char *, int, int));
+ static void cr PARAMS((void));
+ 
++struct line_state
++  {
++    char *line;
++    int *lbreaks;
++    int lbreaks_size;
++#if defined (HANDLE_MULTIBYTE)
++    int *wrapped_line;
++    int wrapped_line_size;
++#endif
++  };
++static struct line_state line_state_array[2];
++static struct line_state *line_state_visible = &line_state_array[0];
++static struct line_state *line_state_invisible = &line_state_array[1];
++
+ #if defined (HANDLE_MULTIBYTE)
+ static int _rl_col_width PARAMS((const char *, int, int));
+-static int *_rl_wrapped_line;
+ #else
+ #  define _rl_col_width(l, s, e)	(((e) <= (s)) ? 0 : (e) - (s))
+ #endif
+ 
+-static int *inv_lbreaks, *vis_lbreaks;
+-static int inv_lbsize, vis_lbsize;
++/* FIXME: Backward compatible naming. */
++#define inv_lbreaks (line_state_invisible->lbreaks)
++#define inv_lbsize (line_state_invisible->lbreaks_size)
++#define vis_lbreaks (line_state_visible->lbreaks)
++#define vis_lbsize (line_state_visible->lbreaks_size)
+ 
+ /* Heuristic used to decide whether it is faster to move from CUR to NEW
+    by backing up or outputting a carriage return and moving forward. */
+@@ -150,8 +166,9 @@ static int last_lmargin;
+ 
+ /* The line display buffers.  One is the line currently displayed on
+    the screen.  The other is the line about to be displayed. */
+-static char *visible_line = (char *)NULL;
+-static char *invisible_line = (char *)NULL;
++/* FIXME: Backward compatible naming. */
++#define visible_line (line_state_visible->line)
++#define invisible_line (line_state_invisible->line)
+ 
+ /* A buffer for `modeline' messages. */
+ static char msg_buf[128];
+@@ -437,7 +454,10 @@ init_line_structures (minsize)
+       inv_lbreaks = (int *)xmalloc (inv_lbsize * sizeof (int));
+       vis_lbreaks = (int *)xmalloc (vis_lbsize * sizeof (int));
+ #if defined (HANDLE_MULTIBYTE)
+-      _rl_wrapped_line = (int *)xmalloc (vis_lbsize * sizeof (int));
++      line_state_visible->wrapped_line_size = vis_lbsize;
++      line_state_visible->wrapped_line = (int *)xmalloc (line_state_visible->wrapped_line_size * sizeof (int));
++      line_state_invisible->wrapped_line_size = inv_lbsize;
++      line_state_invisible->wrapped_line = (int *)xmalloc (line_state_invisible->wrapped_line_size * sizeof (int));
+ #endif
+       inv_lbreaks[0] = vis_lbreaks[0] = 0;
+     }
+@@ -572,10 +592,15 @@ rl_redisplay ()
+ 	      { \
+ 		inv_lbsize *= 2; \
+ 		inv_lbreaks = (int *)xrealloc (inv_lbreaks, inv_lbsize * sizeof (int)); \
+-		_rl_wrapped_line = (int *)xrealloc (_rl_wrapped_line, inv_lbsize * sizeof (int)); \
+ 	      } \
+ 	    inv_lbreaks[++newlines] = out; \
+-	    _rl_wrapped_line[newlines] = _rl_wrapped_multicolumn; \
++	    if (newlines >= (line_state_invisible->wrapped_line_size - 1)) \
++	      { \
++		line_state_invisible->wrapped_line_size *= 2; \
++		line_state_invisible->wrapped_line = (int *)xrealloc (line_state_invisible->wrapped_line, \
++		  line_state_invisible->wrapped_line_size * sizeof (int)); \
++	      } \
++	    line_state_invisible->wrapped_line[newlines] = _rl_wrapped_multicolumn; \
+ 	    lpos = 0; \
+ 	  } \
+       } while (0)
+@@ -605,7 +630,7 @@ rl_redisplay ()
+ #endif
+ 
+ #if defined (HANDLE_MULTIBYTE)
+-  memset (_rl_wrapped_line, 0, vis_lbsize);
++  memset (line_state_invisible->wrapped_line, 0, line_state_invisible->wrapped_line_size * sizeof (int));
+   num = 0;
+ #endif
+ 
+@@ -1118,17 +1143,10 @@ rl_redisplay ()
+ 
+   /* Swap visible and non-visible lines. */
+   {
+-    char *vtemp = visible_line;
+-    int *itemp = vis_lbreaks, ntemp = vis_lbsize;
+-
+-    visible_line = invisible_line;
+-    invisible_line = vtemp;
+-
+-    vis_lbreaks = inv_lbreaks;
+-    inv_lbreaks = itemp;
+-
+-    vis_lbsize = inv_lbsize;
+-    inv_lbsize = ntemp;
++    struct line_state *line_state_temp = line_state_visible;
++    
++    line_state_visible = line_state_invisible;
++    line_state_invisible = line_state_temp;
+ 
+     rl_display_fixed = 0;
+     /* If we are displaying on a single line, and last_lmargin is > 0, we
+@@ -1194,8 +1212,9 @@ update_line (old, new, current_line, oma
+ 	  /* This fixes only double-column characters, but if the wrapped
+ 	     character comsumes more than three columns, spaces will be
+ 	     inserted in the string buffer. */
+-	  if (_rl_wrapped_line[current_line] > 0)
+-	    _rl_clear_to_eol (_rl_wrapped_line[current_line]);
++	  if (current_line < line_state_visible->wrapped_line_size
++	      && line_state_visible->wrapped_line[current_line] > 0)
++	    _rl_clear_to_eol (line_state_visible->wrapped_line[current_line]);
+ 
+ 	  memset (&ps, 0, sizeof (mbstate_t));
+ 	  ret = mbrtowc (&wc, new, MB_CUR_MAX, &ps);

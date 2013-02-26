@@ -1,0 +1,160 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.661
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.661 (after 7.3.652)
+Problem:    SEGV in Python code.
+Solution:   Initialize len to zero.  Use the right function depending on
+	    version. (Maxim Philippov)
+Files:	    src/if_py_both.h, src/if_python.c, src/if_python3.c
+
+
+*** ../vim-7.3.660/src/if_py_both.h	2012-09-05 19:09:06.000000000 +0200
+--- src/if_py_both.h	2012-09-12 19:50:07.000000000 +0200
+***************
+*** 74,80 ****
+      static PyObject *
+  OutputWrite(PyObject *self, PyObject *args)
+  {
+!     Py_ssize_t len;
+      char *str = NULL;
+      int error = ((OutputObject *)(self))->error;
+  
+--- 74,80 ----
+      static PyObject *
+  OutputWrite(PyObject *self, PyObject *args)
+  {
+!     Py_ssize_t len = 0;
+      char *str = NULL;
+      int error = ((OutputObject *)(self))->error;
+  
+*** ../vim-7.3.660/src/if_python.c	2012-09-05 19:03:51.000000000 +0200
+--- src/if_python.c	2012-09-12 19:52:10.000000000 +0200
+***************
+*** 44,51 ****
+  # undef _XOPEN_SOURCE	/* pyconfig.h defines it as well. */
+  #endif
+  
+- #define PY_SSIZE_T_CLEAN
+- 
+  #include <Python.h>
+  #if defined(MACOS) && !defined(MACOS_X_UNIX)
+  # include "macglue.h"
+--- 44,49 ----
+***************
+*** 54,59 ****
+--- 52,61 ----
+  #undef main /* Defined in python.h - aargh */
+  #undef HAVE_FCNTL_H /* Clash with os_win32.h */
+  
++ #if defined(PY_VERSION_HEX) && PY_VERSION_HEX >= 0x02050000
++ # define PY_SSIZE_T_CLEAN
++ #endif
++ 
+  static void init_structs(void);
+  
+  #define PyBytes_FromString PyString_FromString
+***************
+*** 358,365 ****
+--- 360,374 ----
+      PYTHON_PROC *ptr;
+  } python_funcname_table[] =
+  {
++ #ifndef PY_SSIZE_T_CLEAN
+      {"PyArg_Parse", (PYTHON_PROC*)&dll_PyArg_Parse},
+      {"PyArg_ParseTuple", (PYTHON_PROC*)&dll_PyArg_ParseTuple},
++     {"Py_BuildValue", (PYTHON_PROC*)&dll_Py_BuildValue},
++ #else
++     {"_PyArg_Parse_SizeT", (PYTHON_PROC*)&dll_PyArg_Parse},
++     {"_PyArg_ParseTuple_SizeT", (PYTHON_PROC*)&dll_PyArg_ParseTuple},
++     {"_Py_BuildValue_SizeT", (PYTHON_PROC*)&dll_Py_BuildValue},
++ #endif
+      {"PyMem_Free", (PYTHON_PROC*)&dll_PyMem_Free},
+      {"PyMem_Malloc", (PYTHON_PROC*)&dll_PyMem_Malloc},
+      {"PyDict_SetItemString", (PYTHON_PROC*)&dll_PyDict_SetItemString},
+***************
+*** 422,428 ****
+      {"PySys_SetArgv", (PYTHON_PROC*)&dll_PySys_SetArgv},
+      {"PyType_Type", (PYTHON_PROC*)&dll_PyType_Type},
+      {"PyType_Ready", (PYTHON_PROC*)&dll_PyType_Ready},
+-     {"Py_BuildValue", (PYTHON_PROC*)&dll_Py_BuildValue},
+      {"Py_FindMethod", (PYTHON_PROC*)&dll_Py_FindMethod},
+  # if defined(PY_VERSION_HEX) && PY_VERSION_HEX >= 0x02050000 \
+  	&& SIZEOF_SIZE_T != SIZEOF_INT
+--- 431,436 ----
+*** ../vim-7.3.660/src/if_python3.c	2012-09-05 19:09:06.000000000 +0200
+--- src/if_python3.c	2012-09-12 19:52:10.000000000 +0200
+***************
+*** 42,49 ****
+  # undef _DEBUG
+  #endif
+  
+- #define PY_SSIZE_T_CLEAN
+- 
+  #ifdef F_BLANK
+  # undef F_BLANK
+  #endif
+--- 42,47 ----
+***************
+*** 66,71 ****
+--- 64,73 ----
+  #undef main /* Defined in python.h - aargh */
+  #undef HAVE_FCNTL_H /* Clash with os_win32.h */
+  
++ #if defined(PY_VERSION_HEX) && PY_VERSION_HEX >= 0x02050000
++ # define PY_SSIZE_T_CLEAN
++ #endif
++ 
+  static void init_structs(void);
+  
+  /* The "surrogateescape" error handler is new in Python 3.1 */
+***************
+*** 328,334 ****
+--- 330,342 ----
+      {"PySys_SetArgv", (PYTHON_PROC*)&py3_PySys_SetArgv},
+      {"Py_SetPythonHome", (PYTHON_PROC*)&py3_Py_SetPythonHome},
+      {"Py_Initialize", (PYTHON_PROC*)&py3_Py_Initialize},
++ #ifndef PY_SSIZE_T_CLEAN
+      {"PyArg_ParseTuple", (PYTHON_PROC*)&py3_PyArg_ParseTuple},
++     {"Py_BuildValue", (PYTHON_PROC*)&py3_Py_BuildValue},
++ #else
++     {"_PyArg_ParseTuple_SizeT", (PYTHON_PROC*)&py3_PyArg_ParseTuple},
++     {"_Py_BuildValue_SizeT", (PYTHON_PROC*)&py3_Py_BuildValue},
++ #endif
+      {"PyMem_Free", (PYTHON_PROC*)&py3_PyMem_Free},
+      {"PyMem_Malloc", (PYTHON_PROC*)&py3_PyMem_Malloc},
+      {"PyList_New", (PYTHON_PROC*)&py3_PyList_New},
+***************
+*** 364,370 ****
+      {"PyObject_GetIter", (PYTHON_PROC*)&py3_PyObject_GetIter},
+      {"PyLong_FromLong", (PYTHON_PROC*)&py3_PyLong_FromLong},
+      {"PyDict_New", (PYTHON_PROC*)&py3_PyDict_New},
+-     {"Py_BuildValue", (PYTHON_PROC*)&py3_Py_BuildValue},
+      {"PyType_Ready", (PYTHON_PROC*)&py3_PyType_Ready},
+      {"PyDict_SetItemString", (PYTHON_PROC*)&py3_PyDict_SetItemString},
+      {"PyLong_AsLong", (PYTHON_PROC*)&py3_PyLong_AsLong},
+--- 372,377 ----
+*** ../vim-7.3.660/src/version.c	2012-09-12 18:19:39.000000000 +0200
+--- src/version.c	2012-09-12 19:53:52.000000000 +0200
+***************
+*** 721,722 ****
+--- 721,724 ----
+  {   /* Add new patch number below this line */
++ /**/
++     661,
+  /**/
+
+-- 
+Courtroom Quote #19:
+Q:  Doctor, how many autopsies have you performed on dead people?
+A:  All my autopsies have been performed on dead people.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

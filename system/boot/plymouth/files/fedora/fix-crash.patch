@@ -1,0 +1,137 @@
+From 6ccedf7b6ecdc8314ed97355cfe5499fffb13a1e Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Thu, 1 Nov 2012 17:04:33 -0400
+Subject: [PATCH 1/3] main: if deactivate when already deactivated return
+ immediately
+
+We were trying to ignore second deactivate requests, but
+were instead crashing because we're trying to use a nullified
+trigger.
+
+This commit makes sure things don't go crashy when a user
+does "plymouth deactivate" on an already deactivated plymouthd.
+---
+ src/main.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/main.c b/src/main.c
+index 88e5002..60ca28f 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -1135,7 +1135,13 @@ static void
+ on_deactivate (state_t       *state,
+                ply_trigger_t *deactivate_trigger)
+ {
+-  if ((state->deactivate_trigger != NULL) || state->is_inactive)
++  if (state->is_inactive)
++    {
++      ply_trigger_pull (deactivate_trigger, NULL);
++      return;
++    }
++
++  if (state->deactivate_trigger != NULL)
+     {
+       ply_trigger_add_handler (state->deactivate_trigger,
+                                (ply_trigger_handler_t)
+-- 
+1.7.12.1
+
+
+From b3548ebaf76d222f56d6a7b34c5940b930d47609 Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Thu, 1 Nov 2012 17:16:07 -0400
+Subject: [PATCH 2/3] two-step: don't update progress when idle
+
+We've already reach a state where we aren't drawing anymore, etc,
+so don't update progress and potentially fire off animations
+that won't be seen.
+---
+ src/plugins/splash/two-step/plugin.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/plugins/splash/two-step/plugin.c b/src/plugins/splash/two-step/plugin.c
+index 2998beb..541a108 100644
+--- a/src/plugins/splash/two-step/plugin.c
++++ b/src/plugins/splash/two-step/plugin.c
+@@ -1067,6 +1067,9 @@ on_boot_progress (ply_boot_splash_plugin_t *plugin,
+   if (plugin->state != PLY_BOOT_SPLASH_DISPLAY_NORMAL)
+     return;
+ 
++  if (plugin->is_idle)
++    return;
++
+   if (percent_done >= SHOW_ANIMATION_PERCENT)
+     {
+       if (plugin->stop_trigger == NULL)
+-- 
+1.7.12.1
+
+
+From a6129abfc527ac247685d80fc5c20144be1badca Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Fri, 2 Nov 2012 17:26:41 -0400
+Subject: [PATCH 3/3] main: make plymouth show-splash idempotent
+
+plymouth show-splash causes hairy things, that should only happen once,
+like activating renderers to happen.
+
+This commit makes subsequent show-splash calls be no-ops.
+---
+ src/main.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/src/main.c b/src/main.c
+index 60ca28f..ff06163 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -113,6 +113,7 @@ typedef struct
+   uint32_t should_be_attached : 1;
+   uint32_t should_retain_splash : 1;
+   uint32_t is_inactive : 1;
++  uint32_t is_shown : 1;
+   uint32_t should_force_details : 1;
+ 
+   char *kernel_console_tty;
+@@ -871,6 +872,12 @@ on_show_splash (state_t *state)
+ {
+   bool has_display;
+ 
++  if (state->is_shown)
++    {
++      ply_trace ("show splash called while already shown");
++      return;
++    }
++
+   if (state->is_inactive)
+     {
+       ply_trace ("show splash called while inactive");
+@@ -884,6 +891,8 @@ on_show_splash (state_t *state)
+       return;
+     }
+ 
++  state->is_shown = true;
++
+   check_for_consoles (state, state->default_tty, true);
+ 
+   has_display = ply_list_get_length (state->pixel_displays) > 0 ||
+@@ -1012,6 +1021,8 @@ dump_details_and_quit_splash (state_t *state)
+   if (state->boot_splash != NULL)
+     ply_boot_splash_hide (state->boot_splash);
+ 
++  state->is_shown = false;
++
+   quit_splash (state);
+ }
+ 
+@@ -1116,6 +1127,8 @@ on_boot_splash_idle (state_t *state)
+             ply_renderer_deactivate (state->renderer);
+           if (state->boot_splash != NULL)
+             ply_boot_splash_hide (state->boot_splash);
++
++          state->is_shown = false;
+         }
+ 
+       ply_trace ("quitting splash");
+-- 
+1.7.12.1
+

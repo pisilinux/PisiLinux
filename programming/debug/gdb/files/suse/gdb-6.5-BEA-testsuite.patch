@@ -1,0 +1,938 @@
+Index: ./gdb/testsuite/gdb.threads/threadcrash.c
+===================================================================
+RCS file: gdb/testsuite/gdb.threads/threadcrash.c
+diff -N gdb/testsuite/gdb.threads/threadcrash.c
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.threads/threadcrash.c	31 Oct 2006 17:54:38 -0000
+@@ -0,0 +1,301 @@
++/*
++ * The point of this program is to crash in a multi-threaded app.
++ * There are seven threads, doing the following things:
++ * * Spinning
++ * * Spinning inside a signal handler
++ * * Spinning inside a signal handler executing on the altstack
++ * * In a syscall
++ * * In a syscall inside a signal handler
++ * * In a syscall inside a signal handler executing on the altstack
++ * * Finally, the main thread crashes in main, with no frills.
++ *
++ * These are the things threads in JRockit tend to be doing.  If gdb
++ * can handle those things, both in core files and during live
++ * debugging, that will help (at least) JRockit development.
++ *
++ * Let the program create a core file, then load the core file into
++ * gdb.  Inside gdb, you should be able to do something like this:
++ *
++ * (gdb) t a a bt
++ * 
++ * Thread 7 (process 4352):
++ * #0  0x001ba7dc in __nanosleep_nocancel () from /lib/tls/libc.so.6
++ * #1  0x001ba5ff in sleep () from /lib/tls/libc.so.6
++ * #2  0x080488a2 in makeSyscall (ignored=0x0) at threadcrash.c:118
++ * #3  0x006aadec in start_thread () from /lib/tls/libpthread.so.0
++ * #4  0x001ed19a in clone () from /lib/tls/libc.so.6
++ * 
++ * Thread 6 (process 4353):
++ * #0  0x001ba7dc in __nanosleep_nocancel () from /lib/tls/libc.so.6
++ * #1  0x001ba5ff in sleep () from /lib/tls/libc.so.6
++ * #2  0x0804898f in syscallingSighandler (signo=10, info=0xb6be76f0, context=0xb6be7770)
++ *     at threadcrash.c:168
++ * #3  <signal handler called>
++ * #4  0x006adf5e in pthread_kill () from /lib/tls/libpthread.so.0
++ * #5  0x08048a51 in makeSyscallFromSighandler (ignored=0x0) at threadcrash.c:204
++ * #6  0x006aadec in start_thread () from /lib/tls/libpthread.so.0
++ * #7  0x001ed19a in clone () from /lib/tls/libc.so.6
++ * 
++ * Thread 5 (process 4354):
++ * #0  0x001ba7dc in __nanosleep_nocancel () from /lib/tls/libc.so.6
++ * #1  0x001ba5ff in sleep () from /lib/tls/libc.so.6
++ * #2  0x08048936 in syscallingAltSighandler (signo=3, info=0x959cd70, context=0x959cdf0)
++ *     at threadcrash.c:144
++ * #3  <signal handler called>
++ * #4  0x006adf5e in pthread_kill () from /lib/tls/libpthread.so.0
++ * #5  0x080489e2 in makeSyscallFromAltSighandler (ignored=0x0) at threadcrash.c:190
++ * #6  0x006aadec in start_thread () from /lib/tls/libpthread.so.0
++ * #7  0x001ed19a in clone () from /lib/tls/libc.so.6
++ * 
++ * Thread 4 (process 4355):
++ * #0  spin (ignored=0x0) at threadcrash.c:242
++ * #1  0x006aadec in start_thread () from /lib/tls/libpthread.so.0
++ * #2  0x001ed19a in clone () from /lib/tls/libc.so.6
++ * 
++ * Thread 3 (process 4356):
++ * #0  spinningSighandler (signo=12, info=0xb4de46f0, context=0xb4de4770) at threadcrash.c:180
++ * #1  <signal handler called>
++ * #2  0x006adf5e in pthread_kill () from /lib/tls/libpthread.so.0
++ * #3  0x08048b2f in spinFromSighandler (ignored=0x0) at threadcrash.c:232
++ * #4  0x006aadec in start_thread () from /lib/tls/libpthread.so.0
++ * #5  0x001ed19a in clone () from /lib/tls/libc.so.6
++ * 
++ * Thread 2 (process 4357):
++ * #0  spinningAltSighandler (signo=14, info=0x959ee50, context=0x959eed0) at threadcrash.c:156
++ * #1  <signal handler called>
++ * #2  0x006adf5e in pthread_kill () from /lib/tls/libpthread.so.0
++ * #3  0x08048ac0 in spinFromAltSighandler (ignored=0x0) at threadcrash.c:218
++ * #4  0x006aadec in start_thread () from /lib/tls/libpthread.so.0
++ * #5  0x001ed19a in clone () from /lib/tls/libc.so.6
++ * 
++ * Thread 1 (process 4351):
++ * #0  0x08048cf3 in main (argc=1, argv=0xbfff9d74) at threadcrash.c:273
++ * (gdb)
++ */
++
++#include <pthread.h>
++#include <signal.h>
++#include <assert.h>
++#include <unistd.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#define SIGSYSCALL_ALT SIGQUIT
++#define SIGSYSCALL SIGUSR1
++#define SIGSPIN_ALT SIGALRM
++#define SIGSPIN SIGUSR2
++
++typedef void (*sigaction_t)(int, siginfo_t *, void *);
++
++static void installHandler(int signo, sigaction_t handler, int onAltstack) {
++   struct sigaction action;
++   sigset_t sigset;
++   int result;
++   stack_t altstack;
++   stack_t oldaltstack;
++   
++   memset(&action, 0, sizeof(action));
++   memset(&altstack, 0, sizeof(altstack));
++   memset(&oldaltstack, 0, sizeof(oldaltstack));
++   
++   if (onAltstack) {
++      altstack.ss_sp = malloc(SIGSTKSZ);
++      assert(altstack.ss_sp != NULL);
++      altstack.ss_size = SIGSTKSZ;
++      altstack.ss_flags = 0;
++      result = sigaltstack(&altstack, &oldaltstack);
++      assert(result == 0);
++      assert(oldaltstack.ss_flags == SS_DISABLE);
++   }
++   
++   sigemptyset(&sigset);
++   
++   action.sa_handler = NULL;
++   action.sa_sigaction = handler;
++   action.sa_mask = sigset;
++   action.sa_flags = SA_SIGINFO;
++   if (onAltstack) {
++      action.sa_flags |= SA_ONSTACK;
++   }
++   
++   result = sigaction(signo, &action, NULL);
++   assert(result == 0);
++}
++
++static void installNormalHandler(int signo, sigaction_t handler) {
++   installHandler(signo, handler, 0);
++}
++
++static void installAlthandler(int signo, sigaction_t handler) {
++   installHandler(signo, handler, 1);
++}
++
++static void *makeSyscall(void *ignored) {
++   (void)ignored;
++
++   sleep(42);
++
++   fprintf(stderr, "%s: returning\n", __FUNCTION__);
++   return NULL;
++}
++
++/* Return true if we're currently executing on the altstack */
++static int onAltstack(void) {
++   stack_t stack;
++   int result;
++   
++   result = sigaltstack(NULL, &stack);
++   assert(result == 0);
++   
++   return stack.ss_flags & SS_ONSTACK;
++}
++
++static void syscallingAltSighandler(int signo, siginfo_t *info, void *context) {
++   (void)signo;
++   (void)info;
++   (void)context;
++   
++   if (!onAltstack()) {
++      printf("%s() not running on altstack!\n", __FUNCTION__);
++   }
++   
++   sleep(42);
++}
++
++static void spinningAltSighandler(int signo, siginfo_t *info, void *context) {
++   (void)signo;
++   (void)info;
++   (void)context;
++   
++   if (!onAltstack()) {
++      printf("%s() not running on altstack!\n", __FUNCTION__);
++   }
++   
++   while (1);
++}
++
++static void syscallingSighandler(int signo, siginfo_t *info, void *context) {
++   (void)signo;
++   (void)info;
++   (void)context;
++   
++   if (onAltstack()) {
++      printf("%s() running on altstack!\n", __FUNCTION__);
++   }
++   
++   sleep(42);
++}
++
++static void spinningSighandler(int signo, siginfo_t *info, void *context) {
++   (void)signo;
++   (void)info;
++   (void)context;
++   
++   if (onAltstack()) {
++      printf("%s() running on altstack!\n", __FUNCTION__);
++   }
++   
++   while (1);
++}
++
++static void *makeSyscallFromAltSighandler(void *ignored) {
++   (void)ignored;
++   
++   int result;
++   
++   installAlthandler(SIGSYSCALL_ALT, syscallingAltSighandler);
++   
++   result = pthread_kill(pthread_self(), SIGSYSCALL_ALT);
++   assert(result == 0);
++   
++   fprintf(stderr, "%s: returning\n", __FUNCTION__);
++   return NULL;
++}
++
++static void *makeSyscallFromSighandler(void *ignored) {
++   (void)ignored;
++   
++   int result;
++   
++   installNormalHandler(SIGSYSCALL, syscallingSighandler);
++   
++   result = pthread_kill(pthread_self(), SIGSYSCALL);
++   assert(result == 0);
++   
++   fprintf(stderr, "%s: returning\n", __FUNCTION__);
++   return NULL;
++}
++
++static void *spinFromAltSighandler(void *ignored) {
++   (void)ignored;
++   
++   int result;
++   
++   installAlthandler(SIGSPIN_ALT, spinningAltSighandler);
++   
++   result = pthread_kill(pthread_self(), SIGSPIN_ALT);
++   assert(result == 0);
++   
++   fprintf(stderr, "%s: returning\n", __FUNCTION__);
++   return NULL;
++}
++
++static void *spinFromSighandler(void *ignored) {
++   (void)ignored;
++   
++   int result;
++   
++   installNormalHandler(SIGSPIN, spinningSighandler);
++   
++   result = pthread_kill(pthread_self(), SIGSPIN);
++   assert(result == 0);
++   
++   fprintf(stderr, "%s: returning\n", __FUNCTION__);
++   return NULL;
++}
++
++static void *spin(void *ignored) {
++   (void)ignored;
++   
++   while (1);
++
++   fprintf(stderr, "%s: returning\n", __FUNCTION__);
++   return NULL;
++}
++
++int main(int argc, char *argv[]) {
++   int result;
++   pthread_t thread;
++   volatile int bad;
++   
++   result = pthread_create(&thread, NULL, makeSyscall, NULL);
++   assert(result == 0);
++   result = pthread_create(&thread, NULL, makeSyscallFromSighandler, NULL);
++   assert(result == 0);
++   result = pthread_create(&thread, NULL, makeSyscallFromAltSighandler, NULL);
++   assert(result == 0);
++   result = pthread_create(&thread, NULL, spin, NULL);
++   assert(result == 0);
++   result = pthread_create(&thread, NULL, spinFromSighandler, NULL);
++   assert(result == 0);
++   result = pthread_create(&thread, NULL, spinFromAltSighandler, NULL);
++   assert(result == 0);
++   
++   // Give threads some time to get going
++   sleep(3);
++   
++   // Crash
++   bad = *(int*)7;
++
++   /* Workaround: http://gcc.gnu.org/bugzilla/show_bug.cgi?id=29628
++      Simulate use to ensure `DW_AT_location' for them:
++      readelf -a --debug threadcrash|grep -A5 -w argc
++      --> DW_AT_location    : 2 byte block: 71 0     (DW_OP_breg1: 0)
++      This case verified on: gcc-4.1.1-30.i386
++      Keep it late to ensure persistency in the registers.  */
++   bad = (int) argc;
++   bad = (unsigned long) argv;
++   
++   return 0;
++}
+Index: ./gdb/testsuite/gdb.threads/threadcrash.exp
+===================================================================
+RCS file: gdb/testsuite/gdb.threads/threadcrash.exp
+diff -N gdb/testsuite/gdb.threads/threadcrash.exp
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.threads/threadcrash.exp	31 Oct 2006 17:54:38 -0000
+@@ -0,0 +1,37 @@
++# threadcrash.exp - The point of this program is to crash in a multi-threaded app.
++
++
++set testfile threadcrash
++set srcfile ${testfile}.c
++set shellfile ${srcdir}/${subdir}/${testfile}.sh
++set binfile ${objdir}/${subdir}/${testfile}
++
++set GDB_abs ${GDB}
++if [regexp "^\[^/\]" ${GDB_abs}] {
++    set GDB_abs $env(PWD)/${GDB_abs}
++}
++
++if [istarget "*-*-linux"] then {
++    set target_cflags "-D_MIT_POSIX_THREADS"
++} else {
++    set target_cflags ""
++}
++
++if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
++    return -1
++}
++
++# ${shellfile} argument must not contain any directories.
++set fd [open "|bash ${shellfile} ${binfile} $GDB -nw $GDBFLAGS" r]
++while { [gets $fd line] >= 0 } {
++    if [regexp " PASS: (.*)$" $line trash message] {
++	pass $message
++    } elseif [regexp " FAIL: (.*)$" $line trash message] {
++	fail $message
++    }
++}
++catch {
++    close $fd
++}
++
++return 0
+Index: ./gdb/testsuite/gdb.threads/threadcrash.sh
+===================================================================
+RCS file: gdb/testsuite/gdb.threads/threadcrash.sh
+diff -N gdb/testsuite/gdb.threads/threadcrash.sh
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.threads/threadcrash.sh	31 Oct 2006 17:54:38 -0000
+@@ -0,0 +1,324 @@
++#! /bin/bash
++
++# NOTE: threadcrash.c *must* be built with debugging symbols
++#
++# The point of this shell script is to crash treadcrash.c, load the
++# resulting core file into gdb and verify that gdb can extract enough
++# information from the core file.
++#
++# The return code from this script is the number of failed tests.
++
++LOG=gdbresult.log
++
++if [ $# = 0 ] ; then
++    echo >&2 Syntax: $0 \<name of threadcrash binary\> [\<gdb binary\> \<args...\>]
++    exit 1
++fi
++RUNME="$1"
++shift
++GDB="${*:-gdb}"
++
++
++pf_prefix=""
++function pf_prefix() {
++	pf_prefix="$*"
++}
++
++set_test=""
++function set_test() {
++	if [ -n "$set_test" ] ; then
++		echo >&2 "DEJAGNU-BASH ERROR: set_test already set"
++		exit 1
++	fi
++	set_test="$*"
++	if [ -n "$pf_prefix" ] ; then
++		set_test="$pf_prefix: $set_test"
++	fi
++}
++
++# INTERNAL
++function record_test {
++	if [ -z "$set_test" ] ; then
++		echo >&2 "DEJAGNU-BASH ERROR: set_test not set"
++		exit 1
++	fi
++	# Provide the leading whitespace delimiter:
++	echo " $1: $set_test"
++	set_test=""
++}
++
++function pass() {
++	record_test PASS
++}
++function fail() {
++	record_test FAIL
++}
++
++
++# Verify that the gdb output doesn't contain $1.
++function mustNotHave() {
++    local BADWORD=$1
++    set_test gdb output contains "$BADWORD"
++    if grep -q "$BADWORD" $LOG ; then
++        fail
++        return 1
++    fi
++    pass
++    return 0
++}
++
++# Verify that the gdb output contains exactly $1 $2s.
++function mustHaveCorrectAmount() {
++    local WANTEDNUMBER=$1
++    local GOODWORD=$2
++    local ACTUALNUMBER=$(grep "$GOODWORD" $LOG | wc -l)
++    set_test gdb output contained $ACTUALNUMBER \""$GOODWORD"\", not $WANTEDNUMBER as expected
++    if [ $ACTUALNUMBER != $WANTEDNUMBER ] ; then
++        fail
++        return 1
++    fi
++    pass
++    return 0
++}
++
++# Verify that the gdb output contains seven threads
++function mustHaveSevenThreads() {
++    NTHREADS=$(egrep "^Thread [1-7] \(" $LOG | wc -l)
++    set_test gdb output contains $NTHREADS threads, not 7 as expected
++    if [ $NTHREADS != 7 ] ; then
++        fail
++        return 1
++    fi
++    pass
++    return 0
++}
++
++# Verify that the gdb output has all parameters on consecutive lines
++function mustHaveSequence() {
++    SEQUENCE="$*"
++    NPARTS=$#
++    grep "$1" -A$((NPARTS - 1)) $LOG > matches.log
++
++    while [ $# -gt 1 ] ; do
++        shift
++        ((NPARTS--))
++        grep "$1" -A$((NPARTS - 1)) matches.log > temp.log
++        mv temp.log matches.log
++    done
++    LASTPART=$1
++
++    set_test gdb output does not contain the sequence: $SEQUENCE
++    if ! grep -q "$LASTPART" matches.log ; then
++        fail
++        return 1
++    fi
++    pass
++    return 0
++}
++
++# Verify that $LOG contains all information we want
++function verifyLog() {
++    local FAILURES=0
++    
++    mustNotHave '??' || ((FAILURES++))
++    mustHaveCorrectAmount 12 threadcrash.c: || ((FAILURES++))
++    
++    mustHaveSevenThreads || ((FAILURES++))
++    mustHaveSequence sleep "makeSyscall (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence sleep "syscallingSighandler (signo=" "signal handler called" 0x || ((FAILURES++))
++    mustHaveSequence pthread_kill "makeSyscallFromSighandler (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence sleep "syscallingAltSighandler (signo=" "signal handler called" 0x || ((FAILURES++))
++    mustHaveSequence pthread_kill "makeSyscallFromAltSighandler (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence Thread "spin (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence "spinningSighandler (signo=" "signal handler called" 0x || ((FAILURES++))
++    mustHaveSequence pthread_kill "spinFromSighandler (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence "spinningAltSighandler (signo=" "signal handler called" 0x || ((FAILURES++))
++    mustHaveSequence pthread_kill "spinFromAltSighandler (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence Thread "main (argc=1, argv=" || ((FAILURES++))
++
++    return $FAILURES
++}
++
++# Put result of debugging a core file in $LOG
++function getLogFromCore() {
++    # Make sure we get a core file
++    set_test Make sure we get a core file
++    if ! ulimit -c unlimited ; then
++        fail
++        exit 1
++    fi
++    pass
++
++    # Run the crasher
++    ./$(basename "$RUNME")
++    EXITCODE=$?
++
++    # Verify that we actually crashed
++    set_test $RUNME should have been killed by a signal, got non-signal exit code $EXITCODE
++    if [ $EXITCODE -lt 128 ] ; then
++        fail
++        exit 1
++    fi
++    pass
++
++    # Verify that we got a core file
++    set_test $RUNME did not create a core file
++    if [ ! -r core* ] ; then
++        fail
++        exit 1
++    fi
++    pass
++
++    # Run gdb
++    cat > gdbscript.gdb <<EOF
++set width 0
++t a a bt 100
++quit
++EOF
++    cat gdbscript.gdb /dev/zero | $GDB -nx "./$(basename "$RUNME")" core* > $LOG
++    EXITCODE=$?
++
++    set_test gdb exited with error code
++    if [ $EXITCODE != 0 ] ; then
++        ((FAILURES++))
++        echo >&2 gdb exited with error code $EXITCODE
++	fail
++    fi
++    pass
++}
++
++# Put result of debugging a gcore file in $LOG
++function getLogFromGcore() {
++    # Create the core file
++    rm -f core*
++    cat > gdbscript.gdb <<EOF
++handle SIGQUIT pass noprint nostop
++handle SIGUSR1 pass noprint nostop
++handle SIGUSR2 pass noprint nostop
++handle SIGALRM pass noprint nostop
++run
++gcore
++quit
++EOF
++    cat gdbscript.gdb /dev/zero | $GDB -nx "./$(basename "$RUNME")" > /dev/null
++    EXITCODE=$?
++
++    set_test gdb exited with error code when creating gcore file
++    if [ $EXITCODE != 0 ] ; then
++        ((FAILURES++))
++        echo >&2 gdb exited with error code $EXITCODE when creating gcore file
++	fail
++    fi
++    pass
++    
++    # Verify that we got a core file from gcore
++    set_test gdb gcore did not create a core file
++    if [ ! -r core* ] ; then
++        fail
++        exit 1
++    fi
++    pass
++
++    # Run gdb on the gcore file
++    cat > gdbscript.gdb <<EOF
++set width 0
++t a a bt 100
++quit
++EOF
++    cat gdbscript.gdb /dev/zero | $GDB -nx "./$(basename "$RUNME")" core* > $LOG
++    EXITCODE=$?
++
++    set_test gdb exited with error code when examining gcore file
++    if [ $EXITCODE != 0 ] ; then
++        ((FAILURES++))
++        echo >&2 gdb exited with error code $EXITCODE when examining gcore file
++	fail
++    fi
++    pass
++}
++
++# Put result of debugging a core file in $LOG
++function getLogFromLiveProcess() {
++    # Run gdb
++    cat > gdbscript.gdb <<EOF
++handle SIGQUIT pass noprint nostop
++handle SIGUSR1 pass noprint nostop
++handle SIGUSR2 pass noprint nostop
++handle SIGALRM pass noprint nostop
++set width 0
++run
++t a a bt 100
++quit
++EOF
++    cat gdbscript.gdb /dev/zero | $GDB -nx "./$(basename "$RUNME")" > $LOG
++    EXITCODE=$?
++
++    set_test gdb exited with error code
++    if [ $EXITCODE != 0 ] ; then
++        ((FAILURES++))
++        echo >&2 gdb exited with error code $EXITCODE
++	fail
++    fi
++    pass
++}
++
++####### Main program follows #####################
++
++# Make sure we don't clobber anybody else's (core) file(s)
++WORKDIR=/tmp/$PPID
++mkdir -p $WORKDIR
++cp "$RUNME" $WORKDIR
++cd $WORKDIR
++
++# Count problems
++FAILURES=0
++
++echo === Testing gdb vs core file...
++pf_prefix core file
++getLogFromCore
++verifyLog
++((FAILURES+=$?))
++pf_prefix
++echo === Core file tests done.
++
++echo
++
++echo === Testing gdb vs gcore file...
++pf_prefix gcore file
++getLogFromGcore
++verifyLog
++((FAILURES+=$?))
++pf_prefix
++echo === Gcore file tests done.
++
++echo
++
++echo === Testing gdb vs live process...
++pf_prefix live process
++getLogFromLiveProcess
++verifyLog
++((FAILURES+=$?))
++pf_prefix
++echo === Live process tests done.
++
++# Executive summary
++echo
++if [ $FAILURES == 0 ] ; then
++    echo All tests passed!
++else
++    echo $FAILURES tests failed!
++    echo
++    echo Make sure the threadcrash binary contains debugging information \(build with \"gcc -g\"\).
++fi
++
++# Clean up
++cd /
++rm -rf $WORKDIR
++
++exit $FAILURES
+Index: ./gdb/testsuite/gdb.threads/threadcrash.sh-orig
+===================================================================
+RCS file: gdb/testsuite/gdb.threads/threadcrash.sh-orig
+diff -N gdb/testsuite/gdb.threads/threadcrash.sh-orig
+--- /dev/null	1 Jan 1970 00:00:00 -0000
++++ ./gdb/testsuite/gdb.threads/threadcrash.sh-orig	31 Oct 2006 17:54:38 -0000
+@@ -0,0 +1,248 @@
++#! /bin/bash
++
++# NOTE: threadcrash.c *must* be built with debugging symbols
++#
++# The point of this shell script is to crash treadcrash.c, load the
++# resulting core file into gdb and verify that gdb can extract enough
++# information from the core file.
++#
++# The return code from this script is the number of failed tests.
++
++LOG=gdbresult.log
++
++if [ $# != 1 ] ; then
++    echo > /dev/stderr Syntax: $0 \<name of threadcrash binary\>
++    exit 1
++fi
++RUNME="$1"
++
++# Verify that the gdb output doesn't contain $1.
++function mustNotHave() {
++    local BADWORD=$1
++    if grep -q "$BADWORD" $LOG ; then
++        echo >> /dev/stderr WARNING: gdb output contains "$BADWORD"
++        return 1
++    fi
++    return 0
++}
++
++# Verify that the gdb output contains exactly $1 $2s.
++function mustHaveCorrectAmount() {
++    local WANTEDNUMBER=$1
++    local GOODWORD=$2
++    local ACTUALNUMBER=$(grep "$GOODWORD" $LOG | wc -l)
++    if [ $ACTUALNUMBER != $WANTEDNUMBER ] ; then
++        echo >> /dev/stderr WARNING: gdb output contained $ACTUALNUMBER \""$GOODWORD"\", not $WANTEDNUMBER as expected
++        return 1
++    fi
++    return 0
++}
++
++# Verify that the gdb output contains seven threads
++function mustHaveSevenThreads() {
++    NTHREADS=$(egrep "^Thread [1-7] \(" $LOG | wc -l)
++    if [ $NTHREADS != 7 ] ; then
++        echo >> /dev/stderr WARNING: gdb output contains $NTHREADS threads, not 7 as expected
++        return 1
++    fi
++    return 0
++}
++
++# Verify that the gdb output has all parameters on consecutive lines
++function mustHaveSequence() {
++    SEQUENCE="$*"
++    NPARTS=$#
++    grep "$1" -A$((NPARTS - 1)) $LOG > matches.log
++
++    while [ $# -gt 1 ] ; do
++        shift
++        ((NPARTS--))
++        grep "$1" -A$((NPARTS - 1)) matches.log > temp.log
++        mv temp.log matches.log
++    done
++    LASTPART=$1
++
++    if ! grep -q "$LASTPART" matches.log ; then
++        echo >> /dev/stderr WARNING: gdb output does not contain the sequence: $SEQUENCE
++        return 1
++    fi
++    return 0
++}
++
++# Verify that $LOG contains all information we want
++function verifyLog() {
++    local FAILURES=0
++    
++    mustNotHave '??' || ((FAILURES++))
++    mustHaveCorrectAmount 12 threadcrash.c: || ((FAILURES++))
++    
++    mustHaveSevenThreads || ((FAILURES++))
++    mustHaveSequence sleep "makeSyscall (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence sleep "syscallingSighandler (signo=" "signal handler called" 0x || ((FAILURES++))
++    mustHaveSequence pthread_kill "makeSyscallFromSighandler (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence sleep "syscallingAltSighandler (signo=" "signal handler called" 0x || ((FAILURES++))
++    mustHaveSequence pthread_kill "makeSyscallFromAltSighandler (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence Thread "spin (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence "spinningSighandler (signo=" "signal handler called" 0x || ((FAILURES++))
++    mustHaveSequence pthread_kill "spinFromSighandler (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence "spinningAltSighandler (signo=" "signal handler called" 0x || ((FAILURES++))
++    mustHaveSequence pthread_kill "spinFromAltSighandler (ignored=" || ((FAILURES++))
++    
++    mustHaveSequence Thread "main (argc=1, argv=" || ((FAILURES++))
++
++    return $FAILURES
++}
++
++# Put result of debugging a core file in $LOG
++function getLogFromCore() {
++    # Make sure we get a core file
++    ulimit -c unlimited || exit 1
++
++    # Run the crasher
++    ./$(basename "$RUNME")
++    EXITCODE=$?
++
++    # Verify that we actually crashed
++    if [ $EXITCODE -lt 128 ] ; then
++        echo >> /dev/stderr ERROR: $RUNME should have been killed by a signal, got non-signal exit code $EXITCODE
++        exit 1
++    fi
++
++    # Verify that we got a core file
++    if [ ! -r core* ] ; then
++        echo >> /dev/stderr ERROR: $RUNME did not create a core file
++        exit 1
++    fi
++
++    # Run gdb
++    cat > gdbscript.gdb <<EOF
++set width 0
++t a a bt 100
++quit
++EOF
++    cat gdbscript.gdb /dev/zero | gdb -nx "./$(basename "$RUNME")" core* > $LOG
++    EXITCODE=$?
++
++    if [ $EXITCODE != 0 ] ; then
++        ((FAILURES++))
++        echo >> /dev/stderr WARNING: gdb exited with error code $EXITCODE
++    fi
++}
++
++# Put result of debugging a gcore file in $LOG
++function getLogFromGcore() {
++    # Create the core file
++    rm -f core*
++    cat > gdbscript.gdb <<EOF
++handle SIGQUIT pass noprint nostop
++handle SIGUSR1 pass noprint nostop
++handle SIGUSR2 pass noprint nostop
++handle SIGALRM pass noprint nostop
++run
++gcore
++quit
++EOF
++    cat gdbscript.gdb /dev/zero | gdb -nx "./$(basename "$RUNME")" > /dev/null
++    EXITCODE=$?
++
++    if [ $EXITCODE != 0 ] ; then
++        ((FAILURES++))
++        echo >> /dev/stderr WARNING: gdb exited with error code $EXITCODE when creating gcore file
++    fi
++    
++    # Verify that we got a core file from gcore
++    if [ ! -r core* ] ; then
++        echo >> /dev/stderr ERROR: gdb gcore did not create a core file
++        exit 1
++    fi
++
++    # Run gdb on the gcore file
++    cat > gdbscript.gdb <<EOF
++set width 0
++t a a bt 100
++quit
++EOF
++    cat gdbscript.gdb /dev/zero | gdb -nx "./$(basename "$RUNME")" core* > $LOG
++    EXITCODE=$?
++
++    if [ $EXITCODE != 0 ] ; then
++        ((FAILURES++))
++        echo >> /dev/stderr WARNING: gdb exited with error code $EXITCODE when examining gcore file
++    fi
++}
++
++# Put result of debugging a core file in $LOG
++function getLogFromLiveProcess() {
++    # Run gdb
++    cat > gdbscript.gdb <<EOF
++handle SIGQUIT pass noprint nostop
++handle SIGUSR1 pass noprint nostop
++handle SIGUSR2 pass noprint nostop
++handle SIGALRM pass noprint nostop
++set width 0
++run
++t a a bt 100
++quit
++EOF
++    cat gdbscript.gdb /dev/zero | gdb -nx "./$(basename "$RUNME")" > $LOG
++    EXITCODE=$?
++
++    if [ $EXITCODE != 0 ] ; then
++        ((FAILURES++))
++        echo >> /dev/stderr WARNING: gdb exited with error code $EXITCODE
++    fi
++}
++
++####### Main program follows #####################
++
++# Make sure we don't clobber anybody else's (core) file(s)
++WORKDIR=/tmp/$PPID
++mkdir -p $WORKDIR
++cp "$RUNME" $WORKDIR
++cd $WORKDIR
++
++# Count problems
++FAILURES=0
++
++echo === Testing gdb vs core file...
++getLogFromCore
++verifyLog
++((FAILURES+=$?))
++echo === Core file tests done.
++
++echo
++
++echo === Testing gdb vs gcore file...
++getLogFromGcore
++verifyLog
++((FAILURES+=$?))
++echo === Gcore file tests done.
++
++echo
++
++echo === Testing gdb vs live process...
++getLogFromLiveProcess
++verifyLog
++((FAILURES+=$?))
++echo === Live process tests done.
++
++# Executive summary
++echo
++if [ $FAILURES == 0 ] ; then
++    echo All tests passed!
++else
++    echo $FAILURES tests failed!
++    echo
++    echo Make sure the threadcrash binary contains debugging information \(build with \"gcc -g\"\).
++fi
++
++# Clean up
++cd /
++rm -rf $WORKDIR
++
++exit $FAILURES

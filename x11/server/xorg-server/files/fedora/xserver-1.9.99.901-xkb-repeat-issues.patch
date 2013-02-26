@@ -1,0 +1,79 @@
+From 4993bd3187f9e5398014ead5c845d2353cc3de6c Mon Sep 17 00:00:00 2001
+From: Peter Hutterer <peter.hutterer@who-t.net>
+Date: Thu, 13 Jan 2011 12:20:38 +1000
+Subject: [PATCH] xkb: after making changes to the xkb ctrls, copy them back into kbdfeed.
+
+enabled_ctrls_changes nowhere near the usual event or config paths. So this
+condition always evaluated to false and the memcpy would thus never been
+hit. As a result, any modification to the XKB struct during
+XkbUpdateDescActions was not reflected in the kbdfeed ctrls.
+The flag that is set by XkbUpdateDescActions() if ctrls were changed are in
+enabled_ctrls.
+
+This mainly affected keyboard repeat control as XKB uses the kbdfeed ctrls,
+not XKB's per_key_repeats, to determine if a key needs to be repeated. Thus,
+adding a "repeat= False" to the XKB map of any action did not have any
+effect.
+
+Test case:
+assign Mode_switch to any key that by default repeats, e.g. the menu key.
+
+    key <COMP> {         [     Mode_switch ] };
+
+Then modify the Mode_switch action to not repeat the key.
+
+    interpret Mode_switch+AnyOfOrNone(all) {
+        virtualModifier= AltGr;
+        useModMapMods=level1;
+        action= SetGroup(group=+1);
+        // Add this line
+        repeat= False;
+    };
+
+Though the flags are correctly reflected in the description loaded in the
+server, the change is not handed back to the kbdfeed struct and XKB will
+trigger softrepeats of this key.
+
+This patch also adds two explanatory comments and an extra check, as this
+path may be hit before the CtrlProc for the kbdfeed struct is set.
+
+Red Hat Bug 537708 <https://bugzilla.redhat.com/show_bug.cgi?id=537708>
+
+Also fixes broken auto-repeat of the backspace key in the colemak layout
+(mapped to CapsLock).
+
+X.Org Bug 16318 <http://bugs.freedesktop.org/show_bug.cgi?id=16318>
+
+Signed-off-by: Peter Hutterer <peter.hutterer@who-t.net>
+---
+ xkb/xkbUtils.c |    7 +++++--
+ 1 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/xkb/xkbUtils.c b/xkb/xkbUtils.c
+index 14dc784..23fe57e 100644
+--- a/xkb/xkbUtils.c
++++ b/xkb/xkbUtils.c
+@@ -342,15 +342,18 @@ CARD8 *			repeat;
+     xkb= xkbi->desc;
+     repeat= xkb->ctrls->per_key_repeat;
+ 
++    /* before letting XKB do any changes, copy the current core values */
+     if (pXDev->kbdfeed)
+ 	memcpy(repeat,pXDev->kbdfeed->ctrl.autoRepeats,XkbPerKeyBitArraySize);
+ 
+     XkbUpdateDescActions(xkb,first,num,changes);
+ 
+     if ((pXDev->kbdfeed)&&
+-	(changes->ctrls.enabled_ctrls_changes&XkbPerKeyRepeatMask)) {
++	(changes->ctrls.changed_ctrls&XkbPerKeyRepeatMask)) {
++        /* now copy the modified changes back to core */
+         memcpy(pXDev->kbdfeed->ctrl.autoRepeats,repeat, XkbPerKeyBitArraySize);
+-	(*pXDev->kbdfeed->CtrlProc)(pXDev, &pXDev->kbdfeed->ctrl);
++        if (pXDev->kbdfeed->CtrlProc)
++            (*pXDev->kbdfeed->CtrlProc)(pXDev, &pXDev->kbdfeed->ctrl);
+     }
+     return;
+ }
+-- 
+1.7.3.4
+

@@ -1,0 +1,183 @@
+[ Backported.  ]
+
+commit 5362e5e1dc4cfac24fbd58773aaa7a82c615b662
+Author: H.J. Lu <hjl.tools@gmail.com>
+Date:   Thu Apr 1 20:02:07 2010 +0000
+
+    Support "ah", "bh", "ch", "dh" on amd64.
+    
+    gdb/
+    
+    2010-04-01  H.J. Lu  <hongjiu.lu@intel.com>
+    
+    	* amd64-tdep.c (amd64_byte_names): Add "ah", "bh", "ch", "dh".
+    	(AMD64_NUM_LOWER_BYTE_REGS): New.
+    	(amd64_pseudo_register_read): Handle "ah", "bh", "ch", "dh".
+    	(amd64_pseudo_register_write): Likewise.
+    	(amd64_init_abi): Set num_byte_regs to 20.
+    
+    gdb/testsuite/
+    
+    2010-04-01  H.J. Lu  <hongjiu.lu@intel.com>
+    
+    	* gdb.arch/amd64-byte.exp: Check "ah", "bh", "ch", "dh".
+
+--- gdb-7.1-p7/gdb/amd64-tdep.c	2010-04-03 21:08:21.000000000 +0200
++++ gdb-7.1/gdb/amd64-tdep.c	2010-04-03 21:11:41.000000000 +0200
+@@ -215,9 +215,13 @@ amd64_arch_reg_to_regnum (int reg)
+ static const char *amd64_byte_names[] =
+ {
+   "al", "bl", "cl", "dl", "sil", "dil", "bpl", "spl",
+-  "r8l", "r9l", "r10l", "r11l", "r12l", "r13l", "r14l", "r15l"
++  "r8l", "r9l", "r10l", "r11l", "r12l", "r13l", "r14l", "r15l",
++  "ah", "bh", "ch", "dh"
+ };
+ 
++/* Number of lower byte registers.  */
++#define AMD64_NUM_LOWER_BYTE_REGS 16
++
+ /* Register names for word pseudo-registers.  */
+ 
+ static const char *amd64_word_names[] =
+@@ -263,8 +267,18 @@ amd64_pseudo_register_read (struct gdbar
+       int gpnum = regnum - tdep->al_regnum;
+ 
+       /* Extract (always little endian).  */
+-      regcache_raw_read (regcache, gpnum, raw_buf);
+-      memcpy (buf, raw_buf, 1);
++      if (gpnum >= AMD64_NUM_LOWER_BYTE_REGS)
++	{
++	  /* Special handling for AH, BH, CH, DH.  */
++	  regcache_raw_read (regcache,
++			     gpnum - AMD64_NUM_LOWER_BYTE_REGS, raw_buf);
++	  memcpy (buf, raw_buf + 1, 1);
++	}
++      else
++	{
++	  regcache_raw_read (regcache, gpnum, raw_buf);
++	  memcpy (buf, raw_buf, 1);
++	}
+     }
+   else if (i386_dword_regnum_p (gdbarch, regnum))
+     {
+@@ -289,12 +303,26 @@ amd64_pseudo_register_write (struct gdba
+     {
+       int gpnum = regnum - tdep->al_regnum;
+ 
+-      /* Read ...  */
+-      regcache_raw_read (regcache, gpnum, raw_buf);
+-      /* ... Modify ... (always little endian).  */
+-      memcpy (raw_buf, buf, 1);
+-      /* ... Write.  */
+-      regcache_raw_write (regcache, gpnum, raw_buf);
++      if (gpnum >= AMD64_NUM_LOWER_BYTE_REGS)
++	{
++	  /* Read ... AH, BH, CH, DH.  */
++	  regcache_raw_read (regcache,
++			     gpnum - AMD64_NUM_LOWER_BYTE_REGS, raw_buf);
++	  /* ... Modify ... (always little endian).  */
++	  memcpy (raw_buf + 1, buf, 1);
++	  /* ... Write.  */
++	  regcache_raw_write (regcache,
++			      gpnum - AMD64_NUM_LOWER_BYTE_REGS, raw_buf);
++	}
++      else
++	{
++	  /* Read ...  */
++	  regcache_raw_read (regcache, gpnum, raw_buf);
++	  /* ... Modify ... (always little endian).  */
++	  memcpy (raw_buf, buf, 1);
++	  /* ... Write.  */
++	  regcache_raw_write (regcache, gpnum, raw_buf);
++	}
+     }
+   else if (i386_dword_regnum_p (gdbarch, regnum))
+     {
+@@ -2233,7 +2261,7 @@ amd64_init_abi (struct gdbarch_info info
+   tdep->num_core_regs = AMD64_NUM_GREGS + I387_NUM_REGS;
+   tdep->register_names = amd64_register_names;
+ 
+-  tdep->num_byte_regs = 16;
++  tdep->num_byte_regs = 20;
+   tdep->num_word_regs = 16;
+   tdep->num_dword_regs = 16;
+   /* Avoid wiring in the MMX registers for now.  */
+--- gdb-7.1-p7/gdb/testsuite/gdb.arch/amd64-byte.exp	2010-04-03 21:06:52.000000000 +0200
++++ gdb-7.1/gdb/testsuite/gdb.arch/amd64-byte.exp	2010-04-03 21:11:41.000000000 +0200
+@@ -52,7 +52,6 @@ if ![runto_main] then {
+     gdb_suppress_tests
+ }
+ 
+-set nr_regs 14
+ set byte_regs(1) al
+ set byte_regs(2) bl
+ set byte_regs(3) cl
+@@ -67,6 +66,10 @@ set byte_regs(11) r12l
+ set byte_regs(12) r13l
+ set byte_regs(13) r14l
+ set byte_regs(14) r15l
++set byte_regs(15) ah
++set byte_regs(16) bh
++set byte_regs(17) ch
++set byte_regs(18) dh
+ 
+ gdb_test "break [gdb_get_line_number "first breakpoint here"]" \
+          "Breakpoint .* at .*${srcfile}.*" \
+@@ -79,12 +82,19 @@ for { set r 1 } { $r <= 6  } { incr r } 
+         "check contents of %$byte_regs($r)"
+ }
+ 
++for { set r 1 } { $r <= 4  } { incr r } {
++    set h [expr $r + 14]
++    gdb_test "print/x \$$byte_regs($h)" \
++        ".. = 0x[format %x $r]2" \
++        "check contents of %$byte_regs($h)"
++}
++
+ gdb_test "break [gdb_get_line_number "second breakpoint here"]" \
+          "Breakpoint .* at .*${srcfile}.*" \
+          "set second breakpoint in main"
+ gdb_continue_to_breakpoint "continue to second breakpoint in main"
+ 
+-for { set r 7 } { $r <= $nr_regs  } { incr r } {
++for { set r 7 } { $r <= 14  } { incr r } {
+     gdb_test "print/x \$$byte_regs($r)" \
+         ".. = 0x[format %x $r]1" \
+         "check contents of %$byte_regs($r)"
+@@ -94,6 +104,11 @@ for { set r 1 } { $r <= 6  } { incr r } 
+   gdb_test "set var \$$byte_regs($r) = $r" "" "set %$byte_regs($r)"
+ }
+ 
++for { set r 1 } { $r <= 4  } { incr r } {
++  set h [expr $r + 14]
++  gdb_test "set var \$$byte_regs($h) = $h" "" "set %$byte_regs($h)"
++}
++
+ gdb_test "break [gdb_get_line_number "third breakpoint here"]" \
+          "Breakpoint .* at .*${srcfile}.*" \
+          "set third breakpoint in main"
+@@ -105,7 +120,14 @@ for { set r 1 } { $r <= 6  } { incr r } 
+         "check contents of %$byte_regs($r)"
+ }
+ 
+-for { set r 7 } { $r <= $nr_regs  } { incr r } {
++for { set r 1 } { $r <= 4  } { incr r } {
++    set h [expr $r + 14]
++    gdb_test "print \$$byte_regs($h)" \
++        ".. = $h" \
++        "check contents of %$byte_regs($h)"
++}
++
++for { set r 7 } { $r <= 14  } { incr r } {
+   gdb_test "set var \$$byte_regs($r) = $r" "" "set %$byte_regs($r)"
+ }
+ 
+@@ -114,7 +136,7 @@ gdb_test "break [gdb_get_line_number "fo
+          "set forth breakpoint in main"
+ gdb_continue_to_breakpoint "continue to forth breakpoint in main"
+ 
+-for { set r 7 } { $r <= $nr_regs  } { incr r } {
++for { set r 7 } { $r <= 14  } { incr r } {
+     gdb_test "print \$$byte_regs($r)" \
+         ".. = $r" \
+         "check contents of %$byte_regs($r)"

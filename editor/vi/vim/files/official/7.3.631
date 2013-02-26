@@ -1,0 +1,322 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.631
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.631
+Problem:    Cannot complete user names.
+Solution:   Add user name completion.  (Dominique Pelle)
+Files:	    runtime/doc/map.txt, src/auto/configure, src/config.h.in,
+	    src/configure.in, src/ex_docmd.c, src/ex_getln.c,
+	    src/misc1.c, src/misc2.c, src/proto/misc1.pro, src/vim.h
+
+
+*** ../vim-7.3.630/runtime/doc/map.txt	2012-04-30 18:48:38.000000000 +0200
+--- runtime/doc/map.txt	2012-08-15 13:46:34.000000000 +0200
+***************
+*** 1227,1232 ****
+--- 1244,1250 ----
+  	-complete=syntax	syntax file names |'syntax'|
+  	-complete=tag		tags
+  	-complete=tag_listfiles	tags, file names are shown when CTRL-D is hit
++ 	-complete=user		user names
+  	-complete=var		user variables
+  	-complete=custom,{func} custom completion, defined via {func}
+  	-complete=customlist,{func} custom completion, defined via {func}
+*** ../vim-7.3.630/src/auto/configure	2012-07-25 16:32:03.000000000 +0200
+--- src/auto/configure	2012-08-15 13:48:06.000000000 +0200
+***************
+*** 10631,10637 ****
+  fi
+  
+  for ac_func in bcmp fchdir fchown fsync getcwd getpseudotty \
+! 	getpwnam getpwuid getrlimit gettimeofday getwd lstat memcmp \
+  	memset mkdtemp nanosleep opendir putenv qsort readlink select setenv \
+  	setpgid setsid sigaltstack sigstack sigset sigsetjmp sigaction \
+  	sigvec strcasecmp strerror strftime stricmp strncasecmp \
+--- 10631,10637 ----
+  fi
+  
+  for ac_func in bcmp fchdir fchown fsync getcwd getpseudotty \
+! 	getpwent getpwnam getpwuid getrlimit gettimeofday getwd lstat memcmp \
+  	memset mkdtemp nanosleep opendir putenv qsort readlink select setenv \
+  	setpgid setsid sigaltstack sigstack sigset sigsetjmp sigaction \
+  	sigvec strcasecmp strerror strftime stricmp strncasecmp \
+*** ../vim-7.3.630/src/config.h.in	2012-02-05 22:51:27.000000000 +0100
+--- src/config.h.in	2012-08-15 13:46:35.000000000 +0200
+***************
+*** 161,166 ****
+--- 161,167 ----
+  #undef HAVE_FSYNC
+  #undef HAVE_GETCWD
+  #undef HAVE_GETPSEUDOTTY
++ #undef HAVE_GETPWENT
+  #undef HAVE_GETPWNAM
+  #undef HAVE_GETPWUID
+  #undef HAVE_GETRLIMIT
+*** ../vim-7.3.630/src/configure.in	2012-07-25 16:32:03.000000000 +0200
+--- src/configure.in	2012-08-15 13:46:35.000000000 +0200
+***************
+*** 2994,3000 ****
+  dnl Check for functions in one big call, to reduce the size of configure.
+  dnl Can only be used for functions that do not require any include.
+  AC_CHECK_FUNCS(bcmp fchdir fchown fsync getcwd getpseudotty \
+! 	getpwnam getpwuid getrlimit gettimeofday getwd lstat memcmp \
+  	memset mkdtemp nanosleep opendir putenv qsort readlink select setenv \
+  	setpgid setsid sigaltstack sigstack sigset sigsetjmp sigaction \
+  	sigvec strcasecmp strerror strftime stricmp strncasecmp \
+--- 2994,3000 ----
+  dnl Check for functions in one big call, to reduce the size of configure.
+  dnl Can only be used for functions that do not require any include.
+  AC_CHECK_FUNCS(bcmp fchdir fchown fsync getcwd getpseudotty \
+! 	getpwent getpwnam getpwuid getrlimit gettimeofday getwd lstat memcmp \
+  	memset mkdtemp nanosleep opendir putenv qsort readlink select setenv \
+  	setpgid setsid sigaltstack sigstack sigset sigsetjmp sigaction \
+  	sigvec strcasecmp strerror strftime stricmp strncasecmp \
+*** ../vim-7.3.630/src/ex_docmd.c	2012-08-02 21:24:38.000000000 +0200
+--- src/ex_docmd.c	2012-08-15 13:54:29.000000000 +0200
+***************
+*** 3515,3520 ****
+--- 3515,3537 ----
+  #endif
+  	    }
+  	}
++ #if defined(FEAT_CMDL_COMPL)
++ 	/* Check for user names */
++ 	if (*xp->xp_pattern == '~')
++ 	{
++ 	    for (p = xp->xp_pattern + 1; *p != NUL && *p != '/'; ++p)
++ 		;
++ 	    /* Complete ~user only if it partially matches a user name.
++ 	     * A full match ~user<Tab> will be replaced by user's home
++ 	     * directory i.e. something like ~user<Tab> -> /home/user/ */
++ 	    if (*p == NUL && p > xp->xp_pattern + 1
++ 				       && match_user(xp->xp_pattern + 1) == 1)
++ 	    {
++ 		xp->xp_context = EXPAND_USER;
++ 		++xp->xp_pattern;
++ 	    }
++ 	}
++ #endif
+      }
+  
+  /*
+***************
+*** 5396,5401 ****
+--- 5413,5419 ----
+  #endif
+      {EXPAND_TAGS, "tag"},
+      {EXPAND_TAGS_LISTFILES, "tag_listfiles"},
++     {EXPAND_USER, "user"},
+      {EXPAND_USER_VARS, "var"},
+      {0, NULL}
+  };
+*** ../vim-7.3.630/src/ex_getln.c	2012-08-08 18:01:00.000000000 +0200
+--- src/ex_getln.c	2012-08-15 13:46:35.000000000 +0200
+***************
+*** 4336,4341 ****
+--- 4336,4342 ----
+   *  EXPAND_EXPRESSION	    Complete internal or user defined function/variable
+   *			    names in expressions, eg :while s^I
+   *  EXPAND_ENV_VARS	    Complete environment variable names
++  *  EXPAND_USER		    Complete user names
+   */
+      static void
+  set_expand_context(xp)
+***************
+*** 4681,4686 ****
+--- 4682,4688 ----
+  	    {EXPAND_LOCALES, get_locales, TRUE, FALSE},
+  #endif
+  	    {EXPAND_ENV_VARS, get_env_name, TRUE, TRUE},
++ 	    {EXPAND_USER, get_users, TRUE, FALSE},
+  	};
+  	int	i;
+  
+*** ../vim-7.3.630/src/misc1.c	2012-08-08 18:01:00.000000000 +0200
+--- src/misc1.c	2012-08-15 13:57:53.000000000 +0200
+***************
+*** 18,23 ****
+--- 18,28 ----
+  static char_u *remove_tail __ARGS((char_u *p, char_u *pend, char_u *name));
+  static int copy_indent __ARGS((int size, char_u	*src));
+  
++ /* All user names (for ~user completion as done by shell). */
++ #if defined(FEAT_CMDL_COMPL) || defined(PROTO)
++ static garray_T	ga_users;
++ #endif
++ 
+  /*
+   * Count the size (in window cells) of the indent in the current line.
+   */
+***************
+*** 3782,3787 ****
+--- 3787,3800 ----
+  {
+      vim_free(homedir);
+  }
++ 
++ # ifdef FEAT_CMDL_COMPL
++     void
++ free_users()
++ {
++     ga_clear_strings(&ga_users);
++ }
++ # endif
+  #endif
+  
+  /*
+***************
+*** 4451,4456 ****
+--- 4464,4543 ----
+      return name;
+  # endif
+  }
++ 
++ /*
++  * Find all user names for user completion.
++  * Done only once and then cached.
++  */
++     static void
++ init_users() {
++     static int	lazy_init_done = FALSE;
++ 
++     if (lazy_init_done)
++ 	return;
++ 
++     lazy_init_done = TRUE;
++     ga_init2(&ga_users, sizeof(char_u *), 20);
++ 
++ # if defined(HAVE_GETPWENT) && defined(HAVE_PWD_H)
++     {
++ 	char_u*		user;
++ 	struct passwd*	pw;
++ 
++ 	setpwent();
++ 	while ((pw = getpwent()) != NULL)
++ 	    /* pw->pw_name shouldn't be NULL but just in case... */
++ 	    if (pw->pw_name != NULL)
++ 	    {
++ 		if (ga_grow(&ga_users, 1) == FAIL)
++ 		    break;
++ 		user = vim_strsave((char_u*)pw->pw_name);
++ 		if (user == NULL)
++ 		    break;
++ 		((char_u **)(ga_users.ga_data))[ga_users.ga_len++] = user;
++ 	    }
++ 	endpwent();
++     }
++ # endif
++ }
++ 
++ /*
++  * Function given to ExpandGeneric() to obtain an user names.
++  */
++     char_u*
++ get_users(xp, idx)
++     expand_T	*xp UNUSED;
++     int		idx;
++ {
++     init_users();
++     if (idx < ga_users.ga_len)
++ 	return ((char_u **)ga_users.ga_data)[idx];
++     return NULL;
++ }
++ 
++ /*
++  * Check whether name matches a user name. Return:
++  * 0 if name does not match any user name.
++  * 1 if name partially matches the beginning of a user name.
++  * 2 is name fully matches a user name.
++  */
++ int match_user(name)
++     char_u* name;
++ {
++     int i;
++     int n = (int)STRLEN(name);
++     int result = 0;
++ 
++     init_users();
++     for (i = 0; i < ga_users.ga_len; i++)
++     {
++ 	if (STRCMP(((char_u **)ga_users.ga_data)[i], name) == 0)
++ 	    return 2; /* full match */
++ 	if (STRNCMP(((char_u **)ga_users.ga_data)[i], name, n) == 0)
++ 	    result = 1; /* partial match */
++     }
++     return result;
++ }
+  #endif
+  
+  /*
+*** ../vim-7.3.630/src/misc2.c	2012-06-29 15:51:26.000000000 +0200
+--- src/misc2.c	2012-08-15 13:46:35.000000000 +0200
+***************
+*** 1110,1115 ****
+--- 1110,1118 ----
+      free_all_marks();
+      alist_clear(&global_alist);
+      free_homedir();
++ # if defined(FEAT_CMDL_COMPL)
++     free_users();
++ # endif
+      free_search_patterns();
+      free_old_sub();
+      free_last_insert();
+*** ../vim-7.3.630/src/proto/misc1.pro	2012-06-06 16:12:54.000000000 +0200
+--- src/proto/misc1.pro	2012-08-15 13:46:35.000000000 +0200
+***************
+*** 50,55 ****
+--- 50,56 ----
+  void vim_beep __ARGS((void));
+  void init_homedir __ARGS((void));
+  void free_homedir __ARGS((void));
++ void free_users __ARGS((void));
+  char_u *expand_env_save __ARGS((char_u *src));
+  char_u *expand_env_save_opt __ARGS((char_u *src, int one));
+  void expand_env __ARGS((char_u *src, char_u *dst, int dstlen));
+***************
+*** 57,62 ****
+--- 58,65 ----
+  char_u *vim_getenv __ARGS((char_u *name, int *mustfree));
+  void vim_setenv __ARGS((char_u *name, char_u *val));
+  char_u *get_env_name __ARGS((expand_T *xp, int idx));
++ char_u *get_users __ARGS((expand_T *xp, int idx));
++ int match_user __ARGS((char_u* name));
+  void home_replace __ARGS((buf_T *buf, char_u *src, char_u *dst, int dstlen, int one));
+  char_u *home_replace_save __ARGS((buf_T *buf, char_u *src));
+  int fullpathcmp __ARGS((char_u *s1, char_u *s2, int checkname));
+*** ../vim-7.3.630/src/vim.h	2012-07-10 17:14:50.000000000 +0200
+--- src/vim.h	2012-08-15 13:46:35.000000000 +0200
+***************
+*** 782,787 ****
+--- 782,788 ----
+  #define EXPAND_OWNSYNTAX	39
+  #define EXPAND_LOCALES		40
+  #define EXPAND_HISTORY		41
++ #define EXPAND_USER		42
+  
+  /* Values for exmode_active (0 is no exmode) */
+  #define EXMODE_NORMAL		1
+*** ../vim-7.3.630/src/version.c	2012-08-15 13:30:55.000000000 +0200
+--- src/version.c	2012-08-15 14:01:12.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     631,
+  /**/
+
+-- 
+"Marriage is the process of finding out what kind of man your wife
+would have preferred"
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

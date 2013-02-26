@@ -1,0 +1,129 @@
+diff -Nur lsof_4.84_src-old//dialects/linux/dproc.c lsof_4.84_src/dialects/linux/dproc.c
+--- lsof_4.84_src-old//dialects/linux/dproc.c	2010-09-04 19:29:00.949000130 +0300
++++ lsof_4.84_src/dialects/linux/dproc.c	2010-09-04 19:35:14.901998926 +0300
+@@ -89,7 +89,8 @@
+ _PROTOTYPE(static int process_id,(char *idp, int idpl, char *cmd, UID_ARG uid,
+ 				  int pid, int ppid, int pgid, int tid));
+ _PROTOTYPE(static int statEx,(char *p, struct stat *s, int *ss));
+- 
++_PROTOTYPE(static int get_other_thread,(int pid, char **tid));
++
+ 
+ #if	defined(HASSELINUX)
+ _PROTOTYPE(static int cmp_cntx_eq,(char *pcntx, char *ucntx));
+@@ -159,6 +160,7 @@
+ 	struct dirent *dp;
+ 	unsigned char ht, pidts;
+ 	int n, nl, pgid, pid, ppid, rv, tid, tpgid, tppid, tx;
++	char *tid = NULL;
+ 	static char *path = (char *)NULL;
+ 	static int pathl = 0;
+ 	static char *pidpath = (char *)NULL;
+@@ -253,6 +255,13 @@
+ 	while ((dp = readdir(ps))) {
+ 	    if (nm2id(dp->d_name, &pid, &n))
+ 		continue;
++
++	    tid = NULL;
++	    if (get_other_thread(pid, &tid) < 0)
++		continue;
++	    if (tid)
++		n += sizeof("task/") + strlen(tid);
++
+ 	/*
+ 	 * Build path to PID's directory.
+ 	 */
+@@ -266,7 +275,14 @@
+ 		    Exit(1);
+ 		}
+ 	    }
+-	    (void) snpf(pidpath + pidx, pidpathl - pidx, "%s/", dp->d_name);
++	    if (tid) {
++		/* /proc/<pid> is useless (zombie), we have to use /proc/<pid>/task/<tid>
++		 * where is still running thread
++		 */
++		(void) snpf(pidpath + pidx, pidpathl - pidx, "%s/task/%s/", dp->d_name, tid);
++		free(tid);
++	    } else
++		(void) snpf(pidpath + pidx, pidpathl - pidx, "%s/", dp->d_name);
+ 	    n += (pidx + 1);
+ 	/*
+ 	 * Process the PID's stat info.
+@@ -1032,6 +1048,64 @@
+ 	return(0);
+ }
+ 
++/* fill tid if the initial thread is zombie,
++ * but other thread still alive
++ *
++ * returns -1=error, 0=nothing, 1=ok
++ */
++static int
++get_other_thread(pid, tid)
++	int pid;
++	char **tid;
++{
++	char path[MAXPATHLEN];
++	DIR *tdp;
++	struct dirent *td;
++	char pstate;
++	FILE *f;
++	int _pid;
++	int re = 0, x;
++
++	snpf(path, sizeof(path), "%s/%d/stat", PROCFS, pid);
++	if (!(f = fopen(path, "r")))
++		return -1;
++	x = fscanf(f, "%d %*s %c", &_pid, &pstate);
++	fclose(f);
++	if (x!=2)
++		return -1;
++	if (_pid != pid)
++		return -1;		/* corrupted /proc? */
++	if (pstate!='Z')
++		return 0;		/* ignore normal proceses */
++
++	snpf(path, sizeof(path), "%s/%d/task", PROCFS, pid);
++
++	/* open /proc/<pid>/task */
++	if (!(tdp = opendir(path)))
++		return 0;		/* kernel < 2.6.x */
++
++	/* look for first alive thread */
++	while ((td = readdir(tdp))) {
++		if (strcmp(td->d_name, ".")==0 || strcmp(td->d_name, "..")==0)
++			continue;
++
++		/* /proc/<pid>/task/<tid>/stat */
++		snpf(path, sizeof(path), "%s/%d/task/%s/stat", PROCFS, pid, td->d_name);
++		if (!(f = fopen(path, "r")))
++			continue;
++		x = fscanf(f, "%*d %*s %c", &pstate);
++		fclose(f);
++		if (x!=1)
++			continue;
++		if (pstate!='Z') {
++			re = 1;
++			*tid = strdup(td->d_name);
++			break;
++		}
++	}
++	closedir(tdp);
++	return re;
++}
+ 
+ /*
+  * process_proc_map() - process the memory map of a process
+@@ -1276,12 +1350,6 @@
+ 	    return(-1);
+ 	}
+ /*
+- * Convert the first field to an integer; its conversion must match the
+- * ID argument.
+- */
+-	if (!fp[0] || (atoi(fp[0]) != id))
+-	    return(-1);
+-/*
+  * Get the command name from the second field.  Strip a starting '(' and
+  * an ending ')'.  Allocate space to hold the result and return the space
+  * pointer.

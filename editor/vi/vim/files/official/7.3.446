@@ -1,0 +1,164 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.446
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.446 (after 7.3.445)
+Problem:    Win32: External commands with special characters don't work.
+Solution:   Add the 'shellxescape' option.
+Files:	    src/misc2.c, src/option.c, src/option.h, runtime/doc/options.txt
+
+
+*** ../vim-7.3.445/src/misc2.c	2012-02-19 18:19:24.000000000 +0100
+--- src/misc2.c	2012-02-20 22:05:22.000000000 +0100
+***************
+*** 3225,3235 ****
+  	    retval = mch_call_shell(cmd, opt);
+  	else
+  	{
+! 	    ncmd = alloc((unsigned)(STRLEN(cmd) + STRLEN(p_sxq) * 2 + 1));
+  	    if (ncmd != NULL)
+  	    {
+  		STRCPY(ncmd, p_sxq);
+! 		STRCAT(ncmd, cmd);
+  		/* When 'shellxquote' is ( append ).
+  		 * When 'shellxquote' is "( append )". */
+  		STRCAT(ncmd, STRCMP(p_sxq, "(") == 0 ? (char_u *)")"
+--- 3225,3243 ----
+  	    retval = mch_call_shell(cmd, opt);
+  	else
+  	{
+! 	    char_u *ecmd = cmd;
+! 
+! 	    if (*p_sxe != NUL && STRCMP(p_sxq, "(") == 0)
+! 	    {
+! 		ecmd = vim_strsave_escaped_ext(cmd, p_sxe, '^', FALSE);
+! 		if (ecmd == NULL)
+! 		    ecmd = cmd;
+! 	    }
+! 	    ncmd = alloc((unsigned)(STRLEN(ecmd) + STRLEN(p_sxq) * 2 + 1));
+  	    if (ncmd != NULL)
+  	    {
+  		STRCPY(ncmd, p_sxq);
+! 		STRCAT(ncmd, ecmd);
+  		/* When 'shellxquote' is ( append ).
+  		 * When 'shellxquote' is "( append )". */
+  		STRCAT(ncmd, STRCMP(p_sxq, "(") == 0 ? (char_u *)")"
+***************
+*** 3240,3245 ****
+--- 3248,3255 ----
+  	    }
+  	    else
+  		retval = -1;
++ 	    if (ecmd != cmd)
++ 		vim_free(ecmd);
+  	}
+  #ifdef FEAT_GUI
+  	--hold_gui_events;
+*** ../vim-7.3.445/src/option.c	2012-02-19 18:19:24.000000000 +0100
+--- src/option.c	2012-02-20 22:01:07.000000000 +0100
+***************
+*** 2273,2278 ****
+--- 2273,2287 ----
+  			    (char_u *)"",
+  #endif
+  				(char_u *)0L} SCRIPTID_INIT},
++     {"shellxescape", "sxe", P_STRING|P_VI_DEF|P_SECURE,
++ 			    (char_u *)&p_sxe, PV_NONE,
++ 			    {
++ #if defined(MSDOS) || defined(WIN16) || defined(WIN3264)
++ 			    (char_u *)"\"&|<>()@^",
++ #else
++ 			    (char_u *)"",
++ #endif
++ 				(char_u *)0L} SCRIPTID_INIT},
+      {"shiftround",  "sr",   P_BOOL|P_VI_DEF|P_VIM,
+  			    (char_u *)&p_sr, PV_NONE,
+  			    {(char_u *)FALSE, (char_u *)0L} SCRIPTID_INIT},
+*** ../vim-7.3.445/src/option.h	2011-10-20 21:09:25.000000000 +0200
+--- src/option.h	2012-02-20 21:45:31.000000000 +0100
+***************
+*** 712,717 ****
+--- 712,718 ----
+  #endif
+  EXTERN char_u	*p_shq;		/* 'shellquote' */
+  EXTERN char_u	*p_sxq;		/* 'shellxquote' */
++ EXTERN char_u	*p_sxe;		/* 'shellxescape' */
+  EXTERN char_u	*p_srr;		/* 'shellredir' */
+  #ifdef AMIGA
+  EXTERN long	p_st;		/* 'shelltype' */
+*** ../vim-7.3.445/runtime/doc/options.txt	2012-02-12 23:23:25.000000000 +0100
+--- runtime/doc/options.txt	2012-02-20 22:09:19.000000000 +0100
+***************
+*** 6023,6030 ****
+  
+  						*'shellxquote'* *'sxq'*
+  'shellxquote' 'sxq'	string	(default: "";
+! 					for Win32, when 'shell' is cmd.exe or
+! 					contains "sh" somewhere: "\""
+  					for Unix, when using system(): "\"")
+  			global
+  			{not in Vi}
+--- 6042,6050 ----
+  
+  						*'shellxquote'* *'sxq'*
+  'shellxquote' 'sxq'	string	(default: "";
+! 					for Win32, when 'shell' is cmd.exe: "("
+! 					for Win32, when 'shell' contains "sh"
+! 					somewhere: "\""
+  					for Unix, when using system(): "\"")
+  			global
+  			{not in Vi}
+***************
+*** 6032,6037 ****
+--- 6052,6060 ----
+  	the "!" and ":!" commands.  Includes the redirection.  See
+  	'shellquote' to exclude the redirection.  It's probably not useful
+  	to set both options.
++ 	When the value is '(' then ')' is appended. When the value is '"('
++ 	then ')"' is appended.
++ 	When the value is '(' then also see 'shellxescape'.
+  	This is an empty string by default on most systems, but is known to be
+  	useful for on Win32 version, either for cmd.exe which automatically
+  	strips off the first and last quote on a command, or 3rd-party shells
+***************
+*** 6041,6046 ****
+--- 6064,6079 ----
+  	This option cannot be set from a |modeline| or in the |sandbox|, for
+  	security reasons.
+  
++ 						*'shellxescape'* *'sxe'*
++ 'shellxescape' 'sxe'	string	(default: "";
++ 				 for MS-DOS and MS-Windows: "\"&|<>()@^")
++ 			global
++ 			{not in Vi}
++ 	When 'shellxquote' is set to "(" then the characters listed in this
++ 	option will be escaped with a '^' character.  This makes it possible
++ 	to execute most external commands with cmd.exe.
++ 
++ 
+  			*'shiftround'* *'sr'* *'noshiftround'* *'nosr'*
+  'shiftround' 'sr'	boolean	(default off)
+  			global
+*** ../vim-7.3.445/src/version.c	2012-02-19 18:19:24.000000000 +0100
+--- src/version.c	2012-02-20 22:12:32.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     446,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+86. E-mail Deficiency Depression (EDD) forces you to e-mail yourself.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

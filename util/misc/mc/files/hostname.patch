@@ -1,0 +1,129 @@
+--- mc-4.6.1a/src/main.c.userhost	2005-10-16 18:11:07.000000000 +0200
++++ mc-4.6.1a/src/main.c	2005-10-16 18:14:26.000000000 +0200
+@@ -22,6 +22,7 @@
+ #include <config.h>
+ 
+ #include <ctype.h>
++#include <pwd.h>
+ #include <errno.h>
+ #include <locale.h>
+ #include <signal.h>
+@@ -1608,9 +1609,22 @@ void
+ update_xterm_title_path (void)
+ {
+     char *p, *s;
++    char h[64];
++    struct passwd *pw;
+ 
+     if (xterm_flag && xterm_title) {
+ 	p = s = g_strdup (strip_home_and_password (current_panel->cwd));
++	if ( !gethostname (h, 64) ) {
++	    h[63] = '\0'; /* Be sure the hostname is NUL terminated */
++	    s = g_strdup_printf ("%s:%s", h, s);
++	    g_free (p);
++	    p = s;
++	}
++	if ( (pw = getpwuid(getuid())) ) {
++	    s = g_strdup_printf ("%s@%s", pw->pw_name, s);
++	    g_free (p);
++	    p = s;
++	}
+ 	do {
+ #ifndef UTF8
+ 	    if (!is_printable ((unsigned char) *s))
+--- mc-4.6.1a/src/main.h.viewfile	2005-09-05 04:10:48.000000000 +0200
++++ mc-4.6.1a/src/main.h	2005-10-17 14:41:46.000000000 +0200
+@@ -67,6 +67,7 @@ extern int alternate_plus_minus;
+ extern int only_leading_plus_minus;
+ extern int output_starts_shell;
+ extern int midnight_shutdown;
+ extern gboolean is_utf8;
++extern char *xterm_title_str;
+ extern char cmd_buf [512];
+ extern const char *shell;
+ 
+--- mc-4.6.1a/src/view.c.viewfile	2005-10-17 14:41:46.000000000 +0200
++++ mc-4.6.1a/src/view.c	2005-10-17 15:11:54.000000000 +0200
+@@ -3344,6 +3344,11 @@ mc_internal_viewer (const char *command,
+     WButtonBar *bar;
+     Dlg_head *view_dlg;
+ 
++    if (xterm_flag && xterm_title && xterm_title_str) {
++	fprintf (stdout, "\33]0;mc - %s/%s\7", xterm_title_str, file);
++	fflush(stdout);
++    }
++
+     /* Create dialog and widgets, put them on the dialog */
+     view_dlg =
+ 	create_dlg (0, 0, LINES, COLS, NULL, view_dialog_callback,
+@@ -3367,6 +3372,8 @@ mc_internal_viewer (const char *command,
+     }
+     destroy_dlg (view_dlg);
+ 
++    update_xterm_title_path();
++
+     return succeeded;
+ }
+ 
+--- mc-4.6.1a/src/main.c.viewfile	2005-10-17 14:41:46.000000000 +0200
++++ mc-4.6.1a/src/main.c	2005-10-17 14:41:46.000000000 +0200
+@@ -270,6 +270,9 @@ int midnight_shutdown = 0;
+ /* The user's shell */
+ const char *shell = NULL;
+ 
++/* The xterm title */
++char *xterm_title_str = NULL;
++
+ /* mc_home: The home of MC */
+ char *mc_home = NULL;
+ 
+@@ -1617,6 +1620,7 @@ update_xterm_title_path (void)
+     struct passwd *pw;
+ 
+     if (xterm_flag && xterm_title) {
++	if ( xterm_title_str ) g_free (xterm_title_str);
+ 	p = s = g_strdup (strip_home_and_password (current_panel->cwd));
+ 	if ( !gethostname (h, 64) ) {
+ 	    h[63] = '\0'; /* Be sure the hostname is NUL terminated */
+@@ -1639,7 +1643,7 @@ update_xterm_title_path (void)
+ 	} while (*++s);
+ 	fprintf (stdout, "\33]0;mc - %s\7", p);
+ 	fflush (stdout);
+-	g_free (p);
++	xterm_title_str = p;
+     }
+ }
+ 
+--- mc-4.6.1a/edit/editwidget.c.viewfile	2005-10-17 14:41:46.000000000 +0200
++++ mc-4.6.1a/edit/editwidget.c	2005-10-17 14:41:46.000000000 +0200
+@@ -44,6 +44,9 @@
+ #include "../src/widget.h"	/* buttonbar_redraw() */
+ #include "../src/menu.h"	/* menubar_new() */
+ #include "../src/key.h"		/* is_idle() */
++#include "../src/main.h"	/* xterm_title_str */
++#include "../src/win.h"		/* xterm_flag */
++#include "../src/layout.h"	/* xterm_title */
+ 
+ WEdit *wedit;
+ struct WMenu *edit_menubar;
+@@ -184,6 +187,11 @@ edit_file (const char *_file, int line)
+     static int made_directory = 0;
+     Dlg_head *edit_dlg;
+     WButtonBar *edit_bar;
++    
++    if (xterm_flag && xterm_title && xterm_title_str) {
++	fprintf (stdout, "\33]0;mc - %s/%s\7", xterm_title_str, _file);
++	fflush(stdout);
++    }
+ 
+     if (!made_directory) {
+ 	char *dir = concat_dir_and_file (home_dir, EDIT_DIR);
+@@ -219,6 +227,8 @@ edit_file (const char *_file, int line)
+     edit_done_menu (edit_menubar);		/* editmenu.c */
+ 
+     destroy_dlg (edit_dlg);
++    
++    update_xterm_title_path();
+ 
+     return 1;
+ }

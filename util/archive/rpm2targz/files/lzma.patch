@@ -1,0 +1,88 @@
+diff --git a/rpmoffset.c b/rpmoffset.c
+index 0a3c488..1701c40 100644
+--- a/rpmoffset.c
++++ b/rpmoffset.c
+@@ -25,6 +25,15 @@ typedef struct {
+ 	const size_t len;
+ } magic_t;
+ 
++/* LZMA is some fuzzy crap */
++int is_magic_lzma(const char *buf)
++{
++	return (buf[0] == 0x5d && buf[4] < 0x20) &&
++		(!memcmp(buf + 10, "\x00\x00\x00", 3) ||
++		 !memcmp(buf +  5, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF", 8));
++}
++#define magic_lzma_len 13
++
+ static const unsigned char magic_gzip[]  = { '\037', '\213', '\010' };
+ static const unsigned char magic_bzip2[] = { 'B', 'Z', 'h' };
+ static const unsigned char magic_xz[]    = { 0xFD, '7', 'z', 'X', 'Z', 0x00 };
+@@ -36,12 +45,21 @@ static const magic_t magics[] = {
+ #undef DECLARE_MAGIC_T
+ };
+ #define MAGIC_SIZE_MIN 3
+-#define MAGIC_SIZE_MAX 6
++#define MAGIC_SIZE_MAX 13
++
++static int show_magic;
++
++static int magic_finish(const char *magic, size_t offset)
++{
++	if (show_magic)
++		printf("%s ", magic);
++	printf("%zu\n", offset);
++	return 0;
++}
+ 
+ int main(int argc, char *argv[])
+ {
+-	int show_magic = 0;
+-	size_t i, read_cnt, offset, left;
++	size_t i, read_cnt, offset, left, lzma_offset;
+ 	FILE *fp = stdin;
+ 	char p[BUFSIZ];
+ 
+@@ -56,6 +74,7 @@ int main(int argc, char *argv[])
+ 	}
+ 	/* fp = fopen(argv[1], "r"); */
+ 
++	lzma_offset = 0;
+ 	offset = left = 0;
+ 	while (1) {
+ 		read_cnt = fread(p + left, 1, sizeof(p) - left, fp);
+@@ -69,12 +88,17 @@ int main(int argc, char *argv[])
+ 				continue;
+ 
+ 			needle = memmem(p, sizeof(p), magics[i].magic, magics[i].len);
+-			if (needle) {
+-				if (show_magic)
+-					printf("%s ", magics[i].type);
+-				printf("%zu\n", offset + (needle - p));
+-				return 0;
+-			}
++			if (needle)
++				return magic_finish(magics[i].type, offset + (needle - p));
++		}
++
++		/* Scan for LZMA magic, but don't return yet ... */
++		if (!lzma_offset && read_cnt + left >= magic_lzma_len) {
++			for (i = 0; i <= read_cnt + left - magic_lzma_len; ++i)
++				if (is_magic_lzma(p + i)) {
++					lzma_offset = offset + i;
++					break;
++				}
+ 		}
+ 
+ 		memmove(p, p + left + read_cnt - MAGIC_SIZE_MIN + 1, MAGIC_SIZE_MIN - 1);
+@@ -86,6 +110,10 @@ int main(int argc, char *argv[])
+ 		}
+ 	}
+ 
++	/* Delay till the end for LZMA archives since it is too fuzzy */
++	if (lzma_offset)
++		return magic_finish("lzma", lzma_offset);
++
+ 	if (ferror(stdin))
+ 		perror(argv[0]);
+ 

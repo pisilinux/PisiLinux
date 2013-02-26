@@ -1,0 +1,98 @@
+diff -ur parted-1.8.8/include/parted/device.h parted-1.8.8-vdX/include/parted/device.h
+--- parted-1.8.8/include/parted/device.h	2009-03-26 14:33:30.000000000 +0100
++++ parted-1.8.8-vdX/include/parted/device.h	2009-03-26 14:52:07.000000000 +0100
+@@ -46,7 +46,8 @@
+         PED_DEVICE_VIODASD      = 10,
+         PED_DEVICE_SX8          = 11,
+         PED_DEVICE_DM           = 12,
+-        PED_DEVICE_XVD          = 13
++        PED_DEVICE_XVD          = 13,
++        PED_DEVICE_VIRTBLK      = 14
+ } PedDeviceType;
+ 
+ typedef struct _PedDevice PedDevice;
+diff -ur parted-1.8.8/libparted/arch/linux.c parted-1.8.8-vdX/libparted/arch/linux.c
+--- parted-1.8.8/libparted/arch/linux.c	2009-03-26 14:33:30.000000000 +0100
++++ parted-1.8.8-vdX/libparted/arch/linux.c	2009-03-26 14:57:23.000000000 +0100
+@@ -299,7 +299,6 @@
+         return (SX8_MAJOR1 <= major && major <= SX8_MAJOR2);
+ }
+ 
+-#ifdef ENABLE_DEVICE_MAPPER
+ static int
+ readFD (int fd, char **buf)
+ {
+@@ -337,7 +336,7 @@
+ }
+ 
+ static int
+-_is_dm_major (int major)
++_is_major_type (int major, const char* type)
+ {
+         int fd;
+         char* buf = NULL;
+@@ -371,7 +370,7 @@
+                 }
+ 
+                 name = strrchr(line, ' ');
+-                if (!name || strcmp(name+1, "device-mapper"))
++                if (!name || strcmp(name+1, type))
+                         goto next;
+ 
+                 maj = strtol(line, &name, 10);
+@@ -392,6 +391,19 @@
+ }
+ 
+ static int
++_is_virtblk_major (int major)
++{
++	return _is_major_type (major, "virtblk");
++}
++
++#ifdef ENABLE_DEVICE_MAPPER
++static int
++_is_dm_major (int major)
++{
++	return _is_major_type (major, "device-mapper");
++}
++
++static int
+ _probe_dm_devices ()
+ {
+        DIR*            mapper_dir;
+@@ -489,6 +501,8 @@
+         } else if (_is_dm_major(dev_major)) {
+                 dev->type = PED_DEVICE_DM;
+ #endif
++        } else if (_is_virtblk_major(dev_major)) {
++                dev->type = PED_DEVICE_VIRTBLK;
+         } else if (dev_major == XVD_MAJOR && (dev_minor % 0x10 == 0)) {
+                 dev->type = PED_DEVICE_XVD;
+         } else {
+@@ -1198,6 +1212,10 @@
+                         goto error_free_arch_specific;
+                 break;
+ 
++        case PED_DEVICE_VIRTBLK:
++                if (!init_generic (dev, _("Virtio Block Device")))
++                        goto error_free_arch_specific;
++                break;
+         case PED_DEVICE_UNKNOWN:
+                 if (!init_generic (dev, _("Unknown")))
+                         goto error_free_arch_specific;
+diff -ur parted-1.8.8/parted/parted.c parted-1.8.8-vdX/parted/parted.c
+--- parted-1.8.8/parted/parted.c	2009-03-26 14:33:30.000000000 +0100
++++ parted-1.8.8-vdX/parted/parted.c	2009-03-26 14:53:34.000000000 +0100
+@@ -1264,10 +1264,10 @@
+         int             has_free_arg = 0;
+         int             has_list_arg = 0;
+         int             has_num_arg = 0;
+-        char*           transport[14] = {"unknown", "scsi", "ide", "dac960",
++        char*           transport[15] = {"unknown", "scsi", "ide", "dac960",
+                                          "cpqarray", "file", "ataraid", "i2o",
+                                          "ubd", "dasd", "viodasd", "sx8", "dm",
+-                                         "xvd"};
++                                         "xvd", "virtblk"};
+         char*           peek_word;
+         char*           start;
+         char*           end;

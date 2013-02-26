@@ -1,0 +1,243 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.461
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.461
+Problem:    The InsertCharPre autocommand event is not triggered during
+	    completion and when typing several characters quickly.
+Solution:   Also trigger InsertCharPre during completion.  Do not read ahead
+	    when an InsertCharPre autocommand is defined. (Yasuhiro Matsumoto)
+Files:	    src/edit.c, src/fileio.c, src/proto/fileio.pro
+
+
+*** ../vim-7.3.460/src/edit.c	2012-02-04 23:34:57.000000000 +0100
+--- src/edit.c	2012-02-29 18:17:31.000000000 +0100
+***************
+*** 259,264 ****
+--- 259,267 ----
+  static void ins_try_si __ARGS((int c));
+  #endif
+  static colnr_T get_nolist_virtcol __ARGS((void));
++ #ifdef FEAT_AUTOCMD
++ static char_u *do_insert_char_pre __ARGS((int c));
++ #endif
+  
+  static colnr_T	Insstart_textlen;	/* length of line when insert started */
+  static colnr_T	Insstart_blank_vcol;	/* vcol for first inserted blank */
+***************
+*** 784,790 ****
+  		 * completion: Add to "compl_leader". */
+  		if (ins_compl_accept_char(c))
+  		{
+! 		    ins_compl_addleader(c);
+  		    continue;
+  		}
+  
+--- 787,806 ----
+  		 * completion: Add to "compl_leader". */
+  		if (ins_compl_accept_char(c))
+  		{
+! #ifdef FEAT_AUTOCMD
+! 		    /* Trigger InsertCharPre. */
+! 		    char_u *str = do_insert_char_pre(c);
+! 		    char_u *p;
+! 
+! 		    if (str != NULL)
+! 		    {
+! 			for (p = str; *p != NUL; mb_ptr_adv(p))
+! 			    ins_compl_addleader(PTR2CHAR(p));
+! 			vim_free(str);
+! 		    }
+! 		    else
+! #endif
+! 			ins_compl_addleader(c);
+  		    continue;
+  		}
+  
+***************
+*** 1393,1426 ****
+  #ifdef FEAT_AUTOCMD
+  	    if (!p_paste)
+  	    {
+! 		/* Trigger the InsertCharPre event.  Lock the text to avoid
+! 		 * weird things from happening. */
+! 		set_vim_var_char(c);
+! 		++textlock;
+! 		if (apply_autocmds(EVENT_INSERTCHARPRE, NULL, NULL,
+! 							       FALSE, curbuf))
+! 		{
+! 		    /* Get the new value of v:char.  If it is more than one
+! 		     * character insert it literally. */
+! 		    char_u *s = get_vim_var_str(VV_CHAR);
+! 		    if (MB_CHARLEN(s) > 1)
+  		    {
+! 			if (stop_arrow() != FAIL)
+  			{
+! 			    ins_str(s);
+! 			    AppendToRedobuffLit(s, -1);
+  			}
+! 			c = NUL;
+  		    }
+! 		    else
+! 			c = PTR2CHAR(s);
+  		}
+  
+! 		set_vim_var_string(VV_CHAR, NULL, -1);
+! 		--textlock;
+! 
+! 		/* If the new value is an empty string then don't insert a
+! 		 * char. */
+  		if (c == NUL)
+  		    break;
+  	    }
+--- 1409,1439 ----
+  #ifdef FEAT_AUTOCMD
+  	    if (!p_paste)
+  	    {
+! 		/* Trigger InsertCharPre. */
+! 		char_u *str = do_insert_char_pre(c);
+! 		char_u *p;
+! 
+! 		if (str != NULL)
+! 		{
+! 		    if (*str != NUL && stop_arrow() != FAIL)
+  		    {
+! 			/* Insert the new value of v:char literally. */
+! 			for (p = str; *p != NUL; mb_ptr_adv(p))
+  			{
+! 			    c = PTR2CHAR(p);
+! 			    if (c == CAR || c == K_KENTER || c == NL)
+! 				ins_eol(c);
+! 			    else
+! 				ins_char(c);
+  			}
+! 			AppendToRedobuffLit(str, -1);
+  		    }
+! 		    vim_free(str);
+! 		    c = NUL;
+  		}
+  
+! 		/* If the new value is already inserted or an empty string
+! 		 * then don't insert any character. */
+  		if (c == NUL)
+  		    break;
+  	    }
+***************
+*** 5883,5888 ****
+--- 5896,5903 ----
+       * Don't do this when 'cindent' or 'indentexpr' is set, because we might
+       * need to re-indent at a ':', or any other character (but not what
+       * 'paste' is set)..
++      * Don't do this when there an InsertCharPre autocommand is defined,
++      * because we need to fire the event for every character.
+       */
+  #ifdef USE_ON_FLY_SCROLL
+      dont_scroll = FALSE;		/* allow scrolling here */
+***************
+*** 5900,5905 ****
+--- 5915,5923 ----
+  #ifdef FEAT_RIGHTLEFT
+  	    && !p_ri
+  #endif
++ #ifdef FEAT_AUTOCMD
++ 	    && !has_insertcharpre()
++ #endif
+  	       )
+      {
+  #define INPUT_BUFLEN 100
+***************
+*** 10068,10070 ****
+--- 10086,10123 ----
+      validate_virtcol();
+      return curwin->w_virtcol;
+  }
++ 
++ #ifdef FEAT_AUTOCMD
++ /*
++  * Handle the InsertCharPre autocommand.
++  * "c" is the character that was typed.
++  * Return a pointer to allocated memory with the replacement string.
++  * Return NULL to continue inserting "c".
++  */
++     static char_u *
++ do_insert_char_pre(c)
++     int c;
++ {
++     char_u *res;
++ 
++     /* Return quickly when there is nothing to do. */
++     if (!has_insertcharpre())
++ 	return NULL;
++ 
++     /* Lock the text to avoid weird things from happening. */
++     ++textlock;
++     set_vim_var_char(c);  /* set v:char */
++ 
++     if (apply_autocmds(EVENT_INSERTCHARPRE, NULL, NULL, FALSE, curbuf))
++ 	/* Get the new value of v:char.  It may be empty or more than one
++ 	 * character. */
++ 	res = vim_strsave(get_vim_var_str(VV_CHAR));
++     else
++ 	res = NULL;
++ 
++     set_vim_var_string(VV_CHAR, NULL, -1);  /* clear v:char */
++     --textlock;
++ 
++     return res;
++ }
++ #endif
+*** ../vim-7.3.460/src/fileio.c	2012-02-12 20:13:55.000000000 +0100
+--- src/fileio.c	2012-02-29 17:50:32.000000000 +0100
+***************
+*** 9116,9121 ****
+--- 9116,9130 ----
+      return (first_autopat[(int)EVENT_CURSORMOVEDI] != NULL);
+  }
+  
++ /*
++  * Return TRUE when there is an InsertCharPre autocommand defined.
++  */
++     int
++ has_insertcharpre()
++ {
++     return (first_autopat[(int)EVENT_INSERTCHARPRE] != NULL);
++ }
++ 
+      static int
+  apply_autocmds_group(event, fname, fname_io, force, group, buf, eap)
+      event_T	event;
+*** ../vim-7.3.460/src/proto/fileio.pro	2012-02-12 20:13:55.000000000 +0100
+--- src/proto/fileio.pro	2012-02-29 17:50:38.000000000 +0100
+***************
+*** 44,49 ****
+--- 44,50 ----
+  int trigger_cursorhold __ARGS((void));
+  int has_cursormoved __ARGS((void));
+  int has_cursormovedI __ARGS((void));
++ int has_insertcharpre __ARGS((void));
+  void block_autocmds __ARGS((void));
+  void unblock_autocmds __ARGS((void));
+  int has_autocmd __ARGS((event_T event, char_u *sfname, buf_T *buf));
+*** ../vim-7.3.460/src/version.c	2012-02-29 16:56:35.000000000 +0100
+--- src/version.c	2012-02-29 18:15:34.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     461,
+  /**/
+
+-- 
+"Computers in the future may weigh no more than 1.5 tons."
+                                   Popular Mechanics, 1949
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

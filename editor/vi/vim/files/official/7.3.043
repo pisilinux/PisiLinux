@@ -1,0 +1,460 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.043
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.043
+Problem:    Can't load Ruby dynamically on Unix.
+Solution:   Adjust the configure script. (James Vega)
+Files:	    src/Makefile, src/config.h.in, src/configure.in,
+	    src/auto/configure, src/if_ruby.c
+
+
+*** ../vim-7.3.042/src/Makefile	2010-08-16 21:59:00.000000000 +0200
+--- src/Makefile	2010-10-27 16:46:41.000000000 +0200
+***************
+*** 414,425 ****
+--- 414,429 ----
+  # However, this may still cause problems, such as "import termios" failing.
+  # Build two separate versions of Vim in that case.
+  #CONF_OPT_PYTHON = --enable-pythoninterp
++ #CONF_OPT_PYTHON = --enable-pythoninterp=dynamic
+  #CONF_OPT_PYTHON3 = --enable-python3interp
++ #CONF_OPT_PYTHON3 = --enable-python3interp=dynamic
+  
+  # RUBY
+  # Uncomment this when you want to include the Ruby interface.
++ # First one for static linking, second one for loading when used.
+  # Note: you need the development package (e.g., ruby1.9.1-dev on Ubuntu).
+  #CONF_OPT_RUBY = --enable-rubyinterp
++ #CONF_OPT_RUBY = --enable-rubyinterp=dynamic
+  #CONF_OPT_RUBY = --enable-rubyinterp --with-ruby-command=ruby1.9.1
+  
+  # TCL
+***************
+*** 1047,1054 ****
+  INSTALL_DATA	= cp
+  INSTALL_DATA_R	= cp -r
+  
+! ### Program to run on installed binary
+  #STRIP = strip
+  
+  ### Permissions for binaries  {{{1
+  BINMOD = 755
+--- 1051,1059 ----
+  INSTALL_DATA	= cp
+  INSTALL_DATA_R	= cp -r
+  
+! ### Program to run on installed binary.  Use the second one to disable strip.
+  #STRIP = strip
++ #STRIP = /bin/true
+  
+  ### Permissions for binaries  {{{1
+  BINMOD = 755
+***************
+*** 1321,1327 ****
+  .SUFFIXES: .c .o .pro
+  
+  PRE_DEFS = -Iproto $(DEFS) $(GUI_DEFS) $(GUI_IPATH) $(CPPFLAGS) $(EXTRA_IPATHS)
+! POST_DEFS = $(X_CFLAGS) $(MZSCHEME_CFLAGS) $(TCL_CFLAGS) $(RUBY_CFLAGS) $(EXTRA_DEFS)
+  
+  ALL_CFLAGS = $(PRE_DEFS) $(CFLAGS) $(PROFILE_CFLAGS) $(POST_DEFS)
+  
+--- 1326,1332 ----
+  .SUFFIXES: .c .o .pro
+  
+  PRE_DEFS = -Iproto $(DEFS) $(GUI_DEFS) $(GUI_IPATH) $(CPPFLAGS) $(EXTRA_IPATHS)
+! POST_DEFS = $(X_CFLAGS) $(MZSCHEME_CFLAGS) $(TCL_CFLAGS) $(EXTRA_DEFS)
+  
+  ALL_CFLAGS = $(PRE_DEFS) $(CFLAGS) $(PROFILE_CFLAGS) $(POST_DEFS)
+  
+***************
+*** 1329,1335 ****
+  # with "-E".
+  OSDEF_CFLAGS = $(PRE_DEFS) $(POST_DEFS)
+  
+! LINT_CFLAGS = -DLINT -I. $(PRE_DEFS) $(POST_DEFS) $(LUA_CFLAGS) $(PERL_CFLAGS) $(PYTHON_CFLAGS) -Dinline= -D__extension__= -Dalloca=alloca
+  
+  LINT_EXTRA = -DUSE_SNIFF -DHANGUL_INPUT -D"__attribute__(x)="
+  
+--- 1334,1340 ----
+  # with "-E".
+  OSDEF_CFLAGS = $(PRE_DEFS) $(POST_DEFS)
+  
+! LINT_CFLAGS = -DLINT -I. $(PRE_DEFS) $(POST_DEFS) $(RUBY_CFLAGS) $(LUA_CFLAGS) $(PERL_CFLAGS) $(PYTHON_CFLAGS) -Dinline= -D__extension__= -Dalloca=alloca
+  
+  LINT_EXTRA = -DUSE_SNIFF -DHANGUL_INPUT -D"__attribute__(x)="
+  
+***************
+*** 2532,2538 ****
+  	$(CCC) $(PYTHON3_CFLAGS) $(PYTHON3_CFLAGS_EXTRA) -o $@ if_python3.c
+  
+  objects/if_ruby.o: if_ruby.c
+! 	$(CCC) -o $@ if_ruby.c
+  
+  objects/if_sniff.o: if_sniff.c
+  	$(CCC) -o $@ if_sniff.c
+--- 2537,2543 ----
+  	$(CCC) $(PYTHON3_CFLAGS) $(PYTHON3_CFLAGS_EXTRA) -o $@ if_python3.c
+  
+  objects/if_ruby.o: if_ruby.c
+! 	$(CCC) $(RUBY_CFLAGS) -o $@ if_ruby.c
+  
+  objects/if_sniff.o: if_sniff.c
+  	$(CCC) -o $@ if_sniff.c
+*** ../vim-7.3.042/src/config.h.in	2010-08-15 21:57:32.000000000 +0200
+--- src/config.h.in	2010-10-27 16:21:24.000000000 +0200
+***************
+*** 349,354 ****
+--- 349,357 ----
+  /* Define if you want to include the Ruby interpreter. */
+  #undef FEAT_RUBY
+  
++ /* Define for linking via dlopen() or LoadLibrary() */
++ #undef DYNAMIC_RUBY
++ 
+  /* Define if you want to include the Tcl interpreter. */
+  #undef FEAT_TCL
+  
+*** ../vim-7.3.042/src/configure.in	2010-08-15 21:57:28.000000000 +0200
+--- src/configure.in	2010-10-27 16:20:53.000000000 +0200
+***************
+*** 1299,1308 ****
+  
+  AC_MSG_CHECKING(--enable-rubyinterp argument)
+  AC_ARG_ENABLE(rubyinterp,
+! 	[  --enable-rubyinterp     Include Ruby interpreter.], ,
+  	[enable_rubyinterp="no"])
+  AC_MSG_RESULT($enable_rubyinterp)
+! if test "$enable_rubyinterp" = "yes"; then
+    AC_MSG_CHECKING(--with-ruby-command argument)
+    AC_ARG_WITH(ruby-command, [  --with-ruby-command=RUBY  name of the Ruby command (default: ruby)],
+  	RUBY_CMD="$withval"; AC_MSG_RESULT($RUBY_CMD),
+--- 1299,1308 ----
+  
+  AC_MSG_CHECKING(--enable-rubyinterp argument)
+  AC_ARG_ENABLE(rubyinterp,
+! 	[  --enable-rubyinterp[=OPTS]     Include Ruby interpreter.  [default=no] [OPTS=no/yes/dynamic]], ,
+  	[enable_rubyinterp="no"])
+  AC_MSG_RESULT($enable_rubyinterp)
+! if test "$enable_rubyinterp" = "yes" -o "$enable_rubyinterp" = "dynamic"; then
+    AC_MSG_CHECKING(--with-ruby-command argument)
+    AC_ARG_WITH(ruby-command, [  --with-ruby-command=RUBY  name of the Ruby command (default: ruby)],
+  	RUBY_CMD="$withval"; AC_MSG_RESULT($RUBY_CMD),
+***************
+*** 1360,1365 ****
+--- 1360,1371 ----
+  	RUBY_OBJ="objects/if_ruby.o"
+  	RUBY_PRO="if_ruby.pro"
+  	AC_DEFINE(FEAT_RUBY)
++ 	if test "$enable_rubyinterp" = "dynamic"; then
++ 	  libruby=`$vi_cv_path_ruby -r rbconfig -e 'printf "lib%s.%s\n", Config::CONFIG[["RUBY_SO_NAME"]], Config::CONFIG[["DLEXT"]]'`
++ 	  AC_DEFINE(DYNAMIC_RUBY)
++ 	  RUBY_CFLAGS="-DDYNAMIC_RUBY_DLL=\\\"$libruby\\\" -DDYNAMIC_RUBY_VER=$rubyversion $RUBY_CFLAGS"
++ 	  RUBY_LIBS=
++ 	fi
+        else
+  	AC_MSG_RESULT(not found; disabling Ruby)
+        fi
+*** ../vim-7.3.042/src/auto/configure	2010-08-15 21:57:27.000000000 +0200
+--- src/auto/configure	2010-10-27 16:28:10.000000000 +0200
+***************
+*** 1427,1433 ****
+    --enable-pythoninterp=OPTS   Include Python interpreter. default=no OPTS=no/yes/dynamic
+    --enable-python3interp=OPTS   Include Python3 interpreter. default=no OPTS=no/yes/dynamic
+    --enable-tclinterp      Include Tcl interpreter.
+!   --enable-rubyinterp     Include Ruby interpreter.
+    --enable-cscope         Include cscope interface.
+    --enable-workshop       Include Sun Visual Workshop support.
+    --disable-netbeans      Disable NetBeans integration support.
+--- 1427,1433 ----
+    --enable-pythoninterp=OPTS   Include Python interpreter. default=no OPTS=no/yes/dynamic
+    --enable-python3interp=OPTS   Include Python3 interpreter. default=no OPTS=no/yes/dynamic
+    --enable-tclinterp      Include Tcl interpreter.
+!   --enable-rubyinterp=OPTS     Include Ruby interpreter.  default=no OPTS=no/yes/dynamic
+    --enable-cscope         Include cscope interface.
+    --enable-workshop       Include Sun Visual Workshop support.
+    --disable-netbeans      Disable NetBeans integration support.
+***************
+*** 6103,6109 ****
+  
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_rubyinterp" >&5
+  $as_echo "$enable_rubyinterp" >&6; }
+! if test "$enable_rubyinterp" = "yes"; then
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking --with-ruby-command argument" >&5
+  $as_echo_n "checking --with-ruby-command argument... " >&6; }
+  
+--- 6103,6109 ----
+  
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_rubyinterp" >&5
+  $as_echo "$enable_rubyinterp" >&6; }
+! if test "$enable_rubyinterp" = "yes" -o "$enable_rubyinterp" = "dynamic"; then
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking --with-ruby-command argument" >&5
+  $as_echo_n "checking --with-ruby-command argument... " >&6; }
+  
+***************
+*** 6209,6214 ****
+--- 6209,6221 ----
+  	RUBY_PRO="if_ruby.pro"
+  	$as_echo "#define FEAT_RUBY 1" >>confdefs.h
+  
++ 	if test "$enable_rubyinterp" = "dynamic"; then
++ 	  libruby=`$vi_cv_path_ruby -r rbconfig -e 'printf "lib%s.%s\n", Config::CONFIG["RUBY_SO_NAME"], Config::CONFIG["DLEXT"]'`
++ 	  $as_echo "#define DYNAMIC_RUBY 1" >>confdefs.h
++ 
++ 	  RUBY_CFLAGS="-DDYNAMIC_RUBY_DLL=\\\"$libruby\\\" -DDYNAMIC_RUBY_VER=$rubyversion $RUBY_CFLAGS"
++ 	  RUBY_LIBS=
++ 	fi
+        else
+  	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: not found; disabling Ruby" >&5
+  $as_echo "not found; disabling Ruby" >&6; }
+*** ../vim-7.3.042/src/if_ruby.c	2010-10-23 14:02:48.000000000 +0200
+--- src/if_ruby.c	2010-10-27 16:40:27.000000000 +0200
+***************
+*** 14,19 ****
+--- 14,21 ----
+  #include <stdio.h>
+  #include <string.h>
+  
++ #include "auto/config.h"
++ 
+  #ifdef _WIN32
+  # if !defined(DYNAMIC_RUBY_VER) || (DYNAMIC_RUBY_VER < 18)
+  #   define NT
+***************
+*** 48,60 ****
+  #  define RUBY_EXPORT
+  # endif
+  
+! #if !(defined(WIN32) || defined(_WIN64))
+  # include <dlfcn.h>
+! # define HANDLE void*
+  # define load_dll(n) dlopen((n), RTLD_LAZY|RTLD_GLOBAL)
+  # define symbol_from_dll dlsym
+  # define close_dll dlclose
+  #else
+  # define load_dll vimLoadLib
+  # define symbol_from_dll GetProcAddress
+  # define close_dll FreeLibrary
+--- 50,64 ----
+  #  define RUBY_EXPORT
+  # endif
+  
+! #ifndef WIN3264
+  # include <dlfcn.h>
+! # define HINSTANCE void*
+! # define RUBY_PROC void*
+  # define load_dll(n) dlopen((n), RTLD_LAZY|RTLD_GLOBAL)
+  # define symbol_from_dll dlsym
+  # define close_dll dlclose
+  #else
++ # define RUBY_PROC FARPROC
+  # define load_dll vimLoadLib
+  # define symbol_from_dll GetProcAddress
+  # define close_dll FreeLibrary
+***************
+*** 174,180 ****
+--- 178,186 ----
+  #define rb_lastline_get			dll_rb_lastline_get
+  #define rb_lastline_set			dll_rb_lastline_set
+  #define rb_load_protect			dll_rb_load_protect
++ #ifndef RUBY19_OR_LATER
+  #define rb_num2long			dll_rb_num2long
++ #endif
+  #define rb_num2ulong			dll_rb_num2ulong
+  #define rb_obj_alloc			dll_rb_obj_alloc
+  #define rb_obj_as_string		dll_rb_obj_as_string
+***************
+*** 186,191 ****
+--- 192,200 ----
+  #ifdef rb_str_new2
+  /* Ruby may #define rb_str_new2 to use rb_str_new_cstr. */
+  # define need_rb_str_new_cstr 1
++ /* Ruby's headers #define rb_str_new_cstr to make use of GCC's
++  * __builtin_constant_p extension. */
++ # undef rb_str_new_cstr
+  # define rb_str_new_cstr		dll_rb_str_new_cstr
+  #else
+  # define rb_str_new2			dll_rb_str_new2
+***************
+*** 206,214 ****
+  #endif
+  #define ruby_init			dll_ruby_init
+  #define ruby_init_loadpath		dll_ruby_init_loadpath
+! #define NtInitialize			dll_NtInitialize
+! #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+! # define rb_w32_snprintf		dll_rb_w32_snprintf
+  #endif
+  
+  #ifdef RUBY19_OR_LATER
+--- 215,225 ----
+  #endif
+  #define ruby_init			dll_ruby_init
+  #define ruby_init_loadpath		dll_ruby_init_loadpath
+! #ifdef WIN3264
+! # define NtInitialize			dll_NtInitialize
+! # if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+! #  define rb_w32_snprintf		dll_rb_w32_snprintf
+! # endif
+  #endif
+  
+  #ifdef RUBY19_OR_LATER
+***************
+*** 283,289 ****
+--- 294,305 ----
+  #endif
+  static void (*dll_ruby_init) (void);
+  static void (*dll_ruby_init_loadpath) (void);
++ #ifdef WIN3264
+  static void (*dll_NtInitialize) (int*, char***);
++ # if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
++ static int (*dll_rb_w32_snprintf)(char*, size_t, const char*, ...);
++ # endif
++ #endif
+  #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+  static char * (*dll_rb_string_value_ptr) (volatile VALUE*);
+  static VALUE (*dll_rb_float_new) (double);
+***************
+*** 293,301 ****
+  #ifdef RUBY19_OR_LATER
+  static VALUE (*dll_rb_int2big)(SIGNED_VALUE);
+  #endif
+- #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+- static int (*dll_rb_w32_snprintf)(char*, size_t, const char*, ...);
+- #endif
+  
+  #ifdef RUBY19_OR_LATER
+  static void (*dll_ruby_script) (const char*);
+--- 309,314 ----
+***************
+*** 317,328 ****
+  }
+  #endif
+  
+! static HINSTANCE hinstRuby = 0; /* Instance of ruby.dll */
+  
+  /*
+   * Table of name to function pointer of ruby.
+   */
+- #define RUBY_PROC FARPROC
+  static struct
+  {
+      char *name;
+--- 330,340 ----
+  }
+  #endif
+  
+! static HINSTANCE hinstRuby = NULL; /* Instance of ruby.dll */
+  
+  /*
+   * Table of name to function pointer of ruby.
+   */
+  static struct
+  {
+      char *name;
+***************
+*** 387,401 ****
+  #endif
+      {"ruby_init", (RUBY_PROC*)&dll_ruby_init},
+      {"ruby_init_loadpath", (RUBY_PROC*)&dll_ruby_init_loadpath},
+      {
+! #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER < 19
+      "NtInitialize",
+! #else
+      "ruby_sysinit",
+! #endif
+  			(RUBY_PROC*)&dll_NtInitialize},
+! #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+      {"rb_w32_snprintf", (RUBY_PROC*)&dll_rb_w32_snprintf},
+  #endif
+  #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+      {"rb_string_value_ptr", (RUBY_PROC*)&dll_rb_string_value_ptr},
+--- 399,415 ----
+  #endif
+      {"ruby_init", (RUBY_PROC*)&dll_ruby_init},
+      {"ruby_init_loadpath", (RUBY_PROC*)&dll_ruby_init_loadpath},
++ #ifdef WIN3264
+      {
+! # if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER < 19
+      "NtInitialize",
+! # else
+      "ruby_sysinit",
+! # endif
+  			(RUBY_PROC*)&dll_NtInitialize},
+! # if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+      {"rb_w32_snprintf", (RUBY_PROC*)&dll_rb_w32_snprintf},
++ # endif
+  #endif
+  #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
+      {"rb_string_value_ptr", (RUBY_PROC*)&dll_rb_string_value_ptr},
+***************
+*** 424,430 ****
+      if (hinstRuby)
+      {
+  	close_dll(hinstRuby);
+! 	hinstRuby = 0;
+      }
+  }
+  
+--- 438,444 ----
+      if (hinstRuby)
+      {
+  	close_dll(hinstRuby);
+! 	hinstRuby = NULL;
+      }
+  }
+  
+***************
+*** 454,460 ****
+  			ruby_funcname_table[i].name)))
+  	{
+  	    close_dll(hinstRuby);
+! 	    hinstRuby = 0;
+  	    if (verbose)
+  		EMSG2(_(e_loadfunc), ruby_funcname_table[i].name);
+  	    return FAIL;
+--- 468,474 ----
+  			ruby_funcname_table[i].name)))
+  	{
+  	    close_dll(hinstRuby);
+! 	    hinstRuby = NULL;
+  	    if (verbose)
+  		EMSG2(_(e_loadfunc), ruby_funcname_table[i].name);
+  	    return FAIL;
+***************
+*** 936,944 ****
+  	return line ? vim_str2rb_enc_str(line) : Qnil;
+      }
+      rb_raise(rb_eIndexError, "line number %ld out of range", (long)n);
+- #ifndef __GNUC__
+      return Qnil; /* For stop warning */
+- #endif
+  }
+  
+  static VALUE buffer_aref(VALUE self, VALUE num)
+--- 950,956 ----
+*** ../vim-7.3.042/src/version.c	2010-10-27 16:17:56.000000000 +0200
+--- src/version.c	2010-10-27 16:45:28.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     43,
+  /**/
+
+-- 
+ARTHUR:        A scratch?  Your arm's off!
+BLACK KNIGHT:  No, it isn't.
+ARTHUR:        Well, what's that then?
+BLACK KNIGHT:  I've had worse.
+                                  The Quest for the Holy Grail (Monty Python)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\        download, build and distribute -- http://www.A-A-P.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

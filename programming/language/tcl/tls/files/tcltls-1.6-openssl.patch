@@ -1,0 +1,192 @@
+
+http://sourceforge.net/tracker/index.php?func=detail&aid=1353033&group_id=13248&atid=313248
+
+diff -Naur tls1.5/tls.c tls1.5.oden/tls.c
+--- tls1.5/tls.c	2004-02-13 03:09:21.000000000 +0100
++++ tls1.5.oden/tls.c	2005-12-28 01:16:33.000000000 +0100
+@@ -26,7 +26,12 @@
+ #include "tlsInt.h"
+ #include "tclOpts.h"
+ #include <stdlib.h>
+-
++#if OPENSSL_VERSION_NUMBER >= 0x0090800
++#include <openssl/conf.h>
++#ifndef OPENSSL_NO_ENGINE
++#include <openssl/engine.h>
++#endif
++#endif
+ /*
+  * External functions
+  */
+@@ -1155,8 +1160,10 @@
+  *	A standard Tcl result.
+  *
+  * Side effects:
+- *	None.
+- *
++ *   req - none
++ *   config - Openssl configuration file is loaded	
++ *   engine - specifig engine is loaded or configured
++ *   
+  *-------------------------------------------------------------------
+  */
+ static int
+@@ -1224,8 +1224,22 @@
+     int objc;
+     Tcl_Obj	*CONST objv[];
+ {
+-    CONST84 char *commands [] = { "req", NULL };
+-    enum command { C_REQ, C_DUMMY };
++    CONST84 char *commands [] = { "req",
++#if OPENSSL_VERSION_NUMBER >= 0x0090800L		
++		"config", 
++#ifndef OPENSSL_NO_ENGINE		
++		"engine", 
++#endif		
++#endif		
++		NULL };
++    enum command { C_REQ, 
++#if OPENSSL_VERSION_NUMBER >= 0x0090800L		
++		C_CONFIG,
++#ifndef OPENSSL_NO_ENGINE		
++		C_ENGINE, 
++#endif		
++#endif		
++		C_DUMMY };
+     int cmd;
+ 
+     if (objc < 2) {
+@@ -1302,6 +1323,48 @@
+ 	    }
+ 	}
+ 	break;
++#if OPENSSL_VERSION_NUMBER >= 0x0090800L	
++	case C_CONFIG:
++		if (objc<2 || objc>3) {
++			Tcl_WrongNumArgs(interp,2,objv,"?filename?");
++			return TCL_ERROR;
++		} else if (objc == 2) {
++			OPENSSL_config(NULL);
++		} else {
++			OPENSSL_config(Tcl_GetString(objv[2]));
++		}	
++	break;	
++#ifndef OPENSSL_NO_ENGINE	
++	case C_ENGINE:
++		{ ENGINE *e;
++		static int loaded_engines = 0;
++		if (objc!=3) {
++			Tcl_WrongNumArgs(interp,2,objv,"engine_id");
++			return TCL_ERROR;
++		}
++		if (!loaded_engines) {
++			ENGINE_load_builtin_engines();
++			loaded_engines=1;
++		}	
++		if ((e= ENGINE_by_id(Tcl_GetString(objv[2])))==NULL) {
++			Tcl_AppendResult(interp,"failed to load engine ",
++					Tcl_GetString(objv[2]),
++					"\n",ERR_error_string(ERR_get_error(),NULL),
++					NULL);
++			return TCL_ERROR;
++		}
++		if (!ENGINE_set_default(e,ENGINE_METHOD_ALL)) {
++			Tcl_AppendResult(interp,"Failed to enable engine ",
++					Tcl_GetString(objv[2]),
++					"\n",ERR_error_string(ERR_get_error(),NULL),
++					NULL);
++			return TCL_ERROR;
++		}	
++		ENGINE_free(e);
++		}
++	break;
++#endif	
++#endif	
+     }
+     return TCL_OK;
+ }
+diff -Naur tls1.5/tls.htm tls1.5.oden/tls.htm
+--- tls1.5/tls.htm	2004-02-13 03:09:21.000000000 +0100
++++ tls1.5.oden/tls.htm	2005-12-28 01:16:33.000000000 +0100
+@@ -31,6 +31,7 @@
+             <dd><b>tls::import</b><em> channel ?options?</em></dd>
+             <dd><b>tls::ciphers </b><em>protocol ?verbose?</em></dd>
+             <dd><b>tls::version</b></dd>
++			<dd><b>tls::misc</b> <em>subcommand ?args?</em></dd>
+         </dl>
+     </dd>
+     <dd><a href="#COMMANDS">COMMANDS</a></dd>
+@@ -62,7 +63,8 @@
+ <a href="#tls::import"><b>tls::import </b><i>channel ?options?</i></a><br>
+ <a href="#tls::ciphers protocol ?verbose?"><strong>tls::ciphers</strong>
+ <em>protocol ?verbose?</em></a><br>
+-<a href="#tls::version"><b>tls::version</b></a>
++<a href="#tls::version"><b>tls::version</b></a><br>
++<a href="#tls::misc"><b>tls::misc </b><i>subcommand ?args?</i></a><br>
+ </p>
+ 
+ <h3><a name="DESCRIPTION">DESCRIPTION</a></h3>
+@@ -223,7 +225,62 @@
+     <dt><a name="tls::version"><strong>tls::version</strong></a></dt>
+     <dd>Returns the version string defined by OpenSSL.</dd>
+ </dl>
+-
++<dl><tt><a name="tls::misc"><strong>tls::misc</strong></a></tt></dt>
++<dd>Miscellaneous openssl functions. This command provides functions
++which are not directly related to TLS, but neccessary for proper
++operations. Following subcommands are supportd
++<dl>
++<dt><b>rec</b> <em>keysize keyfile certfile ?info?</em></dt>
++<p>
++Generates private key and certificate request in the keyfile and
++certfile. Currently only RSA keys are supported. Keysize is specified in
++bits. It is typically
++1024, because 512-bit keys are totally insecure, and 2048 bits too
++computational expensive.
++</p>
++<p>
++This command is here, because some tls applications, notably web
++browsers should have ability to generate requests for client
++certificates.
++</p>
++<p>
++Optional <em>info</em> argument is the list of key-value pairs which
++can contain following request attributes:
++<ol>
++<li><b>days</b> - how long certificate should be valid
++<li><b>serial</b> - serial number of certificate
++<li><b>C</b> - Country part of certificate subject
++<LI><b>ST</b> - State part of certificate subject
++<LI><b>L</b> -locality
++<LI><b>O</b> - organization
++<LI><b>OU</b> - organization unit
++<LI><b>CN</B> - Common Name
++<LI><b>Email</B> email address of certificate subject
++</OL>
++Default values for these options are obtained from OpenSSL configuration
++file if one is loaded by <b>tls::misc config</b>.
++<dd>
++<dt><b>config</b> <em>?filename?</em>
++<dd>Loads an OpenSSL configuration file. If no <em>filename</em>
++argument is provided, loads default configuration file, which is
++hardcoded into OpenSSL. Otherwise loads specified file. This command
++doesn't report error if file doesn't exist.
++</dd>
++<dt><b>engine</b> <em>engine_id</em>
++<dd><p>Loads alternate (hardware) implementation of cryptoalgorithms -
++engine in OpenSSL terminology and makes this implementation default for
++all algorithms, supported by particular engine.
++</p>
++<p>
++For now there is no way to send control commands to engine and specify
++path to dynamically loadable engine explicitely. So, only builtin
++engines and engines located in the default OpenSSL engine directory
++could be loaded.
++</p>
++</dd>
++</dl>
++</dd>
++</dl>
+ <h3><a name="CALLBACK OPTIONS">CALLBACK OPTIONS</a></h3>
+ 
+ <p>

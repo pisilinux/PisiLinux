@@ -1,0 +1,250 @@
+diff -up espeak-1.45.05-source/src/Makefile.runtime-detection espeak-1.45.05-source/src/Makefile
+--- espeak-1.45.05-source/src/Makefile.runtime-detection	2011-09-15 14:02:16.601703780 +0200
++++ espeak-1.45.05-source/src/Makefile	2011-09-15 14:02:16.609703969 +0200
+@@ -25,12 +25,18 @@ INSTALL = install
+ LN_SF = /bin/ln -sf
+ MKDIR = mkdir -p
+ 
+-AUDIO = portaudio
++AUDIO = runtime
++#AUDIO = portaudio
+ #AUDIO = portaudio0
+ #AUDIO = portaudio2
+ #AUDIO = pulseaudio
+ #AUDIO = sada
+ 
++ifeq ($(AUDIO),runtime)
++WAVE=wave.cpp wave_pulse.cpp
++LIB_AUDIO=-lpulse -lpulse-simple -lportaudio
++USE_AUDIO=-DUSE_PULSEAUDIO -DUSE_PORTAUDIO
++else
+ ifeq ($(AUDIO),pulseaudio)
+ WAVE=wave_pulse.cpp
+ LIB_AUDIO=-lpulse
+@@ -61,6 +68,7 @@ endif
+ endif
+ endif
+ endif
++endif
+ 
+ speak_SOURCES = speak.cpp compiledict.cpp dictionary.cpp intonation.cpp \
+ 	readclause.cpp setlengths.cpp numbers.cpp synth_mbrola.cpp \
+diff -up espeak-1.45.05-source/src/wave.cpp.runtime-detection espeak-1.45.05-source/src/wave.cpp
+--- espeak-1.45.05-source/src/wave.cpp.runtime-detection	2011-08-11 23:38:05.000000000 +0200
++++ espeak-1.45.05-source/src/wave.cpp	2011-09-15 14:02:16.603703826 +0200
+@@ -53,6 +53,145 @@ enum {ONE_BILLION=1000000000};
+ #endif
+ 
+ 
++#ifdef USE_PULSEAUDIO
++// create some wrappers for runtime detection
++
++// checked on wave_init
++static int pulse_running;
++
++// wave.cpp (this file)
++void wave_port_init(int);
++void* wave_port_open(const char* the_api);
++size_t wave_port_write(void* theHandler, char* theMono16BitsWaveBuffer, size_t theSize);
++int wave_port_close(void* theHandler);
++int wave_port_is_busy(void* theHandler);
++void wave_port_terminate();
++uint32_t wave_port_get_read_position(void* theHandler);
++uint32_t wave_port_get_write_position(void* theHandler);
++void wave_port_flush(void* theHandler);
++void wave_port_set_callback_is_output_enabled(t_wave_callback* cb);
++void* wave_port_test_get_write_buffer();
++int wave_port_get_remaining_time(uint32_t sample, uint32_t* time);
++
++// wave_pulse.cpp
++int is_pulse_running();
++void wave_pulse_init(int);
++void* wave_pulse_open(const char* the_api);
++size_t wave_pulse_write(void* theHandler, char* theMono16BitsWaveBuffer, size_t theSize);
++int wave_pulse_close(void* theHandler);
++int wave_pulse_is_busy(void* theHandler);
++void wave_pulse_terminate();
++uint32_t wave_pulse_get_read_position(void* theHandler);
++uint32_t wave_pulse_get_write_position(void* theHandler);
++void wave_pulse_flush(void* theHandler);
++void wave_pulse_set_callback_is_output_enabled(t_wave_callback* cb);
++void* wave_pulse_test_get_write_buffer();
++int wave_pulse_get_remaining_time(uint32_t sample, uint32_t* time);
++
++// wrappers
++void wave_init(int srate) {
++  pulse_running = is_pulse_running();
++
++  if (pulse_running)
++    wave_pulse_init(srate);
++  else
++    wave_port_init(srate);
++}
++
++void* wave_open(const char* the_api) {
++  if (pulse_running)
++    return wave_pulse_open(the_api);
++  else
++    return wave_port_open(the_api);
++}
++
++size_t wave_write(void* theHandler, char* theMono16BitsWaveBuffer, size_t theSize) {
++  if (pulse_running)
++    return wave_pulse_write(theHandler, theMono16BitsWaveBuffer, theSize);
++  else
++    return wave_port_write(theHandler, theMono16BitsWaveBuffer, theSize);
++}
++
++int wave_close(void* theHandler) {
++  if (pulse_running)
++    return wave_pulse_close(theHandler);
++  else
++    return wave_port_close(theHandler);
++}
++
++int wave_is_busy(void* theHandler) {
++  if (pulse_running)
++    return wave_pulse_is_busy(theHandler);
++  else
++    return wave_port_is_busy(theHandler);
++}
++
++void wave_terminate() {
++  if (pulse_running)
++    wave_pulse_terminate();
++  else
++    wave_port_terminate();
++}
++
++uint32_t wave_get_read_position(void* theHandler) {
++  if (pulse_running)
++    return wave_pulse_get_read_position(theHandler);
++  else
++    return wave_port_get_read_position(theHandler);
++}
++
++uint32_t wave_get_write_position(void* theHandler) {
++  if (pulse_running)
++    return wave_pulse_get_write_position(theHandler);
++  else
++    return wave_port_get_write_position(theHandler);
++}
++
++void wave_flush(void* theHandler) {
++  if (pulse_running)
++    wave_pulse_flush(theHandler);
++  else
++    wave_port_flush(theHandler);
++}
++
++void wave_set_callback_is_output_enabled(t_wave_callback* cb) {
++  if (pulse_running)
++    wave_pulse_set_callback_is_output_enabled(cb);
++  else
++    wave_port_set_callback_is_output_enabled(cb);
++}
++
++void* wave_test_get_write_buffer() {
++  if (pulse_running)
++    return wave_pulse_test_get_write_buffer();
++  else
++    return wave_port_test_get_write_buffer();
++}
++
++int wave_get_remaining_time(uint32_t sample, uint32_t* time)
++{
++  if (pulse_running)
++    return wave_pulse_get_remaining_time(sample, time);
++  else
++    return wave_port_get_remaining_time(sample, time);
++}
++
++// rename functions to be wrapped
++#define wave_init wave_port_init
++#define wave_open wave_port_open
++#define wave_write wave_port_write
++#define wave_close wave_port_close
++#define wave_is_busy wave_port_is_busy
++#define wave_terminate wave_port_terminate
++#define wave_get_read_position wave_port_get_read_position
++#define wave_get_write_position wave_port_get_write_position
++#define wave_flush wave_port_flush
++#define wave_set_callback_is_output_enabled wave_port_set_callback_is_output_enabled
++#define wave_test_get_write_buffer wave_port_test_get_write_buffer
++#define wave_get_remaining_time wave_port_get_remaining_time
++#endif
++
++
+ static t_wave_callback* my_callback_is_output_enabled=NULL;
+ 
+ #define N_WAV_BUF   10
+diff -up espeak-1.45.05-source/src/wave_pulse.cpp.runtime-detection espeak-1.45.05-source/src/wave_pulse.cpp
+--- espeak-1.45.05-source/src/wave_pulse.cpp.runtime-detection	2011-08-11 23:38:05.000000000 +0200
++++ espeak-1.45.05-source/src/wave_pulse.cpp	2011-09-15 14:24:42.662695100 +0200
+@@ -65,6 +65,7 @@ enum {
+ 
+ static t_wave_callback* my_callback_is_output_enabled=NULL;
+ 
++#define SAMPLE_RATE 22050
+ #define ESPEAK_FORMAT PA_SAMPLE_S16LE
+ #define ESPEAK_CHANNEL 1
+ 
+@@ -74,6 +75,39 @@ static t_wave_callback* my_callback_is_o
+ #define MINREQ 880
+ #define FRAGSIZE 0
+ 
++#ifdef USE_PORTAUDIO
++// rename functions to be wrapped
++#define wave_init wave_pulse_init
++#define wave_open wave_pulse_open
++#define wave_write wave_pulse_write
++#define wave_close wave_pulse_close
++#define wave_is_busy wave_pulse_is_busy
++#define wave_terminate wave_pulse_terminate
++#define wave_get_read_position wave_pulse_get_read_position
++#define wave_get_write_position wave_pulse_get_write_position
++#define wave_flush wave_pulse_flush
++#define wave_set_callback_is_output_enabled wave_pulse_set_callback_is_output_enabled
++#define wave_test_get_write_buffer wave_pulse_test_get_write_buffer
++#define wave_get_remaining_time wave_pulse_get_remaining_time
++
++// check whether we can connect to PulseAudio
++#include <pulse/simple.h>
++int is_pulse_running()
++{
++  pa_sample_spec ss;
++  ss.format = ESPEAK_FORMAT;
++  ss.rate = SAMPLE_RATE;
++  ss.channels = ESPEAK_CHANNEL;
++
++  pa_simple *s = pa_simple_new(NULL, "eSpeak", PA_STREAM_PLAYBACK, NULL, "is_pulse_running", &ss, NULL, NULL, NULL);
++  if (s) {
++    pa_simple_free(s);
++    return 1;
++  } else
++    return 0;
++}
++#endif
++
+ static pthread_mutex_t pulse_mutex;
+ 
+ static pa_context *context = NULL;
+@@ -843,8 +877,9 @@ int wave_get_remaining_time(uint32_t sam
+ 	return 0;
+ }
+ 
+-#endif  // of USE_PORTAUDIO
++#endif  // of USE_PULSEAUDIO
+ 
++#ifndef USE_PORTAUDIO
+ //>
+ //<clock_gettime2, add_time_in_ms
+ 
+@@ -878,6 +913,7 @@ void add_time_in_ms(struct timespec *ts,
+     }
+   ts->tv_nsec = (long int)t_ns;
+ }
++#endif
+ 
+ 
+ #endif   // USE_ASYNC

@@ -1,0 +1,202 @@
+#!/bin/bash
+#
+# Stefan Seyfried, SUSE Linux Products GmbH 2006, GPL v2
+# mostly taken from the powersave project.
+
+GRUBONCE="/usr/sbin/grubonce"
+GRUBDEFAULT="/boot/grub/default"
+GRUBDEFSAVE="/var/run/suspend.grubonce.default"
+
+#####################################################################
+# gets a list of available kernels from /boot/grub/menu.lst
+# kernels are in the array $KERNELS, output to stdout to be eval-ed.
+getkernels()
+{
+	# DEBUG "Running getkernels()" INFO
+	local MENU_LST="/boot/grub/menu.lst"
+	local I DUMMY MNT ROOTDEV
+	declare -i I=0 J=-1
+	
+	# we need the root partition later to decide if this is the kernel to select
+	while read ROOTDEV MNT DUMMY; do
+		[ "$ROOTDEV" = "rootfs" ] && continue # not what we are searching for
+		if [ "$MNT" = "/" ]; then
+			break
+		fi
+	done < /proc/mounts
+	
+	# build an array KERNELS with all the kernels in /boot/grub/menu.lst
+	# the array MENU_ENTRIES contains the corresponding menu entry numbers
+	# DEFAULT_BOOT contains the default entry.
+	while read LINE; do
+		case $LINE in
+		title*)
+			let J++ # increase for every menu entry, even for non-linux
+			# DEBUG "Found grub menu entry #${J}: '${LINE}'" INFO
+			;;
+		default*)
+			DUMMY=($LINE)                   # "default 0 #maybe a comment"
+			echo "DEFAULT_BOOT=${DUMMY[1]}" #  ^^[0]^^ 1 ^^[2]^ 3 ^^[4]^^
+			# DEBUG "Default boot entry is '${DUMMY[1]}'" INFO
+			;;
+		kernel*noresume*)
+			# we probably found the "failsafe" kernel that won't resume...
+			echo "  Skipping grub entry #${J}, because it has the noresume option" >&2
+			;;
+		kernel*root=*)
+			local ROOT
+			ROOT=${LINE#*root=}
+			DUMMY=($ROOT)
+			ROOT=${DUMMY[0]}
+			if [ "$(echo $ROOT | grep LABEL)" ]; then
+				LABEL=`echo $ROOT | cut -d"=" -f2`
+				ROOT=`readlink -f /dev/disk/by-label/$LABEL`
+			elif [ "$(echo $ROOT | grep UUID)" ]; then
+				UUID=`echo $ROOT | cut -d"=" -f2`
+				ROOT=`readlink -f /dev/disk/by-uuid/$UUID`
+			fi
+			if [ "$(stat -Lc '%t:%T' $ROOT)" != "$(stat -Lc '%t:%T' $ROOTDEV)" ]; then
+				echo "  Skipping grub entry #${J}, because its root= parameter ($ROOT)" >&2
+				echo "    does not match the current root device ($ROOTDEV)." >&2
+				continue
+			fi
+			DUMMY=($LINE) # kernel (hd0,1)/boot/latestkernel-ABC root=/dev/hda2
+			echo "KERNELS[$I]='${DUMMY[1]##*/}'" # latestkernel-ABC
+			echo "MENU_ENTRIES[$I]=$J"
+			# DEBUG "Found kernel entry #${I}: '${DUMMY[1]##*/}'" INFO
+			let I++
+			;;
+		kernel*)
+			# a kernel without "root="? We better skip that one...
+			echo "  Skipping grub entry #${J}, because it has no root= option" >&2
+			;;
+		*)  ;;
+		esac
+	done < $MENU_LST
+}
+
+#############################################################
+# runs grubonce from the grub package to select which kernel
+# to boot on next startup
+grub-once()
+{
+	if [ -x "$GRUBONCE" ]; then
+		rm -f "$GRUBDEFSAVE"
+		if [ -e "$GRUBDEFAULT" ]; then
+			echo "  saving original $GRUBDEFAULT"
+			cp "$GRUBDEFAULT" "$GRUBDEFSAVE"
+		fi
+		echo "  running '$GRUBONCE $1'"
+		$GRUBONCE $1
+	else
+		echo "WARNING: $GRUBONCE not found, not preparing bootloader"
+	fi
+}
+
+#############################################################
+# restore grub default after (eventually failed) resume
+grub-once-restore()
+{
+	echo "INFO: running grub-once-restore"
+	rm -f "$GRUBDEFAULT"
+	if [ -e "$GRUBDEFSAVE" ]; then
+		echo "  restoring original $GRUBDEFAULT"
+		mv "$GRUBDEFSAVE" "$GRUBDEFAULT"
+	fi
+}
+
+#############################################################################
+# try to find a kernel image that matches the actually running kernel.
+# We need this, if more than one kernel is installed. This works reasonably
+# well with grub, if all kernels are named "kernel-`uname -r`" and are
+# located in /boot. If they are not, good luck ;-)
+find-kernel-entry()
+{
+	NEXT_BOOT=-1
+	ARCH=`uname -m`
+	declare -i I=0
+	# DEBUG "running kernel: $RUNNING" DIAG
+	while [ -n "${KERNELS[$I]}" ]; do
+		BOOTING="${KERNELS[$I]}"
+		if IMAGE=`readlink /boot/$BOOTING` && [ -e "/boot/${IMAGE##*/}" ]; then
+			# DEBUG "Found kernel symlink $BOOTING => $IMAGE" INFO
+			BOOTING=$IMAGE
+		fi
+		case $ARCH in
+			ppc*)   BOOTING="${BOOTING#*vmlinux-}" ;;
+			*)      BOOTING="${BOOTING#*kernel-}" ;;
+		esac
+		if [ "$RUNNING" == "$BOOTING" ]; then
+			NEXT_BOOT=${MENU_ENTRIES[$I]}
+			echo "  running kernel is grub menu entry $NEXT_BOOT (${KERNELS[$I]})"
+			break
+		fi
+		let I++
+	done
+	# if we have not found a kernel, issue a warning.
+	# if we have found a kernel, we'll do "grub-once" later, after
+	# prepare_suspend finished.
+	if [ $NEXT_BOOT -eq -1 ]; then
+		echo "WARNING: no kernelfile matching the running kernel found"
+	fi
+}
+
+#############################################################################
+# if we did not find a kernel (or BOOT_LOADER is not GRUB) check,
+# if the running kernel is still the one that will (probably) be booted for
+# resume (default entry in menu.lst or, if there is none, the kernel file
+# /boot/latestkernel points to.)
+# This will only work, if you use "original" SUSE kernels.
+# you can always override with the config variable set to "yes"
+prepare-grub()
+{
+	echo "INFO: running prepare-grub"
+	eval `getkernels`
+	RUNNING=`uname -r`
+	find-kernel-entry
+
+	RET=0
+
+	if [ $NEXT_BOOT -eq -1 ]; then
+		# which kernel is booted with the default entry?
+		BOOTING="${KERNELS[$DEFAULT_BOOT]}"
+		# if there is no default entry (no menu.lst?) we fall back to
+		# the default of /boot/latestkernel.
+		[ -z "$BOOTING" ] && BOOTING="latestkernel"
+		if IMAGE=`readlink /boot/$BOOTING` && [ -e "/boot/${IMAGE##*/}" ]; then
+			BOOTING=$IMAGE
+		fi
+		BOOTING="${BOOTING#*kernel-}"
+		echo  "running kernel: '$RUNNING', probably booting kernel: '$BOOTING'"
+		if [ "$BOOTING" != "$RUNNING" ]; then
+			echo "ERROR: kernel version mismatch, cannot suspend to disk"
+			echo "running: $RUNNING booting: $BOOTING"  >> $INHIBIT
+			RET=1
+		fi
+	else
+		# set the bootloader to the running kernel
+		echo "  preparing boot-loader: selecting entry $NEXT_BOOT, kernel /boot/$BOOTING"
+		T1=`date +"%s%N"`
+		sync; sync; sync # this is needed to speed up grub-once on reiserfs
+		T2=`date +"%s%N"`
+		echo "  grub-once: `grub-once $NEXT_BOOT`"
+		T3=`date +"%s%N"`
+		S=$(((T2-T1)/100000000)); S="$((S/10)).${S:0-1}"
+		G=$(((T3-T2)/100000000)); G="$((G/10)).${G:0-1}"
+		echo "    time needed for sync: $S seconds, time needed for grub: $G seconds."
+	fi
+
+	return $RET
+}
+
+
+###### main()
+
+case $1 in
+	hibernate)
+		prepare-grub
+		;;
+	thaw)
+		grub-once-restore
+		;;
+esac

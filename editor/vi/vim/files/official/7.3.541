@@ -1,0 +1,1090 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.541
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.541
+Problem:    When joining lines comment leaders need to be removed manually.
+Solution:   Add the 'j' flag to 'formatoptions'. (Lech Lorens)
+Files:	    runtime/doc/change.txt, src/edit.c, src/ex_docmd.c, src/misc1.c,
+	    src/normal.c, src/ops.c, src/option.h, src/proto/misc1.pro,
+	    src/proto/ops.pro, src/search.c, src/testdir/test29.in,
+	    src/testdir/test29.ok
+
+
+*** ../vim-7.3.540/runtime/doc/change.txt	2011-05-05 14:26:37.000000000 +0200
+--- runtime/doc/change.txt	2012-06-06 13:05:04.000000000 +0200
+***************
+*** 1495,1500 ****
+--- 1522,1533 ----
+  	characters.  Overruled by the 'M' flag.
+  1	Don't break a line after a one-letter word.  It's broken before it
+  	instead (if possible).
++ j	Where it makes sense, remove a comment leader when joining lines.  For
++ 	example, joining:
++ 		int i;   // the index ~
++ 		         // in the list ~
++ 	Becomes:
++ 		int i;   // the index in the list ~
+  
+  
+  With 't' and 'c' you can specify when Vim performs auto-wrapping:
+*** ../vim-7.3.540/src/edit.c	2012-06-01 15:20:49.000000000 +0200
+--- src/edit.c	2012-06-06 13:00:29.000000000 +0200
+***************
+*** 5847,5853 ****
+  	 * Need to remove existing (middle) comment leader and insert end
+  	 * comment leader.  First, check what comment leader we can find.
+  	 */
+! 	i = get_leader_len(line = ml_get_curline(), &p, FALSE);
+  	if (i > 0 && vim_strchr(p, COM_MIDDLE) != NULL)	/* Just checking */
+  	{
+  	    /* Skip middle-comment string */
+--- 5847,5853 ----
+  	 * Need to remove existing (middle) comment leader and insert end
+  	 * comment leader.  First, check what comment leader we can find.
+  	 */
+! 	i = get_leader_len(line = ml_get_curline(), &p, FALSE, TRUE);
+  	if (i > 0 && vim_strchr(p, COM_MIDDLE) != NULL)	/* Just checking */
+  	{
+  	    /* Skip middle-comment string */
+***************
+*** 6085,6091 ****
+  
+  	/* Don't break until after the comment leader */
+  	if (do_comments)
+! 	    leader_len = get_leader_len(ml_get_curline(), NULL, FALSE);
+  	else
+  	    leader_len = 0;
+  
+--- 6085,6091 ----
+  
+  	/* Don't break until after the comment leader */
+  	if (do_comments)
+! 	    leader_len = get_leader_len(ml_get_curline(), NULL, FALSE, TRUE);
+  	else
+  	    leader_len = 0;
+  
+***************
+*** 6411,6417 ****
+      /* With the 'c' flag in 'formatoptions' and 't' missing: only format
+       * comments. */
+      if (has_format_option(FO_WRAP_COMS) && !has_format_option(FO_WRAP)
+! 				     && get_leader_len(old, NULL, FALSE) == 0)
+  	return;
+  #endif
+  
+--- 6411,6417 ----
+      /* With the 'c' flag in 'formatoptions' and 't' missing: only format
+       * comments. */
+      if (has_format_option(FO_WRAP_COMS) && !has_format_option(FO_WRAP)
+! 				     && get_leader_len(old, NULL, FALSE, TRUE) == 0)
+  	return;
+  #endif
+  
+***************
+*** 8565,8571 ****
+      {
+  	temp = curwin->w_cursor.col;
+  	if (!can_bs(BS_EOL)		/* only if "eol" included */
+! 		|| do_join(2, FALSE, TRUE) == FAIL)
+  	    vim_beep();
+  	else
+  	    curwin->w_cursor.col = temp;
+--- 8565,8571 ----
+      {
+  	temp = curwin->w_cursor.col;
+  	if (!can_bs(BS_EOL)		/* only if "eol" included */
+! 		|| do_join(2, FALSE, TRUE, FALSE) == FAIL)
+  	    vim_beep();
+  	else
+  	    curwin->w_cursor.col = temp;
+***************
+*** 8746,8752 ****
+  			ptr[len - 1] = NUL;
+  		}
+  
+! 		(void)do_join(2, FALSE, FALSE);
+  		if (temp == NUL && gchar_cursor() != NUL)
+  		    inc_cursor();
+  	    }
+--- 8746,8752 ----
+  			ptr[len - 1] = NUL;
+  		}
+  
+! 		(void)do_join(2, FALSE, FALSE, FALSE);
+  		if (temp == NUL && gchar_cursor() != NUL)
+  		    inc_cursor();
+  	    }
+*** ../vim-7.3.540/src/ex_docmd.c	2012-04-30 18:48:38.000000000 +0200
+--- src/ex_docmd.c	2012-06-06 13:00:29.000000000 +0200
+***************
+*** 8545,8551 ****
+  	}
+  	++eap->line2;
+      }
+!     (void)do_join(eap->line2 - eap->line1 + 1, !eap->forceit, TRUE);
+      beginline(BL_WHITE | BL_FIX);
+      ex_may_print(eap);
+  }
+--- 8545,8551 ----
+  	}
+  	++eap->line2;
+      }
+!     (void)do_join(eap->line2 - eap->line1 + 1, !eap->forceit, TRUE, TRUE);
+      beginline(BL_WHITE | BL_FIX);
+      ex_may_print(eap);
+  }
+*** ../vim-7.3.540/src/misc1.c	2012-06-01 15:20:49.000000000 +0200
+--- src/misc1.c	2012-06-06 13:27:32.000000000 +0200
+***************
+*** 671,677 ****
+  	    ptr = saved_line;
+  # ifdef FEAT_COMMENTS
+  	    if (flags & OPENLINE_DO_COM)
+! 		lead_len = get_leader_len(ptr, NULL, FALSE);
+  	    else
+  		lead_len = 0;
+  # endif
+--- 671,677 ----
+  	    ptr = saved_line;
+  # ifdef FEAT_COMMENTS
+  	    if (flags & OPENLINE_DO_COM)
+! 		lead_len = get_leader_len(ptr, NULL, FALSE, TRUE);
+  	    else
+  		lead_len = 0;
+  # endif
+***************
+*** 693,699 ****
+  		}
+  # ifdef FEAT_COMMENTS
+  		if (flags & OPENLINE_DO_COM)
+! 		    lead_len = get_leader_len(ptr, NULL, FALSE);
+  		else
+  		    lead_len = 0;
+  		if (lead_len > 0)
+--- 693,699 ----
+  		}
+  # ifdef FEAT_COMMENTS
+  		if (flags & OPENLINE_DO_COM)
+! 		    lead_len = get_leader_len(ptr, NULL, FALSE, TRUE);
+  		else
+  		    lead_len = 0;
+  		if (lead_len > 0)
+***************
+*** 836,842 ****
+       */
+      end_comment_pending = NUL;
+      if (flags & OPENLINE_DO_COM)
+! 	lead_len = get_leader_len(saved_line, &lead_flags, dir == BACKWARD);
+      else
+  	lead_len = 0;
+      if (lead_len > 0)
+--- 836,842 ----
+       */
+      end_comment_pending = NUL;
+      if (flags & OPENLINE_DO_COM)
+! 	lead_len = get_leader_len(saved_line, &lead_flags, dir == BACKWARD, TRUE);
+      else
+  	lead_len = 0;
+      if (lead_len > 0)
+***************
+*** 1548,1561 ****
+   * When "flags" is not NULL, it is set to point to the flags of the recognized
+   * comment leader.
+   * "backward" must be true for the "O" command.
+   */
+      int
+! get_leader_len(line, flags, backward)
+      char_u	*line;
+      char_u	**flags;
+      int		backward;
+  {
+      int		i, j;
+      int		got_com = FALSE;
+      int		found_one;
+      char_u	part_buf[COM_MAX_LEN];	/* buffer for one option part */
+--- 1548,1565 ----
+   * When "flags" is not NULL, it is set to point to the flags of the recognized
+   * comment leader.
+   * "backward" must be true for the "O" command.
++  * If "include_space" is set, include trailing whitespace while calculating the
++  * length.
+   */
+      int
+! get_leader_len(line, flags, backward, include_space)
+      char_u	*line;
+      char_u	**flags;
+      int		backward;
++     int		include_space;
+  {
+      int		i, j;
++     int		result;
+      int		got_com = FALSE;
+      int		found_one;
+      char_u	part_buf[COM_MAX_LEN];	/* buffer for one option part */
+***************
+*** 1565,1571 ****
+      char_u	*prev_list;
+      char_u	*saved_flags = NULL;
+  
+!     i = 0;
+      while (vim_iswhite(line[i]))    /* leading white space is ignored */
+  	++i;
+  
+--- 1569,1575 ----
+      char_u	*prev_list;
+      char_u	*saved_flags = NULL;
+  
+!     result = i = 0;
+      while (vim_iswhite(line[i]))    /* leading white space is ignored */
+  	++i;
+  
+***************
+*** 1668,1684 ****
+  	if (!found_one)
+  	    break;
+  
+  	/* Include any trailing white space. */
+  	while (vim_iswhite(line[i]))
+  	    ++i;
+  
+  	/* If this comment doesn't nest, stop here. */
+  	got_com = TRUE;
+  	if (vim_strchr(part_buf, COM_NEST) == NULL)
+  	    break;
+      }
+  
+!     return (got_com ? i : 0);
+  }
+  #endif
+  
+--- 1672,1838 ----
+  	if (!found_one)
+  	    break;
+  
++ 	result = i;
++ 
+  	/* Include any trailing white space. */
+  	while (vim_iswhite(line[i]))
+  	    ++i;
+  
++ 	if (include_space)
++ 	    result = i;
++ 
+  	/* If this comment doesn't nest, stop here. */
+  	got_com = TRUE;
+  	if (vim_strchr(part_buf, COM_NEST) == NULL)
+  	    break;
+      }
++     return result;
++ }
++ 
++ /*
++  * Return the offset at which the last comment in line starts. If there is no
++  * comment in the whole line, -1 is returned.
++  *
++  * When "flags" is not null, it is set to point to the flags describing the
++  * recognized comment leader.
++  */
++     int
++ get_last_leader_offset(line, flags)
++     char_u	*line;
++     char_u	**flags;
++ {
++     int		result = -1;
++     int		i, j;
++     int		lower_check_bound = 0;
++     char_u	*string;
++     char_u	*com_leader;
++     char_u	*com_flags;
++     char_u	*list;
++     int		found_one;
++     char_u	part_buf[COM_MAX_LEN];	/* buffer for one option part */
++ 
++     /*
++      * Repeat to match several nested comment strings.
++      */
++     i = (int)STRLEN(line);
++     while (--i >= lower_check_bound)
++     {
++ 	/*
++ 	 * scan through the 'comments' option for a match
++ 	 */
++ 	found_one = FALSE;
++ 	for (list = curbuf->b_p_com; *list; )
++ 	{
++ 	    char_u *flags_save = list;
++ 
++ 	    /*
++ 	     * Get one option part into part_buf[].  Advance list to next one.
++ 	     * put string at start of string.
++ 	     */
++ 	    (void)copy_option_part(&list, part_buf, COM_MAX_LEN, ",");
++ 	    string = vim_strchr(part_buf, ':');
++ 	    if (string == NULL)	/* If everything is fine, this cannot actually
++ 				 * happen. */
++ 	    {
++ 		continue;
++ 	    }
++ 	    *string++ = NUL;	/* Isolate flags from string. */
++ 	    com_leader = string;
++ 
++ 	    /*
++ 	     * Line contents and string must match.
++ 	     * When string starts with white space, must have some white space
++ 	     * (but the amount does not need to match, there might be a mix of
++ 	     * TABs and spaces).
++ 	     */
++ 	    if (vim_iswhite(string[0]))
++ 	    {
++ 		if (i == 0 || !vim_iswhite(line[i - 1]))
++ 		    continue;
++ 		while (vim_iswhite(string[0]))
++ 		    ++string;
++ 	    }
++ 	    for (j = 0; string[j] != NUL && string[j] == line[i + j]; ++j)
++ 		/* do nothing */;
++ 	    if (string[j] != NUL)
++ 		continue;
++ 
++ 	    /*
++ 	     * When 'b' flag used, there must be white space or an
++ 	     * end-of-line after the string in the line.
++ 	     */
++ 	    if (vim_strchr(part_buf, COM_BLANK) != NULL
++ 		    && !vim_iswhite(line[i + j]) && line[i + j] != NUL)
++ 	    {
++ 		continue;
++ 	    }
++ 
++ 	    /*
++ 	     * We have found a match, stop searching.
++ 	     */
++ 	    found_one = TRUE;
++ 
++ 	    if (flags)
++ 		*flags = flags_save;
++ 	    com_flags = flags_save;
++ 
++ 	    break;
++ 	}
+  
+! 	if (found_one)
+! 	{
+! 	    char_u  part_buf2[COM_MAX_LEN];	/* buffer for one option part */
+! 	    int     len1, len2, off;
+! 
+! 	    result = i;
+! 	    /*
+! 	     * If this comment nests, continue searching.
+! 	     */
+! 	    if (vim_strchr(part_buf, COM_NEST) != NULL)
+! 		continue;
+! 
+! 	    lower_check_bound = i;
+! 
+! 	    /* Let's verify whether the comment leader found is a substring
+! 	     * of other comment leaders. If it is, let's adjust the
+! 	     * lower_check_bound so that we make sure that we have determined
+! 	     * the comment leader correctly.
+! 	     */
+! 
+! 	    while (vim_iswhite(*com_leader))
+! 		++com_leader;
+! 	    len1 = (int)STRLEN(com_leader);
+! 
+! 	    for (list = curbuf->b_p_com; *list; )
+! 	    {
+! 		char_u *flags_save = list;
+! 
+! 		(void)copy_option_part(&list, part_buf2, COM_MAX_LEN, ",");
+! 		if (flags_save == com_flags)
+! 		    continue;
+! 		string = vim_strchr(part_buf2, ':');
+! 		++string;
+! 		while (vim_iswhite(*string))
+! 		    ++string;
+! 		len2 = (int)STRLEN(string);
+! 		if (len2 == 0)
+! 		    continue;
+! 
+! 		/* Now we have to verify whether string ends with a substring
+! 		 * beginning the com_leader. */
+! 		for (off = (len2 > i ? i : len2); off > 0 && off + len1 > len2;)
+! 		{
+! 		    --off;
+! 		    if (!STRNCMP(string + off, com_leader, len2 - off))
+! 		    {
+! 			if (i - off < lower_check_bound)
+! 			    lower_check_bound = i - off;
+! 		    }
+! 		}
+! 	    }
+! 	}
+!     }
+!     return result;
+  }
+  #endif
+  
+*** ../vim-7.3.540/src/normal.c	2012-05-25 13:12:33.000000000 +0200
+--- src/normal.c	2012-06-06 13:00:29.000000000 +0200
+***************
+*** 1968,1974 ****
+  		beep_flush();
+  	    else
+  	    {
+! 		(void)do_join(oap->line_count, oap->op_type == OP_JOIN, TRUE);
+  		auto_format(FALSE, TRUE);
+  	    }
+  	    break;
+--- 1968,1974 ----
+  		beep_flush();
+  	    else
+  	    {
+! 		(void)do_join(oap->line_count, oap->op_type == OP_JOIN, TRUE, TRUE);
+  		auto_format(FALSE, TRUE);
+  	    }
+  	    break;
+***************
+*** 4426,4432 ****
+  	    break;
+  	}
+  #ifdef FEAT_COMMENTS
+! 	if (get_leader_len(ml_get_curline(), NULL, FALSE) > 0)
+  	{
+  	    /* Ignore this line, continue at start of next line. */
+  	    ++curwin->w_cursor.lnum;
+--- 4426,4432 ----
+  	    break;
+  	}
+  #ifdef FEAT_COMMENTS
+! 	if (get_leader_len(ml_get_curline(), NULL, FALSE, TRUE) > 0)
+  	{
+  	    /* Ignore this line, continue at start of next line. */
+  	    ++curwin->w_cursor.lnum;
+***************
+*** 9324,9330 ****
+  	{
+  	    prep_redo(cap->oap->regname, cap->count0,
+  			 NUL, cap->cmdchar, NUL, NUL, cap->nchar);
+! 	    (void)do_join(cap->count0, cap->nchar == NUL, TRUE);
+  	}
+      }
+  }
+--- 9324,9330 ----
+  	{
+  	    prep_redo(cap->oap->regname, cap->count0,
+  			 NUL, cap->cmdchar, NUL, NUL, cap->nchar);
+! 	    (void)do_join(cap->count0, cap->nchar == NUL, TRUE, TRUE);
+  	}
+      }
+  }
+*** ../vim-7.3.540/src/ops.c	2012-05-18 12:49:33.000000000 +0200
+--- src/ops.c	2012-06-06 15:43:31.000000000 +0200
+***************
+*** 112,117 ****
+--- 112,120 ----
+  # endif
+  #endif
+  static void	dis_msg __ARGS((char_u *p, int skip_esc));
++ #if defined(FEAT_COMMENTS) || defined(PROTO)
++ static char_u	*skip_comment __ARGS((char_u *line, int process, int include_space, int *is_comment));
++ #endif
+  #ifdef FEAT_VISUAL
+  static void	block_prep __ARGS((oparg_T *oap, struct block_def *, linenr_T, int));
+  #endif
+***************
+*** 1987,1993 ****
+  		curwin->w_cursor = curpos;	/* restore curwin->w_cursor */
+  	    }
+  	    if (curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count)
+! 		(void)do_join(2, FALSE, FALSE);
+  	}
+      }
+  
+--- 1990,1996 ----
+  		curwin->w_cursor = curpos;	/* restore curwin->w_cursor */
+  	    }
+  	    if (curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count)
+! 		(void)do_join(2, FALSE, FALSE, FALSE);
+  	}
+      }
+  
+***************
+*** 4197,4213 ****
+      ui_breakcheck();
+  }
+  
+  /*
+   * Join 'count' lines (minimal 2) at cursor position.
+   * When "save_undo" is TRUE save lines for undo first.
+   *
+   * return FAIL for failure, OK otherwise
+   */
+      int
+! do_join(count, insert_space, save_undo)
+      long    count;
+      int	    insert_space;
+      int	    save_undo;
+  {
+      char_u	*curr = NULL;
+      char_u      *curr_start = NULL;
+--- 4200,4297 ----
+      ui_breakcheck();
+  }
+  
++ #if defined(FEAT_COMMENTS) || defined(PROTO)
++ /*
++  * If "process" is TRUE and the line begins with a comment leader (possibly
++  * after some white space), return a pointer to the text after it. Put a boolean
++  * value indicating whether the line ends with an unclosed comment in
++  * "is_comment".
++  * line - line to be processed,
++  * process - if FALSE, will only check whether the line ends with an unclosed
++  *           comment,
++  * include_space - whether to also skip space following the comment leader,
++  * is_comment - will indicate whether the current line ends with an unclosed
++  *              comment.
++  */
++     static char_u *
++ skip_comment(line, process, include_space, is_comment)
++     char_u   *line;
++     int      process;
++     int	     include_space;
++     int      *is_comment;
++ {
++     char_u *comment_flags = NULL;
++     int    lead_len;
++     int    leader_offset = get_last_leader_offset(line, &comment_flags);
++ 
++     *is_comment = FALSE;
++     if (leader_offset != -1)
++     {
++ 	/* Let's check whether the line ends with an unclosed comment.
++ 	 * If the last comment leader has COM_END in flags, there's no comment.
++ 	 */
++ 	while (*comment_flags)
++ 	{
++ 	    if (*comment_flags == COM_END
++ 		    || *comment_flags == ':')
++ 		break;
++ 	    ++comment_flags;
++ 	}
++ 	if (*comment_flags != COM_END)
++ 	    *is_comment = TRUE;
++     }
++ 
++     if (process == FALSE)
++ 	return line;
++ 
++     lead_len = get_leader_len(line, &comment_flags, FALSE, include_space);
++ 
++     if (lead_len == 0)
++ 	return line;
++ 
++     /* Find:
++      * - COM_START,
++      * - COM_END,
++      * - colon,
++      * whichever comes first.
++      */
++     while (*comment_flags)
++     {
++ 	if (*comment_flags == COM_START
++ 		|| *comment_flags == COM_END
++ 		|| *comment_flags == ':')
++ 	{
++ 	    break;
++ 	}
++ 	++comment_flags;
++     }
++ 
++     /* If we found a colon, it means that we are not processing a line
++      * starting with an opening or a closing part of a three-part
++      * comment. That's good, because we don't want to remove those as
++      * this would be annoying.
++      */
++     if (*comment_flags == ':' || *comment_flags == NUL)
++ 	line += lead_len;
++ 
++     return line;
++ }
++ #endif
++ 
+  /*
+   * Join 'count' lines (minimal 2) at cursor position.
+   * When "save_undo" is TRUE save lines for undo first.
++  * Set "use_formatoptions" to FALSE when e.g. processing
++  * backspace and comment leaders should not be removed.
+   *
+   * return FAIL for failure, OK otherwise
+   */
+      int
+! do_join(count, insert_space, save_undo, use_formatoptions)
+      long    count;
+      int	    insert_space;
+      int	    save_undo;
++     int	    use_formatoptions UNUSED;
+  {
+      char_u	*curr = NULL;
+      char_u      *curr_start = NULL;
+***************
+*** 4221,4226 ****
+--- 4305,4317 ----
+      linenr_T	t;
+      colnr_T	col = 0;
+      int		ret = OK;
++ #if defined(FEAT_COMMENTS) || defined(PROTO)
++     int		*comments;
++     int		remove_comments = (use_formatoptions == TRUE)
++ 				  && has_format_option(FO_REMOVE_COMS);
++     int		prev_was_comment;
++ #endif
++ 
+  
+      if (save_undo && u_save((linenr_T)(curwin->w_cursor.lnum - 1),
+  			    (linenr_T)(curwin->w_cursor.lnum + count)) == FAIL)
+***************
+*** 4232,4237 ****
+--- 4323,4339 ----
+      spaces = lalloc_clear((long_u)count, TRUE);
+      if (spaces == NULL)
+  	return FAIL;
++ #if defined(FEAT_COMMENTS) || defined(PROTO)
++     if (remove_comments)
++     {
++ 	comments = (int *)lalloc_clear((long_u)count * sizeof(int), TRUE);
++ 	if (comments == NULL)
++ 	{
++ 	    vim_free(spaces);
++ 	    return FAIL;
++ 	}
++     }
++ #endif
+  
+      /*
+       * Don't move anything, just compute the final line length
+***************
+*** 4240,4245 ****
+--- 4342,4366 ----
+      for (t = 0; t < count; ++t)
+      {
+  	curr = curr_start = ml_get((linenr_T)(curwin->w_cursor.lnum + t));
++ #if defined(FEAT_COMMENTS) || defined(PROTO)
++ 	if (remove_comments)
++ 	{
++ 	    /* We don't want to remove the comment leader if the
++ 	     * previous line is not a comment. */
++ 	    if (t > 0 && prev_was_comment)
++ 	    {
++ 
++ 		char_u *new_curr = skip_comment(curr, TRUE, insert_space,
++ 							   &prev_was_comment);
++ 		comments[t] = new_curr - curr;
++ 		curr = new_curr;
++ 	    }
++ 	    else
++ 		curr = skip_comment(curr, FALSE, insert_space,
++ 							   &prev_was_comment);
++ 	}
++ #endif
++ 
+  	if (insert_space && t > 0)
+  	{
+  	    curr = skipwhite(curr);
+***************
+*** 4327,4332 ****
+--- 4448,4457 ----
+  	if (t == 0)
+  	    break;
+  	curr = curr_start = ml_get((linenr_T)(curwin->w_cursor.lnum + t - 1));
++ #if defined(FEAT_COMMENTS) || defined(PROTO)
++ 	if (remove_comments)
++ 	    curr += comments[t - 1];
++ #endif
+  	if (insert_space && t > 1)
+  	    curr = skipwhite(curr);
+  	currsize = (int)STRLEN(curr);
+***************
+*** 4364,4369 ****
+--- 4489,4498 ----
+  
+  theend:
+      vim_free(spaces);
++ #if defined(FEAT_COMMENTS) || defined(PROTO)
++     if (remove_comments)
++ 	vim_free(comments);
++ #endif
+      return ret;
+  }
+  
+***************
+*** 4788,4794 ****
+  						      (long)-next_leader_len);
+  #endif
+  		curwin->w_cursor.lnum--;
+! 		if (do_join(2, TRUE, FALSE) == FAIL)
+  		{
+  		    beep_flush();
+  		    break;
+--- 4917,4923 ----
+  						      (long)-next_leader_len);
+  #endif
+  		curwin->w_cursor.lnum--;
+! 		if (do_join(2, TRUE, FALSE, FALSE) == FAIL)
+  		{
+  		    beep_flush();
+  		    break;
+***************
+*** 4844,4850 ****
+  
+      ptr = ml_get(lnum);
+      if (do_comments)
+! 	*leader_len = get_leader_len(ptr, leader_flags, FALSE);
+      else
+  	*leader_len = 0;
+  
+--- 4973,4979 ----
+  
+      ptr = ml_get(lnum);
+      if (do_comments)
+! 	*leader_len = get_leader_len(ptr, leader_flags, FALSE, TRUE);
+      else
+  	*leader_len = 0;
+  
+*** ../vim-7.3.540/src/option.h	2012-02-20 22:18:22.000000000 +0100
+--- src/option.h	2012-06-06 13:00:29.000000000 +0200
+***************
+*** 104,113 ****
+  #define FO_ONE_LETTER	'1'
+  #define FO_WHITE_PAR	'w'	/* trailing white space continues paragr. */
+  #define FO_AUTO		'a'	/* automatic formatting */
+  
+  #define DFLT_FO_VI	"vt"
+  #define DFLT_FO_VIM	"tcq"
+! #define FO_ALL		"tcroq2vlb1mMBn,aw"	/* for do_set() */
+  
+  /* characters for the p_cpo option: */
+  #define CPO_ALTREAD	'a'	/* ":read" sets alternate file name */
+--- 104,114 ----
+  #define FO_ONE_LETTER	'1'
+  #define FO_WHITE_PAR	'w'	/* trailing white space continues paragr. */
+  #define FO_AUTO		'a'	/* automatic formatting */
++ #define FO_REMOVE_COMS	'j'	/* remove comment leaders when joining lines */
+  
+  #define DFLT_FO_VI	"vt"
+  #define DFLT_FO_VIM	"tcq"
+! #define FO_ALL		"tcroq2vlb1mMBn,awj"	/* for do_set() */
+  
+  /* characters for the p_cpo option: */
+  #define CPO_ALTREAD	'a'	/* ":read" sets alternate file name */
+*** ../vim-7.3.540/src/proto/misc1.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/misc1.pro	2012-06-06 13:00:29.000000000 +0200
+***************
+*** 6,12 ****
+  int set_indent __ARGS((int size, int flags));
+  int get_number_indent __ARGS((linenr_T lnum));
+  int open_line __ARGS((int dir, int flags, int old_indent));
+! int get_leader_len __ARGS((char_u *line, char_u **flags, int backward));
+  int plines __ARGS((linenr_T lnum));
+  int plines_win __ARGS((win_T *wp, linenr_T lnum, int winheight));
+  int plines_nofill __ARGS((linenr_T lnum));
+--- 6,13 ----
+  int set_indent __ARGS((int size, int flags));
+  int get_number_indent __ARGS((linenr_T lnum));
+  int open_line __ARGS((int dir, int flags, int old_indent));
+! int get_leader_len __ARGS((char_u *line, char_u **flags, int backward, int do_skip_space));
+! int get_last_leader_offset __ARGS((char_u *line, char_u **flags));
+  int plines __ARGS((linenr_T lnum));
+  int plines_win __ARGS((win_T *wp, linenr_T lnum, int winheight));
+  int plines_nofill __ARGS((linenr_T lnum));
+*** ../vim-7.3.540/src/proto/ops.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/ops.pro	2012-06-06 13:00:29.000000000 +0200
+***************
+*** 36,42 ****
+  int preprocs_left __ARGS((void));
+  int get_register_name __ARGS((int num));
+  void ex_display __ARGS((exarg_T *eap));
+! int do_join __ARGS((long count, int insert_space, int save_undo));
+  void op_format __ARGS((oparg_T *oap, int keep_cursor));
+  void op_formatexpr __ARGS((oparg_T *oap));
+  int fex_format __ARGS((linenr_T lnum, long count, int c));
+--- 36,42 ----
+  int preprocs_left __ARGS((void));
+  int get_register_name __ARGS((int num));
+  void ex_display __ARGS((exarg_T *eap));
+! int do_join __ARGS((long count, int insert_space, int save_undo, int use_formatoptions));
+  void op_format __ARGS((oparg_T *oap, int keep_cursor));
+  void op_formatexpr __ARGS((oparg_T *oap));
+  int fex_format __ARGS((linenr_T lnum, long count, int c));
+*** ../vim-7.3.540/src/search.c	2012-02-04 23:34:57.000000000 +0100
+--- src/search.c	2012-06-06 13:00:29.000000000 +0200
+***************
+*** 1548,1554 ****
+      int			len;
+      int			stop = TRUE;
+  #ifdef FEAT_MBYTE
+!     static char_u	bytes[MB_MAXBYTES];
+      static int		bytelen = 1;	/* >1 for multi-byte char */
+  #endif
+  
+--- 1548,1554 ----
+      int			len;
+      int			stop = TRUE;
+  #ifdef FEAT_MBYTE
+!     static char_u	bytes[MB_MAXBYTES + 1];
+      static int		bytelen = 1;	/* >1 for multi-byte char */
+  #endif
+  
+***************
+*** 4901,4907 ****
+  #ifdef FEAT_COMMENTS
+  			if ((*line != '#' ||
+  				STRNCMP(skipwhite(line + 1), "define", 6) != 0)
+! 				&& get_leader_len(line, NULL, FALSE))
+  			    matched = FALSE;
+  
+  			/*
+--- 4901,4907 ----
+  #ifdef FEAT_COMMENTS
+  			if ((*line != '#' ||
+  				STRNCMP(skipwhite(line + 1), "define", 6) != 0)
+! 				&& get_leader_len(line, NULL, FALSE, TRUE))
+  			    matched = FALSE;
+  
+  			/*
+*** ../vim-7.3.540/src/testdir/test29.in	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test29.in	2012-06-06 15:44:38.000000000 +0200
+***************
+*** 4,19 ****
+   and with 'cpoptions' flag 'j' set or not
+  
+  STARTTEST
+  :set nocompatible viminfo+=nviminfo
+  :set nojoinspaces
+  :set cpoptions-=j
+  /firstline/
+! j"tdGpJjJjJjJjJjJjJjJjJjJjJjJjJjJj05lmx2j06lmy2k4Jy3l$p`xyl$p`yy2l$p:set cpoptions+=j
+  j05lmx2j06lmy2k4Jy3l$p`xyl$p`yy2l$p:set cpoptions-=j joinspaces
+  j"tpJjJjJjJjJjJjJjJjJjJjJjJjJjJj05lmx2j06lmy2k4Jy3l$p`xyl$p`yy2l$p:set cpoptions+=j
+  j05lmx2j06lmy2k4Jy3l$p`xyl$p`yy2l$p:set cpoptions-=j nojoinspaces compatible
+! j"tpJjJjJjJjJjJjJjJjJjJjJjJjJjJj4Jy3l$pjdG:?firstline?+1,$w! test.out
+! :qa!
+  ENDTEST
+  
+  firstline
+--- 4,20 ----
+   and with 'cpoptions' flag 'j' set or not
+  
+  STARTTEST
++ :so small.vim
+  :set nocompatible viminfo+=nviminfo
+  :set nojoinspaces
+  :set cpoptions-=j
+  /firstline/
+! j"td/^STARTTEST/-1
+! PJjJjJjJjJjJjJjJjJjJjJjJjJjJj05lmx2j06lmy2k4Jy3l$p`xyl$p`yy2l$p:set cpoptions+=j
+  j05lmx2j06lmy2k4Jy3l$p`xyl$p`yy2l$p:set cpoptions-=j joinspaces
+  j"tpJjJjJjJjJjJjJjJjJjJjJjJjJjJj05lmx2j06lmy2k4Jy3l$p`xyl$p`yy2l$p:set cpoptions+=j
+  j05lmx2j06lmy2k4Jy3l$p`xyl$p`yy2l$p:set cpoptions-=j nojoinspaces compatible
+! j"tpJjJjJjJjJjJjJjJjJjJjJjJjJjJj4Jy3l$pjd/STARTTEST/-2
+  ENDTEST
+  
+  firstline
+***************
+*** 54,56 ****
+--- 55,181 ----
+  hjkl iop!
+  ert
+  
++ STARTTEST
++ /^{/+1
++ :set comments=s1:/*,mb:*,ex:*/,://
++ :set nojoinspaces fo=j
++ :set backspace=eol,start
++ :.,+3join
++ j4J
++ :.,+2join
++ j3J
++ :.,+2join
++ j3J
++ :.,+2join
++ jj3J
++ ENDTEST
++ 
++ {
++ 
++ /*
++  * Make sure the previous comment leader is not removed.
++  */
++ 
++ /*
++  * Make sure the previous comment leader is not removed.
++  */
++ 
++ // Should the next comment leader be left alone?
++ // Yes.
++ 
++ // Should the next comment leader be left alone?
++ // Yes.
++ 
++ /* Here the comment leader should be left intact. */
++ // And so should this one.
++ 
++ /* Here the comment leader should be left intact. */
++ // And so should this one.
++ 
++ if (condition) // Remove the next comment leader!
++                // OK, I will.
++     action();
++ 
++ if (condition) // Remove the next comment leader!
++                // OK, I will.
++     action();
++ }
++ 
++ STARTTEST
++ /^{/+1
++ :set comments=s1:/*,mb:*,ex:*/,://
++ :set comments+=s1:>#,mb:#,ex:#<,:<
++ :set cpoptions-=j joinspaces fo=j
++ :set backspace=eol,start
++ :.,+3join
++ j4J
++ :.,+2join
++ j3J
++ :.,+2join
++ j3J
++ :.,+2join
++ jj3J
++ j:.,+2join
++ jj3J
++ j:.,+5join
++ j6J
++ oSome code!// Make sure backspacing does not remove this comment leader.0i
++ ENDTEST
++ 
++ {
++ 
++ /*
++  * Make sure the previous comment leader is not removed.
++  */
++ 
++ /*
++  * Make sure the previous comment leader is not removed.
++  */
++ 
++ // Should the next comment leader be left alone?
++ // Yes.
++ 
++ // Should the next comment leader be left alone?
++ // Yes.
++ 
++ /* Here the comment leader should be left intact. */
++ // And so should this one.
++ 
++ /* Here the comment leader should be left intact. */
++ // And so should this one.
++ 
++ if (condition) // Remove the next comment leader!
++                // OK, I will.
++     action();
++ 
++ if (condition) // Remove the next comment leader!
++                // OK, I will.
++     action();
++ 
++ int i = 7 /* foo *// 3
++  // comment
++  ;
++ 
++ int i = 7 /* foo *// 3
++  // comment
++  ;
++ 
++ ># Note that the last character of the ending comment leader (left angle
++  # bracket) is a comment leader itself. Make sure that this comment leader is
++  # not removed from the next line #<
++ < On this line a new comment is opened which spans 2 lines. This comment should
++ < retain its comment leader.
++ 
++ ># Note that the last character of the ending comment leader (left angle
++  # bracket) is a comment leader itself. Make sure that this comment leader is
++  # not removed from the next line #<
++ < On this line a new comment is opened which spans 2 lines. This comment should
++ < retain its comment leader.
++ 
++ }
++ 
++ STARTTEST
++ :g/^STARTTEST/.,/^ENDTEST/d
++ :?firstline?+1,$w! test.out
++ :qa!
++ ENDTEST
+*** ../vim-7.3.540/src/testdir/test29.ok	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test29.ok	2012-06-06 13:00:29.000000000 +0200
+***************
+*** 47,49 ****
+--- 47,86 ----
+  asdfasdf 	asdf
+  asdfasdf		asdf
+  zx cvn.  as dfg? hjkl iop! ert  a
++ 
++ 
++ {
++ /* Make sure the previous comment leader is not removed. */
++ /* Make sure the previous comment leader is not removed. */
++ // Should the next comment leader be left alone? Yes.
++ // Should the next comment leader be left alone? Yes.
++ /* Here the comment leader should be left intact. */ // And so should this one.
++ /* Here the comment leader should be left intact. */ // And so should this one.
++ if (condition) // Remove the next comment leader! OK, I will.
++     action();
++ if (condition) // Remove the next comment leader! OK, I will.
++     action();
++ }
++ 
++ 
++ {
++ /* Make sure the previous comment leader is not removed.  */
++ /* Make sure the previous comment leader is not removed.  */
++ // Should the next comment leader be left alone?  Yes.
++ // Should the next comment leader be left alone?  Yes.
++ /* Here the comment leader should be left intact. */ // And so should this one.
++ /* Here the comment leader should be left intact. */ // And so should this one.
++ if (condition) // Remove the next comment leader!  OK, I will.
++     action();
++ if (condition) // Remove the next comment leader!  OK, I will.
++     action();
++ int i = 7 /* foo *// 3 // comment
++  ;
++ int i = 7 /* foo *// 3 // comment
++  ;
++ ># Note that the last character of the ending comment leader (left angle bracket) is a comment leader itself. Make sure that this comment leader is not removed from the next line #< < On this line a new comment is opened which spans 2 lines. This comment should retain its comment leader.
++ ># Note that the last character of the ending comment leader (left angle bracket) is a comment leader itself. Make sure that this comment leader is not removed from the next line #< < On this line a new comment is opened which spans 2 lines. This comment should retain its comment leader.
++ 
++ Some code!// Make sure backspacing does not remove this comment leader.
++ }
++ 
+*** ../vim-7.3.540/src/version.c	2012-06-06 12:06:10.000000000 +0200
+--- src/version.c	2012-06-06 16:10:03.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     541,
+  /**/
+
+-- 
+I have a drinking problem -- I don't have a drink!
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

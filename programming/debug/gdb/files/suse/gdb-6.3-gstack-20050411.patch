@@ -1,0 +1,236 @@
+2004-11-23  Andrew Cagney  <cagney@redhat.com>
+
+	* Makefile.in (uninstall-gstack, install-gstack): New rules, add
+	to install and uninstall.
+	* gstack.sh, gstack.1: New files.
+
+diff -up -ruNp gdb-7.0.1-empty/gdb/Makefile.in gdb-7.0.1/gdb/Makefile.in
+--- gdb-7.0.1-empty/gdb/Makefile.in	2010-04-07 20:36:04.000000000 +0200
++++ gdb-7.0.1/gdb/Makefile.in	2010-04-07 20:36:42.000000000 +0200
+@@ -989,7 +989,7 @@ install: all install-only 
+ 
+ # The "install-only" target also installs the syscalls' XML files in
+ # the system.
+-install-only: $(CONFIG_INSTALL) xml-syscall-install
++install-only: install-gstack $(CONFIG_INSTALL) xml-syscall-install
+ 	transformed_name=`t='$(program_transform_name)'; \
+ 			  echo gdb | sed -e "$$t"` ; \
+ 		if test "x$$transformed_name" = x; then \
+@@ -1021,9 +1021,26 @@ install-tui:
+ 			$(DESTDIR)$(man1dir) ; \
+ 		$(INSTALL_DATA) $(srcdir)/gdb.1 \
+ 			$(DESTDIR)$(man1dir)/$$transformed_name.1
++GSTACK=gstack
++.PHONY: install-gstack
++install-gstack:
++	transformed_name=`t='$(program_transform_name)'; \
++			  echo $(GSTACK) | sed -e "$$t"` ; \
++		if test "x$$transformed_name" = x; then \
++		  transformed_name=$(GSTACK) ; \
++		else \
++		  true ; \
++		fi ; \
++		$(SHELL) $(srcdir)/../mkinstalldirs $(DESTDIR)$(bindir) ; \
++		$(INSTALL_PROGRAM) $(srcdir)/$(GSTACK).sh \
++			$(DESTDIR)$(bindir)/$$transformed_name$(EXEEXT) ; \
++		: $(SHELL) $(srcdir)/../mkinstalldirs \
++			$(DESTDIR)$(man1dir) ; \
++		: $(INSTALL_DATA) $(srcdir)/gstack.1 \
++			$(DESTDIR)$(man1dir)/$$transformed_name.1
+ 
+ 
+-uninstall: force $(CONFIG_UNINSTALL)
++uninstall: force uninstall-gstack $(CONFIG_UNINSTALL)
+ 	transformed_name=`t='$(program_transform_name)'; \
+ 			  echo gdb | sed -e $$t` ; \
+ 		if test "x$$transformed_name" = x; then \
+@@ -1045,6 +1062,17 @@ uninstall-tui:
+ 		fi ; \
+ 		rm -f $(DESTDIR)$(bindir)/$$transformed_name$(EXEEXT) \
+ 		      $(DESTDIR)$(man1dir)/$$transformed_name.1
++.PHONY: uninstall-gstack
++uninstall-gstack:
++	transformed_name=`t='$(program_transform_name)'; \
++			  echo $(GSTACK) | sed -e $$t` ; \
++		if test "x$$transformed_name" = x; then \
++		  transformed_name=$(GSTACK) ; \
++		else \
++		  true ; \
++		fi ; \
++		rm -f $(DESTDIR)$(bindir)/$$transformed_name$(EXEEXT) \
++		      $(DESTDIR)$(man1dir)/$$transformed_name.1
+ 
+ # The C++ name parser can be built standalone for testing.
+ test-cp-name-parser.o: cp-name-parser.c
+diff -up -ruNp gdb-7.0.1-empty/gdb/gstack.sh gdb-7.0.1/gdb/gstack.sh
+--- gdb-7.0.1-empty/gdb/gstack.sh	1970-01-01 01:00:00.000000000 +0100
++++ gdb-7.0.1/gdb/gstack.sh	2010-04-07 20:36:47.000000000 +0200
+@@ -0,0 +1,48 @@
++#!/bin/sh
++
++if test $# -ne 1; then
++    echo "Usage: `basename $0 .sh` <process-id>" 1>&2
++    exit 1
++fi
++
++if test ! -r /proc/$1; then
++    echo "Process $1 not found." 1>&2
++    exit 1
++fi
++
++# GDB doesn't allow "thread apply all bt" when the process isn't
++# threaded; need to peek at the process to determine if that or the
++# simpler "bt" should be used.
++
++backtrace="bt"
++if test -d /proc/$1/task ; then
++    # Newer kernel; has a task/ directory.
++    if test `/bin/ls /proc/$1/task | /usr/bin/wc -l` -gt 1 2>/dev/null ; then
++	backtrace="thread apply all bt"
++    fi
++elif test -f /proc/$1/maps ; then
++    # Older kernel; go by it loading libpthread.
++    if /bin/grep -e libpthread /proc/$1/maps > /dev/null 2>&1 ; then
++	backtrace="thread apply all bt"
++    fi
++fi
++
++GDB=${GDB:-/usr/bin/gdb}
++
++if $GDB -nx --quiet --batch --readnever > /dev/null 2>&1; then
++    readnever=--readnever
++else
++    readnever=
++fi
++
++# Run GDB, strip out unwanted noise.
++$GDB --quiet $readnever -nx /proc/$1/exe $1 <<EOF 2>&1 | 
++set width 0
++set height 0
++set pagination no
++$backtrace
++EOF
++/bin/sed -n \
++    -e 's/^\((gdb) \)*//' \
++    -e '/^#/p' \
++    -e '/^Thread/p'
+--- /dev/null	2010-04-07 06:20:52.289994508 +0200
++++ gdb-7.0.1/gdb/testsuite/gdb.base/gstack.exp	2010-04-07 21:53:57.000000000 +0200
+@@ -0,0 +1,71 @@
++# Copyright (C) 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++set testfile gstack
++set executable ${testfile}
++set binfile ${objdir}/${subdir}/$executable
++if {[build_executable ${testfile} ${executable} "" {debug}] == -1} {
++    return -1
++}
++
++set test "spawn inferior"
++set command "${binfile}"
++set res [remote_spawn host $command];
++if { $res < 0 || $res == "" } {
++    perror "Spawning $command failed."
++    fail $test
++    return
++}
++set pid [exp_pid -i $res]
++gdb_expect {
++    -re "looping\r\n" {
++	pass $test
++    }
++    eof {
++	fail "$test (eof)"
++	return
++    }
++    timeout {
++	fail "$test (timeout)"
++	return
++    }
++}
++gdb_exit
++
++# Testcase uses the most simple notification not to get caught by attach on
++# exiting the function.  Still we could retry the gstack command if we fail.
++
++set test "spawn gstack"
++set command "sh -c GDB=$GDB\\ sh\\ ${srcdir}/../gstack.sh\\ $pid\\;echo\\ GSTACK-END"
++set res [remote_spawn host $command];
++if { $res < 0 || $res == "" } {
++    perror "Spawning $command failed."
++    fail $test
++}
++set pid [exp_pid -i $res]
++gdb_expect {
++    -re {^#0 +0x[0-9a-f]+ in \.?func \(\)\r\n#1 +0x[0-9a-f]+ in \.?main \(\)\r\nGSTACK-END\r\n$} {
++	pass $test
++    }
++    eof {
++	fail "$test (eof)"
++    }
++    timeout {
++	fail "$test (timeout)"
++    }
++}
++gdb_exit
++
++remote_exec host "kill -9 $pid"
+--- /dev/null	2010-04-07 06:20:52.289994508 +0200
++++ gdb-7.0.1/gdb/testsuite/gdb.base/gstack.c	2010-04-07 21:46:52.000000000 +0200
+@@ -0,0 +1,43 @@
++/* This testcase is part of GDB, the GNU debugger.
++
++   Copyright 2005, 2007, 2008, 2009 Free Software Foundation, Inc.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#include <stdio.h>
++#include <unistd.h>
++#include <string.h>
++
++void
++func (void)
++{
++  const char msg[] = "looping\n";
++
++  /* Use the most simple notification not to get caught by attach on exiting
++     the function.  */
++  write (1, msg, strlen (msg));
++  
++  for (;;);
++}
++
++int
++main (void)
++{
++  alarm (60);
++  nice (100);
++
++  func ();
++
++  return 0;
++}

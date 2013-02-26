@@ -1,0 +1,140 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.625
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.625
+Problem:    "gn" does not handle zero-width matches correctly.
+Solution:   Handle zero-width patterns specially. (Christian Brabandt)
+Files:	    src/search.c
+
+
+*** ../vim-7.3.624/src/search.c	2012-08-02 21:24:38.000000000 +0200
+--- src/search.c	2012-08-08 15:25:12.000000000 +0200
+***************
+*** 4546,4551 ****
+--- 4546,4554 ----
+      int		visual_active = FALSE;
+      int		flags = 0;
+      pos_T	save_VIsual;
++     regmmatch_T	regmatch;
++     int		nmatched = 0;
++     int		zerowidth = FALSE;
+  
+  
+      /* wrapping should not occur */
+***************
+*** 4581,4603 ****
+  	orig_pos = pos = start_pos = curwin->w_cursor;
+  
+      /*
+       * The trick is to first search backwards and then search forward again,
+       * so that a match at the current cursor position will be correctly
+       * captured.
+       */
+      for (i = 0; i < 2; i++)
+      {
+- 	if (i && count == 1)
+- 	    flags = SEARCH_START;
+- 
+  	if (forward)
+  	    dir = i;
+  	else
+  	    dir = !i;
+  	result = searchit(curwin, curbuf, &pos, (dir ? FORWARD : BACKWARD),
+  		spats[last_idx].pat, (long) (i ? count : 1),
+! 		SEARCH_KEEP | flags | (dir ? 0 : SEARCH_END),
+! 		RE_SEARCH, 0, NULL);
+  
+  	/* First search may fail, but then start searching from the
+  	 * beginning of the file (cursor might be on the search match)
+--- 4584,4625 ----
+  	orig_pos = pos = start_pos = curwin->w_cursor;
+  
+      /*
++      * Check for zero-width pattern.
++      */
++     if (search_regcomp(spats[last_idx].pat, RE_SEARCH, RE_SEARCH,
++ 			     ((SEARCH_HIS + SEARCH_KEEP)), &regmatch) == FAIL)
++ 	return FAIL;
++ 
++     /* Zero-width pattern should match somewhere, then we can check if start
++      * and end are in the same position. */
++     nmatched = vim_regexec_multi(&regmatch, curwin, curbuf,
++ 				     curwin->w_cursor.lnum, (colnr_T)0, NULL);
++     if (called_emsg)
++ 	return FAIL;
++     if (nmatched && regmatch.startpos[0].lnum == regmatch.endpos[0].lnum
++ 		 && regmatch.endpos[0].col == regmatch.startpos[0].col)
++ 	zerowidth = TRUE;
++     vim_free(regmatch.regprog);
++ 
++     /*
+       * The trick is to first search backwards and then search forward again,
+       * so that a match at the current cursor position will be correctly
+       * captured.
+       */
+      for (i = 0; i < 2; i++)
+      {
+  	if (forward)
+  	    dir = i;
+  	else
+  	    dir = !i;
++ 
++ 	flags = 0;
++ 	if (!dir && !zerowidth)
++ 	    flags = SEARCH_END;
++ 
+  	result = searchit(curwin, curbuf, &pos, (dir ? FORWARD : BACKWARD),
+  		spats[last_idx].pat, (long) (i ? count : 1),
+! 		SEARCH_KEEP | flags, RE_SEARCH, 0, NULL);
+  
+  	/* First search may fail, but then start searching from the
+  	 * beginning of the file (cursor might be on the search match)
+***************
+*** 4629,4638 ****
+      }
+  
+      start_pos = pos;
+!     flags = (forward ? SEARCH_END : 0);
+  
+!     /* move to match */
+!     result = searchit(curwin, curbuf, &pos, (forward ? FORWARD : BACKWARD),
+  	    spats[last_idx].pat, 0L, flags | SEARCH_KEEP, RE_SEARCH, 0, NULL);
+  
+      if (!VIsual_active)
+--- 4651,4662 ----
+      }
+  
+      start_pos = pos;
+!     flags = forward ? SEARCH_END : 0;
+  
+!     /* move to match, except for zero-width matches, in which case, we are
+!      * already on the next match */
+!     if (!zerowidth)
+! 	result = searchit(curwin, curbuf, &pos, (forward ? FORWARD : BACKWARD),
+  	    spats[last_idx].pat, 0L, flags | SEARCH_KEEP, RE_SEARCH, 0, NULL);
+  
+      if (!VIsual_active)
+*** ../vim-7.3.624/src/version.c	2012-08-08 14:33:16.000000000 +0200
+--- src/version.c	2012-08-08 15:21:53.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     625,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+222. You send more than 20 personal e-mails a day.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,366 @@
+To: vim-dev@vim.org
+Subject: Patch 7.3.030
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.030
+Problem:    Cannot store Dict and List in viminfo file.
+Solution:   Add support for this. (Christian Brabandt)
+Files:	    runtime/doc/options.txt, src/eval.c, src/testdir/Make_amiga.mak,
+	    src/testdir/Make_dos.mak, src/testdir/Make_ming.mak,
+	    src/testdir/Make_os2.mak, src/testdir/Make_vms.mms,
+	    src/testdir/Makefile, src/testdir/main.aap, src/testdir/test74.in,
+	    src/testdir/test74.ok
+
+
+*** ../vim-7.3.029/runtime/doc/options.txt	2010-08-15 21:57:17.000000000 +0200
+--- runtime/doc/options.txt	2010-10-20 17:41:18.000000000 +0200
+***************
+*** 7530,7537 ****
+  	!	When included, save and restore global variables that start
+  		with an uppercase letter, and don't contain a lowercase
+  		letter.  Thus "KEEPTHIS and "K_L_M" are stored, but "KeepThis"
+! 		and "_K_L_M" are not.  Only String and Number types are
+! 		stored.
+  	"	Maximum number of lines saved for each register.  Old name of
+  		the '<' item, with the disadvantage that you need to put a
+  		backslash before the ", otherwise it will be recognized as the
+--- 7530,7538 ----
+  	!	When included, save and restore global variables that start
+  		with an uppercase letter, and don't contain a lowercase
+  		letter.  Thus "KEEPTHIS and "K_L_M" are stored, but "KeepThis"
+! 		and "_K_L_M" are not.  Nested List and Dict items may not be
+! 		read back correctly, you end up with a string representation
+! 		instead.
+  	"	Maximum number of lines saved for each register.  Old name of
+  		the '<' item, with the disadvantage that you need to put a
+  		backslash before the ", otherwise it will be recognized as the
+*** ../vim-7.3.029/src/eval.c	2010-09-14 12:47:30.000000000 +0200
+--- src/eval.c	2010-10-20 16:25:54.000000000 +0200
+***************
+*** 22520,22537 ****
+  	if (tab != NULL)
+  	{
+  	    *tab++ = '\0';	/* isolate the variable name */
+! 	    if (*tab == 'S')	/* string var */
+! 		type = VAR_STRING;
+  #ifdef FEAT_FLOAT
+! 	    else if (*tab == 'F')
+! 		type = VAR_FLOAT;
+  #endif
+  
+  	    tab = vim_strchr(tab, '\t');
+  	    if (tab != NULL)
+  	    {
+  		tv.v_type = type;
+! 		if (type == VAR_STRING)
+  		    tv.vval.v_string = viminfo_readstring(virp,
+  				       (int)(tab - virp->vir_line + 1), TRUE);
+  #ifdef FEAT_FLOAT
+--- 22520,22540 ----
+  	if (tab != NULL)
+  	{
+  	    *tab++ = '\0';	/* isolate the variable name */
+! 	    switch (*tab)
+! 	    {
+! 		case 'S': type = VAR_STRING; break;
+  #ifdef FEAT_FLOAT
+! 		case 'F': type = VAR_FLOAT; break;
+  #endif
++ 		case 'D': type = VAR_DICT; break;
++ 		case 'L': type = VAR_LIST; break;
++ 	    }
+  
+  	    tab = vim_strchr(tab, '\t');
+  	    if (tab != NULL)
+  	    {
+  		tv.v_type = type;
+! 		if (type == VAR_STRING || type == VAR_DICT || type == VAR_LIST)
+  		    tv.vval.v_string = viminfo_readstring(virp,
+  				       (int)(tab - virp->vir_line + 1), TRUE);
+  #ifdef FEAT_FLOAT
+***************
+*** 22540,22548 ****
+  #endif
+  		else
+  		    tv.vval.v_number = atol((char *)tab + 1);
+  		set_var(virp->vir_line + 1, &tv, FALSE);
+! 		if (type == VAR_STRING)
+  		    vim_free(tv.vval.v_string);
+  	    }
+  	}
+      }
+--- 22543,22569 ----
+  #endif
+  		else
+  		    tv.vval.v_number = atol((char *)tab + 1);
++ 		if (type == VAR_DICT || type == VAR_LIST)
++ 		{
++ 		    typval_T *etv = eval_expr(tv.vval.v_string, NULL);
++ 
++ 		    if (etv == NULL)
++ 			/* Failed to parse back the dict or list, use it as a
++ 			 * string. */
++ 			tv.v_type = VAR_STRING;
++ 		    else
++ 		    {
++ 			vim_free(tv.vval.v_string);
++ 			tv = *etv;
++ 		    }
++ 		}
++ 
+  		set_var(virp->vir_line + 1, &tv, FALSE);
+! 
+! 		if (tv.v_type == VAR_STRING)
+  		    vim_free(tv.vval.v_string);
++ 		else if (tv.v_type == VAR_DICT || tv.v_type == VAR_LIST)
++ 		    clear_tv(&tv);
+  	    }
+  	}
+      }
+***************
+*** 22584,22591 ****
+  		    case VAR_STRING: s = "STR"; break;
+  		    case VAR_NUMBER: s = "NUM"; break;
+  #ifdef FEAT_FLOAT
+! 		    case VAR_FLOAT: s = "FLO"; break;
+  #endif
+  		    default: continue;
+  		}
+  		fprintf(fp, "!%s\t%s\t", this_var->di_key, s);
+--- 22605,22614 ----
+  		    case VAR_STRING: s = "STR"; break;
+  		    case VAR_NUMBER: s = "NUM"; break;
+  #ifdef FEAT_FLOAT
+! 		    case VAR_FLOAT:  s = "FLO"; break;
+  #endif
++ 		    case VAR_DICT:   s = "DIC"; break;
++ 		    case VAR_LIST:   s = "LIS"; break;
+  		    default: continue;
+  		}
+  		fprintf(fp, "!%s\t%s\t", this_var->di_key, s);
+*** ../vim-7.3.029/src/testdir/Make_amiga.mak	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/Make_amiga.mak	2010-10-20 16:27:19.000000000 +0200
+***************
+*** 27,33 ****
+  		test56.out test57.out test58.out test59.out test60.out \
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+! 		test71.out test72.out test73.out
+  
+  .SUFFIXES: .in .out
+  
+--- 27,33 ----
+  		test56.out test57.out test58.out test59.out test60.out \
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+! 		test71.out test72.out test73.out test74.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 120,122 ****
+--- 120,123 ----
+  test71.out: test71.in
+  test72.out: test72.in
+  test73.out: test73.in
++ test74.out: test74.in
+*** ../vim-7.3.029/src/testdir/Make_dos.mak	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/Make_dos.mak	2010-10-20 16:13:35.000000000 +0200
+***************
+*** 27,33 ****
+  		test30.out test31.out test32.out test33.out test34.out \
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+! 		test68.out test69.out test71.out test72.out test73.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 27,34 ----
+  		test30.out test31.out test32.out test33.out test34.out \
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+! 		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.029/src/testdir/Make_ming.mak	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/Make_ming.mak	2010-10-20 16:26:54.000000000 +0200
+***************
+*** 47,53 ****
+  		test30.out test31.out test32.out test33.out test34.out \
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+! 		test68.out test69.out test71.out test72.out test72.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 47,54 ----
+  		test30.out test31.out test32.out test33.out test34.out \
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+! 		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.029/src/testdir/Make_os2.mak	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/Make_os2.mak	2010-10-20 16:13:35.000000000 +0200
+***************
+*** 27,33 ****
+  		test56.out test57.out test58.out test59.out test60.out \
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+! 		test71.out test72.out test73.out
+  
+  .SUFFIXES: .in .out
+  
+--- 27,33 ----
+  		test56.out test57.out test58.out test59.out test60.out \
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+! 		test71.out test72.out test73.out test74.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../vim-7.3.029/src/testdir/Make_vms.mms	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/Make_vms.mms	2010-10-20 16:13:35.000000000 +0200
+***************
+*** 74,80 ****
+  	 test56.out test57.out test60.out \
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+! 	 test71.out test72.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+--- 74,80 ----
+  	 test56.out test57.out test60.out \
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+! 	 test71.out test72.out test74.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+*** ../vim-7.3.029/src/testdir/Makefile	2010-09-14 12:47:30.000000000 +0200
+--- src/testdir/Makefile	2010-10-20 16:13:35.000000000 +0200
+***************
+*** 10,15 ****
+--- 10,16 ----
+  #   This will make testing about 10 times as slow.
+  # VALGRIND = valgrind --tool=memcheck --leak-check=yes --num-callers=15 --log-file=valgrind.$*
+  
++ 
+  SCRIPTS = test1.out test2.out test3.out test4.out test5.out test6.out \
+  		test7.out test8.out test9.out test10.out test11.out \
+  		test12.out  test13.out test14.out test15.out test17.out \
+***************
+*** 23,29 ****
+  		test54.out test55.out test56.out test57.out test58.out \
+  		test59.out test60.out test61.out test62.out test63.out \
+  		test64.out test65.out test66.out test67.out test68.out \
+! 		test69.out test70.out test71.out test72.out test73.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 24,31 ----
+  		test54.out test55.out test56.out test57.out test58.out \
+  		test59.out test60.out test61.out test62.out test63.out \
+  		test64.out test65.out test66.out test67.out test68.out \
+! 		test69.out test70.out test71.out test72.out test73.out \
+! 		test74.out
+  
+  SCRIPTS_GUI = test16.out
+  
+*** ../vim-7.3.029/src/testdir/main.aap	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/main.aap	2010-10-20 16:13:35.000000000 +0200
+***************
+*** 13,19 ****
+  		test33.out test34.out test35.out test36.out test37.out
+  		test38.out test39.out test40.out test41.out test42.out
+  		test43.out test44.out test45.out test46.out test47.out
+! 		test48.out test49.out
+  
+  ScriptsGUI = test16.out
+  
+--- 13,19 ----
+  		test33.out test34.out test35.out test36.out test37.out
+  		test38.out test39.out test40.out test41.out test42.out
+  		test43.out test44.out test45.out test46.out test47.out
+! 		test48.out test49.out test74.out
+  
+  ScriptsGUI = test16.out
+  
+*** ../vim-7.3.029/src/testdir/test74.in	2010-10-20 17:41:30.000000000 +0200
+--- src/testdir/test74.in	2010-10-20 17:37:52.000000000 +0200
+***************
+*** 0 ****
+--- 1,36 ----
++ " Tests for storing global variables in the .viminfo file vim: set ft=vim:
++ 
++ STARTTEST
++ :so small.vim
++ :" Do all test in a separate window to avoid E211 when we recursively
++ :" delete the Xfind directory during cleanup
++ :"
++ :" This will cause a few errors, do it silently.
++ :set visualbell
++ :set nocp viminfo+=!,nviminfo
++ :let MY_GLOBAL_DICT={'foo': 1, 'bar': 0, 'longvarible': 1000}
++ :" store a really long list, so line wrapping will occur in viminfo file
++ :let MY_GLOBAL_LIST=range(1,100)
++ :wv! Xviminfo
++ :unlet MY_GLOBAL_DICT
++ :unlet MY_GLOBAL_LIST
++ :rv! Xviminfo
++ :call delete('Xviminfo')
++ :if exists("MY_GLOBAL_DICT")
++ :redir >> test.out
++ :echo MY_GLOBAL_DICT
++ :redir end
++ :endif
++ :if exists("MY_GLOBAL_LIST")
++ :redir >> test.out
++ :echo MY_GLOBAL_LIST
++ :redir end
++ :endif
++ :redir >> test.out
++ :echo "foobar"
++ :redir end
++ :endif
++ :qa!
++ ENDTEST
++ 
++ eof
+*** ../vim-7.3.029/src/testdir/test74.ok	2010-10-20 17:41:30.000000000 +0200
+--- src/testdir/test74.ok	2010-10-20 17:36:57.000000000 +0200
+***************
+*** 0 ****
+--- 1,5 ----
++ 
++ {'foo': 1, 'longvarible': 1000, 'bar': 0}
++ [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
++ 
++ foobar
+*** ../vim-7.3.029/src/version.c	2010-10-15 20:20:00.000000000 +0200
+--- src/version.c	2010-10-20 17:23:54.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     30,
+  /**/
+
+-- 
+Not too long ago, cut and paste was done with scissors and glue...
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\        download, build and distribute -- http://www.A-A-P.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

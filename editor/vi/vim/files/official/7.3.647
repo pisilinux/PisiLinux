@@ -1,0 +1,178 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.647
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.647
+Problem:    "gnd" doesn't work correctly in Visual mode.
+Solution:   Handle Visual mode differently in "gn". (Christian Brabandt)
+Files:	    src/search.c, src/testdir/test53.in, src/testdir/test53.ok
+
+
+*** ../vim-7.3.646/src/search.c	2012-08-23 15:53:00.000000000 +0200
+--- src/search.c	2012-09-05 12:11:58.000000000 +0200
+***************
+*** 4545,4551 ****
+      int		dir;
+      int		result;		/* result of various function calls */
+      char_u	old_p_ws = p_ws;
+-     int		visual_active = FALSE;
+      int		flags = 0;
+      pos_T	save_VIsual;
+      int		zerowidth = FALSE;
+--- 4545,4550 ----
+***************
+*** 4561,4571 ****
+      {
+  	orig_pos = curwin->w_cursor;
+  	save_VIsual = VIsual;
+- 	visual_active = TRUE;
+- 
+- 	/* just started visual selection, only one character */
+- 	if (equalpos(VIsual, curwin->w_cursor))
+- 	    visual_active = FALSE;
+  
+  	pos = curwin->w_cursor;
+  	start_pos = VIsual;
+--- 4560,4565 ----
+***************
+*** 4619,4625 ****
+  	    p_ws = old_p_ws;
+  	    return FAIL;
+  	}
+! 	else if (!i && !result && !visual_active)
+  	{
+  	    if (forward) /* try again from start of buffer */
+  	    {
+--- 4613,4619 ----
+  	    p_ws = old_p_ws;
+  	    return FAIL;
+  	}
+! 	else if (!i && !result)
+  	{
+  	    if (forward) /* try again from start of buffer */
+  	    {
+***************
+*** 4691,4697 ****
+      regmmatch_T	regmatch;
+      int		nmatched = 0;
+      int		result = -1;
+!     pos_T       pos;
+  
+      if (search_regcomp(pattern, RE_SEARCH, RE_SEARCH,
+  					      SEARCH_KEEP, &regmatch) == FAIL)
+--- 4685,4692 ----
+      regmmatch_T	regmatch;
+      int		nmatched = 0;
+      int		result = -1;
+!     pos_T	pos;
+!     int		save_called_emsg = called_emsg;
+  
+      if (search_regcomp(pattern, RE_SEARCH, RE_SEARCH,
+  					      SEARCH_KEEP, &regmatch) == FAIL)
+***************
+*** 4704,4718 ****
+      {
+  	/* Zero-width pattern should match somewhere, then we can check if
+  	 * start and end are in the same position. */
+  	nmatched = vim_regexec_multi(&regmatch, curwin, curbuf,
+  						  pos.lnum, (colnr_T)0, NULL);
+  
+  	if (!called_emsg)
+  	    result = (nmatched != 0
+! 		    && regmatch.startpos[0].lnum == regmatch.endpos[0].lnum
+! 		    && regmatch.startpos[0].col == regmatch.endpos[0].col);
+      }
+  
+      vim_free(regmatch.regprog);
+      return result;
+  }
+--- 4699,4715 ----
+      {
+  	/* Zero-width pattern should match somewhere, then we can check if
+  	 * start and end are in the same position. */
++ 	called_emsg = FALSE;
+  	nmatched = vim_regexec_multi(&regmatch, curwin, curbuf,
+  						  pos.lnum, (colnr_T)0, NULL);
+  
+  	if (!called_emsg)
+  	    result = (nmatched != 0
+! 		&& regmatch.startpos[0].lnum == regmatch.endpos[0].lnum
+! 		&& regmatch.startpos[0].col == regmatch.endpos[0].col);
+      }
+  
++     called_emsg |= save_called_emsg;
+      vim_free(regmatch.regprog);
+      return result;
+  }
+*** ../vim-7.3.646/src/testdir/test53.in	2012-08-29 16:55:09.000000000 +0200
+--- src/testdir/test53.in	2012-09-05 12:12:03.000000000 +0200
+***************
+*** 40,46 ****
+  /\>\zs
+  0gnd/^
+  gnd$h/\zs
+! gnd
+  :/^start:/,/^end:/wq! test.out
+  ENDTEST
+  
+--- 40,47 ----
+  /\>\zs
+  0gnd/^
+  gnd$h/\zs
+! gnd/[u]niquepattern/s
+! vlgnd
+  :/^start:/,/^end:/wq! test.out
+  ENDTEST
+  
+***************
+*** 67,70 ****
+--- 68,72 ----
+  lines
+  zero width pattern
+  delete first and last chars
++ uniquepattern uniquepattern
+  end:
+*** ../vim-7.3.646/src/testdir/test53.ok	2012-08-29 16:55:09.000000000 +0200
+--- src/testdir/test53.ok	2012-09-05 12:12:08.000000000 +0200
+***************
+*** 24,27 ****
+--- 24,28 ----
+  join lines
+  zerowidth pattern
+  elete first and last char
++  uniquepattern
+  end:
+*** ../vim-7.3.646/src/version.c	2012-08-29 18:50:50.000000000 +0200
+--- src/version.c	2012-09-05 12:13:37.000000000 +0200
+***************
+*** 721,722 ****
+--- 721,724 ----
+  {   /* Add new patch number below this line */
++ /**/
++     647,
+  /**/
+
+-- 
+        **  Hello and Welcome to the Psychiatric Hotline **
+If you are obsessive-compulsive, please press 1 repeatedly.
+If you are co-dependent, please ask someone to press 2.
+If you have multiple personalities, please press 3, 4, 5 and 6.
+If you are paranoid-delusional, we know who you are and what you want
+       - just stay on the line so we can trace the call.
+If you are schizophrenic, listen carefully and a little voice will
+       tell you which number to press next.
+If you are manic-depressive, it doesn't matter which number you press
+       - no one will answer.
+If you suffer from panic attacks, push every button you can find.
+If you are sane, please hold on - we have the rest of humanity on the
+        other line and they desparately want to ask you a few questions.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

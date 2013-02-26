@@ -1,0 +1,68 @@
+http://sourceware.org/ml/gdb-patches/2010-03/msg01006.html
+Subject: [patch or FYI] testsuite: Fix prelink.exp on system w/unprelinked  system libs
+
+Hi,
+
+this is a more conservative variant superseded by:
+	[patch 4/6] testsuite: Unify to lib/prelink-support.exp
+	http://sourceware.org/ml/gdb-patches/2010-03/msg01002.html
+where gdb.base/prelink.exp is reworked on generic lib/prelink-support.exp.
+
+I prefer the [patch 4/6] over this patch but this mail can serve also as an
+illustration of the current problem.
+
+------------------------------------------------------------------------------
+
+If your system for some reason currently does not have all the libraries
+prelinked gdb.base/prelink.exp will get UNRESOLVED randomly also affecting
+testsuite results diff.
+
+Apparently the testcase already tried to avoid any system libraries
+dependencies by "-nodefaultlibs".  But currently it does has not worked that
+way.
+
+"-lm" is contained already even in dejagnu's default_target_compile (not just
+in gdb/testsuite/lib/ada.exp).  But I do not know why it is there and which
+systems would get broken by some global gdb/testsuite/ "-lm" removal.
+
+
+Thanks,
+Jan
+
+
+2010-03-29  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	Fix testcase false UNRESOLVED if system libraries are not prelinked.
+	* gdb.base/prelink.exp: New variables compile, board, err and mathlib.
+	Set clear board mathlib for ${libfile} compilation.
+
+--- a/gdb/testsuite/gdb.base/prelink.exp
++++ b/gdb/testsuite/gdb.base/prelink.exp
+@@ -42,7 +42,25 @@ set testfile "prelink"
+ 
+ set libsrcfile ${testfile}-lib.c
+ set libfile ${objdir}/${subdir}/${testfile}.so
+-if { [gdb_compile "${srcdir}/${subdir}/${libsrcfile}" "${libfile}" executable [list debug "additional_flags=-fpic -shared -nodefaultlibs"]] != ""} {
++
++# default_target_compile would otherwise add "-lm" making the testcase
++# dependent on whether the system libraries are already prelinked.
++# prelink: Could not set /lib64/libm-2.11.1.so owner or mode: Operation not permitted
++set compile {
++    gdb_compile "${srcdir}/${subdir}/${libsrcfile}" "${libfile}" executable [list debug "additional_flags=-fpic -shared -nodefaultlibs"]
++}
++set board [target_info name]
++if [board_info $board exists mathlib] {
++    set mathlib [board_info $dest mathlib]
++    set_board_info mathlib ""
++    set err [eval $compile]
++    set_board_info mathlib $mathlib
++} else {
++    set_board_info mathlib ""
++    set err [eval $compile]
++    unset_board_info mathlib
++}
++if {$err != ""} {
+     # If creating the shared library fails, maybe we don't have the right tools
+     return -1
+ }
+

@@ -1,0 +1,116 @@
+diff -up readline-6.1/config.h.in.audit readline-6.1/config.h.in
+--- readline-6.1/config.h.in.audit	2009-03-10 15:57:45.000000000 +0100
++++ readline-6.1/config.h.in	2011-01-18 15:14:51.199219895 +0100
+@@ -29,6 +29,9 @@
+ 
+ #undef __CHAR_UNSIGNED__
+ 
++/* Define if you have <linux/audit.h> and it defines AUDIT_USER_TTY */
++#undef HAVE_DECL_AUDIT_USER_TTY
++
+ /* Define if the `S_IS*' macros in <sys/stat.h> do not work properly.  */
+ #undef STAT_MACROS_BROKEN
+ 
+diff -up readline-6.1/configure.audit readline-6.1/configure
+--- readline-6.1/configure.audit	2009-12-29 23:33:49.000000000 +0100
++++ readline-6.1/configure	2011-01-18 15:21:20.571330373 +0100
+@@ -6602,7 +6602,9 @@ _ACEOF
+ 
+ fi
+ 
+-
++cat >>confdefs.h <<_ACEOF
++#define HAVE_DECL_AUDIT_USER_TTY 1
++_ACEOF
+ 
+ { $as_echo "$as_me:$LINENO: checking if signal handlers must be reinstalled when invoked" >&5
+ $as_echo_n "checking if signal handlers must be reinstalled when invoked... " >&6; }
+diff -up readline-6.1/configure.in.audit readline-6.1/configure.in
+--- readline-6.1/configure.in.audit	2009-10-12 16:12:15.000000000 +0200
++++ readline-6.1/configure.in	2011-01-18 15:14:51.199219895 +0100
+@@ -159,6 +159,8 @@ AC_CHECK_HEADERS(sys/ptem.h,,,
+ 
+ AC_SYS_LARGEFILE
+ 
++AC_CHECK_DECLS([AUDIT_USER_TTY],,, [[#include <linux/audit.h>]])
++
+ BASH_SYS_SIGNAL_VINTAGE
+ BASH_SYS_REINSTALL_SIGHANDLERS
+ 
+diff -up readline-6.1/readline.c.audit readline-6.1/readline.c
+--- readline-6.1/readline.c.audit	2009-08-31 14:45:31.000000000 +0200
++++ readline-6.1/readline.c	2011-01-18 15:14:51.200219841 +0100
+@@ -55,6 +55,12 @@
+ extern int errno;
+ #endif /* !errno */
+ 
++#if defined (HAVE_DECL_AUDIT_USER_TTY)
++#  include <sys/socket.h>
++#  include <linux/audit.h>
++#  include <linux/netlink.h>
++#endif
++
+ /* System-specific feature definitions and include files. */
+ #include "rldefs.h"
+ #include "rlmbutil.h"
+@@ -301,7 +307,47 @@ rl_set_prompt (prompt)
+   rl_visible_prompt_length = rl_expand_prompt (rl_prompt);
+   return 0;
+ }
+-  
++
++#if defined (HAVE_DECL_AUDIT_USER_TTY)
++/* Report STRING to the audit system. */
++static void
++audit_tty (char *string)
++{
++  struct sockaddr_nl addr;
++  struct msghdr msg;
++  struct nlmsghdr nlm;
++  struct iovec iov[2];
++  size_t size;
++  int fd;
++
++  size = strlen (string) + 1;
++  fd = socket (AF_NETLINK, SOCK_RAW, NETLINK_AUDIT);
++  if (fd < 0)
++    return;
++  nlm.nlmsg_len = NLMSG_LENGTH (size);
++  nlm.nlmsg_type = AUDIT_USER_TTY;
++  nlm.nlmsg_flags = NLM_F_REQUEST;
++  nlm.nlmsg_seq = 0;
++  nlm.nlmsg_pid = 0;
++  iov[0].iov_base = &nlm;
++  iov[0].iov_len = sizeof (nlm);
++  iov[1].iov_base = string;
++  iov[1].iov_len = size;
++  addr.nl_family = AF_NETLINK;
++  addr.nl_pid = 0;
++  addr.nl_groups = 0;
++  msg.msg_name = &addr;
++  msg.msg_namelen = sizeof (addr);
++  msg.msg_iov = iov;
++  msg.msg_iovlen = 2;
++  msg.msg_control = NULL;
++  msg.msg_controllen = 0;
++  msg.msg_flags = 0;
++  (void)sendmsg (fd, &msg, 0);
++  close (fd);
++}
++#endif
++
+ /* Read a line of input.  Prompt with PROMPT.  An empty PROMPT means
+    none.  A return value of NULL means that EOF was encountered. */
+ char *
+@@ -352,6 +398,11 @@ readline (prompt)
+     RL_SETSTATE (RL_STATE_CALLBACK);
+ #endif
+ 
++#if defined (HAVE_DECL_AUDIT_USER_TTY)
++  if (value != NULL)
++    audit_tty (value);
++#endif
++
+   return (value);
+ }
+ 

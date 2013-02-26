@@ -1,0 +1,400 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.610
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.610
+Problem:    Cannot operate on the text that a search pattern matches.
+Solution:   Add the "gn" and "gN" commands. (Christian Brabandt)
+Files:	    runtime/doc/index.txt, runtime/doc/visual.txt, src/normal.c,
+	    src/proto/search.pro, src/search.c, src/testdir/test53.in,
+	    src/testdir/test53.ok
+
+
+*** ../vim-7.3.609/runtime/doc/index.txt	2010-08-15 21:57:18.000000000 +0200
+--- runtime/doc/index.txt	2012-07-25 14:27:20.000000000 +0200
+***************
+*** 719,726 ****
+--- 719,729 ----
+  |gH|		gH		   start Select line mode
+  |gI|		gI		2  like "I", but always start in column 1
+  |gJ|		gJ		2  join lines without inserting space
++ |gN|		gN	      1,2  find the previous match with the last used
++ 				   search pattern and Visually select it
+  |gP|		["x]gP		2  put the text [from register x] before the
+  				   cursor N times, leave the cursor after it
++ |gQ|		gQ		    switch to "Ex" mode with Vim editing
+  |gR|		gR		2  enter Virtual Replace mode
+  |gU|		gU{motion}	2  make Nmove text uppercase
+  |gV|		gV		   don't reselect the previous Visual area
+***************
+*** 750,755 ****
+--- 753,760 ----
+  				   lines down
+  |gk|		gk		1  like "k", but when 'wrap' on go N screen
+  				   lines up
++ |gn|		gn	      1,2  find the next match with the last used
++ 				   search pattern and Visually select it
+  |gm|		gm		1  go to character at middle of the screenline
+  |go|		go		1  cursor to byte N in the buffer
+  |gp|		["x]gp		2  put the text [from register x] after the
+*** ../vim-7.3.609/runtime/doc/visual.txt	2010-08-15 21:57:16.000000000 +0200
+--- runtime/doc/visual.txt	2012-07-25 14:42:22.000000000 +0200
+***************
+*** 94,99 ****
+--- 99,116 ----
+  			After using "p" or "P" in Visual mode the text that
+  			was put will be selected.
+  
++ 								*gn* *v_gn*
++ gn			Search forward for the last used search pattern, like
++ 			with `n`, and start Visual mode to select the match.
++ 			If the cursor is on the match, visually selects it.
++ 			If an operator is pending, operates on the match.
++ 			E.g., "dgn" deletes the text of the next match.
++ 			If Visual mode is active, extends the selection
++ 			until the end of the next match.
++ 
++ 								*gN* *v_gN*
++ gN			Like |gn| but searches backward, like with `N`.
++ 
+  							*<LeftMouse>*
+  <LeftMouse>		Set the current cursor position.  If Visual mode is
+  			active it is stopped.  Only when 'mouse' option is
+*** ../vim-7.3.609/src/normal.c	2012-07-10 16:49:08.000000000 +0200
+--- src/normal.c	2012-07-25 14:31:40.000000000 +0200
+***************
+*** 1780,1789 ****
+  	    {
+  		/* Prepare for redoing.  Only use the nchar field for "r",
+  		 * otherwise it might be the second char of the operator. */
+! 		prep_redo(oap->regname, 0L, NUL, 'v',
+! 				get_op_char(oap->op_type),
+! 				get_extra_op_char(oap->op_type),
+! 				oap->op_type == OP_REPLACE ? cap->nchar : NUL);
+  		if (!redo_VIsual_busy)
+  		{
+  		    redo_VIsual_mode = resel_VIsual_mode;
+--- 1780,1797 ----
+  	    {
+  		/* Prepare for redoing.  Only use the nchar field for "r",
+  		 * otherwise it might be the second char of the operator. */
+! 		if (cap->cmdchar == 'g' && (cap->nchar == 'n'
+! 							|| cap->nchar == 'N'))
+! 		    /* "gn" and "gN" are a bit different */
+! 		    prep_redo(oap->regname, 0L, NUL, cap->cmdchar, cap->nchar,
+! 					get_op_char(oap->op_type),
+! 					get_extra_op_char(oap->op_type));
+! 		else
+! 		    prep_redo(oap->regname, 0L, NUL, 'v',
+! 					get_op_char(oap->op_type),
+! 					get_extra_op_char(oap->op_type),
+! 					oap->op_type == OP_REPLACE
+! 							  ? cap->nchar : NUL);
+  		if (!redo_VIsual_busy)
+  		{
+  		    redo_VIsual_mode = resel_VIsual_mode;
+***************
+*** 7987,7992 ****
+--- 7995,8011 ----
+  	cap->arg = TRUE;
+  	nv_visual(cap);
+  	break;
++ 
++     /* "gn", "gN" visually select next/previous search match
++      * "gn" selects next match
++      * "gN" selects previous match
++      */
++     case 'N':
++     case 'n':
++ 	if (!current_search(cap->count1, cap->nchar == 'n'))
++ 	    beep_flush();
++ 
++ 	break;
+  #endif /* FEAT_VISUAL */
+  
+      /*
+*** ../vim-7.3.609/src/proto/search.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/search.pro	2012-07-25 14:24:01.000000000 +0200
+***************
+*** 27,32 ****
+--- 27,33 ----
+  int end_word __ARGS((long count, int bigword, int stop, int empty));
+  int bckend_word __ARGS((long count, int bigword, int eol));
+  int current_word __ARGS((oparg_T *oap, long count, int include, int bigword));
++ int current_search __ARGS((long count, int forward));
+  int current_sent __ARGS((oparg_T *oap, long count, int include));
+  int current_block __ARGS((oparg_T *oap, long count, int include, int what, int other));
+  int current_tagblock __ARGS((oparg_T *oap, long count_arg, int include));
+*** ../vim-7.3.609/src/search.c	2012-07-25 13:46:25.000000000 +0200
+--- src/search.c	2012-07-25 14:54:28.000000000 +0200
+***************
+*** 3397,3402 ****
+--- 3397,3547 ----
+      return OK;
+  }
+  
++ #if defined(FEAT_VISUAL) || defined(PROTO)
++ /*
++  * Find next search match under cursor, cursor at end.
++  * Used while an operator is pending, and in Visual mode.
++  * TODO: redo only works when used in operator pending mode
++  */
++     int
++ current_search(count, forward)
++     long	count;
++     int		forward;	/* move forward or backwards */
++ {
++     pos_T	start_pos;	/* position before the pattern */
++     pos_T	orig_pos;	/* position of the cursor at beginning */
++     pos_T	pos;		/* position after the pattern */
++     int		i;
++     int		dir;
++     int		result;		/* result of various function calls */
++     char_u	old_p_ws = p_ws;
++     int		visual_active = FALSE;
++     int		flags = 0;
++     pos_T	save_VIsual;
++ 
++ 
++     /* wrapping should not occur */
++     p_ws = FALSE;
++ 
++     /* Correct cursor when 'selection' is exclusive */
++     if (VIsual_active && *p_sel == 'e' && lt(VIsual, curwin->w_cursor))
++ 	dec_cursor();
++ 
++     if (VIsual_active)
++     {
++ 	orig_pos = curwin->w_cursor;
++ 	save_VIsual = VIsual;
++ 	visual_active = TRUE;
++ 
++ 	/* just started visual selection, only one character */
++ 	if (equalpos(VIsual, curwin->w_cursor))
++ 	    visual_active = FALSE;
++ 
++ 	pos = curwin->w_cursor;
++ 	start_pos = VIsual;
++ 
++ 	/* make sure, searching further will extend the match */
++ 	if (VIsual_active)
++ 	{
++ 	    if (forward)
++ 		incl(&pos);
++ 	    else
++ 		decl(&pos);
++ 	}
++     }
++     else
++ 	orig_pos = pos = start_pos = curwin->w_cursor;
++ 
++     /*
++      * The trick is to first search backwards and then search forward again,
++      * so that a match at the current cursor position will be correctly
++      * captured.
++      */
++     for (i = 0; i < 2; i++)
++     {
++ 	if (i && count == 1)
++ 	    flags = SEARCH_START;
++ 
++ 	if (forward)
++ 	    dir = i;
++ 	else
++ 	    dir = !i;
++ 	result = searchit(curwin, curbuf, &pos, (dir ? FORWARD : BACKWARD),
++ 		spats[last_idx].pat, (long) (i ? count : 1),
++ 		SEARCH_KEEP | flags | (dir ? 0 : SEARCH_END),
++ 		RE_SEARCH, 0, NULL);
++ 
++ 	/* First search may fail, but then start searching from the
++ 	 * beginning of the file (cursor might be on the search match)
++ 	 * except when Visual mode is active, so that extending the visual
++ 	 * selection works. */
++ 	if (!result && i) /* not found, abort */
++ 	{
++ 	    curwin->w_cursor = orig_pos;
++ 	    if (VIsual_active)
++ 		VIsual = save_VIsual;
++ 	    p_ws = old_p_ws;
++ 	    return FAIL;
++ 	}
++ 	else if (!i && !result && !visual_active)
++ 	{
++ 	    if (forward) /* try again from start of buffer */
++ 	    {
++ 		clearpos(&pos);
++ 	    }
++ 	    else /* try again from end of buffer */
++ 	    {
++ 		/* searching backwards, so set pos to last line and col */
++ 		pos.lnum = curwin->w_buffer->b_ml.ml_line_count;
++ 		pos.col  = STRLEN(ml_get(curwin->w_buffer->b_ml.ml_line_count));
++ 	    }
++ 	}
++ 
++     }
++ 
++     start_pos = pos;
++     flags = (forward ? SEARCH_END : 0);
++ 
++     /* move to match */
++     result = searchit(curwin, curbuf, &pos, (forward ? FORWARD : BACKWARD),
++ 	    spats[last_idx].pat, 0L, flags | SEARCH_KEEP, RE_SEARCH, 0, NULL);
++ 
++     if (!VIsual_active)
++ 	VIsual = start_pos;
++ 
++     p_ws = old_p_ws;
++     curwin->w_cursor = pos;
++     VIsual_active = TRUE;
++     VIsual_mode = 'v';
++ 
++     if (VIsual_active)
++     {
++ 	redraw_curbuf_later(INVERTED);	/* update the inversion */
++ 	if (*p_sel == 'e' && ltoreq(VIsual, curwin->w_cursor))
++ 	    inc_cursor();
++     }
++ 
++ #ifdef FEAT_FOLDING
++     if (fdo_flags & FDO_SEARCH && KeyTyped)
++ 	foldOpenCursor();
++ #endif
++ 
++     may_start_select('c');
++ #ifdef FEAT_MOUSE
++     setmouse();
++ #endif
++ #ifdef FEAT_CLIPBOARD
++     /* Make sure the clipboard gets updated.  Needed because start and
++      * end are still the same, and the selection needs to be owned */
++     clip_star.vmode = NUL;
++ #endif
++     redraw_curbuf_later(INVERTED);
++     showmode();
++ 
++     return OK;
++ }
++ #endif /* FEAT_VISUAL */
++ 
+  /*
+   * Find sentence(s) under the cursor, cursor at end.
+   * When Visual active, extend it by one or more sentences.
+***************
+*** 3420,3426 ****
+  
+  #ifdef FEAT_VISUAL
+      /*
+!      * When visual area is bigger than one character: Extend it.
+       */
+      if (VIsual_active && !equalpos(start_pos, VIsual))
+      {
+--- 3565,3571 ----
+  
+  #ifdef FEAT_VISUAL
+      /*
+!      * When the Visual area is bigger than one character: Extend it.
+       */
+      if (VIsual_active && !equalpos(start_pos, VIsual))
+      {
+***************
+*** 3508,3515 ****
+  #endif
+  
+      /*
+!      * If cursor started on blank, check if it is just before the start of the
+!      * next sentence.
+       */
+      while (c = gchar_pos(&pos), vim_iswhite(c))	/* vim_iswhite() is a macro */
+  	incl(&pos);
+--- 3653,3660 ----
+  #endif
+  
+      /*
+!      * If the cursor started on a blank, check if it is just before the start
+!      * of the next sentence.
+       */
+      while (c = gchar_pos(&pos), vim_iswhite(c))	/* vim_iswhite() is a macro */
+  	incl(&pos);
+***************
+*** 3558,3564 ****
+  #ifdef FEAT_VISUAL
+      if (VIsual_active)
+      {
+! 	/* avoid getting stuck with "is" on a single space before a sent. */
+  	if (equalpos(start_pos, curwin->w_cursor))
+  	    goto extend;
+  	if (*p_sel == 'e')
+--- 3703,3709 ----
+  #ifdef FEAT_VISUAL
+      if (VIsual_active)
+      {
+! 	/* Avoid getting stuck with "is" on a single space before a sentence. */
+  	if (equalpos(start_pos, curwin->w_cursor))
+  	    goto extend;
+  	if (*p_sel == 'e')
+*** ../vim-7.3.609/src/testdir/test53.in	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test53.in	2012-07-25 15:01:34.000000000 +0200
+***************
+*** 28,33 ****
+--- 28,40 ----
+  :put =matchstr(\"abcd\", \".\", 0, -1) " a
+  :put =match(\"abcd\", \".\", 0, 5) " -1
+  :put =match(\"abcd\", \".\", 0, -1) " 0
++ /^foobar
++ gncsearchmatch/one\_s*two\_s
++ :1
++ gnd
++ /[a]bcdx
++ :1
++ 2gnd
+  :/^start:/,/^end:/wq! test.out
+  ENDTEST
+  
+***************
+*** 45,48 ****
+--- 52,60 ----
+  -<b>asdf<i>Xasdf</i>asdf</b>-
+  -<b>asdX<i>as<b />df</i>asdf</b>-
+  </begin>
++ SEARCH:
++ foobar
++ one
++ two
++ abcdx | abcdx | abcdx
+  end:
+*** ../vim-7.3.609/src/testdir/test53.ok	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test53.ok	2012-07-25 14:24:01.000000000 +0200
+***************
+*** 18,21 ****
+--- 18,24 ----
+  a
+  -1
+  0
++ SEARCH:
++ searchmatch
++ abcdx |  | abcdx
+  end:
+*** ../vim-7.3.609/src/version.c	2012-07-25 13:46:25.000000000 +0200
+--- src/version.c	2012-07-25 15:03:43.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     610,
+  /**/
+
+-- 
+Did you ever see a "Hit any key to continue" message in a music piece?
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

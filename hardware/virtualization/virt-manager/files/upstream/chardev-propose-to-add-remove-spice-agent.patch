@@ -1,0 +1,108 @@
+From 69ba897ac35731bf6cfca00a3e8ac30485a9855d Mon Sep 17 00:00:00 2001
+From: =?utf8?q?Marc-Andr=C3=A9=20Lureau?= <marcandre.lureau@redhat.com>
+Date: Tue, 5 Apr 2011 01:35:34 +0200
+Subject: [PATCH] details: propose to add or remove Spice agent when switching
+
+crobinso: Improve metric for deciding to ask about add/remove agent
+---
+ src/virtManager/details.py |   39 ++++++++++++++++++++++++++++++++++++++-
+ src/virtManager/domain.py  |   14 +++++++++++++-
+ 2 files changed, 51 insertions(+), 2 deletions(-)
+
+diff --git a/src/virtManager/details.py b/src/virtManager/details.py
+index 8e6e50e..eb5a9e5 100644
+--- a/src/virtManager/details.py
++++ b/src/virtManager/details.py
+@@ -1850,17 +1850,54 @@ class vmmDetails(vmmGObjectUI):
+                                           (dev_id_info, nettype, source)])
+ 
+     # Graphics options
++    def _do_change_spicevmc(self, gdev, newgtype):
++        has_multi_spice = (len(filter(
++                                lambda dev: dev.type == dev.TYPE_SPICE,
++                                self.vm.get_graphics_devices())) > 1)
++        has_spicevmc = bool(filter(
++                            (lambda dev:
++                                (dev.dev_type == dev.DEV_CHANNEL and
++                                 dev.char_type == dev.CHAR_SPICEVMC)),
++                            self.vm.get_char_devices()))
++        fromspice = (gdev.type == "spice")
++        tospice = (newgtype == "spice")
++
++        if fromspice and tospice:
++            return False
++        if not fromspice and not tospice:
++            return False
++
++        print tospice, fromspice, has_spicevmc, has_multi_spice
++
++        if tospice and has_spicevmc:
++            return False
++        if fromspice and not has_spicevmc:
++            return False
++
++        if fromspice and has_multi_spice:
++            # Don't offer to remove if there are other spice displays
++            return False
++
++        msg = (_("You are switching graphics type to %(gtype)s, "
++                 "would you like to %(action)s Spice agent channels?") %
++                {"gtype": newgtype,
++                 "action": fromspice and "remove" or "add"})
++        return self.err.yes_no(msg)
++
+     def config_graphics_apply(self, dev_id_info):
+         gtype = self.get_combo_label_value("gfx-type")
+         passwd = self.window.get_widget("gfx-password").get_text() or None
+         keymap = self.get_combo_label_value("gfx-keymap")
+ 
++        change_spicevmc = self._do_change_spicevmc(dev_id_info, gtype)
++
+         return self._change_config_helper([self.vm.define_graphics_password,
+                                            self.vm.define_graphics_keymap,
+                                            self.vm.define_graphics_type],
+                                           [(dev_id_info, passwd),
+                                            (dev_id_info, keymap),
+-                                           (dev_id_info, gtype)],
++                                           (dev_id_info, gtype,
++                                            change_spicevmc)],
+                                           [self.vm.hotplug_graphics_password],
+                                           [(dev_id_info, passwd)])
+ 
+diff --git a/src/virtManager/domain.py b/src/virtManager/domain.py
+index 7fc66ed..a4d2f5c 100644
+--- a/src/virtManager/domain.py
++++ b/src/virtManager/domain.py
+@@ -26,6 +26,7 @@ import threading
+ import gobject
+ 
+ import virtinst
++from virtinst.VirtualCharDevice import VirtualCharSpicevmcDevice
+ from virtManager import util
+ import virtinst.support as support
+ 
+@@ -450,9 +451,20 @@ class vmmDomainBase(vmmLibvirtObject):
+         def change(editdev):
+             editdev.keymap = newval
+         return self._redefine_device(change, devobj)
+-    def define_graphics_type(self, devobj, newval):
++    def define_graphics_type(self, devobj, newval, spicevmc):
+         def change(editdev):
+             editdev.type = newval
++            if spicevmc:
++                guest = self._get_guest_to_define()
++                if newval == "spice":
++                    guest.add_device(VirtualCharSpicevmcDevice(guest.conn))
++                else:
++                    channels = guest.get_devices("channel")
++                    channels = filter(lambda x: x.char_type ==
++                                      virtinst.VirtualCharDevice.CHAR_SPICEVMC, channels)
++                    for dev in channels:
++                        guest.remove_device(dev)
++
+         return self._redefine_device(change, devobj)
+ 
+     def define_sound_model(self, devobj, newmodel):
+-- 
+1.7.4.1
+

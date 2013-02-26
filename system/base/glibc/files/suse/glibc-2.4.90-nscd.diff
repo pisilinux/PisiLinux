@@ -1,0 +1,154 @@
+Index: nscd/cache.c
+===================================================================
+--- nscd/cache.c.orig	2010-01-18 18:01:41.000000000 +0100
++++ nscd/cache.c	2010-02-14 14:58:08.000000000 +0100
+@@ -267,27 +267,29 @@
+   if (table->inotify_descr < 0 && table->check_file && now != LONG_MAX)
+     {
+       struct stat64 st;
++      time_t mtime;
+ 
+-      if (stat64 (table->filename, &st) < 0)
++      mtime = stat64 (table->filename, &st) ? LONG_MAX : st.st_mtime;
++      if (mtime != table->file_mtime)
+ 	{
+-	  char buf[128];
+-	  /* We cannot stat() the file, disable file checking if the
+-	     file does not exist.  */
+-	  dbg_log (_("cannot stat() file `%s': %s"),
+-		   table->filename, strerror_r (errno, buf, sizeof (buf)));
+-	  if (errno == ENOENT)
+-	    table->check_file = 0;
++	  /* The file changed.  Invalidate all entries.  */
++	  now = LONG_MAX;
++	  table->file_mtime = mtime;
+ 	}
+-      else
++      if (*table->filename2)
+ 	{
+-	  if (st.st_mtime != table->file_mtime)
++	  mtime = stat64 (table->filename2, &st) ? LONG_MAX : st.st_mtime;
++	  if (mtime != table->file_mtime2)
+ 	    {
+ 	      /* The file changed.  Invalidate all entries.  */
+ 	      now = LONG_MAX;
+-	      table->file_mtime = st.st_mtime;
++	      table->file_mtime2 = mtime;
+ 	    }
+ 	}
+     }
++  /* now == 0 means just check for changed files */
++  if (now == (time_t)0)
++    return 0;
+ 
+   /* We run through the table and find values which are not valid anymore.
+ 
+Index: nscd/connections.c
+===================================================================
+--- nscd/connections.c.orig	2010-01-18 18:01:41.000000000 +0100
++++ nscd/connections.c	2010-02-14 14:58:08.000000000 +0100
+@@ -119,6 +119,7 @@ struct database_dyn dbs[lastdb] =
+     .suggested_module = DEFAULT_SUGGESTED_MODULE,
+    .reset_res = 0,
+     .filename = "/etc/passwd",
++    .filename2 = "",
+     .db_filename = _PATH_NSCD_PASSWD_DB,
+     .disabled_iov = &pwd_iov_disabled,
+     .postimeout = 3600,
+@@ -140,6 +141,7 @@ struct database_dyn dbs[lastdb] =
+     .suggested_module = DEFAULT_SUGGESTED_MODULE,
+     .reset_res = 0,
+     .filename = "/etc/group",
++    .filename2 = "",
+     .db_filename = _PATH_NSCD_GROUP_DB,
+     .disabled_iov = &grp_iov_disabled,
+     .postimeout = 3600,
+@@ -161,6 +163,7 @@ struct database_dyn dbs[lastdb] =
+     .suggested_module = DEFAULT_SUGGESTED_MODULE,
+     .reset_res = 1,
+     .filename = "/etc/hosts",
++    .filename2 = "/etc/resolv.conf",
+     .db_filename = _PATH_NSCD_HOSTS_DB,
+     .disabled_iov = &hst_iov_disabled,
+     .postimeout = 3600,
+@@ -855,15 +858,9 @@ cannot set socket to close on exec: %s;
+ 		/* We need the modification date of the file.  */
+ 		struct stat64 st;
+ 
+-		if (stat64 (dbs[cnt].filename, &st) < 0)
+-		  {
+-		    /* We cannot stat() the file, disable file checking.  */
+-		    dbg_log (_("cannot stat() file `%s': %s"),
+-			     dbs[cnt].filename, strerror (errno));
+-		    dbs[cnt].check_file = 0;
+-		  }
+-		else
+-		  dbs[cnt].file_mtime = st.st_mtime;
++		dbs[cnt].file_mtime = stat64 (dbs[cnt].filename, &st) ? LONG_MAX : st.st_mtime;
++		if (*dbs[cnt].filename2)
++		  dbs[cnt].file_mtime2 = stat64 (dbs[cnt].filename2, &st) ? LONG_MAX : st.st_mtime;
+ 	      }
+ 	  }
+ 
+Index: nscd/nscd.conf
+===================================================================
+--- nscd/nscd.conf.orig	2010-01-18 18:01:41.000000000 +0100
++++ nscd/nscd.conf	2010-02-14 14:58:08.000000000 +0100
+@@ -61,11 +61,11 @@
+ 	auto-propagate		group		yes
+ 
+ 	enable-cache		hosts		yes
+-	positive-time-to-live	hosts		3600
+-	negative-time-to-live	hosts		20
++	positive-time-to-live	hosts		600
++	negative-time-to-live	hosts		0
+ 	suggested-size		hosts		211
+ 	check-files		hosts		yes
+-	persistent		hosts		yes
++	persistent		hosts		no
+ 	shared			hosts		yes
+ 	max-db-size		hosts		33554432
+ 
+Index: nscd/nscd.h
+===================================================================
+--- nscd/nscd.h.orig	2010-01-18 18:01:41.000000000 +0100
++++ nscd/nscd.h	2010-02-14 14:59:07.000000000 +0100
+@@ -80,8 +80,10 @@ struct database_dyn
+   int propagate;
+   int reset_res;
+   const char filename[16];
++  const char filename2[17];
+   const char *db_filename;
+   time_t file_mtime;
++  time_t file_mtime2;
+   size_t suggested_module;
+   size_t max_db_size;
+ 
+Index: nscd/nscd_stat.c
+===================================================================
+--- nscd/nscd_stat.c.orig	2010-01-18 18:01:41.000000000 +0100
++++ nscd/nscd_stat.c	2010-02-14 15:02:41.000000000 +0100
+@@ -37,8 +37,13 @@
+ #endif /* HAVE_SELINUX */
+ 
+ 
+-/* We use this to make sure the receiver is the same.  */
++/* We use this to make sure the receiver is the same.  Capture mtime
++   of this file if possible.  */
++#if defined(__TIMESTAMP__)
++static const char compilation[21] = __TIMESTAMP__;
++#else
+ static const char compilation[21] = __DATE__ " " __TIME__;
++#endif
+ 
+ /* Statistic data for one database.  */
+ struct dbstat
+@@ -302,7 +307,7 @@ receive_print_stats (void)
+ 	      data.dbs[i].maxnsearched,
+ 	      data.dbs[i].rdlockdelayed,
+ 	      data.dbs[i].wrlockdelayed,
+-	      data.dbs[i].addfailed, check_file, dbnames[i]);
++	      data.dbs[i].addfailed, check_file, (strcmp(dbnames[i], "hosts") ? dbnames[i] : "{hosts,resolv.conf}"));
+     }
+ 
+   if (selinux_enabled)

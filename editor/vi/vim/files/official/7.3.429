@@ -1,0 +1,192 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.429
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.429
+Problem:    When 'cpoptions' includes "E" "c0" in the first column is an
+            error. The redo register is then set to the errornous command.
+Solution:   Do not set the redo register if the command fails because of an
+            empty region. (Hideki Eiraku)
+Files:      src/getchar.c, src/normal.c, src/proto/getchar.pro
+
+
+*** ../vim-7.3.428/src/getchar.c	2012-01-10 22:26:12.000000000 +0100
+--- src/getchar.c	2012-02-05 01:05:09.000000000 +0100
+***************
+*** 470,475 ****
+--- 470,493 ----
+      }
+  }
+  
++ /*
++  * Discard the contents of the redo buffer and restore the previous redo
++  * buffer.
++  */
++     void
++ CancelRedo()
++ {
++     if (!block_redo)
++     {
++ 	free_buff(&redobuff);
++ 	redobuff = old_redobuff;
++ 	old_redobuff.bh_first.b_next = NULL;
++ 	start_stuff();
++ 	while (read_stuff(TRUE) != NUL)
++ 	    ;
++     }
++ }
++ 
+  #if defined(FEAT_AUTOCMD) || defined(FEAT_EVAL) || defined(PROTO)
+  /*
+   * Save redobuff and old_redobuff to save_redobuff and save_old_redobuff.
+***************
+*** 691,699 ****
+   * Read a character from the redo buffer.  Translates K_SPECIAL, CSI and
+   * multibyte characters.
+   * The redo buffer is left as it is.
+!  * if init is TRUE, prepare for redo, return FAIL if nothing to redo, OK
+!  * otherwise
+!  * if old is TRUE, use old_redobuff instead of redobuff
+   */
+      static int
+  read_redo(init, old_redo)
+--- 709,717 ----
+   * Read a character from the redo buffer.  Translates K_SPECIAL, CSI and
+   * multibyte characters.
+   * The redo buffer is left as it is.
+!  * If init is TRUE, prepare for redo, return FAIL if nothing to redo, OK
+!  * otherwise.
+!  * If old is TRUE, use old_redobuff instead of redobuff.
+   */
+      static int
+  read_redo(init, old_redo)
+*** ../vim-7.3.428/src/normal.c	2012-01-26 11:43:04.000000000 +0100
+--- src/normal.c	2012-02-05 01:06:01.000000000 +0100
+***************
+*** 1978,1984 ****
+--- 1978,1987 ----
+  	    VIsual_reselect = FALSE;	    /* don't reselect now */
+  #endif
+  	    if (empty_region_error)
++ 	    {
+  		vim_beep();
++ 		CancelRedo();
++ 	    }
+  	    else
+  	    {
+  		(void)op_delete(oap);
+***************
+*** 1992,1998 ****
+--- 1995,2004 ----
+  	    if (empty_region_error)
+  	    {
+  		if (!gui_yank)
++ 		{
+  		    vim_beep();
++ 		    CancelRedo();
++ 		}
+  	    }
+  	    else
+  		(void)op_yank(oap, FALSE, !gui_yank);
+***************
+*** 2004,2010 ****
+--- 2010,2019 ----
+  	    VIsual_reselect = FALSE;	    /* don't reselect now */
+  #endif
+  	    if (empty_region_error)
++ 	    {
+  		vim_beep();
++ 		CancelRedo();
++ 	    }
+  	    else
+  	    {
+  		/* This is a new edit command, not a restart.  Need to
+***************
+*** 2066,2072 ****
+--- 2075,2084 ----
+  	case OP_LOWER:
+  	case OP_ROT13:
+  	    if (empty_region_error)
++ 	    {
+  		vim_beep();
++ 		CancelRedo();
++ 	    }
+  	    else
+  		op_tilde(oap);
+  	    check_cursor_col();
+***************
+*** 2099,2105 ****
+--- 2111,2120 ----
+  #endif
+  #ifdef FEAT_VISUALEXTRA
+  	    if (empty_region_error)
++ 	    {
+  		vim_beep();
++ 		CancelRedo();
++ 	    }
+  	    else
+  	    {
+  		/* This is a new edit command, not a restart.  Need to
+***************
+*** 2129,2135 ****
+--- 2144,2153 ----
+  #ifdef FEAT_VISUALEXTRA
+  	    if (empty_region_error)
+  #endif
++ 	    {
+  		vim_beep();
++ 		CancelRedo();
++ 	    }
+  #ifdef FEAT_VISUALEXTRA
+  	    else
+  		op_replace(oap, cap->nchar);
+*** ../vim-7.3.428/src/proto/getchar.pro	2010-10-20 21:22:17.000000000 +0200
+--- src/proto/getchar.pro	2012-02-05 01:05:20.000000000 +0100
+***************
+*** 4,11 ****
+  char_u *get_inserted __ARGS((void));
+  int stuff_empty __ARGS((void));
+  void typeahead_noflush __ARGS((int c));
+! void flush_buffers __ARGS((int typeahead));
+  void ResetRedobuff __ARGS((void));
+  void saveRedobuff __ARGS((void));
+  void restoreRedobuff __ARGS((void));
+  void AppendToRedobuff __ARGS((char_u *s));
+--- 4,12 ----
+  char_u *get_inserted __ARGS((void));
+  int stuff_empty __ARGS((void));
+  void typeahead_noflush __ARGS((int c));
+! void flush_buffers __ARGS((int flush_typeahead));
+  void ResetRedobuff __ARGS((void));
++ void CancelRedo __ARGS((void));
+  void saveRedobuff __ARGS((void));
+  void restoreRedobuff __ARGS((void));
+  void AppendToRedobuff __ARGS((char_u *s));
+*** ../vim-7.3.428/src/version.c	2012-02-05 00:47:56.000000000 +0100
+--- src/version.c	2012-02-05 01:09:23.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     429,
+  /**/
+
+-- 
+The History of every major Galactic Civilization tends to pass through
+three distinct and recognizable phases, those of Survival, Inquiry and
+Sophistication, otherwise known as the How, Why and Where phases.
+For instance, the first phase is characterized by the question 'How can
+we eat?' the second by the question 'Why do we eat?' and the third by
+the question 'Where shall we have lunch?'
+		-- Douglas Adams, "The Hitchhiker's Guide to the Galaxy"
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

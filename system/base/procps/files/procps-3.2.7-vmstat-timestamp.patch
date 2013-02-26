@@ -1,0 +1,117 @@
+--- procps-3.2.7/vmstat.c	2008-12-11 22:11:30.042532106 -0500
++++ procps-3.2.7/vmstat.c.timestamp	2008-12-11 22:08:11.553529883 -0500
+@@ -25,6 +25,7 @@
+ #include <sys/ioctl.h>
+ #include <sys/dir.h>
+ #include <dirent.h>
++#include <time.h>
+ 
+ #include "proc/sysinfo.h"
+ #include "proc/version.h"
+@@ -56,6 +57,7 @@
+ 
+ static unsigned int height;   // window height
+ static unsigned int moreheaders=TRUE;
++static unsigned int showtimestamp=FALSE;
+ 
+ 
+ /////////////////////////////////////////////////////////////////////////
+@@ -71,6 +73,7 @@
+   fprintf(stderr,"              -p prints disk partition statistics\n");
+   fprintf(stderr,"              -s prints vm table\n");
+   fprintf(stderr,"              -m prints slabinfo\n");
++  fprintf(stderr,"              -t add timestamp to output\n");
+   fprintf(stderr,"              -S unit size\n");
+   fprintf(stderr,"              delay is the delay between updates in seconds. \n");
+   fprintf(stderr,"              unit size k:1000 K:1024 m:1000000 M:1048576 (default is K)\n");
+@@ -150,7 +153,11 @@
+ ////////////////////////////////////////////////////////////////////////////
+ 
+ static void new_header(void){
+-  printf("procs -----------memory---------- ---swap-- -----io---- --system-- -----cpu-----\n");
++  if(!showtimestamp){
++     printf("procs -----------memory---------- ---swap-- -----io---- --system-- -----cpu-----\n");
++  } else {
++     printf("procs -----------memory---------- ---swap-- -----io---- --system-- -----cpu------ ---timestamp---\n");
++  }
+   printf(
+     "%2s %2s %6s %6s %6s %6s %4s %4s %5s %5s %4s %4s %2s %2s %2s %2s %2s\n",
+     "r","b",
+@@ -173,7 +180,7 @@
+ ////////////////////////////////////////////////////////////////////////////
+ 
+ static void new_format(void) {
+-  const char format[]="%2u %2u %6lu %6lu %6lu %6lu %4u %4u %5u %5u %4u %4u %2u %2u %2u %2u %2u\n";
++  const char format[]="%2u %2u %6lu %6lu %6lu %6lu %4u %4u %5u %5u %4u %4u %2u %2u %2u %2u %2u\t%s\n";
+   unsigned int tog=0; /* toggle switch for cleaner code */
+   unsigned int i;
+   unsigned int hz = Hertz;
+@@ -185,6 +192,10 @@
+   unsigned int sleep_half; 
+   unsigned long kb_per_page = sysconf(_SC_PAGESIZE) / 1024ul;
+   int debt = 0;  // handle idle ticks running backwards
++  struct tm *tm_ptr;
++  time_t the_time;
++  char timebuf[32];
++  timebuf[0] = '\0';
+ 
+   sleep_half=(sleep_time/2);
+   new_header();
+@@ -196,6 +207,13 @@
+ 	  &running,&blocked,
+ 	  &dummy_1, &dummy_2);
+ 
++  if (showtimestamp)
++  {
++     (void) time( &the_time );
++     tm_ptr = localtime( &the_time );
++     strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S %Z", tm_ptr);
++  }
++
+   duse= *cpu_use + *cpu_nic; 
+   dsys= *cpu_sys + *cpu_xxx + *cpu_yyy;
+   didl= *cpu_idl;
+@@ -218,7 +236,8 @@
+ 	 (unsigned)( (100*dsys                    + divo2) / Div ),
+ 	 (unsigned)( (100*didl                    + divo2) / Div ),
+ 	 (unsigned)( (100*diow                    + divo2) / Div ),
+-	 (unsigned)( (100*dstl                    + divo2) / Div )
++	 (unsigned)( (100*dstl                    + divo2) / Div ),
++	 timebuf
+   );
+ 
+   for(i=1;i<num_updates;i++) { /* \\\\\\\\\\\\\\\\\\\\ main loop ////////////////// */
+@@ -234,6 +253,13 @@
+ 	  &running,&blocked,
+ 	  &dummy_1,&dummy_2);
+ 
++    if (showtimestamp)
++    {
++       (void) time( &the_time );
++       tm_ptr = localtime( &the_time );
++       strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S %Z", tm_ptr);
++    }
++
+     duse= cpu_use[tog]-cpu_use[!tog] + cpu_nic[tog]-cpu_nic[!tog];
+     dsys= cpu_sys[tog]-cpu_sys[!tog] + cpu_xxx[tog]-cpu_xxx[!tog] + cpu_yyy[tog]-cpu_yyy[!tog];
+     didl= cpu_idl[tog]-cpu_idl[!tog];
+@@ -267,7 +293,8 @@
+ 	   (unsigned)( (100*dsys+divo2)/Div ), /*sy*/
+ 	   (unsigned)( (100*didl+divo2)/Div ), /*id*/
+ 	   (unsigned)( (100*diow+divo2)/Div ), //wa
+-	   (unsigned)( (100*dstl+divo2)/Div )  //st
++	   (unsigned)( (100*dstl+divo2)/Div ), //st
++	   timebuf /* timestamp */
+     );
+   }
+ }
+@@ -641,6 +668,9 @@
+       case 's':
+         statMode |= VMSUMSTAT; 	
+ 	break;
++      case 't':
++        showtimestamp=TRUE;
++        break;
+       default:
+ 	/* no other aguments defined yet. */
+ 	usage();

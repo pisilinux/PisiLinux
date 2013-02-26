@@ -1,0 +1,348 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.277
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.277
+Problem:    MS-Windows: some characters do not show in dialogs.
+Solution:   Use the wide methods when available. (Yanwei Jia)
+Files:      src/gui_w32.c, src/gui_w48.c, src/os_mswin.c, src/os_win32.c,
+            src/os_win32.h
+    
+
+*** ../vim-7.3.276/src/gui_w32.c	2011-08-10 15:56:24.000000000 +0200
+--- src/gui_w32.c	2011-08-10 16:52:55.000000000 +0200
+***************
+*** 1270,1275 ****
+--- 1270,1294 ----
+  	pGetMonitorInfo = (TGetMonitorInfo)GetProcAddress(user32_lib,
+  							  "GetMonitorInfoA");
+      }
++ 
++ #ifdef FEAT_MBYTE
++     /* If the OS is Windows NT, use wide functions;
++      * this enables common dialogs input unicode from IME. */
++     if (os_version.dwPlatformId == VER_PLATFORM_WIN32_NT)
++     {
++ 	pDispatchMessage = DispatchMessageW;
++ 	pGetMessage = GetMessageW;
++ 	pIsDialogMessage = IsDialogMessageW;
++ 	pPeekMessage = PeekMessageW;
++     }
++     else
++     {
++ 	pDispatchMessage = DispatchMessageA;
++ 	pGetMessage = GetMessageA;
++ 	pIsDialogMessage = IsDialogMessageA;
++ 	pPeekMessage = PeekMessageA;
++     }
++ #endif
+  }
+  
+  /*
+*** ../vim-7.3.276/src/gui_w48.c	2010-10-20 21:22:17.000000000 +0200
+--- src/gui_w48.c	2011-08-10 16:49:39.000000000 +0200
+***************
+*** 390,396 ****
+      KillTimer(NULL, idEvent);
+  
+      /* Eat spurious WM_TIMER messages */
+!     while (PeekMessage(&msg, hwnd, WM_TIMER, WM_TIMER, PM_REMOVE))
+  	;
+  
+      if (blink_state == BLINK_ON)
+--- 390,396 ----
+      KillTimer(NULL, idEvent);
+  
+      /* Eat spurious WM_TIMER messages */
+!     while (pPeekMessage(&msg, hwnd, WM_TIMER, WM_TIMER, PM_REMOVE))
+  	;
+  
+      if (blink_state == BLINK_ON)
+***************
+*** 418,424 ****
+      {
+  	KillTimer(NULL, blink_timer);
+  	/* Eat spurious WM_TIMER messages */
+! 	while (PeekMessage(&msg, s_hwnd, WM_TIMER, WM_TIMER, PM_REMOVE))
+  	    ;
+  	blink_timer = 0;
+      }
+--- 418,424 ----
+      {
+  	KillTimer(NULL, blink_timer);
+  	/* Eat spurious WM_TIMER messages */
+! 	while (pPeekMessage(&msg, s_hwnd, WM_TIMER, WM_TIMER, PM_REMOVE))
+  	    ;
+  	blink_timer = 0;
+      }
+***************
+*** 476,482 ****
+      s_timed_out = TRUE;
+  
+      /* Eat spurious WM_TIMER messages */
+!     while (PeekMessage(&msg, hwnd, WM_TIMER, WM_TIMER, PM_REMOVE))
+  	;
+      if (idEvent == s_wait_timer)
+  	s_wait_timer = 0;
+--- 476,482 ----
+      s_timed_out = TRUE;
+  
+      /* Eat spurious WM_TIMER messages */
+!     while (pPeekMessage(&msg, hwnd, WM_TIMER, WM_TIMER, PM_REMOVE))
+  	;
+      if (idEvent == s_wait_timer)
+  	s_wait_timer = 0;
+***************
+*** 1707,1713 ****
+      static char_u k10[] = {K_SPECIAL, 'k', ';', 0};
+  #endif
+  
+!     GetMessage(&msg, NULL, 0, 0);
+  
+  #ifdef FEAT_OLE
+      /* Look after OLE Automation commands */
+--- 1707,1713 ----
+      static char_u k10[] = {K_SPECIAL, 'k', ';', 0};
+  #endif
+  
+!     pGetMessage(&msg, NULL, 0, 0);
+  
+  #ifdef FEAT_OLE
+      /* Look after OLE Automation commands */
+***************
+*** 1718,1724 ****
+  	{
+  	    /* Message can't be ours, forward it.  Fixes problem with Ultramon
+  	     * 3.0.4 */
+! 	    DispatchMessage(&msg);
+  	}
+  	else
+  	{
+--- 1718,1724 ----
+  	{
+  	    /* Message can't be ours, forward it.  Fixes problem with Ultramon
+  	     * 3.0.4 */
+! 	    pDispatchMessage(&msg);
+  	}
+  	else
+  	{
+***************
+*** 1749,1762 ****
+      if (msg.message == WM_USER)
+      {
+  	MyTranslateMessage(&msg);
+! 	DispatchMessage(&msg);
+  	return;
+      }
+  #endif
+  
+  #ifdef MSWIN_FIND_REPLACE
+      /* Don't process messages used by the dialog */
+!     if (s_findrep_hwnd != NULL && IsDialogMessage(s_findrep_hwnd, &msg))
+      {
+  	HandleMouseHide(msg.message, msg.lParam);
+  	return;
+--- 1749,1762 ----
+      if (msg.message == WM_USER)
+      {
+  	MyTranslateMessage(&msg);
+! 	pDispatchMessage(&msg);
+  	return;
+      }
+  #endif
+  
+  #ifdef MSWIN_FIND_REPLACE
+      /* Don't process messages used by the dialog */
+!     if (s_findrep_hwnd != NULL && pIsDialogMessage(s_findrep_hwnd, &msg))
+      {
+  	HandleMouseHide(msg.message, msg.lParam);
+  	return;
+***************
+*** 1928,1934 ****
+      if (vk != VK_F10 || check_map(k10, State, FALSE, TRUE, FALSE,
+  							  NULL, NULL) == NULL)
+  #endif
+! 	DispatchMessage(&msg);
+  }
+  
+  /*
+--- 1928,1934 ----
+      if (vk != VK_F10 || check_map(k10, State, FALSE, TRUE, FALSE,
+  							  NULL, NULL) == NULL)
+  #endif
+! 	pDispatchMessage(&msg);
+  }
+  
+  /*
+***************
+*** 1943,1949 ****
+      MSG	    msg;
+  
+      if (!s_busy_processing)
+! 	while (PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE)
+  						  && !vim_is_input_buf_full())
+  	    process_message();
+  }
+--- 1943,1949 ----
+      MSG	    msg;
+  
+      if (!s_busy_processing)
+! 	while (pPeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE)
+  						  && !vim_is_input_buf_full())
+  	    process_message();
+  }
+***************
+*** 2019,2025 ****
+  		KillTimer(NULL, s_wait_timer);
+  
+  		/* Eat spurious WM_TIMER messages */
+! 		while (PeekMessage(&msg, s_hwnd, WM_TIMER, WM_TIMER, PM_REMOVE))
+  		    ;
+  		s_wait_timer = 0;
+  	    }
+--- 2019,2025 ----
+  		KillTimer(NULL, s_wait_timer);
+  
+  		/* Eat spurious WM_TIMER messages */
+! 		while (pPeekMessage(&msg, s_hwnd, WM_TIMER, WM_TIMER, PM_REMOVE))
+  		    ;
+  		s_wait_timer = 0;
+  	    }
+*** ../vim-7.3.276/src/os_mswin.c	2011-06-19 01:30:01.000000000 +0200
+--- src/os_mswin.c	2011-08-10 16:45:24.000000000 +0200
+***************
+*** 1856,1867 ****
+  {
+      MSG msg;
+  
+!     while (!*bUserAbort && PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+      {
+! 	if (!hDlgPrint || !IsDialogMessage(hDlgPrint, &msg))
+  	{
+  	    TranslateMessage(&msg);
+! 	    DispatchMessage(&msg);
+  	}
+      }
+      return !*bUserAbort;
+--- 1856,1867 ----
+  {
+      MSG msg;
+  
+!     while (!*bUserAbort && pPeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+      {
+! 	if (!hDlgPrint || !pIsDialogMessage(hDlgPrint, &msg))
+  	{
+  	    TranslateMessage(&msg);
+! 	    pDispatchMessage(&msg);
+  	}
+      }
+      return !*bUserAbort;
+***************
+*** 3132,3141 ****
+  {
+      MSG msg;
+  
+!     while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+      {
+  	TranslateMessage(&msg);
+! 	DispatchMessage(&msg);
+      }
+  }
+  
+--- 3132,3141 ----
+  {
+      MSG msg;
+  
+!     while (pPeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+      {
+  	TranslateMessage(&msg);
+! 	pDispatchMessage(&msg);
+      }
+  }
+  
+*** ../vim-7.3.276/src/os_win32.c	2011-07-07 16:20:45.000000000 +0200
+--- src/os_win32.c	2011-08-10 16:54:50.000000000 +0200
+***************
+*** 152,157 ****
+--- 152,165 ----
+  # define wcsicmp(a, b) wcscmpi((a), (b))
+  #endif
+  
++ /* Enable common dialogs input unicode from IME if posible. */
++ #ifdef FEAT_MBYTE
++ LRESULT (WINAPI *pDispatchMessage)(LPMSG) = DispatchMessage;
++ BOOL (WINAPI *pGetMessage)(LPMSG, HWND, UINT, UINT) = GetMessage;
++ BOOL (WINAPI *pIsDialogMessage)(HWND, LPMSG) = IsDialogMessage;
++ BOOL (WINAPI *pPeekMessage)(LPMSG, HWND, UINT, UINT, UINT) = PeekMessage;
++ #endif
++ 
+  #ifndef FEAT_GUI_W32
+  /* Win32 Console handles for input and output */
+  static HANDLE g_hConIn  = INVALID_HANDLE_VALUE;
+***************
+*** 3284,3293 ****
+  	{
+  	    MSG	msg;
+  
+! 	    if (PeekMessage(&msg, (HWND)NULL, 0, 0, PM_REMOVE))
+  	    {
+  		TranslateMessage(&msg);
+! 		DispatchMessage(&msg);
+  	    }
+  	    if (WaitForSingleObject(pi.hProcess, delay) != WAIT_TIMEOUT)
+  		break;
+--- 3292,3301 ----
+  	{
+  	    MSG	msg;
+  
+! 	    if (pPeekMessage(&msg, (HWND)NULL, 0, 0, PM_REMOVE))
+  	    {
+  		TranslateMessage(&msg);
+! 		pDispatchMessage(&msg);
+  	    }
+  	    if (WaitForSingleObject(pi.hProcess, delay) != WAIT_TIMEOUT)
+  		break;
+*** ../vim-7.3.276/src/os_win32.h	2011-05-05 18:31:54.000000000 +0200
+--- src/os_win32.h	2011-08-10 16:51:58.000000000 +0200
+***************
+*** 193,195 ****
+--- 193,209 ----
+  #else
+  # define vim_mkdir(x, y) mch_mkdir(x)
+  #endif
++ 
++ /* Enable common dialogs input unicode from IME if posible. */
++ #ifdef FEAT_MBYTE
++     /* The variables are defined in os_win32.c. */
++ extern LRESULT (WINAPI *pDispatchMessage)(LPMSG);
++ extern BOOL (WINAPI *pGetMessage)(LPMSG, HWND, UINT, UINT);
++ extern BOOL (WINAPI *pIsDialogMessage)(HWND, LPMSG);
++ extern BOOL (WINAPI *pPeekMessage)(LPMSG, HWND, UINT, UINT, UINT);
++ #else
++ # define pDispatchMessage DispatchMessage
++ # define pGetMessage GetMessage
++ # define pIsDialogMessage IsDialogMessage
++ # define pPeekMessage PeekMessage
++ #endif
+*** ../vim-7.3.276/src/version.c	2011-08-10 16:31:18.000000000 +0200
+--- src/version.c	2011-08-10 17:06:55.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     277,
+  /**/
+
+-- 
+Veni, Vidi, VW -- I came, I saw, I drove around in a little car.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

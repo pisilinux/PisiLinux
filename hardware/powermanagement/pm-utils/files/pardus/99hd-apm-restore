@@ -1,0 +1,71 @@
+#!/bin/bash
+# vim:noexpandtab
+#
+#    Author: Till Maas <opensource till name>
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+source "${PM_FUNCTIONS}"
+source /etc/pm/config.d/hd-apm-restore.conf
+
+HD_APM_DEVICES=""
+for udi in $(hal-find-by-capability --capability storage)
+do
+    drive_type=$(hal-get-property --udi "${udi}" --key storage.drive_type)
+    if [ "${drive_type}" == "disk" ]
+    then
+        HD_APM_DEVICES+="$(hal-get-property --udi "${udi}" --key block.device | sed 's,^/dev/,,') "
+
+    fi
+done
+
+case "$1" in
+	hibernate|suspend)
+		for DEVICE in ${HD_APM_DEVICES}
+		do
+			HD_APM_FEATURE=$(hdparm -I "/dev/${DEVICE}" | grep "Advanced Power Management feature set")
+			if [[ "${HD_APM_FEATURE}" != "" ]]
+			then
+				if (echo "${HD_APM_FEATURE}" | grep -q "*" )
+				then
+					HD_APM_LEVEL=$(hdparm -I "/dev/${DEVICE}" | grep "Advanced power management level" | cut -d" " -f 5)
+				else
+					HD_APM_LEVEL=255
+				fi
+				if [[ "${HD_APM_LEVEL}" != "unknown" ]]
+				then
+					echo "saving level ${HD_APM_LEVEL} for device ${DEVICE}"
+					savestate "${DEVICE}" "${HD_APM_LEVEL}"
+				else
+					echo "Advanced Power Management value of device ${DEVICE} unknown"
+				fi
+			else
+				echo "Advanced Power Management not supported by device ${DEVICE}."
+			fi
+		done
+		;;
+	thaw|resume)
+		for DEVICE in ${HD_APM_DEVICES}
+		do
+			HD_APM_LEVEL=$(restorestate "${DEVICE}")
+			if [[ "${HD_APM_LEVEL}" != "" ]]
+			then
+				echo "restoring level ${HD_APM_LEVEL} for device ${DEVICE}"
+				hdparm -B "${HD_APM_LEVEL}" "/dev/${DEVICE}"
+			fi
+		done
+		;;
+	*)
+		;;
+esac
+
+exit $?

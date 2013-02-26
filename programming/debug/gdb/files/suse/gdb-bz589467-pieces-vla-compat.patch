@@ -1,0 +1,59 @@
+06e357f534abcf8912e4fd597daae8f1387d631c
+
+Fix compatibility with: FYI: fix BINOP_SUBSCRIPT with pieced arrays
+ 	http://sourceware.org/ml/gdb-patches/2010-05/msg00281.html
+
+2010-05-30  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* valarith.c (binop_user_defined_p): Return 0 on ARG1 or ARG2 being
+	TYPE_DYNAMIC.
+	* value.c (coerce_ref): Use object_address_get_data resolution for
+	TYPE_DYNAMIC ARG.
+
+[ Backported.  ]
+
+Index: gdb-7.1/gdb/valarith.c
+===================================================================
+--- gdb-7.1.orig/gdb/valarith.c	2010-05-30 18:54:28.000000000 +0200
++++ gdb-7.1/gdb/valarith.c	2010-05-30 18:54:43.000000000 +0200
+@@ -309,6 +309,10 @@ int
+ binop_user_defined_p (enum exp_opcode op,
+ 		      struct value *arg1, struct value *arg2)
+ {
++  /* FIXME: We should support user defined ops for dynamic types.  */
++  if (TYPE_DYNAMIC (value_type (arg1)) || TYPE_DYNAMIC (value_type (arg2)))
++    return 0;
++
+   return binop_types_user_defined_p (op, value_type (arg1), value_type (arg2));
+ }
+ 
+Index: gdb-7.1/gdb/value.c
+===================================================================
+--- gdb-7.1.orig/gdb/value.c	2010-05-30 18:54:36.000000000 +0200
++++ gdb-7.1/gdb/value.c	2010-05-30 18:55:52.000000000 +0200
+@@ -2400,7 +2400,24 @@ value_from_decfloat (struct type *type, 
+ struct value *
+ coerce_ref (struct value *arg)
+ {
+-  struct type *value_type_arg_tmp = check_typedef (value_type (arg));
++  struct type *value_type_arg_tmp;
++
++  if (TYPE_DYNAMIC (value_type (arg)))
++    {
++      struct cleanup *cleanups = make_cleanup (null_cleanup, NULL);
++      CORE_ADDR address;
++
++      value_type_arg_tmp = value_type (arg);
++      address = value_raw_address (arg);
++      if (! object_address_get_data (value_type_arg_tmp, &address))
++	error (_("Attempt to coerce non-valid value."));
++      CHECK_TYPEDEF (value_type_arg_tmp);
++      arg = value_at_lazy (value_type_arg_tmp, address);
++      do_cleanups (cleanups);
++    }
++  else
++    value_type_arg_tmp = check_typedef (value_type (arg));
++
+   if (TYPE_CODE (value_type_arg_tmp) == TYPE_CODE_REF)
+     arg = value_at_lazy (TYPE_TARGET_TYPE (value_type_arg_tmp),
+ 			 unpack_pointer (value_type (arg),		

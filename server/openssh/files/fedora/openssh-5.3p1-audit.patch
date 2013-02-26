@@ -1,0 +1,153 @@
+diff -up openssh-5.3p1/auth.c.audit openssh-5.3p1/auth.c
+--- openssh-5.3p1/auth.c.audit	2008-11-05 06:12:54.000000000 +0100
++++ openssh-5.3p1/auth.c	2009-12-21 08:50:12.000000000 +0100
+@@ -287,6 +287,12 @@ auth_log(Authctxt *authctxt, int authent
+ 		    get_canonical_hostname(options.use_dns), "ssh", &loginmsg);
+ # endif
+ #endif
++#if HAVE_LINUX_AUDIT
++        if (authenticated == 0 && !authctxt->postponed) {
++                linux_audit_record_event(-1, authctxt->user, NULL,
++                        get_remote_ipaddr(), "sshd", 0);
++        }
++#endif
+ #ifdef SSH_AUDIT_EVENTS
+ 	if (authenticated == 0 && !authctxt->postponed)
+ 		audit_event(audit_classify_auth(method));
+@@ -533,6 +539,10 @@ getpwnamallow(const char *user)
+ 		record_failed_login(user,
+ 		    get_canonical_hostname(options.use_dns), "ssh");
+ #endif
++#ifdef HAVE_LINUX_AUDIT
++                linux_audit_record_event(-1, user, NULL, get_remote_ipaddr(),
++                        "sshd", 0);
++#endif
+ #ifdef SSH_AUDIT_EVENTS
+ 		audit_event(SSH_INVALID_USER);
+ #endif /* SSH_AUDIT_EVENTS */
+diff -up openssh-5.3p1/configure.ac.audit openssh-5.3p1/configure.ac
+--- openssh-5.3p1/configure.ac.audit	2009-12-21 08:48:59.000000000 +0100
++++ openssh-5.3p1/configure.ac	2009-12-21 08:51:47.000000000 +0100
+@@ -3409,6 +3409,18 @@ AC_ARG_WITH(selinux,
+ 	fi ]
+ )
+ 
++# Check whether user wants Linux audit support
++LINUX_AUDIT_MSG="no"
++AC_ARG_WITH(linux-audit,
++        [  --with-linux-audit   Enable Linux audit support],
++        [ if test "x$withval" != "xno" ; then
++                AC_DEFINE(HAVE_LINUX_AUDIT,1,[Define if you want Linux audit support.])
++                LINUX_AUDIT_MSG="yes"
++                AC_CHECK_HEADERS(libaudit.h)
++                SSHDLIBS="$SSHDLIBS -laudit"
++        fi ]
++)
++
+ # Check whether user wants Kerberos 5 support
+ KRB5_MSG="no"
+ AC_ARG_WITH(kerberos5,
+@@ -4234,6 +4246,7 @@ echo "                       PAM support
+ echo "                   OSF SIA support: $SIA_MSG"
+ echo "                 KerberosV support: $KRB5_MSG"
+ echo "                   SELinux support: $SELINUX_MSG"
++echo "               Linux audit support: $LINUX_AUDIT_MSG"
+ echo "                 Smartcard support: $SCARD_MSG"
+ echo "                     S/KEY support: $SKEY_MSG"
+ echo "              TCP Wrappers support: $TCPW_MSG"
+diff -up openssh-5.3p1/loginrec.c.audit openssh-5.3p1/loginrec.c
+--- openssh-5.3p1/loginrec.c.audit	2009-02-12 03:12:22.000000000 +0100
++++ openssh-5.3p1/loginrec.c	2009-12-21 08:54:17.000000000 +0100
+@@ -176,6 +176,10 @@
+ #include "auth.h"
+ #include "buffer.h"
+ 
++#ifdef HAVE_LINUX_AUDIT
++# include <libaudit.h>
++#endif
++
+ #ifdef HAVE_UTIL_H
+ # include <util.h>
+ #endif
+@@ -202,6 +206,9 @@ int utmp_write_entry(struct logininfo *l
+ int utmpx_write_entry(struct logininfo *li);
+ int wtmp_write_entry(struct logininfo *li);
+ int wtmpx_write_entry(struct logininfo *li);
++#ifdef HAVE_LINUX_AUDIT
++int linux_audit_write_entry(struct logininfo *li);
++#endif
+ int lastlog_write_entry(struct logininfo *li);
+ int syslogin_write_entry(struct logininfo *li);
+ 
+@@ -440,6 +447,10 @@ login_write(struct logininfo *li)
+ 
+ 	/* set the timestamp */
+ 	login_set_current_time(li);
++#ifdef HAVE_LINUX_AUDIT
++        if (linux_audit_write_entry(li) == 0)
++                fatal("linux_audit_write_entry failed: %s", strerror(errno));
++#endif
+ #ifdef USE_LOGIN
+ 	syslogin_write_entry(li);
+ #endif
+@@ -1394,6 +1405,47 @@ wtmpx_get_entry(struct logininfo *li)
+ }
+ #endif /* USE_WTMPX */
+ 
++#ifdef HAVE_LINUX_AUDIT
++int
++linux_audit_record_event(int uid, const char *username,
++        const char *hostname, const char *ip, const char *ttyn, int success)
++{
++        int audit_fd, rc;
++
++        audit_fd = audit_open();
++        if (audit_fd < 0) {
++                 if (errno == EINVAL || errno == EPROTONOSUPPORT ||
++                                        errno == EAFNOSUPPORT)
++                        return 1; /* No audit support in kernel */
++                else
++                        return 0; /* Must prevent login */
++        }
++        rc = audit_log_acct_message(audit_fd, AUDIT_USER_LOGIN,
++                NULL, "login", username ? username : "(unknown)",
++                username == NULL ? uid : -1, hostname, ip, ttyn, success);
++        close(audit_fd);
++        if (rc >= 0)
++                return 1;
++        else
++                return 0;
++}
++
++int
++linux_audit_write_entry(struct logininfo *li)
++{
++        switch(li->type) {
++        case LTYPE_LOGIN:
++                return (linux_audit_record_event(li->uid, NULL, li->hostname,
++                        NULL, li->line, 1));
++        case LTYPE_LOGOUT:
++                return (1);        /* We only care about logins */
++        default:
++                logit("%s: invalid type field", __func__);
++                return (0);
++        }
++}
++#endif /* HAVE_LINUX_AUDIT */
++
+ /**
+  ** Low-level libutil login() functions
+  **/
+diff -up openssh-5.3p1/loginrec.h.audit openssh-5.3p1/loginrec.h
+--- openssh-5.3p1/loginrec.h.audit	2006-08-05 04:39:40.000000000 +0200
++++ openssh-5.3p1/loginrec.h	2009-12-21 08:48:59.000000000 +0100
+@@ -127,5 +127,9 @@ char *line_stripname(char *dst, const ch
+ char *line_abbrevname(char *dst, const char *src, int dstsize);
+ 
+ void record_failed_login(const char *, const char *, const char *);
++#ifdef HAVE_LINUX_AUDIT
++int linux_audit_record_event(int uid, const char *username,
++        const char *hostname, const char *ip, const char *ttyn, int success);
++#endif /* HAVE_LINUX_AUDIT */
+ 
+ #endif /* _HAVE_LOGINREC_H_ */

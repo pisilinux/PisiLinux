@@ -1,0 +1,86 @@
+From 6fd2d087585b33dce918e857e9f2635862a0746c Mon Sep 17 00:00:00 2001
+From: Colin Guthrie <cguthrie@mandriva.org>
+Date: Fri, 5 Feb 2010 00:15:38 +0000
+Subject: [PATCH] stream-restore: Clear the save_sink/save_source flags on apply_entry.
+
+If the user specifically removes the device element from the stream
+restore rule, we have to clear the save_sink/save_source flag of the
+stream. This means that other stream routing systems
+(e.g. module-device-manager) can take over routing for this
+stream. In order to facilitate the reapplication of other routing
+rules, we fire a stream change event. Arguably the stream itself
+has not changed, but the rules governing its routing have, so
+I feel this is justified.
+---
+ src/modules/module-stream-restore.c |   48 ++++++++++++++++++++++++++--------
+ 1 files changed, 36 insertions(+), 12 deletions(-)
+
+diff --git a/src/modules/module-stream-restore.c b/src/modules/module-stream-restore.c
+index becdb54..64a7fd3 100644
+--- a/src/modules/module-stream-restore.c
++++ b/src/modules/module-stream-restore.c
+@@ -1626,12 +1626,24 @@ static void apply_entry(struct userdata *u, const char *name, struct entry *e) {
+             pa_sink_input_set_mute(si, e->muted, TRUE);
+         }
+ 
+-        if (u->restore_device &&
+-            e->device_valid &&
+-            (s = pa_namereg_get(u->core, e->device, PA_NAMEREG_SINK))) {
+-
+-            pa_log_info("Restoring device for stream %s.", name);
+-            pa_sink_input_move_to(si, s, TRUE);
++        if (u->restore_device) {
++            if (!e->device_valid) {
++                if (si->save_sink) {
++                    pa_log_info("Ensuring device is not saved for stream %s.", name);
++                    /* If the device is not valid we should make sure the
++                       save flag is cleared as the user may have specifically
++                       removed the sink element from the rule. */
++                    si->save_sink = FALSE;
++                    /* This is cheating a bit. The sink input itself has not changed
++                       but the rules governing it's routing have, so we fire this event
++                       such that other routing modules (e.g. module-device-manager)
++                       will pick up the change and reapply their routing */
++                    pa_subscription_post(si->core, PA_SUBSCRIPTION_EVENT_SINK_INPUT|PA_SUBSCRIPTION_EVENT_CHANGE, si->index);
++                }
++            } else if ((s = pa_namereg_get(u->core, e->device, PA_NAMEREG_SINK))) {
++                pa_log_info("Restoring device for stream %s.", name);
++                pa_sink_input_move_to(si, s, TRUE);
++            }
+         }
+     }
+ 
+@@ -1648,12 +1660,24 @@ static void apply_entry(struct userdata *u, const char *name, struct entry *e) {
+         }
+         pa_xfree(n);
+ 
+-        if (u->restore_device &&
+-            e->device_valid &&
+-            (s = pa_namereg_get(u->core, e->device, PA_NAMEREG_SOURCE))) {
+-
+-            pa_log_info("Restoring device for stream %s.", name);
+-            pa_source_output_move_to(so, s, TRUE);
++        if (u->restore_device) {
++            if (!e->device_valid) {
++                if (so->save_source) {
++                    pa_log_info("Ensuring device is not saved for stream %s.", name);
++                    /* If the device is not valid we should make sure the
++                       save flag is cleared as the user may have specifically
++                       removed the source element from the rule. */
++                    so->save_source = FALSE;
++                    /* This is cheating a bit. The source output itself has not changed
++                       but the rules governing it's routing have, so we fire this event
++                       such that other routing modules (e.g. module-device-manager)
++                       will pick up the change and reapply their routing */
++                    pa_subscription_post(so->core, PA_SUBSCRIPTION_EVENT_SOURCE_OUTPUT|PA_SUBSCRIPTION_EVENT_CHANGE, so->index);
++                }
++            } else if ((s = pa_namereg_get(u->core, e->device, PA_NAMEREG_SOURCE))) {
++                pa_log_info("Restoring device for stream %s.", name);
++                pa_source_output_move_to(so, s, TRUE);
++            }
+         }
+     }
+ }
+-- 
+1.6.6.1
+

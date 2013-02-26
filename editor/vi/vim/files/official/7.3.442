@@ -1,0 +1,186 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.442
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.442 (after 7.3.438) 
+Problem:    Still read modelines for ":doautocmd". 
+Solution:   Move check for <nomodeline> to separate function. 
+Files:      src/fileio.c, src/ex_docmd.c, src/proto/fileio.pro, 
+            runtime/doc/autocmd.txt 
+
+
+*** ../vim-7.3.441/src/fileio.c	2012-02-12 00:18:54.000000000 +0100
+--- src/fileio.c	2012-02-12 20:05:35.000000000 +0100
+***************
+*** 8740,8752 ****
+      aco_save_T	aco;
+      buf_T	*buf;
+      char_u	*arg = eap->arg;
+!     int		call_do_modelines = TRUE;
+! 
+!     if (STRNCMP(arg, "<nomodeline>", 12) == 0)
+!     {
+! 	call_do_modelines = FALSE;
+! 	arg = skipwhite(arg + 12);
+!     }
+  
+      /*
+       * This is a bit tricky: For some commands curwin->w_buffer needs to be
+--- 8740,8746 ----
+      aco_save_T	aco;
+      buf_T	*buf;
+      char_u	*arg = eap->arg;
+!     int		call_do_modelines = check_nomodeline(&arg);
+  
+      /*
+       * This is a bit tricky: For some commands curwin->w_buffer needs to be
+***************
+*** 8786,8791 ****
+--- 8780,8802 ----
+  }
+  
+  /*
++  * Check *argp for <nomodeline>.  When it is present return FALSE, otherwise
++  * return TRUE and advance *argp to after it.
++  * Thus return TRUE when do_modelines() should be called.
++  */
++     int
++ check_nomodeline(argp)
++     char_u **argp;
++ {
++     if (STRNCMP(*argp, "<nomodeline>", 12) == 0)
++     {
++ 	*argp = skipwhite(*argp + 12);
++ 	return FALSE;
++     }
++     return TRUE;
++ }
++ 
++ /*
+   * Prepare for executing autocommands for (hidden) buffer "buf".
+   * Search for a visible window containing the current buffer.  If there isn't
+   * one then use "aucmd_win".
+*** ../vim-7.3.441/src/ex_docmd.c	2012-01-26 20:41:22.000000000 +0100
+--- src/ex_docmd.c	2012-02-12 20:05:18.000000000 +0100
+***************
+*** 4955,4961 ****
+      map_clear(eap->cmd, eap->arg, TRUE, TRUE);
+  }
+  
+! #ifdef FEAT_AUTOCMD
+      static void
+  ex_autocmd(eap)
+      exarg_T	*eap;
+--- 4955,4961 ----
+      map_clear(eap->cmd, eap->arg, TRUE, TRUE);
+  }
+  
+! #if defined(FEAT_AUTOCMD) || defined(PROTO)
+      static void
+  ex_autocmd(eap)
+      exarg_T	*eap;
+***************
+*** 4982,4989 ****
+  ex_doautocmd(eap)
+      exarg_T	*eap;
+  {
+!     (void)do_doautocmd(eap->arg, TRUE);
+!     do_modelines(0);
+  }
+  #endif
+  
+--- 4982,4993 ----
+  ex_doautocmd(eap)
+      exarg_T	*eap;
+  {
+!     char_u	*arg = eap->arg;
+!     int		call_do_modelines = check_nomodeline(&arg);
+! 
+!     (void)do_doautocmd(arg, TRUE);
+!     if (call_do_modelines)  /* Only when there is no <nomodeline>. */
+! 	do_modelines(0);
+  }
+  #endif
+  
+*** ../vim-7.3.441/src/proto/fileio.pro	2010-12-17 16:27:10.000000000 +0100
+--- src/proto/fileio.pro	2012-02-12 20:05:26.000000000 +0100
+***************
+*** 35,40 ****
+--- 35,41 ----
+  void do_autocmd __ARGS((char_u *arg, int forceit));
+  int do_doautocmd __ARGS((char_u *arg, int do_msg));
+  void ex_doautoall __ARGS((exarg_T *eap));
++ int check_nomodeline __ARGS((char_u **argp));
+  void aucmd_prepbuf __ARGS((aco_save_T *aco, buf_T *buf));
+  void aucmd_restbuf __ARGS((aco_save_T *aco));
+  int apply_autocmds __ARGS((event_T event, char_u *fname, char_u *fname_io, int force, buf_T *buf));
+*** ../vim-7.3.441/runtime/doc/autocmd.txt	2012-02-12 00:18:54.000000000 +0100
+--- runtime/doc/autocmd.txt	2012-02-12 20:11:05.000000000 +0100
+***************
+*** 1064,1069 ****
+--- 1072,1085 ----
+  			argument is included, Vim executes only the matching
+  			autocommands for that group.  Note: if you use an
+  			undefined group name, Vim gives you an error message.
++ 							*<nomodeline>*
++ 			After applying the autocommands the modelines are
++ 			processed, so that their settings overrule the
++ 			settings from autocommands, like what happens when
++ 			editing a file. This is skipped when the <nomodeline>
++ 			argument is present. You probably want to use
++ 			<nomodeline> for events that are not used when loading
++ 			a buffer, such as |User|.
+  
+  						*:doautoa* *:doautoall*
+  :doautoa[ll] [<nomodeline>] [group] {event} [fname]
+***************
+*** 1077,1088 ****
+  			This command is intended for autocommands that set
+  			options, change highlighting, and things like that.
+  
+- 			After applying the autocommands the modelines are
+- 			processed, so that their settings overrule the
+- 			settings from autocommands, like what happens when
+- 			editing a file. This is skipped when the <nomodeline>
+- 			argument is present.
+- 
+  ==============================================================================
+  10. Using autocommands					*autocmd-use*
+  
+--- 1093,1098 ----
+*** ../vim-7.3.441/src/version.c	2012-02-12 01:55:50.000000000 +0100
+--- src/version.c	2012-02-12 20:11:34.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     442,
+  /**/
+
+-- 
+The real
+trick is
+this: to
+keep the
+lines as
+short as
+possible
+and keep
+the size
+the same
+yet free
+from the
+need for
+hyphena-
+Dammit!!  (Matthew Winn)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

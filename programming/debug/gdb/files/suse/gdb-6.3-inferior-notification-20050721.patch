@@ -1,0 +1,322 @@
+2005-07-21  Jeff Johnston  <jjohnstn@redhat.com>
+
+	* gdb.base/attach-32.exp: New test for attaching in 32-bit
+	mode on 64-bit systems.
+	* gdb.base/attach-32.c: Ditto.
+	* gdb.base/attach-32b.c: Ditto.
+
+2007-12-26  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/attach-32.exp: Fix forgotten $GDBFLAGS as set.
+
+Index: gdb-6.8.50.20081128/gdb/testsuite/gdb.base/attach-32.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20081128/gdb/testsuite/gdb.base/attach-32.c	2008-12-07 10:06:03.000000000 +0100
+@@ -0,0 +1,20 @@
++/* This program is intended to be started outside of gdb, and then
++   attached to by gdb.  Thus, it simply spins in a loop.  The loop
++   is exited when & if the variable 'should_exit' is non-zero.  (It
++   is initialized to zero in this program, so the loop will never
++   exit unless/until gdb sets the variable to non-zero.)
++   */
++#include <stdio.h>
++
++int  should_exit = 0;
++
++int main ()
++{
++  int  local_i = 0;
++
++  while (! should_exit)
++    {
++      local_i++;
++    }
++  return 0;
++}
+Index: gdb-6.8.50.20081128/gdb/testsuite/gdb.base/attach-32.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20081128/gdb/testsuite/gdb.base/attach-32.exp	2008-12-07 10:08:52.000000000 +0100
+@@ -0,0 +1,252 @@
++# Copyright 2005 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 2 of the License, or
++# (at your option) any later version.
++# 
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++# 
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++#
++# This test was based on attach.exp and modified for 32/64 bit Linux systems. */
++
++if $tracelevel then {
++    strace $tracelevel
++}
++
++set prms_id 0
++set bug_id 0
++
++# On HP-UX 11.0, this test is causing a process running the program
++# "attach" to be left around spinning.  Until we figure out why, I am
++# commenting out the test to avoid polluting tiamat (our 11.0 nightly
++# test machine) with these processes. RT
++#
++# Setting the magic bit in the target app should work.  I added a
++# "kill", and also a test for the R3 register warning.  JB
++if { ![istarget "x86_64*-*linux*"] 
++     && ![istarget "powerpc64*-*linux*"]} {
++    return 0
++}
++
++# are we on a target board
++if [is_remote target] then {
++    return 0
++}
++
++set testfile "attach-32"
++set srcfile  ${testfile}.c
++set srcfile2 ${testfile}b.c
++set binfile  ${objdir}/${subdir}/${testfile}
++set binfile2 ${objdir}/${subdir}/${testfile}b
++set escapedbinfile  [string_to_regexp ${objdir}/${subdir}/${testfile}]
++
++#execute_anywhere "rm -f ${binfile} ${binfile2}"
++remote_exec build "rm -f ${binfile} ${binfile2}"
++# For debugging this test
++#
++#log_user 1
++
++# build the first test case
++#
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [list debug "additional_flags=-m32"]] != "" } {
++    gdb_suppress_entire_file "Testcase compile failed, so all tests in this file will automatically fail."
++}
++
++# Build the in-system-call test
++
++if  { [gdb_compile "${srcdir}/${subdir}/${srcfile2}" "${binfile2}" executable [list debug "additional_flags=-m32"]] != "" } {
++    gdb_suppress_entire_file "Testcase compile failed, so all tests in this file will automatically fail."
++}
++
++if [get_compiler_info ${binfile}] {
++    return -1
++}
++
++proc do_attach_tests {} {
++    global gdb_prompt
++    global binfile
++    global escapedbinfile
++    global srcfile
++    global testfile
++    global objdir
++    global subdir
++    global timeout
++    global testpid
++    
++    # Verify that we can "see" the variable "should_exit" in the
++    # program, and that it is zero.
++   
++    gdb_test "print should_exit" " = 0" "after attach-32, print should_exit"
++
++    # Verify that we can modify the variable "should_exit" in the
++    # program.
++
++    gdb_test "set should_exit=1" "" "after attach-32, set should_exit"
++
++    # Verify that the modification really happened.
++
++    send_gdb "tbreak 19\n"
++    gdb_expect {
++	-re "reakpoint .*at.*$srcfile, line 19.*$gdb_prompt $" {
++	    pass "after attach-32, set tbreak postloop"
++	}
++	-re "$gdb_prompt $" {
++	    fail "after attach-32, set tbreak postloop"
++	}
++	timeout {
++	    fail "(timeout) after attach-32, set tbreak postloop"
++	}
++    }
++    send_gdb "continue\n"
++    gdb_expect {
++	-re "main.*at.*$srcfile:19.*$gdb_prompt $" {
++	    pass "after attach-32, reach tbreak postloop"
++	}
++	-re "$gdb_prompt $" {
++	    fail "after attach-32, reach tbreak postloop"
++	}
++	timeout {
++	    fail "(timeout) after attach-32, reach tbreak postloop"
++	}
++    }
++
++    # Allow the test process to exit, to cleanup after ourselves.
++
++    gdb_test "continue" "Program exited normally." "after attach-32, exit"
++
++    # Make sure we don't leave a process around to confuse
++    # the next test run (and prevent the compile by keeping
++    # the text file busy), in case the "set should_exit" didn't
++    # work.
++   
++    remote_exec build "kill -9 ${testpid}"
++
++    # Start the program running and then wait for a bit, to be sure
++    # that it can be attached to.
++   
++    set testpid [eval exec $binfile &]
++    exec sleep 2
++    if { [istarget "*-*-cygwin*"] } {
++	# testpid is the Cygwin PID, GDB uses the Windows PID, which might be
++	# different due to the way fork/exec works.
++	set testpid [ exec ps -e | gawk "{ if (\$1 == $testpid) print \$4; }" ]
++    }
++
++    # Verify that we can attach to the process, and find its a.out
++    # when we're cd'd to some directory that doesn't contain the
++    # a.out.  (We use the source path set by the "dir" command.)
++    
++    gdb_test "dir ${objdir}/${subdir}" "Source directories searched: .*" \
++	"set source path"
++
++    gdb_test "cd /tmp" "Working directory /tmp." \
++	"cd away from process working directory"
++
++    # Explicitly flush out any knowledge of the previous attachment.
++
++    set test "before attach-32-3, flush symbols"
++    gdb_test_multiple "symbol" "$test" {
++	-re "Discard symbol table from.*y or n. $" {
++	    gdb_test "y" "No symbol file now." \
++		"$test"
++	}
++	-re "No symbol file now.*$gdb_prompt $" {
++	    pass "$test"
++	}
++    }
++
++    gdb_test "exec" "No executable file now." \
++	"before attach-32-3, flush exec"
++
++    gdb_test "attach $testpid" \
++	"Attaching to process $testpid.*Reading symbols from $escapedbinfile.*main.*at .*" \
++	"attach-32 when process' a.out not in cwd"
++
++    set test "after attach-32-3, exit"
++    gdb_test_multiple "kill" "$test" {
++	-re "Kill the program being debugged.*y or n. $" {
++	    gdb_test "y" "" "$test"
++	}
++    }
++    
++    # Another "don't leave a process around"
++    remote_exec build "kill -9 ${testpid}"
++}
++
++proc do_call_attach_tests {} {
++    global gdb_prompt
++    global binfile2
++    global testpid
++    
++    # See if other registers are problems
++    
++    set test "info other register"
++    gdb_test_multiple "i r r3" "$test" {
++	-re "warning: reading register.*$gdb_prompt $" {
++	    fail "$test"
++	}
++	-re "r3.*$gdb_prompt $" {
++	    pass "$test"
++	}
++    }
++
++    # Get rid of the process
++    
++    gdb_test "p should_exit = 1"
++    gdb_test "c" "Program exited normally."
++   
++    # Be paranoid
++   
++    remote_exec build "kill -9 ${testpid}"
++}
++
++
++# Start with a fresh gdb
++
++gdb_exit
++set testpid [eval exec $binfile &]
++exec sleep 3
++if { [istarget "*-*-cygwin*"] } {
++    # testpid is the Cygwin PID, GDB uses the Windows PID, which might be
++    # different due to the way fork/exec works.
++    set testpid [ exec ps -e | gawk "{ if (\$1 == $testpid) print \$4; }" ]
++}
++
++set GDBFLAGS_orig $GDBFLAGS
++set GDBFLAGS "--pid=$testpid"
++gdb_start
++set GDBFLAGS $GDBFLAGS_orig
++
++gdb_reinitialize_dir $srcdir/$subdir
++
++# This is a test of gdb's ability to attach to a running process.
++
++do_attach_tests
++
++# Test attaching when the target is inside a system call
++
++gdb_exit
++set testpid [eval exec $binfile2 &]
++exec sleep 3
++if { [istarget "*-*-cygwin*"] } {
++    # testpid is the Cygwin PID, GDB uses the Windows PID, which might be
++    # different due to the way fork/exec works.
++    set testpid [ exec ps -e | gawk "{ if (\$1 == $testpid) print \$4; }" ]
++}
++
++set GDBFLAGS_orig $GDBFLAGS
++set GDBFLAGS "--pid=$testpid"
++gdb_start
++set GDBFLAGS $GDBFLAGS_orig
++
++gdb_reinitialize_dir $srcdir/$subdir
++do_call_attach_tests
++
++return 0
+Index: gdb-6.8.50.20081128/gdb/testsuite/gdb.base/attach-32b.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-6.8.50.20081128/gdb/testsuite/gdb.base/attach-32b.c	2008-12-07 10:06:03.000000000 +0100
+@@ -0,0 +1,24 @@
++/* This program is intended to be started outside of gdb, and then
++   attached to by gdb.  Thus, it simply spins in a loop.  The loop
++   is exited when & if the variable 'should_exit' is non-zero.  (It
++   is initialized to zero in this program, so the loop will never
++   exit unless/until gdb sets the variable to non-zero.)
++   */
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++
++int  should_exit = 0;
++
++int main ()
++{
++  int  local_i = 0;
++
++  sleep( 10 ); /* System call causes register fetch to fail */
++               /* This is a known HPUX "feature"            */
++  while (! should_exit)
++    {
++      local_i++;
++    }
++  return (0);
++}

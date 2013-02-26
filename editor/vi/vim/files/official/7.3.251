@@ -1,0 +1,184 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.251
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.251
+Problem:    "gH<Del>" deletes the current line, except when it's the last
+	    line.
+Solution:   Set the "include" flag to indicate the last line is to be deleted.
+Files:	    src/normal.c, src/ops.c
+
+
+*** ../vim-7.3.250/src/normal.c	2011-07-07 15:08:53.000000000 +0200
+--- src/normal.c	2011-07-15 16:53:12.000000000 +0200
+***************
+*** 1795,1811 ****
+  		{
+  		    oap->inclusive = FALSE;
+  		    /* Try to include the newline, unless it's an operator
+! 		     * that works on lines only */
+! 		    if (*p_sel != 'o'
+! 			    && !op_on_lines(oap->op_type)
+! 			    && oap->end.lnum < curbuf->b_ml.ml_line_count)
+  		    {
+! 			++oap->end.lnum;
+! 			oap->end.col = 0;
+  # ifdef FEAT_VIRTUALEDIT
+! 			oap->end.coladd = 0;
+  # endif
+! 			++oap->line_count;
+  		    }
+  		}
+  	    }
+--- 1795,1819 ----
+  		{
+  		    oap->inclusive = FALSE;
+  		    /* Try to include the newline, unless it's an operator
+! 		     * that works on lines only. */
+! 		    if (*p_sel != 'o' && !op_on_lines(oap->op_type))
+  		    {
+! 			if (oap->end.lnum < curbuf->b_ml.ml_line_count)
+! 			{
+! 			    ++oap->end.lnum;
+! 			    oap->end.col = 0;
+  # ifdef FEAT_VIRTUALEDIT
+! 			    oap->end.coladd = 0;
+  # endif
+! 			    ++oap->line_count;
+! 			}
+! 			else
+! 			{
+! 			    /* Cannot move below the last line, make the op
+! 			     * inclusive to tell the operation to include the
+! 			     * line break. */
+! 			    oap->inclusive = TRUE;
+! 			}
+  		    }
+  		}
+  	    }
+*** ../vim-7.3.250/src/ops.c	2011-06-19 01:14:22.000000000 +0200
+--- src/ops.c	2011-07-15 17:28:28.000000000 +0200
+***************
+*** 1650,1656 ****
+  	    && oap->line_count > 1
+  	    && oap->op_type == OP_DELETE)
+      {
+! 	ptr = ml_get(oap->end.lnum) + oap->end.col + oap->inclusive;
+  	ptr = skipwhite(ptr);
+  	if (*ptr == NUL && inindent(0))
+  	    oap->motion_type = MLINE;
+--- 1650,1658 ----
+  	    && oap->line_count > 1
+  	    && oap->op_type == OP_DELETE)
+      {
+! 	ptr = ml_get(oap->end.lnum) + oap->end.col;
+! 	if (*ptr != NUL)
+! 	    ptr += oap->inclusive;
+  	ptr = skipwhite(ptr);
+  	if (*ptr == NUL && inindent(0))
+  	    oap->motion_type = MLINE;
+***************
+*** 1920,1930 ****
+  		    curwin->w_cursor.coladd = 0;
+  	    }
+  #endif
+! 	    (void)del_bytes((long)n, !virtual_op, oap->op_type == OP_DELETE
+  #ifdef FEAT_VISUAL
+  				    && !oap->is_VIsual
+  #endif
+  							);
+  	}
+  	else				/* delete characters between lines */
+  	{
+--- 1922,1941 ----
+  		    curwin->w_cursor.coladd = 0;
+  	    }
+  #endif
+! 	    if (oap->inclusive && oap->end.lnum == curbuf->b_ml.ml_line_count
+! 		    && n > (int)STRLEN(ml_get(oap->end.lnum)))
+! 	    {
+! 		/* Special case: gH<Del> deletes the last line. */
+! 		del_lines(1L, FALSE);
+! 	    }
+! 	    else
+! 	    {
+! 		(void)del_bytes((long)n, !virtual_op, oap->op_type == OP_DELETE
+  #ifdef FEAT_VISUAL
+  				    && !oap->is_VIsual
+  #endif
+  							);
++ 	    }
+  	}
+  	else				/* delete characters between lines */
+  	{
+***************
+*** 1941,1957 ****
+  	    ++curwin->w_cursor.lnum;
+  	    del_lines((long)(oap->line_count - 2), FALSE);
+  
+! 	    /* delete from start of line until op_end */
+! 	    curwin->w_cursor.col = 0;
+! 	    (void)del_bytes((long)(oap->end.col + 1 - !oap->inclusive),
+! 					!virtual_op, oap->op_type == OP_DELETE
+  #ifdef FEAT_VISUAL
+  					&& !oap->is_VIsual
+  #endif
+  							    );
+! 	    curwin->w_cursor = curpos;		/* restore curwin->w_cursor */
+! 
+! 	    (void)do_join(2, FALSE, FALSE);
+  	}
+      }
+  
+--- 1952,1980 ----
+  	    ++curwin->w_cursor.lnum;
+  	    del_lines((long)(oap->line_count - 2), FALSE);
+  
+! 	    n = (oap->end.col + 1 - !oap->inclusive);
+! 	    if (oap->inclusive && oap->end.lnum == curbuf->b_ml.ml_line_count
+! 		    && n > (int)STRLEN(ml_get(oap->end.lnum)))
+! 	    {
+! 		/* Special case: gH<Del> deletes the last line. */
+! 		del_lines(1L, FALSE);
+! 		curwin->w_cursor = curpos;	/* restore curwin->w_cursor */
+! 		if (curwin->w_cursor.lnum > 1)
+! 		    --curwin->w_cursor.lnum;
+! 	    }
+! 	    else
+! 	    {
+! 		/* delete from start of line until op_end */
+! 		curwin->w_cursor.col = 0;
+! 		(void)del_bytes((long)n, !virtual_op, oap->op_type == OP_DELETE
+  #ifdef FEAT_VISUAL
+  					&& !oap->is_VIsual
+  #endif
+  							    );
+! 		curwin->w_cursor = curpos;	/* restore curwin->w_cursor */
+! 	    }
+! 	    if (curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count)
+! 		(void)do_join(2, FALSE, FALSE);
+  	}
+      }
+  
+*** ../vim-7.3.250/src/version.c	2011-07-15 15:54:39.000000000 +0200
+--- src/version.c	2011-07-15 17:35:18.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     251,
+  /**/
+
+-- 
+            ### Hiroshima 45, Chernobyl 86, Windows 95 ###
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

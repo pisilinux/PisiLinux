@@ -1,0 +1,362 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.083
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.083
+Problem:    When a read() or write() is interrupted by a signal it fails.
+Solution:   Add read_eintr() and write_eintr().
+Files:	    src/fileio.c, src/proto/fileio.pro, src/memfile.c, src/memline.c,
+	    src/os_unix.c, src/undo.c, src/vim.h
+
+
+*** ../vim-7.3.082/src/fileio.c	2010-08-15 21:57:26.000000000 +0200
+--- src/fileio.c	2010-12-17 16:04:30.000000000 +0100
+***************
+*** 918,924 ****
+  	    {
+  		/* Read the first line (and a bit more).  Immediately rewind to
+  		 * the start of the file.  If the read() fails "len" is -1. */
+! 		len = vim_read(fd, firstline, 80);
+  		lseek(fd, (off_t)0L, SEEK_SET);
+  		for (p = firstline; p < firstline + len; ++p)
+  		    if (*p >= 0x80)
+--- 918,924 ----
+  	    {
+  		/* Read the first line (and a bit more).  Immediately rewind to
+  		 * the start of the file.  If the read() fails "len" is -1. */
+! 		len = read_eintr(fd, firstline, 80);
+  		lseek(fd, (off_t)0L, SEEK_SET);
+  		for (p = firstline; p < firstline + len; ++p)
+  		    if (*p >= 0x80)
+***************
+*** 1373,1379 ****
+  		    /*
+  		     * Read bytes from the file.
+  		     */
+! 		    size = vim_read(fd, ptr, size);
+  		}
+  
+  		if (size <= 0)
+--- 1373,1379 ----
+  		    /*
+  		     * Read bytes from the file.
+  		     */
+! 		    size = read_eintr(fd, ptr, size);
+  		}
+  
+  		if (size <= 0)
+***************
+*** 4000,4006 ****
+  #ifdef HAS_BW_FLAGS
+  			write_info.bw_flags = FIO_NOCONVERT;
+  #endif
+! 			while ((write_info.bw_len = vim_read(fd, copybuf,
+  								BUFSIZE)) > 0)
+  			{
+  			    if (buf_write_bytes(&write_info) == FAIL)
+--- 4000,4006 ----
+  #ifdef HAS_BW_FLAGS
+  			write_info.bw_flags = FIO_NOCONVERT;
+  #endif
+! 			while ((write_info.bw_len = read_eintr(fd, copybuf,
+  								BUFSIZE)) > 0)
+  			{
+  			    if (buf_write_bytes(&write_info) == FAIL)
+***************
+*** 4813,4819 ****
+  #ifdef HAS_BW_FLAGS
+  			write_info.bw_flags = FIO_NOCONVERT;
+  #endif
+! 			while ((write_info.bw_len = vim_read(fd, smallbuf,
+  						      SMBUFSIZE)) > 0)
+  			    if (buf_write_bytes(&write_info) == FAIL)
+  				break;
+--- 4813,4819 ----
+  #ifdef HAS_BW_FLAGS
+  			write_info.bw_flags = FIO_NOCONVERT;
+  #endif
+! 			while ((write_info.bw_len = read_eintr(fd, smallbuf,
+  						      SMBUFSIZE)) > 0)
+  			    if (buf_write_bytes(&write_info) == FAIL)
+  				break;
+***************
+*** 5330,5336 ****
+  
+  /*
+   * Call write() to write a number of bytes to the file.
+!  * Also handles encryption and 'encoding' conversion.
+   *
+   * Return FAIL for failure, OK otherwise.
+   */
+--- 5330,5336 ----
+  
+  /*
+   * Call write() to write a number of bytes to the file.
+!  * Handles encryption and 'encoding' conversion.
+   *
+   * Return FAIL for failure, OK otherwise.
+   */
+***************
+*** 5702,5717 ****
+  	crypt_encode(buf, len, buf);
+  #endif
+  
+!     /* Repeat the write(), it may be interrupted by a signal. */
+!     while (len > 0)
+!     {
+! 	wlen = vim_write(ip->bw_fd, buf, len);
+! 	if (wlen <= 0)		    /* error! */
+! 	    return FAIL;
+! 	len -= wlen;
+! 	buf += wlen;
+!     }
+!     return OK;
+  }
+  
+  #ifdef FEAT_MBYTE
+--- 5702,5709 ----
+  	crypt_encode(buf, len, buf);
+  #endif
+  
+!     wlen = write_eintr(ip->bw_fd, buf, len);
+!     return (wlen < len) ? FAIL : OK;
+  }
+  
+  #ifdef FEAT_MBYTE
+***************
+*** 6662,6669 ****
+  	return -1;
+      }
+  
+!     while ((n = vim_read(fd_in, buffer, BUFSIZE)) > 0)
+! 	if (vim_write(fd_out, buffer, n) != n)
+  	{
+  	    errmsg = _("E208: Error writing to \"%s\"");
+  	    break;
+--- 6654,6661 ----
+  	return -1;
+      }
+  
+!     while ((n = read_eintr(fd_in, buffer, BUFSIZE)) > 0)
+! 	if (write_eintr(fd_out, buffer, n) != n)
+  	{
+  	    errmsg = _("E208: Error writing to \"%s\"");
+  	    break;
+***************
+*** 10304,10306 ****
+--- 10296,10350 ----
+      }
+      return reg_pat;
+  }
++ 
++ #if defined(EINTR) || defined(PROTO)
++ /*
++  * Version of read() that retries when interrupted by EINTR (possibly
++  * by a SIGWINCH).
++  */
++     long
++ read_eintr(fd, buf, bufsize)
++     int	    fd;
++     void    *buf;
++     size_t  bufsize;
++ {
++     long ret;
++ 
++     for (;;)
++     {
++ 	ret = vim_read(fd, buf, bufsize);
++ 	if (ret >= 0 || errno != EINTR)
++ 	    break;
++     }
++     return ret;
++ }
++ 
++ /*
++  * Version of write() that retries when interrupted by EINTR (possibly
++  * by a SIGWINCH).
++  */
++     long
++ write_eintr(fd, buf, bufsize)
++     int	    fd;
++     void    *buf;
++     size_t  bufsize;
++ {
++     long    ret = 0;
++     long    wlen;
++ 
++     /* Repeat the write() so long it didn't fail, other than being interrupted
++      * by a signal. */
++     while (ret < (long)bufsize)
++     {
++ 	wlen = vim_write(fd, buf + ret, bufsize - ret);
++ 	if (wlen < 0)
++ 	{
++ 	    if (errno != EINTR)
++ 		break;
++ 	}
++ 	else
++ 	    ret += wlen;
++     }
++     return ret;
++ }
++ #endif
+*** ../vim-7.3.082/src/proto/fileio.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/fileio.pro	2010-12-17 15:01:26.000000000 +0100
+***************
+*** 54,57 ****
+--- 54,59 ----
+  int match_file_pat __ARGS((char_u *pattern, regprog_T *prog, char_u *fname, char_u *sfname, char_u *tail, int allow_dirs));
+  int match_file_list __ARGS((char_u *list, char_u *sfname, char_u *ffname));
+  char_u *file_pat_to_reg_pat __ARGS((char_u *pat, char_u *pat_end, char *allow_dirs, int no_bslash));
++ long read_eintr __ARGS((int fd, void *buf, size_t bufsize));
++ long write_eintr __ARGS((int fd, void *buf, size_t bufsize));
+  /* vim: set ft=c : */
+*** ../vim-7.3.082/src/memfile.c	2010-08-15 21:57:25.000000000 +0200
+--- src/memfile.c	2010-12-17 16:02:54.000000000 +0100
+***************
+*** 1049,1055 ****
+  	PERROR(_("E294: Seek error in swap file read"));
+  	return FAIL;
+      }
+!     if ((unsigned)vim_read(mfp->mf_fd, hp->bh_data, size) != size)
+      {
+  	PERROR(_("E295: Read error in swap file"));
+  	return FAIL;
+--- 1049,1055 ----
+  	PERROR(_("E294: Seek error in swap file read"));
+  	return FAIL;
+      }
+!     if ((unsigned)read_eintr(mfp->mf_fd, hp->bh_data, size) != size)
+      {
+  	PERROR(_("E295: Read error in swap file"));
+  	return FAIL;
+***************
+*** 1168,1174 ****
+      }
+  #endif
+  
+!     if ((unsigned)vim_write(mfp->mf_fd, data, size) != size)
+  	result = FAIL;
+  
+  #ifdef FEAT_CRYPT
+--- 1168,1174 ----
+      }
+  #endif
+  
+!     if ((unsigned)write_eintr(mfp->mf_fd, data, size) != size)
+  	result = FAIL;
+  
+  #ifdef FEAT_CRYPT
+*** ../vim-7.3.082/src/memline.c	2010-12-08 13:16:58.000000000 +0100
+--- src/memline.c	2010-12-17 15:46:49.000000000 +0100
+***************
+*** 2062,2068 ****
+      fd = mch_open((char *)fname, O_RDONLY | O_EXTRA, 0);
+      if (fd >= 0)
+      {
+! 	if (read(fd, (char *)&b0, sizeof(b0)) == sizeof(b0))
+  	{
+  	    if (STRNCMP(b0.b0_version, "VIM 3.0", 7) == 0)
+  	    {
+--- 2062,2068 ----
+      fd = mch_open((char *)fname, O_RDONLY | O_EXTRA, 0);
+      if (fd >= 0)
+      {
+! 	if (read_eintr(fd, &b0, sizeof(b0)) == sizeof(b0))
+  	{
+  	    if (STRNCMP(b0.b0_version, "VIM 3.0", 7) == 0)
+  	    {
+***************
+*** 4392,4398 ****
+  		fd = mch_open((char *)fname, O_RDONLY | O_EXTRA, 0);
+  		if (fd >= 0)
+  		{
+! 		    if (read(fd, (char *)&b0, sizeof(b0)) == sizeof(b0))
+  		    {
+  			/*
+  			 * If the swapfile has the same directory as the
+--- 4392,4398 ----
+  		fd = mch_open((char *)fname, O_RDONLY | O_EXTRA, 0);
+  		if (fd >= 0)
+  		{
+! 		    if (read_eintr(fd, &b0, sizeof(b0)) == sizeof(b0))
+  		    {
+  			/*
+  			 * If the swapfile has the same directory as the
+*** ../vim-7.3.082/src/os_unix.c	2010-10-20 19:17:43.000000000 +0200
+--- src/os_unix.c	2010-12-17 16:17:43.000000000 +0100
+***************
+*** 4454,4460 ****
+  		    ++noread_cnt;
+  		    while (RealWaitForChar(fromshell_fd, 10L, NULL))
+  		    {
+! 			len = read(fromshell_fd, (char *)buffer
+  # ifdef FEAT_MBYTE
+  				+ buffer_off, (size_t)(BUFLEN - buffer_off)
+  # else
+--- 4454,4460 ----
+  		    ++noread_cnt;
+  		    while (RealWaitForChar(fromshell_fd, 10L, NULL))
+  		    {
+! 			len = read_eintr(fromshell_fd, buffer
+  # ifdef FEAT_MBYTE
+  				+ buffer_off, (size_t)(BUFLEN - buffer_off)
+  # else
+*** ../vim-7.3.082/src/undo.c	2010-11-03 19:32:36.000000000 +0100
+--- src/undo.c	2010-12-17 15:39:24.000000000 +0100
+***************
+*** 1386,1392 ****
+  		char_u	mbuf[UF_START_MAGIC_LEN];
+  		int	len;
+  
+! 		len = vim_read(fd, mbuf, UF_START_MAGIC_LEN);
+  		close(fd);
+  		if (len < UF_START_MAGIC_LEN
+  		      || memcmp(mbuf, UF_START_MAGIC, UF_START_MAGIC_LEN) != 0)
+--- 1386,1392 ----
+  		char_u	mbuf[UF_START_MAGIC_LEN];
+  		int	len;
+  
+! 		len = read_eintr(fd, mbuf, UF_START_MAGIC_LEN);
+  		close(fd);
+  		if (len < UF_START_MAGIC_LEN
+  		      || memcmp(mbuf, UF_START_MAGIC, UF_START_MAGIC_LEN) != 0)
+*** ../vim-7.3.082/src/vim.h	2010-12-02 16:01:23.000000000 +0100
+--- src/vim.h	2010-12-17 14:55:04.000000000 +0100
+***************
+*** 1642,1647 ****
+--- 1642,1652 ----
+  # define USE_INPUT_BUF
+  #endif
+  
++ #ifndef EINTR
++ # define read_eintr(fd, buf, count) vim_read((fd), (buf), (count))
++ # define write_eintr(fd, buf, count) vim_write((fd), (buf), (count))
++ #endif
++ 
+  #ifdef MSWIN
+  /* On MS-Windows the third argument isn't size_t.  This matters for Win64,
+   * where sizeof(size_t)==8, not 4 */
+*** ../vim-7.3.082/src/version.c	2010-12-17 12:19:14.000000000 +0100
+--- src/version.c	2010-12-17 16:10:58.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     83,
+  /**/
+
+-- 
+How To Keep A Healthy Level Of Insanity:
+9. As often as possible, skip rather than walk.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,346 @@
+From 89e4767148110a5566e463a03b3ed594276b7da0 Mon Sep 17 00:00:00 2001
+Message-Id: <89e4767148110a5566e463a03b3ed594276b7da0.1317166378.git.kevin.kofler@chello.at>
+From: Kevin Kofler <kevin.kofler@chello.at>
+Date: Wed, 17 Aug 2011 04:54:37 +0200
+Subject: [PATCH] Implement automatic scanning of source code for required
+ data engines.
+
+For packages in scripting languages and distributed through OCS, this is fully
+automatic and triggered from Package::installPackage. If an
+X-Plasma-RequiredDataEngines entry is present in the .desktop file (even if
+empty), the dependency extraction is not run and the explicitly provided
+information is trusted instead.
+
+For native distribution packages, we ship a tool called
+plasma-dataengine-depextractor which can be run at any time during the build
+process and which adds the dependency information to the relevant .desktop file.
+
+Authors of plasmoids are encouraged to run plasma-dataengine-depextractor and/or
+fill in X-Plasma-RequiredDataEngines manually. (Please note that the list is
+expected to be comma-separated.)
+---
+ plasma/CMakeLists.txt                 |   15 ++++
+ plasma/depextractor/depextractor.cpp  |  125 +++++++++++++++++++++++++++++++++
+ plasma/package.cpp                    |   11 +++
+ plasma/private/componentinstaller.cpp |   71 +++++++++++++++++++
+ plasma/private/componentinstaller_p.h |   17 ++++-
+ 5 files changed, 238 insertions(+), 1 deletions(-)
+
+diff --git a/plasma/CMakeLists.txt b/plasma/CMakeLists.txt
+index f929967..9a760ef 100644
+--- a/plasma/CMakeLists.txt
++++ b/plasma/CMakeLists.txt
+@@ -304,6 +304,18 @@ set_target_properties(plasma PROPERTIES
+ 
+ install(TARGETS plasma EXPORT kdelibsLibraryTargets ${INSTALL_TARGETS_DEFAULT_ARGS})
+ 
++if(NOT PLASMA_NO_PACKAGEKIT)
++    # we need a copy of the component installer because libplasma does not export it
++    # plus, this avoids depending on GUI stuff in this command-line utility
++    set(plasma_dataengine_depextractor_SRCS depextractor/depextractor.cpp
++                                            private/componentinstaller.cpp)
++    kde4_add_executable(plasma-dataengine-depextractor
++                        ${plasma_dataengine_depextractor_SRCS})
++    set_target_properties(plasma-dataengine-depextractor PROPERTIES
++                          COMPILE_FLAGS -DPLASMA_COMPONENTINSTALLER_NO_QWIDGET=1)
++    target_link_libraries(plasma-dataengine-depextractor ${KDE4_KDECORE_LIBS})
++endif(NOT PLASMA_NO_PACKAGEKIT)
++
+ 
+ ########### install files ###############
+ 
+@@ -460,3 +472,6 @@ install(FILES data/operations/dataengineservice.operations DESTINATION ${DATA_IN
+ install(FILES data/operations/plasmoidservice.operations DESTINATION ${DATA_INSTALL_DIR}/plasma/services)
+ install(FILES data/operations/storage.operations DESTINATION ${DATA_INSTALL_DIR}/plasma/services)
+ 
++if(NOT PLASMA_NO_PACKAGEKIT)
++    install(TARGETS plasma-dataengine-depextractor DESTINATION ${BIN_INSTALL_DIR})
++endif(NOT PLASMA_NO_PACKAGEKIT)
+diff --git a/plasma/depextractor/depextractor.cpp b/plasma/depextractor/depextractor.cpp
+new file mode 100644
+index 0000000..c489de7
+--- /dev/null
++++ b/plasma/depextractor/depextractor.cpp
+@@ -0,0 +1,125 @@
++/* Plasma Data Engine dependency extractor
++   Copyright (C) 2011 Kevin Kofler <kevin.kofler@chello.at>
++
++   This program is free software: you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation, either version 2 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>. */
++
++#include <QCoreApplication>
++#include <QTextStream>
++#include <QFileInfo>
++#include <QDir>
++
++#include <cstdio>
++
++#include <kaboutdata.h>
++#include <kcmdlineargs.h>
++#include <kdesktopfile.h>
++#include <kconfiggroup.h>
++
++#include "private/componentinstaller_p.h"
++
++static QString scriptingApi(const QString &desktopFile)
++{
++    KDesktopFile desktop(desktopFile);
++    KConfigGroup desktopGroup = desktop.desktopGroup();
++    if (desktopGroup.readEntry("X-KDE-ServiceTypes", QStringList())
++                      .contains("Plasma/ScriptEngine")
++        || desktopGroup.readEntry("ServiceTypes", QStringList())
++                         .contains("Plasma/ScriptEngine")) {
++        /* Script engines are always written in C++. Their X-Plasma-API is the
++           API they export, not the language they're written in. */
++        return QString();
++    }
++    return desktopGroup.readEntry("X-Plasma-API", QString());
++}
++
++static void writeDataEngineDependencies(const QStringList &deps,
++                                        const QString &desktopFile)
++{
++    if (!deps.isEmpty()) {
++        KDesktopFile desktop(desktopFile);
++        desktop.desktopGroup().writeEntry("X-Plasma-RequiredDataEngines", deps);
++    }
++}
++
++int main(int argc, char **argv)
++{
++    KAboutData aboutData("plasma-dataengine-depextractor", QByteArray(),
++                        ki18n("Plasma Data Engine dependency extractor"),
++                        "2",
++                        ki18n("Plasma Data Engine dependency extractor"));
++    aboutData.addAuthor(ki18n("Kevin Kofler"), ki18n("Author"),
++                        "kevin.kofler@chello.at");
++
++    KCmdLineArgs::init(argc, argv, &aboutData);
++    KCmdLineOptions options;
++    options.add("+[path]",
++                ki18n("Source path (default: .)"));
++    options.add("+[file]",
++                ki18n(".desktop rel. to path (default: metadata.desktop)")
++               );
++    KCmdLineArgs::addCmdLineOptions(options);
++
++    QCoreApplication *app = new QCoreApplication(KCmdLineArgs::qtArgc(),
++                                                 KCmdLineArgs::qtArgv());
++
++    KCmdLineArgs *args = KCmdLineArgs::parsedArgs();
++
++    int exitCode = 0;
++
++    QString path, desktopFile;
++    int argCount = args->count();
++    switch (argCount) {
++        case 0:
++            path = ".";
++            desktopFile = "metadata.desktop";
++            break;
++        case 1:
++            path = args->arg(0);
++            desktopFile = "metadata.desktop";
++            break;
++        case 2:
++            path = args->arg(0);
++            desktopFile = args->arg(1);
++            break;
++        default:
++        {
++            QTextStream err(stderr, QIODevice::WriteOnly | QIODevice::Text);
++            err << i18n("Expected at most 2 arguments, but %1 given", argCount)
++                << endl;
++            exitCode = 1;
++            break;
++        }
++    }
++
++    if (!exitCode) {
++        if (QFileInfo(desktopFile).isRelative())
++            desktopFile = QDir(path).absoluteFilePath(desktopFile);
++
++        if (QFileInfo(desktopFile).exists()) {
++            writeDataEngineDependencies(Plasma::ComponentInstaller::self()
++                                          ->extractDataEngineDependencies(
++                                              path,
++                                              scriptingApi(desktopFile)),
++                                        desktopFile);
++        } else {
++            QTextStream err(stderr, QIODevice::WriteOnly | QIODevice::Text);
++            err << i18n("Desktop file \"%1\" not found", desktopFile) << endl;
++            exitCode = 1;
++        }
++    }
++
++    args->clear();
++    delete app;
++    return exitCode;
++}
+diff --git a/plasma/package.cpp b/plasma/package.cpp
+index 0a45c87..131f204 100644
+--- a/plasma/package.cpp
++++ b/plasma/package.cpp
+@@ -631,6 +631,17 @@ bool Package::installPackage(const QString &package,
+         }
+     }
+     QStringList requiredDataEngines = meta.requiredDataEngines();
++    if (requiredDataEngines.isEmpty()) {
++        // check whether this was explicitly specified as empty
++        QString metaPath = targetName + "/metadata.desktop";
++        KDesktopFile df(metaPath);
++        KConfigGroup cg = df.desktopGroup();
++        if (!cg.hasKey("X-Plasma-RequiredDataEngines")) {
++            // not specified at all, try running the dependency extraction
++            requiredDataEngines = ComponentInstaller::self()->extractDataEngineDependencies(targetName,
++                                                                                            requiredScriptEngine);
++        }
++    }
+     if (!requiredDataEngines.isEmpty()) {
+         QStringList knownDataEngines = DataEngineManager::self()->listAllEngines(meta.application());
+         foreach (const QString &requiredDataEngine, requiredDataEngines) {
+diff --git a/plasma/private/componentinstaller.cpp b/plasma/private/componentinstaller.cpp
+index 870667f..087d1c6 100644
+--- a/plasma/private/componentinstaller.cpp
++++ b/plasma/private/componentinstaller.cpp
+@@ -28,6 +28,10 @@
+ #include <QWidget>
+ #include <QLatin1String>
+ #include <QStringList>
++#include <QTextStream>
++#include <QFile>
++#include <QDirIterator>
++#include <QRegExp>
+ #endif
+ 
+ namespace Plasma
+@@ -85,9 +89,13 @@ void ComponentInstaller::installMissingComponent(const QString &type,
+     // We don't check packageKit.isValid() because the service is activated on
+     // demand, so it will show up as "not valid".
+     WId wid = 0;
++#ifndef PLASMA_COMPONENTINSTALLER_NO_QWIDGET
+     if (parent) {
+         wid = parent->winId();
+     }
++#else
++    Q_UNUSED(parent);
++#endif
+     QStringList resources;
+     resources.append(searchString);
+     packageKit.asyncCall(QLatin1String("InstallResources"), (unsigned int) wid,
+@@ -100,4 +108,67 @@ void ComponentInstaller::installMissingComponent(const QString &type,
+ #endif
+ }
+ 
++QStringList ComponentInstaller::extractDataEngineDependencies(const QString &path,
++                                                              const QString &api)
++{
++    QStringList deps;
++
++#ifdef PLASMA_ENABLE_PACKAGEKIT_SUPPORT
++    QStringList nameFilters;
++    QRegExp searchRegExp("dataEngine *\\( *\"([^\"]+)\" *\\)");
++    if (api.isEmpty()) {
++        // no script engine API, this is native C++ code
++        nameFilters.append("*.cpp");
++        nameFilters.append("*.cxx");
++        nameFilters.append("*.cc");
++        nameFilters.append("*.C");
++        nameFilters.append("*.h");
++        nameFilters.append("*.hpp");
++        nameFilters.append("*.hxx");
++        nameFilters.append("*.hh");
++        nameFilters.append("*.H");
++    } else if (api == "declarativeappletscript") {
++        nameFilters.append("*.qml");
++        searchRegExp = QRegExp("(?:^\\s*engine:\\s*|dataEngine *\\( *)\"([^\"]+)\"");
++    } else if (api == "javascript") {
++        nameFilters.append("*.js");
++    } else if (api == "python") {
++        nameFilters.append("*.py");
++        searchRegExp = QRegExp("dataEngine *\\( *[\'\"]([^\'\"]+)[\'\"] *\\)");
++    } else if (api == "ruby-script") {
++        nameFilters.append("*.rb");
++        searchRegExp = QRegExp("dataEngine *\\( *[\'\"]([^\'\"]+)[\'\"] *\\)");
++    } else {
++        // dependency extraction not supported for this API
++        return deps;
++    }
++
++    QDirIterator it(path, nameFilters, QDir::Files | QDir::CaseSensitive,
++                    QDirIterator::Subdirectories
++                      | QDirIterator::FollowSymlinks);
++    while (it.hasNext()) {
++        QFile file(it.next());
++        file.open(QIODevice::ReadOnly | QIODevice::Text);
++        QTextStream stream(&file);
++        QString line;
++        while (!(line = stream.readLine()).isNull()) {
++             int column = 0;
++             while ((column = searchRegExp.indexIn(line, column)) != -1) {
++                 QString dep = searchRegExp.cap(1);
++                 if (!deps.contains(dep)) {
++                     deps.append(dep);
++                 }
++                 column += searchRegExp.matchedLength();
++             }
++        }
++        file.close();
++    }
++#else
++    Q_UNUSED(path);
++    Q_UNUSED(api);
++#endif
++
++    return deps;
++}
++
+ } // namespace Plasma
+diff --git a/plasma/private/componentinstaller_p.h b/plasma/private/componentinstaller_p.h
+index f85cbb6..d0d9c75 100644
+--- a/plasma/private/componentinstaller_p.h
++++ b/plasma/private/componentinstaller_p.h
+@@ -20,7 +20,7 @@
+ #ifndef PLASMA_COMPONENTINSTALLER_H
+ #define PLASMA_COMPONENTINSTALLER_H
+ 
+-class QString;
++#include <QStringList>
+ class QWidget;
+ 
+ namespace Plasma
+@@ -76,6 +76,21 @@ class ComponentInstaller
+         void installMissingComponent(const QString &type, const QString &name,
+                                      QWidget *parent = 0, bool force = false);
+ 
++        /**
++         * Extracts the list of required data engines from source code.
++         *
++         * If the scripting API is not supported for dependency extraction or
++         * if Plasma was compiled without support for missing component
++         * installation, an empty list of dependencies is returned.
++         *
++         * @param path the path containing the source code
++         * @param api the scripting API used;
++         *            if empty (the default), assumes the native C++ API
++         */
++        QStringList extractDataEngineDependencies(const QString &path,
++                                                  const QString &api
++                                                    = QString());
++
+     private:
+         /**
+          * Default constructor. The singleton method self() is the
+-- 
+1.7.6.2
+

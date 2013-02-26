@@ -1,0 +1,124 @@
+From libc-alpha-return-22754-pasky=ucw.cz@sourceware.org  Tue Mar 16 00:47:00 2010
+Return-Path: <libc-alpha-return-22754-pasky=ucw.cz@sourceware.org>
+X-Original-To: pasky@pasky.or.cz
+Delivered-To: pasky@pasky.or.cz
+Received: from nikam.ms.mff.cuni.cz (nikam-dmz.ms.mff.cuni.cz [195.113.20.16])
+	by machine.or.cz (Postfix) with ESMTPS id C1B8586202A
+	for <pasky@pasky.or.cz>; Tue, 16 Mar 2010 00:47:00 +0100 (CET)
+Received: by nikam.ms.mff.cuni.cz (Postfix)
+	id 9CDEC9AC7A4; Tue, 16 Mar 2010 00:47:00 +0100 (CET)
+Delivered-To: pasky@kam.mff.cuni.cz
+Received: from jabberwock.ucw.cz (jabberwock.ucw.cz [89.250.246.4])
+	by nikam.ms.mff.cuni.cz (Postfix) with ESMTP id 99F0E9AC77B
+	for <pasky@kam.mff.cuni.cz>; Tue, 16 Mar 2010 00:47:00 +0100 (CET)
+Received: from sourceware.org (server1.sourceware.org [209.132.180.131])
+	by jabberwock.ucw.cz (Postfix) with SMTP id 14E1ACF040
+	for <pasky@ucw.cz>; Tue, 16 Mar 2010 00:46:59 +0100 (CET)
+Received: (qmail 18956 invoked by alias); 15 Mar 2010 23:46:58 -0000
+Delivered-To: moderator for libc-alpha@sourceware.org
+Received: (qmail 15843 invoked by uid 22791); 15 Mar 2010 17:23:15 -0000
+X-SWARE-Spam-Status: No, hits=-2.6 required=5.0
+	tests=BAYES_00
+X-Spam-Check-By: sourceware.org
+Message-ID: <4B9E6CFA.7020002@riot.org>
+Date: Mon, 15 Mar 2010 18:23:06 +0100
+From: Sebastian Kienzl <seb@riot.org>
+User-Agent: Thunderbird 2.0.0.23 (Windows/20090812)
+MIME-Version: 1.0
+To: libc-alpha@sourceware.org
+Subject: Reloading of /etc/resolv.conf
+Content-Type: multipart/mixed;
+ boundary="------------060407080409020101000002"
+Mailing-List: contact libc-alpha-help@sourceware.org; run by ezmlm
+Precedence: bulk
+List-Id: <libc-alpha.sourceware.org>
+List-Unsubscribe: <mailto:libc-alpha-unsubscribe-pasky=ucw.cz@sourceware.org>
+List-Subscribe: <mailto:libc-alpha-subscribe@sourceware.org>
+List-Archive: <http://sourceware.org/ml/libc-alpha/>
+List-Post: <mailto:libc-alpha@sourceware.org>
+List-Help: <mailto:libc-alpha-help@sourceware.org>, <http://sourceware.org/ml/#faqs>
+Sender: libc-alpha-owner@sourceware.org
+Delivered-To: mailing list libc-alpha@sourceware.org
+
+This is a multi-part message in MIME format.
+--------------060407080409020101000002
+Content-Type: text/plain; charset=ISO-8859-15; format=flowed
+Content-Transfer-Encoding: 7bit
+
+Hello!
+
+There's a patch in the wild against the resolver which makes it reload
+/etc/resolv.conf on change, see
+http://sources.redhat.com/ml/libc-alpha/2004-09/msg00130.html
+
+However, this patch actually doesn't work properly for multi-threaded
+programs, as only one thread will notice the change and refresh its
+resolver state. I've attached a proper patch. It's for 2.5 but it should
+work with current versions, too.
+
+Even though the patch may not be interesting for upstream, I decided to
+let you know about this problem, since the mentioned patch seems to be
+used by at least Debian and Ubuntu.
+
+Regards,
+Seb.
+
+
+
+--------------060407080409020101000002
+Content-Type: text/plain;
+ name="glibc-2.5-resolvconf.patch"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline;
+ filename="glibc-2.5-resolvconf.patch"
+
+diff -ur resolv.orig/res_libc.c resolv/res_libc.c
+--- resolv.orig/res_libc.c	2005-11-01 01:06:40.000000000 +0100
++++ resolv/res_libc.c	2010-03-15 14:13:18.000000000 +0100
+@@ -22,7 +22,7 @@
+ #include <arpa/nameser.h>
+ #include <resolv.h>
+ #include <bits/libc-lock.h>
+-
++#include <sys/stat.h>
+ 
+ /* The following bit is copied from res_data.c (where it is #ifdef'ed
+    out) since res_init() should go into libc.so but the rest of that
+@@ -89,12 +89,34 @@
+ 	return (__res_vinit(&_res, 1));
+ }
+ 
++static time_t resconf_mtime;
++__libc_lock_define_initialized (static, resconf_mtime_lock);
++
++/* Check if the modification time of resolv.conf has changed.
++   If so, have all threads re-initialize their resolver states */
++static void
++__res_check_resconf (void)
++{
++	struct stat statbuf;
++	if (stat (_PATH_RESCONF, &statbuf) == 0) {
++		__libc_lock_lock (resconf_mtime_lock);
++		if (statbuf.st_mtime != resconf_mtime) {
++			resconf_mtime = statbuf.st_mtime;
++			atomicinclock (lock);
++			atomicinc (__res_initstamp);
++			atomicincunlock (lock);
++		}
++		__libc_lock_unlock (resconf_mtime_lock);
++	}
++}
++
+ /* Initialize resp if RES_INIT is not yet set or if res_init in some other
+    thread requested re-initializing.  */
+ int
+ __res_maybe_init (res_state resp, int preinit)
+ {
+ 	if (resp->options & RES_INIT) {
++		__res_check_resconf ();
+ 		if (__res_initstamp != resp->_u._ext.initstamp) {
+ 			if (resp->nscount > 0)
+ 				__res_iclose (resp, true);
+
+
+--------------060407080409020101000002--

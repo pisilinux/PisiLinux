@@ -1,0 +1,100 @@
+From 113d6b31623db33fbea65e586f5bfaf1ea1c8d30 Mon Sep 17 00:00:00 2001
+From: Kamil Dudka <kdudka@redhat.com>
+Date: Wed, 11 May 2011 16:46:32 +0200
+Subject: [PATCH 2/4] findutils-4.4.2-autofs.patch
+
+---
+ find/fstype.c |   69 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 69 insertions(+), 0 deletions(-)
+
+diff --git a/find/fstype.c b/find/fstype.c
+index c6dbe8b..9cbf620 100644
+--- a/find/fstype.c
++++ b/find/fstype.c
+@@ -205,7 +205,72 @@ must_read_fs_list (bool need_fs_type)
+   return entries;
+ }
+ 
++/* Return the device number from MOUNT_OPTIONS, if possible.
++   Otherwise return (dev_t) -1. Taken from 'mountlist' module
++   from gnulib.  */
++static dev_t
++dev_from_mount_options (char const *mount_options)
++{
++  /* GNU/Linux allows file system implementations to define their own
++     meaning for "dev=" mount options, so don't trust the meaning
++     here.  */
++# ifndef __linux__
++
++  static char const dev_pattern[] = ",dev=";
++  char const *devopt = strstr (mount_options, dev_pattern);
++
++  if (devopt)
++    {
++      char const *optval = devopt + sizeof dev_pattern - 1;
++      char *optvalend;
++      unsigned long int dev;
++      errno = 0;
++      dev = strtoul (optval, &optvalend, 16);
++      if (optval != optvalend
++	  && (*optvalend == '\0' || *optvalend == ',')
++	  && ! (dev == ULONG_MAX && errno == ERANGE)
++	  && dev == (dev_t) dev)
++	return dev;
++    }
+ 
++# endif
++  (void) mount_options;
++  return -1;
++}
++
++/* Return true if the file described by STATP is on autofs file system
++   and call set_fstype_devno () if the autofs file system is matched.  */
++static bool
++filesystem_check_autofs (const struct stat *statp)
++{
++  FILE *fp;
++  struct mntent *mnt;
++  struct mount_entry entry;
++  bool match = false;
++
++  /* open /proc/mounts because autofs is not listed in /etc/mtab */
++  fp = setmntent ("/proc/mounts", "r");
++  if (fp == NULL)
++    return false;
++
++  while ((mnt = getmntent (fp)))
++    {
++      if (0 != strcmp ("autofs", mnt->mnt_type))
++	  continue;
++
++      entry.me_mountdir = mnt->mnt_dir;
++      entry.me_dev = dev_from_mount_options (mnt->mnt_opts);
++      set_fstype_devno (&entry);
++      if (entry.me_dev == statp->st_dev)
++	{
++	  match = true;
++	  break;
++	}
++    }
++
++  endmntent (fp);
++  return match;
++}
+ 
+ /* Return a newly allocated string naming the type of file system that the
+    file PATH, described by STATP, is on.
+@@ -244,6 +309,10 @@ file_system_type_uncached (const struct stat *statp, const char *path)
+     }
+   free_file_system_list (entries);
+ 
++  /* check for autofs */
++  if (type == NULL && filesystem_check_autofs (statp))
++    type = xstrdup ("autofs");
++
+   /* Don't cache unknown values. */
+   fstype_known = (type != NULL);
+ 
+-- 
+1.7.4.4
+

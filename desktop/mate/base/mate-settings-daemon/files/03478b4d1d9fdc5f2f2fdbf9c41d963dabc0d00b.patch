@@ -1,0 +1,181 @@
+From 03478b4d1d9fdc5f2f2fdbf9c41d963dabc0d00b Mon Sep 17 00:00:00 2001
+From: Stefano Karapetsas <stefano@karapetsas.com>
+Date: Mon, 03 Sep 2012 14:31:08 +0000
+Subject: port msd-housekeeping-manager.c to gsettings
+
+---
+diff --git a/plugins/housekeeping/msd-housekeeping-manager.c b/plugins/housekeeping/msd-housekeeping-manager.c
+index 6cb3353..2fbdf14 100644
+--- a/plugins/housekeeping/msd-housekeeping-manager.c
++++ b/plugins/housekeeping/msd-housekeeping-manager.c
+@@ -19,7 +19,6 @@
+ 
+ #include "config.h"
+ 
+-#include <mateconf/mateconf-client.h>
+ #include <gio/gio.h>
+ #include <glib/gstdio.h>
+ #include <string.h>
+@@ -35,17 +34,17 @@
+ 
+ 
+ /* Thumbnail cleaner */
+-#define MATECONF_THUMB_AGE "/desktop/mate/thumbnail_cache/maximum_age"
++#define GSETTINGS_THUMB_SCHEMA "org.mate.thumbnail-cache"
++#define GSETTINGS_THUMB_AGE "maximum-age"
+ #define DEFAULT_MAX_AGE_IN_DAYS 180
+-#define MATECONF_THUMB_SIZE "/desktop/mate/thumbnail_cache/maximum_size"
++#define GSETTINGS_THUMB_SIZE "maximum-size"
+ #define DEFAULT_MAX_SIZE_IN_MB 512
+-#define MATECONF_THUMB_BINDING_DIR "/desktop/mate/thumbnail_cache"
+ 
+ 
+ struct MsdHousekeepingManagerPrivate {
+         guint long_term_cb;
+         guint short_term_cb;
+-        guint mateconf_notify;
++        GSettings *settings;
+ };
+ 
+ 
+@@ -156,34 +155,23 @@ sort_file_mtime (ThumbData *file1, ThumbData *file2)
+ 
+ 
+ static int
+-get_mateconf_int_with_default (char *key, int default_value)
++get_gsettings_int_with_default (GSettings *settings, char *key, int default_value)
+ {
+         /* If the key is unset, we use a non-zero default value.
+            A zero value corresponds to an extra-paranoid level
+            of cleaning - it deletes all files. We don't want that
+            as a default condition. */
++        int value = g_settings_get_int (settings, key);
++        
++        if (value == NULL || value == 0)
++            value = default_value;
+ 
+-        MateConfValue  *value;
+-        MateConfClient *client;
+-        int          res;
+-
+-        client = mateconf_client_get_default ();
+-        value = mateconf_client_get (client, key, NULL);
+-        g_object_unref (client);
+-
+-        if (value == NULL || value->type != MATECONF_VALUE_INT) {
+-                res = default_value;
+-        } else {
+-                res = mateconf_value_get_int (value);
+-                mateconf_value_free (value);
+-        }
+-
+-        return res;
++        return value;
+ }
+ 
+ 
+ static void
+-purge_thumbnail_cache (void)
++purge_thumbnail_cache (MsdHousekeepingManager *manager)
+ {
+ 
+         char      *path;
+@@ -218,8 +206,8 @@ purge_thumbnail_cache (void)
+         g_get_current_time (&current_time);
+ 
+         purge_data.now = current_time.tv_sec;
+-        purge_data.max_age = get_mateconf_int_with_default (MATECONF_THUMB_AGE, DEFAULT_MAX_AGE_IN_DAYS) * 24 * 60 * 60;
+-        purge_data.max_size = get_mateconf_int_with_default (MATECONF_THUMB_SIZE, DEFAULT_MAX_SIZE_IN_MB) * 1024 * 1024;
++        purge_data.max_age = get_gsettings_int_with_default (manager->priv->settings, GSETTINGS_THUMB_AGE, DEFAULT_MAX_AGE_IN_DAYS) * 24 * 60 * 60;
++        purge_data.max_size = get_gsettings_int_with_default (manager->priv->settings, GSETTINGS_THUMB_SIZE, DEFAULT_MAX_SIZE_IN_MB) * 1024 * 1024;
+         purge_data.total_size = 0;
+ 
+         if (purge_data.max_age >= 0)
+@@ -243,7 +231,7 @@ purge_thumbnail_cache (void)
+ static gboolean
+ do_cleanup (MsdHousekeepingManager *manager)
+ {
+-        purge_thumbnail_cache ();
++        purge_thumbnail_cache (manager);
+         return TRUE;
+ }
+ 
+@@ -270,32 +258,12 @@ do_cleanup_soon (MsdHousekeepingManager *manager)
+ 
+ 
+ static void
+-bindings_callback (MateConfClient            *client,
+-                   guint                   cnxn_id,
+-                   MateConfEntry             *entry,
+-                   MsdHousekeepingManager *manager)
++bindings_callback (GSettings *settings, gchar *key, MsdHousekeepingManager *manager)
+ {
+         do_cleanup_soon (manager);
+ }
+ 
+ 
+-static guint
+-register_config_callback (MsdHousekeepingManager *manager,
+-                          const char             *path,
+-                          MateConfClientNotifyFunc   func)
+-{
+-        MateConfClient *client = mateconf_client_get_default ();
+-        guint notify;
+-
+-        mateconf_client_add_dir (client, path, MATECONF_CLIENT_PRELOAD_NONE, NULL);
+-        notify = mateconf_client_notify_add (client, path, func, manager, NULL, NULL);
+-
+-        g_object_unref (client);
+-
+-        return notify;
+-}
+-
+-
+ gboolean
+ msd_housekeeping_manager_start (MsdHousekeepingManager *manager,
+                                 GError                **error)
+@@ -305,9 +273,9 @@ msd_housekeeping_manager_start (MsdHousekeepingManager *manager,
+ 
+         msd_ldsm_setup (FALSE);
+ 
+-        manager->priv->mateconf_notify = register_config_callback (manager,
+-                                      MATECONF_THUMB_BINDING_DIR,
+-                                      (MateConfClientNotifyFunc) bindings_callback);
++        manager->priv->settings = g_settings_new (GSETTINGS_THUMB_SCHEMA);
++
++        g_signal_connect (gsettings, "changed", G_CALLBACK (bindings_callback), manager);
+ 
+         /* Clean once, a few minutes after start-up */
+         do_cleanup_soon (manager);
+@@ -329,15 +297,9 @@ msd_housekeeping_manager_stop (MsdHousekeepingManager *manager)
+ 
+         g_debug ("Stopping housekeeping manager");
+ 
+-        if (p->mateconf_notify != 0) {
+-                MateConfClient *client = mateconf_client_get_default ();
+-
+-                mateconf_client_remove_dir (client, MATECONF_THUMB_BINDING_DIR, NULL);
+-                mateconf_client_notify_remove (client, p->mateconf_notify);
+-
+-                g_object_unref (client);
+-                p->mateconf_notify = 0;
+-        }
++        g_signal_handlers_disconnect_by_func (p->settings,
++                                              bindings_callback,
++                                              manager);
+ 
+         if (p->short_term_cb) {
+                 g_source_remove (p->short_term_cb);
+@@ -350,8 +312,8 @@ msd_housekeeping_manager_stop (MsdHousekeepingManager *manager)
+ 
+                 /* Do a clean-up on shutdown if and only if the size or age
+                    limits have been set to paranoid levels (zero) */
+-                if ((get_mateconf_int_with_default (MATECONF_THUMB_AGE, DEFAULT_MAX_AGE_IN_DAYS) == 0) ||
+-                    (get_mateconf_int_with_default (MATECONF_THUMB_SIZE, DEFAULT_MAX_SIZE_IN_MB) == 0)) {
++                if ((get_gsettings_int_with_default (p->settings, GSETTINGS_THUMB_AGE, DEFAULT_MAX_AGE_IN_DAYS) == 0) ||
++                    (get_gsettings_int_with_default (p->settings, GSETTINGS_THUMB_SIZE, DEFAULT_MAX_SIZE_IN_MB) == 0)) {
+                         do_cleanup (manager);
+                 }
+         }
+--
+cgit v0.9.0.3-65-g4555

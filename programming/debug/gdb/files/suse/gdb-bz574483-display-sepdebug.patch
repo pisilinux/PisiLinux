@@ -1,0 +1,73 @@
+http://sourceware.org/ml/gdb-patches/2010-04/msg00055.html
+Subject: [patch] Fix dangling displays in separate debug
+
+[ Backported.  ]
+
+Hi,
+
+gdb.base/solib-display.exp using _separate_ debug info:
+3: c_global = gdbtypes.c:1369: internal-error: check_typedef: Assertion `type' failed.
+A problem internal to GDB has been detected,
+
+This problem was fixed before by:
+	[patch 1/8] Types GC [unloading observer]
+	http://sourceware.org/ml/gdb-patches/2009-05/msg00544.html
+	Re: [patch 3/8] Types GC [display_uses_solib_p to exp_iterate]
+	http://sourceware.org/ml/gdb-patches/2009-07/msg00054.html
+
+but as that patchset is still not in providing this temporary fixup instead.
+
+One may only address that gdb.base/solib-display.exp was testing symbol
+in-objfile while now it tests only symbol in-sepdebug-objfile and no longer
+the in-objfile case.  I find the in-sepdebug-objfile as a superset of
+in-objfile test but I can rework it if anyones addresses this test change.
+
+No regressions on {x86_64,x86_64-m32,i686}-fedora12-linux-gnu.
+
+
+Thanks,
+Jan
+
+
+gdb/
+2010-04-03  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* printcmd.c (display_uses_solib_p): Check also
+	SEPARATE_DEBUG_OBJFILE.
+
+gdb/testsuite/
+2010-04-03  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/solib-display.exp (split solib): New.
+
+--- a/gdb/printcmd.c
++++ b/gdb/printcmd.c
+@@ -1845,7 +1845,10 @@ clear_dangling_display_expressions (stru
+ 
+   for (d = display_chain; d != NULL; d = d->next)
+     if (block_objfile (d->block) == objfile
+-	|| (d->exp && exp_uses_objfile (d->exp, objfile)))
++	|| (d->exp && exp_uses_objfile (d->exp, objfile))
++	|| (objfile->separate_debug_objfile
++	    && (block_objfile (d->block) == objfile->separate_debug_objfile
++		|| (d->exp && exp_uses_objfile (d->exp, objfile->separate_debug_objfile)))))
+       {
+ 	xfree (d->exp);
+ 	d->exp = NULL;
+--- a/gdb/testsuite/gdb.base/solib-display.exp
++++ b/gdb/testsuite/gdb.base/solib-display.exp
+@@ -53,6 +53,13 @@ if { [gdb_compile_shlib ${srcfile_lib} ${binfile_lib} $lib_flags] != ""
+   return -1
+ }
+ 
++set test "split solib"
++if {[gdb_gnu_strip_debug $binfile_lib] != 0} {
++    fail $test
++} else {
++    pass $test
++}
++
+ gdb_exit
+ gdb_start
+ gdb_reinitialize_dir $srcdir/$subdir
+

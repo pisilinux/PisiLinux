@@ -1,0 +1,106 @@
+--- a/pisi/actionsapi/autotools.py	2012-11-07 12:24:57.538569418 +0100
++++ b/pisi/actionsapi/autotools.py	2012-11-07 12:24:57.538569418 +0100
+@@ -26,6 +26,10 @@
+ from pisi.actionsapi.shelltools import can_access_file
+ from pisi.actionsapi.shelltools import unlink
+ from pisi.actionsapi.libtools import gnuconfig_update
++from pisi.actionsapi.shelltools import isDirectory
++from pisi.actionsapi.shelltools import ls
++from pisi.actionsapi.pisitools import dosed
++from pisi.actionsapi.pisitools import removeDir
+ 
+ class ConfigureError(pisi.actionsapi.Error):
+     def __init__(self, value=''):
+@@ -59,6 +63,7 @@
+     if can_access_file('configure'):
+         gnuconfig_update()
+ 
++        prefix = get.emul32prefixDIR() if get.buildTYPE() == "emul32" else get.defaultprefixDIR()
+         args = './configure \
+                 --prefix=/%s \
+                 --build=%s \
+@@ -68,11 +73,14 @@
+                 --sysconfdir=/%s \
+                 --localstatedir=/%s \
+                 --libexecdir=/%s \
+-                %s' % (get.defaultprefixDIR(), \
++                %s' % (prefix, \
+                        get.HOST(), get.manDIR(), \
+                        get.infoDIR(), get.dataDIR(), \
+                        get.confDIR(), get.localstateDIR(), get.libexecDIR(), parameters)
+ 
++        if get.buildTYPE() == "emul32":
++            args += " --libdir=/usr/lib32"
++
+         if system(args):
+             raise ConfigureError(_('Configure failed.'))
+     else:
+@@ -101,6 +109,13 @@
+     if can_access_file(infoDir):
+         unlink(infoDir)
+ 
++def fixpc():
++    ''' fix .pc files in installDIR()/usr/lib32/pkgconfig'''
++    path = "%s/usr/lib32/pkgconfig" % get.installDIR()
++    if isDirectory(path):
++        for f in ls("%s/*.pc" % path):
++            dosed(f, get.emul32prefixDIR(), get.defaultprefixDIR())
++
+ def install(parameters = '', argument = 'install'):
+     '''install source into install directory with given parameters'''
+     args = 'make prefix=%(prefix)s/%(defaultprefix)s \
+@@ -127,6 +142,9 @@
+     else:
+         fixInfoDir()
+ 
++    if get.buildTYPE() == "emul32":
++        fixpc()
++        if isDirectory("%s/emul32" % get.installDIR()): removeDir("/emul32")
+ 
+ def rawInstall(parameters = '', argument = 'install'):
+     '''install source into install directory with given parameters = PREFIX=%s % get.installDIR()'''
+@@ -135,6 +153,10 @@
+     else:
+         fixInfoDir()
+ 
++    if get.buildTYPE() == "emul32":
++        fixpc()
++        if isDirectory("%s/emul32" % get.installDIR()): removeDir("/emul32")
++
+ def aclocal(parameters = ''):
+     '''generates an aclocal.m4 based on the contents of configure.in.'''
+     if system('aclocal %s' % parameters):
+--- a/pisi/actionsapi/get.py	2012-11-07 12:25:13.657568833 +0100
++++ b/pisi/actionsapi/get.py	2012-11-07 12:25:13.657568833 +0100
+@@ -155,6 +155,9 @@
+ def defaultprefixDIR():
+     return dirs.defaultprefix
+ 
++def emul32prefixDIR():
++    return dirs.emul32prefix
++
+ def kdeDIR():
+     return dirs.kde
+ 
+--- a/pisi/actionsapi/variables.py	2012-11-07 12:25:23.721568457 +0100
++++ b/pisi/actionsapi/variables.py	2012-11-07 12:25:23.721568457 +0100
+@@ -81,6 +81,7 @@
+     localstate = 'var'
+     libexec = 'usr/libexec'
+     defaultprefix = 'usr'
++    emul32prefix = 'emul32'
+ 
+     # These should be owned by object not the class. Or else Python
+     # will bug us with NoneType errors because of uninitialized
+--- a/pisi/operations/build.py	2012-11-07 12:24:27.113570529 +0100
++++ b/pisi/operations/build.py	2012-11-07 12:24:27.113570529 +0100
+@@ -394,6 +394,9 @@
+                "SRC_NAME": self.spec.source.name,
+                "SRC_VERSION": self.spec.getSourceVersion(),
+                "SRC_RELEASE": self.spec.getSourceRelease()}
++        if self.build_type == "emul32":
++            env["CC"] = "%s -m32" % os.getenv("CC")
++            env["CXX"] = "%s -m32" % os.getenv("CXX")
+         os.environ.update(env)
+ 
+         # First check icecream, if not found use ccache

@@ -1,0 +1,201 @@
+diff -up tecnoballz-0.92/include/handler_resources.h.sgid tecnoballz-0.92/include/handler_resources.h
+--- tecnoballz-0.92/include/handler_resources.h.sgid	2007-10-09 07:46:24.000000000 +0200
++++ tecnoballz-0.92/include/handler_resources.h	2007-12-21 11:16:40.000000000 +0100
+@@ -42,7 +42,6 @@ class handler_resources:public virtual t
+     static const char *folderdata;
+     static const char *folder_320;
+     static const char *folder_640;
+-    static char *fnamescore;
+     static char tmp_filename[512];
+     static char pathstring[512];
+     static const Uint32 TEXTS_OFFSET = 2048;
+@@ -93,6 +92,8 @@ class handler_resources:public virtual t
+     static const Sint16 *zesinus360;
+     static const Uint32 color_gradations[180];
+ 
++    static char *fnamescore;
++    static int score_fhand;
+   private:
+     /** Size last file loaded in memory */
+     Uint32 last_filesize_loaded;
+diff -up tecnoballz-0.92/src/handler_resources.cc.sgid tecnoballz-0.92/src/handler_resources.cc
+--- tecnoballz-0.92/src/handler_resources.cc.sgid	2007-10-29 14:18:53.000000000 +0100
++++ tecnoballz-0.92/src/handler_resources.cc	2007-12-21 11:16:40.000000000 +0100
+@@ -46,6 +46,7 @@
+ #endif
+ 
+ char * handler_resources::fnamescore = SCOREFILE;
++int handler_resources::score_fhand = -1;
+ const char *
+   handler_resources::folder_640 = "hires/";
+ const char *
+@@ -737,18 +738,54 @@ handler_resources::load_sinus ()
+ char *
+ handler_resources::load_high_score_file ()
+ {
+-  char* filedata = NULL;
++  if (score_fhand == -1)
++    return NULL;
++
++  /* read the size of the file */
++  struct stat sb;
++  if (fstat (score_fhand, &sb))
++    {
++      std::cerr << "(!)handler_resources::load_high_score_file() " <<
++        "can't stat file " << fnamescore
++        << "strerror:" << strerror (errno) << std::endl;
++      return NULL;
++    }
++  /* save filesize */
++  last_filesize_loaded = sb.st_size;
++
++  /* allocate memory require to load the filedata */
++  char *buffer = NULL;
+   try
++  {
++    buffer = new char[sb.st_size];
++  }
++  catch (std::bad_alloc &)
++  {
++    std::cerr << "(!)handler_resources::load_high_score_file() " <<
++      "not enough memory to allocate " <<
++      sb.st_size << " bytes!" << std::endl;
++    throw;
++  }
++
++  /* read the file */
++  if(lseek(score_fhand, 0, SEEK_SET) != 0)
+     {
+-      filedata = load_file (fnamescore, &last_filesize_loaded);
++      std::cerr <<  "(!)handler_resources::load_high_score_file() can't rewind file " <<
++        fnamescore << "strerror:" << strerror (errno) << std::endl;
++      delete buffer;
++      return NULL;
+     }
+-  catch (...)
++
++  if (read (score_fhand, buffer, sb.st_size) != sb.st_size)
+     {
+-       std::cerr << "(!)handler_resources::load_high_score_file() " <<
+-         "can't open the scores files!" << std::endl;
+-       filedata = NULL;
++      std::cerr << "(!)handler_resources::load_high_score_file() " <<
++        "can't read file " << fnamescore
++        << "strerror:" << strerror (errno) << std::endl;
++      delete buffer;
++      return NULL;
+     }
+-  return filedata;
++
++  return buffer;
+ }
+ 
+ /* 
+@@ -759,25 +796,18 @@ handler_resources::load_high_score_file 
+ void
+ handler_resources::save_high_score_file (char *buffer, Uint32 size)
+ {
+-#ifdef WIN32
+-  /* set umask so that files are group-writable */
+-  _umask (0002);
+-#else
+-  umask (0002);
+-#endif
+-  Sint32 fhand = open (fnamescore, O_WRONLY | O_CREAT, 00666);
+-  if (fhand == -1)
++  if (score_fhand == -1)
++    return;
++
++  if(lseek(score_fhand, 0, SEEK_SET) != 0)
+     {
+-      fprintf (stderr,
+-               "handler_resources::saveScores(): file:%s / error:%s\n",
+-               fnamescore, strerror (errno));
++      fprintf(stderr,
++              "handler_resources::saveScores() can't rewind file %s (%s)\n\n",
++              fnamescore, strerror(errno));
++      return;
+     }
+-#ifdef WIN32
+-  _write (fhand, buffer, size);
+-#else
+-  write (fhand, buffer, size);
+-#endif
+-  if (close (fhand) == -1)
++
++  if(write(score_fhand, buffer, size) != size)
+     {
+       fprintf (stderr,
+                "handler_resources::saveScores(): file:%s / error:%s\n",
+diff -up tecnoballz-0.92/src/main.cc.sgid tecnoballz-0.92/src/main.cc
+--- tecnoballz-0.92/src/main.cc.sgid	2007-11-19 13:44:15.000000000 +0100
++++ tecnoballz-0.92/src/main.cc	2007-12-21 11:17:38.000000000 +0100
+@@ -26,6 +26,8 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+  * MA  02110-1301, USA.
+  */
++#include <unistd.h>
++#include "../include/handler_resources.h"
+ #include "../include/tecnoballz.h"
+ #include "../include/handler_display.h"
+ #include "../include/handler_audio.h"
+@@ -61,6 +63,19 @@ returnToMenu (void)
+ Sint32
+ main (Sint32 arg_count, char **arg_values)
+ {
++  gid_t realgid;
++
++  handler_resources::score_fhand = open(handler_resources::fnamescore, O_RDWR);
++
++  /* Figure out who we really are. */
++  realgid = getgid();
++
++  /* This is where we drop our setuid/setgid privileges. */
++  if (setresgid(-1, realgid, realgid) != 0) {
++      perror("Could not drop setgid privileges.  Aborting.");
++      exit(1);
++  }
++
+   /* GP2X or PSP port */
+ #ifdef TECNOBALLZ_HANDHELD_CONSOLE
+   /* Use atexit() to call the return-to-menu function,
+@@ -71,7 +86,7 @@ main (Sint32 arg_count, char **arg_value
+   configuration.load ();
+   if (!configuration.scan_arguments (arg_count, arg_values))
+     {
+-      return 0;
++      goto main_exit;
+     }
+   if (tecnoballz::is_verbose)
+     {
+@@ -79,7 +94,6 @@ main (Sint32 arg_count, char **arg_value
+         << "TecnoballZ starts! " << std::endl 
+         << "================================" << std::endl;
+     }
+-  Sint32 error = 0;
+   try
+     {
+       tecnoballz::first_init (&configuration);
+@@ -94,6 +108,8 @@ main (Sint32 arg_count, char **arg_value
+     {
+       std::cerr << "fatal error" << std::endl;
+       tecnoballz::release_all_objects (&configuration);
++      if (handler_resources::score_fhand != -1)
++        close(handler_resources::score_fhand);
+       throw;
+     }
+   if (tecnoballz::is_verbose)
+@@ -106,7 +122,12 @@ main (Sint32 arg_count, char **arg_value
+       std::cout << "TecnoballZ is finished! ========" << std::endl;
+     }
+   configuration.save ();
+-  return error;
++
++main_exit:
++  if (handler_resources::score_fhand != -1)
++    close(handler_resources::score_fhand);
++
++  return 0;
+ }
+ 
+ 

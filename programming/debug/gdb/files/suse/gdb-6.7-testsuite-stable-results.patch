@@ -1,0 +1,104 @@
+gdb/testsuite/gdb.base/fileio.c:
+gdb/testsuite/gdb.base/fileio.exp:
+2007-12-08  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/fileio.c (ROOTSUBDIR): New macro.
+	(main): CHDIR into ROOTSUBDIR.  CHOWN ROOTSUBDIR and CHDIR into
+	ROOTSUBDIR if we are being run as root.
+	* gdb.base/fileio.exp: Change the startup and finish cleanup.
+	Change the test file reference to be into the `fileio.dir' directory.
+
+
+sources/gdb/testsuite/gdb.base/dump.exp:
+Found on RHEL-5.s390x.
+
+
+gdb-6.8.50.20090209/gdb/testsuite/gdb.base/auxv.exp:
+random FAIL: gdb.base/auxv.exp: matching auxv data from live and gcore
+
+
+gdb-6.8.50.20090209/gdb/testsuite/gdb.base/annota1.exp:
+frames-invalid can happen asynchronously.
+
+--- ./gdb/testsuite/gdb.base/fileio.c	13 Jun 2006 08:55:22 -0000	1.10
++++ ./gdb/testsuite/gdb.base/fileio.c	8 Dec 2007 16:04:10 -0000
+@@ -58,6 +58,8 @@ system (const char * string);
+ 1) Invalid string/command. -  returns 127.  */
+ static const char *strerrno (int err);
+ 
++#define ROOTSUBDIR "fileio.dir"
++
+ #define FILENAME    "foo.fileio.test"
+ #define RENAMED     "bar.fileio.test"
+ #define NONEXISTANT "nofoo.fileio.test"
+@@ -542,6 +544,37 @@ strerrno (int err)
+ int
+ main ()
+ {
++  /* ROOTSUBDIR is already prepared by fileio.exp.  We use it for easy cleanup
++     (by fileio.exp) if we are run by multiple users in the same directory.  */
++
++  if (chdir (ROOTSUBDIR) != 0)
++    {
++      printf ("chdir " ROOTSUBDIR ": %s\n", strerror (errno));
++      exit (1);
++    }
++
++  /* These tests
++       Open for write but no write permission returns EACCES
++       Unlinking a file in a directory w/o write access returns EACCES
++     fail if we are being run as root - drop the privileges here.  */
++
++  if (geteuid () == 0)
++    {
++      uid_t uid = 99;
++
++      if (chown (".", uid, uid) != 0)
++	{
++	  printf ("chown %d.%d " ROOTSUBDIR ": %s\n", (int) uid, (int) uid,
++		  strerror (errno));
++	  exit (1);
++	}
++      if (setuid (uid) || geteuid () == 0)
++	{
++	  printf ("setuid %d: %s\n", (int) uid, strerror (errno));
++	  exit (1);
++	}
++    }
++
+   /* Don't change the order of the calls.  They partly depend on each other */
+   test_open ();
+   test_write ();
+--- ./gdb/testsuite/gdb.base/fileio.exp	23 Aug 2007 18:14:16 -0000	1.12
++++ ./gdb/testsuite/gdb.base/fileio.exp	8 Dec 2007 16:04:10 -0000
+@@ -46,8 +46,8 @@ if [get_compiler_info ${binfile}] {
+     return -1;
+ }
+ 
+-remote_exec build {sh -xc test\ -r\ dir2.fileio.test\ &&\ chmod\ -f\ +w\ dir2.fileio.test}
+-remote_exec build {sh -xc rm\ -rf\ *.fileio.test}
++remote_exec build {sh -xc rm\ -rf\ fileio.dir}
++remote_exec build {sh -xc mkdir\ -m777\ fileio.dir}
+ 
+ set oldtimeout $timeout
+ set timeout [expr "$timeout + 60"]
+@@ -88,7 +88,7 @@ gdb_test continue \
+ "Opening nonexistant file returns ENOENT"
+ 
+ send_gdb "continue\n" ; gdb_expect -re "$gdb_prompt $"
+-catch "system \"chmod -f -w nowrt.fileio.test\""
++catch "system \"chmod -f -w fileio.dir/nowrt.fileio.test\""
+ 
+ gdb_test continue \
+ "Continuing\\..*open 5:.*EACCES$stop_msg" \
+@@ -252,8 +252,8 @@ gdb_test continue \
+ send_gdb "quit\n"
+ send_gdb "y\n"
+ 
+-remote_exec build {sh -xc test\ -r\ dir2.fileio.test\ &&\ chmod\ -f\ +w\ dir2.fileio.test}
+-remote_exec build {sh -xc rm\ -rf\ *.fileio.test}
++remote_exec build {sh -xc test\ -r\ fileio.dir/dir2.fileio.test\ &&\ chmod\ -f\ +w\ fileio.dir/dir2.fileio.test}
++remote_exec build {sh -xc rm\ -rf\ fileio.dir}
+ 
+ set timeout $oldtimeout
+ return 0

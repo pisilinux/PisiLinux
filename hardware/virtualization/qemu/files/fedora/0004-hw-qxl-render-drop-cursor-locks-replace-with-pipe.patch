@@ -1,0 +1,249 @@
+>From 1a33e5f2fa6de800047517a6f3251dc7191c97b5 Mon Sep 17 00:00:00 2001
+From: Alon Levy <alevy@redhat.com>
+Date: Wed, 16 Mar 2011 16:02:16 +0100
+Subject: [PATCH 4/4] hw/qxl-render: drop cursor locks, replace with pipe
+
+Switching locking protection of ds->cursor_set/cursor_move to moving
+every call to these functions into the iothread and using the ssd->pipe
+to transfer that, adding QXL_SERVER_CURSOR_SET, QXL_SERVER_CURSOR_MOVE.
+
+This is tested with both -vnc :0 -spice and -sdl -spice.
+---
+ hw/qxl-render.c    |   25 +++++++++-----
+ hw/qxl.c           |   90 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ hw/qxl.h           |    4 ++
+ ui/spice-display.h |   13 +++++++-
+ 4 files changed, 122 insertions(+), 10 deletions(-)
+
+diff --git a/hw/qxl-render.c b/hw/qxl-render.c
+index 58965e0..6759edb 100644
+--- a/hw/qxl-render.c
++++ b/hw/qxl-render.c
+@@ -178,7 +178,6 @@ fail:
+     return NULL;
+ }
+ 
+-
+ /* called from spice server thread context only */
+ void qxl_render_cursor(PCIQXLDevice *qxl, QXLCommandExt *ext)
+ {
+@@ -209,18 +208,26 @@ void qxl_render_cursor(PCIQXLDevice *qxl, QXLCommandExt *ext)
+         if (c == NULL) {
+             c = cursor_builtin_left_ptr();
+         }
+-        qemu_mutex_lock_iothread();
+-        qxl->ssd.ds->cursor_define(c);
+-        qxl->ssd.ds->mouse_set(x, y, 1);
+-        qemu_mutex_unlock_iothread();
+-        cursor_put(c);
++        qxl_server_request_cursor_set(qxl, c, x, y);
+         break;
+     case QXL_CURSOR_MOVE:
+         x = cmd->u.position.x;
+         y = cmd->u.position.y;
+-        qemu_mutex_lock_iothread();
+-        qxl->ssd.ds->mouse_set(x, y, 1);
+-        qemu_mutex_unlock_iothread();
++        qxl_server_request_cursor_move(qxl, x, y);
+         break;
+     }
+ }
++
++/* called from iothread only (via qxl.c:pipe_read) */
++void qxl_render_cursor_set(SimpleSpiceDisplay *ssd, QEMUCursor *c, int x, int y)
++{
++    ssd->ds->cursor_define(c);
++    ssd->ds->mouse_set(x, y, 1);
++    cursor_put(c);
++}
++
++/* called from iothread only (via qxl.c:pipe_read) */
++void qxl_render_cursor_move(SimpleSpiceDisplay *ssd, int x, int y)
++{
++    ssd->ds->mouse_set(x, y, 1);
++}
+diff --git a/hw/qxl.c b/hw/qxl.c
+index cf3c938..4c27deb 100644
+--- a/hw/qxl.c
++++ b/hw/qxl.c
+@@ -117,6 +117,27 @@ static QXLMode qxl_modes[] = {
+ #endif
+ };
+ 
++typedef struct __attribute__ ((__packed__)) {
++    QEMUCursor *c;
++    int x;
++    int y;
++} QXLServerCursorSet;
++
++typedef struct __attribute__ ((__packed__)) {
++    int x;
++    int y;
++} QXLServerCursorMove;
++
++typedef struct __attribute__ ((__packed__)) {
++    unsigned char req;
++    QXLServerCursorMove data;
++} QXLServerCursorMoveRequest;
++
++typedef struct __attribute__ ((__packed__)) {
++    unsigned char req;
++    QXLServerCursorSet data;
++} QXLServerCursorSetRequest;
++
+ static PCIQXLDevice *qxl0;
+ 
+ static void qxl_send_events(PCIQXLDevice *d, uint32_t events);
+@@ -337,6 +358,33 @@ static void interface_get_init_info(QXLInstance *sin, QXLDevInitInfo *info)
+ }
+ 
+ /* called from spice server thread context only */
++void qxl_server_request_cursor_set(PCIQXLDevice *qxl, QEMUCursor *c, int x, int y)
++{
++    QXLServerCursorSetRequest req;
++    int r;
++
++    req.req = QXL_SERVER_CURSOR_SET;
++    req.data.c = c;
++    req.data.x = x;
++    req.data.y = y;
++    r = write(qxl->ssd.pipe[1], &req, sizeof(req));
++    assert(r == sizeof(req));
++}
++
++/* called from spice server thread context only */
++void qxl_server_request_cursor_move(PCIQXLDevice *qxl, int x, int y)
++{
++    QXLServerCursorMoveRequest req;
++    int r;
++
++    req.req = QXL_SERVER_CURSOR_MOVE;
++    req.data.x = x;
++    req.data.y = y;
++    r = write(qxl->ssd.pipe[1], &req, sizeof(req));
++    assert(r == sizeof(req));
++}
++
++/* called from spice server thread context only */
+ static int interface_get_command(QXLInstance *sin, struct QXLCommandExt *ext)
+ {
+     PCIQXLDevice *qxl = container_of(sin, PCIQXLDevice, ssd.qxl);
+@@ -1055,12 +1103,37 @@ static void qxl_map(PCIDevice *pci, int region_num,
+     }
+ }
+ 
++static void read_bytes(int fd, void *buf, int len_requested)
++{
++    int len;
++    int total_len = 0;
++
++    do {
++        len = read(fd, buf, len_requested - total_len);
++        if (len < 0) {
++            if (errno == EINTR || errno == EAGAIN) {
++                continue;
++            }
++            perror("qxl: pipe_read: read failed");
++            /* will abort once it's out of the while loop */
++            break;
++        }
++        total_len += len;
++        buf = (uint8_t *)buf + len;
++    } while (total_len < len_requested);
++    assert(total_len == len_requested);
++}
++
+ static void pipe_read(void *opaque)
+ {
+     SimpleSpiceDisplay *ssd = opaque;
+     unsigned char cmd;
+     int len, set_irq = 0;
+     int create_update = 0;
++    int cursor_set = 0;
++    int cursor_move = 0;
++    QXLServerCursorSet cursor_set_data;
++    QXLServerCursorMove cursor_move_data;
+ 
+     while (1) {
+         cmd = 0;
+@@ -1082,6 +1155,17 @@ static void pipe_read(void *opaque)
+         case QXL_SERVER_CREATE_UPDATE:
+             create_update = 1;
+             break;
++        case QXL_SERVER_CURSOR_SET:
++            if (cursor_set == 1) {
++                cursor_put(cursor_set_data.c);
++            }
++            cursor_set = 1;
++            read_bytes(ssd->pipe[0], &cursor_set_data, sizeof(cursor_set_data));
++            break;
++        case QXL_SERVER_CURSOR_MOVE:
++            cursor_move = 1;
++            read_bytes(ssd->pipe[0], &cursor_move_data, sizeof(cursor_move_data));
++            break;
+         default:
+             fprintf(stderr, "%s: unknown cmd %u\n", __FUNCTION__, cmd);
+             abort();
+@@ -1099,6 +1183,12 @@ static void pipe_read(void *opaque)
+     if (set_irq) {
+         qxl_set_irq(container_of(ssd, PCIQXLDevice, ssd));
+     }
++    if (cursor_move) {
++        qxl_render_cursor_move(ssd, cursor_move_data.x, cursor_move_data.y);
++    }
++    if (cursor_set) {
++        qxl_render_cursor_set(ssd, cursor_set_data.c, cursor_set_data.x, cursor_set_data.y);
++    }
+ }
+ 
+ static void qxl_send_events(PCIQXLDevice *d, uint32_t events)
+diff --git a/hw/qxl.h b/hw/qxl.h
+index 701245f..f4f99ec 100644
+--- a/hw/qxl.h
++++ b/hw/qxl.h
+@@ -93,6 +93,8 @@ typedef struct PCIQXLDevice {
+ 
+ /* qxl.c */
+ void *qxl_phys2virt(PCIQXLDevice *qxl, QXLPHYSICAL phys, int group_id);
++void qxl_server_request_cursor_set(PCIQXLDevice *qxl, QEMUCursor *c, int x, int y);
++void qxl_server_request_cursor_move(PCIQXLDevice *qxl, int x, int y);
+ 
+ /* qxl-logger.c */
+ void qxl_log_cmd_cursor(PCIQXLDevice *qxl, QXLCursorCmd *cmd, int group_id);
+@@ -102,3 +104,5 @@ void qxl_log_command(PCIQXLDevice *qxl, const char *ring, QXLCommandExt *ext);
+ void qxl_render_resize(PCIQXLDevice *qxl);
+ void qxl_render_update(PCIQXLDevice *qxl);
+ void qxl_render_cursor(PCIQXLDevice *qxl, QXLCommandExt *ext);
++void qxl_render_cursor_set(SimpleSpiceDisplay *ssd, QEMUCursor *c, int x, int y);
++void qxl_render_cursor_move(SimpleSpiceDisplay *ssd, int x, int y);
+diff --git a/ui/spice-display.h b/ui/spice-display.h
+index 2be6a34..bbfd689 100644
+--- a/ui/spice-display.h
++++ b/ui/spice-display.h
+@@ -31,11 +31,22 @@
+ 
+ #define NUM_SURFACES 1024
+ 
+-/* For commands/requests from server thread to iothread */
++/*
++ * Commands/requests from server thread to iothread.
++ * Note that CREATE_UPDATE is used both with qxl and without it (spice-display)
++ * the others are only used with the qxl device.
++ *
++ * SET_IRQ - just the request is sent (1 byte)
++ * CREATE_UPDATE - jus the request is sent (1 byte)
++ * CURSOR_SET - send QXLServerRequestCursorSet
++ * CURSOR_MOVE - send QXLServerRequestCursorMove
++ */
+ #define QXL_EMPTY_UPDATE ((void *)-1)
+ enum {
+     QXL_SERVER_SET_IRQ = 1,
+     QXL_SERVER_CREATE_UPDATE,
++    QXL_SERVER_CURSOR_SET,
++    QXL_SERVER_CURSOR_MOVE
+ };
+ 
+ struct SimpleSpiceUpdate;
+-- 
+1.7.3.2
+

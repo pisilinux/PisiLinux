@@ -1,0 +1,149 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.507
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.507
+Problem:    When exiting with unsaved changes, selecting an existing file in
+	    the file dialog, there is no dialog to ask whether the existing
+	    file should be overwritten. (Felipe G. Nievinski)
+Solution:   Call check_overwrite() before writing. (Christian Brabandt)
+Files:	    src/ex_cmds.c, src/ex_cmds2.c, src/proto/ex_cmds.pro
+
+
+*** ../vim-7.3.506/src/ex_cmds.c	2012-04-25 16:50:44.000000000 +0200
+--- src/ex_cmds.c	2012-04-25 17:19:53.000000000 +0200
+***************
+*** 25,31 ****
+  static int read_viminfo_up_to_marks __ARGS((vir_T *virp, int forceit, int writing));
+  #endif
+  
+- static int check_overwrite __ARGS((exarg_T *eap, buf_T *buf, char_u *fname, char_u *ffname, int other));
+  static int check_readonly __ARGS((int *forceit, buf_T *buf));
+  #ifdef FEAT_AUTOCMD
+  static void delbuf_msg __ARGS((char_u *name));
+--- 25,30 ----
+***************
+*** 2722,2728 ****
+   * May set eap->forceit if a dialog says it's OK to overwrite.
+   * Return OK if it's OK, FAIL if it is not.
+   */
+!     static int
+  check_overwrite(eap, buf, fname, ffname, other)
+      exarg_T	*eap;
+      buf_T	*buf;
+--- 2721,2727 ----
+   * May set eap->forceit if a dialog says it's OK to overwrite.
+   * Return OK if it's OK, FAIL if it is not.
+   */
+!     int
+  check_overwrite(eap, buf, fname, ffname, other)
+      exarg_T	*eap;
+      buf_T	*buf;
+*** ../vim-7.3.506/src/ex_cmds2.c	2012-03-23 18:39:10.000000000 +0100
+--- src/ex_cmds2.c	2012-04-25 17:24:37.000000000 +0200
+***************
+*** 1489,1494 ****
+--- 1489,1495 ----
+      char_u	buff[DIALOG_MSG_SIZE];
+      int		ret;
+      buf_T	*buf2;
++     exarg_T     ea;
+  
+      dialog_msg(buff, _("Save changes to \"%s\"?"),
+  			(buf->b_fname != NULL) ?
+***************
+*** 1498,1510 ****
+      else
+  	ret = vim_dialog_yesnocancel(VIM_QUESTION, NULL, buff, 1);
+  
+      if (ret == VIM_YES)
+      {
+  #ifdef FEAT_BROWSE
+  	/* May get file name, when there is none */
+  	browse_save_fname(buf);
+  #endif
+! 	if (buf->b_fname != NULL)   /* didn't hit Cancel */
+  	    (void)buf_write_all(buf, FALSE);
+      }
+      else if (ret == VIM_NO)
+--- 1499,1517 ----
+      else
+  	ret = vim_dialog_yesnocancel(VIM_QUESTION, NULL, buff, 1);
+  
++     /* Init ea pseudo-structure, this is needed for the check_overwrite()
++      * function. */
++     ea.append = ea.forceit = FALSE;
++ 
+      if (ret == VIM_YES)
+      {
+  #ifdef FEAT_BROWSE
+  	/* May get file name, when there is none */
+  	browse_save_fname(buf);
+  #endif
+! 	if (buf->b_fname != NULL && check_overwrite(&ea, buf,
+! 				    buf->b_fname, buf->b_ffname, FALSE) == OK)
+! 	    /* didn't hit Cancel */
+  	    (void)buf_write_all(buf, FALSE);
+      }
+      else if (ret == VIM_NO)
+***************
+*** 1532,1538 ****
+  		/* May get file name, when there is none */
+  		browse_save_fname(buf2);
+  #endif
+! 		if (buf2->b_fname != NULL)   /* didn't hit Cancel */
+  		    (void)buf_write_all(buf2, FALSE);
+  #ifdef FEAT_AUTOCMD
+  		/* an autocommand may have deleted the buffer */
+--- 1539,1547 ----
+  		/* May get file name, when there is none */
+  		browse_save_fname(buf2);
+  #endif
+! 		if (buf2->b_fname != NULL && check_overwrite(&ea, buf2,
+! 				  buf2->b_fname, buf2->b_ffname, FALSE) == OK)
+! 		    /* didn't hit Cancel */
+  		    (void)buf_write_all(buf2, FALSE);
+  #ifdef FEAT_AUTOCMD
+  		/* an autocommand may have deleted the buffer */
+*** ../vim-7.3.506/src/proto/ex_cmds.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/ex_cmds.pro	2012-04-25 17:25:47.000000000 +0200
+***************
+*** 23,28 ****
+--- 23,29 ----
+  void ex_update __ARGS((exarg_T *eap));
+  void ex_write __ARGS((exarg_T *eap));
+  int do_write __ARGS((exarg_T *eap));
++ int check_overwrite __ARGS((exarg_T *eap, buf_T *buf, char_u *fname, char_u *ffname, int other));
+  void ex_wnext __ARGS((exarg_T *eap));
+  void do_wqall __ARGS((exarg_T *eap));
+  int not_writing __ARGS((void));
+*** ../vim-7.3.506/src/version.c	2012-04-25 17:10:12.000000000 +0200
+--- src/version.c	2012-04-25 17:17:30.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     507,
+  /**/
+
+-- 
+BROTHER MAYNARD: Armaments Chapter Two Verses Nine to Twenty One.
+ANOTHER MONK:    And St.  Attila raised his hand grenade up on high saying "O
+                 Lord bless this thy hand grenade that with it thou mayest
+                 blow thine enemies to tiny bits, in thy mercy. "and the Lord
+                 did grin and people did feast upon the lambs and sloths and
+                 carp and anchovies and orang-utans and breakfast cereals and
+                 fruit bats and...
+BROTHER MAYNARD: Skip a bit brother ...
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

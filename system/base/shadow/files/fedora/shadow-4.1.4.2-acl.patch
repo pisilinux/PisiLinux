@@ -1,0 +1,121 @@
+diff -up shadow-4.1.4.2/libmisc/copydir.c.acl shadow-4.1.4.2/libmisc/copydir.c
+--- shadow-4.1.4.2/libmisc/copydir.c.acl	2010-04-29 15:55:26.949959971 +0200
++++ shadow-4.1.4.2/libmisc/copydir.c	2010-04-29 15:55:26.956960471 +0200
+@@ -45,6 +45,9 @@
+ #ifdef WITH_SELINUX
+ #include <selinux/selinux.h>
+ #endif
++#include <attr/error_context.h>
++#include <acl/libacl.h>
++
+ static /*@null@*/const char *src_orig;
+ static /*@null@*/const char *dst_orig;
+ 
+@@ -70,7 +73,7 @@ static int copy_symlink (const char *src
+ #endif
+ static int copy_hardlink (const char *src, const char *dst,
+                           struct link_name *lp);
+-static int copy_special (const char *dst,
++static int copy_special (const char *src, const char *dst,
+                          const struct stat *statp, const struct timeval mt[],
+                          long int uid, long int gid);
+ static int copy_file (const char *src, const char *dst,
+@@ -78,6 +81,24 @@ static int copy_file (const char *src, c
+                       long int uid, long int gid);
+ 
+ #ifdef WITH_SELINUX
++
++void error (struct error_context *ctx, const char *fmt, ...)
++{
++        va_list ap;
++ 
++        va_start (ap, fmt);
++        (void) fprintf (stderr, _("%s: "), Prog);
++        if (vfprintf (stderr, fmt, ap) != 0) {
++                (void) fputs (_(": "), stderr);
++        }
++        (void) fprintf (stderr, "%s\n", strerror (errno));
++        va_end (ap);
++}
++
++struct error_context ctx = {
++        error
++};
++
+ /*
+  * selinux_file_context - Set the security context before any file or
+  *                        directory creation.
+@@ -369,7 +390,7 @@ static int copy_entry (const char *src, 
+ 		 */
+ 
+ 		else if (!S_ISREG (sb.st_mode)) {
+-			err = copy_special (dst, &sb, mt, uid, gid);
++			err = copy_special (src, dst, &sb, mt, uid, gid);
+ 		}
+ 
+ 		/*
+@@ -413,6 +434,7 @@ static int copy_dir (const char *src, co
+ 	    || (chown (dst,
+ 	               (uid == - 1) ? statp->st_uid : (uid_t) uid,
+ 	               (gid == - 1) ? statp->st_gid : (gid_t) gid) != 0)
++	    || (perm_copy_file (src, dst, &ctx) != 0)
+ 	    || (chmod (dst, statp->st_mode) != 0)
+ 	    || (copy_tree (src, dst, uid, gid) != 0)
+ 	    || (utimes (dst, mt) != 0)) {
+@@ -514,6 +536,13 @@ static int copy_symlink (const char *src
+ 	    || (lchown (dst,
+ 	                (uid == -1) ? statp->st_uid : (uid_t) uid,
+ 	                (gid == -1) ? statp->st_gid : (gid_t) gid) != 0)) {
++                /* FIXME: there are no modes on symlinks, right?
++                *        ACL could be copied, but this would be much more
++                *        complex than calling perm_copy_file.
++                *        Ditto for Extended Attributes.
++                *        We currently only document that ACL and Extended
++                *        Attributes are not copied.
++                */
+ 		free (oldlink);
+ 		return -1;
+ 	}
+@@ -542,7 +571,7 @@ static int copy_symlink (const char *src
+ static int copy_hardlink (const char *src, const char *dst,
+                           struct link_name *lp)
+ {
+-	/* TODO: selinux needed? */
++	/* TODO: selinux, ACL, Extended Attributes needed? */
+ 
+ 	if (link (lp->ln_name, dst) != 0) {
+ 		return -1;
+@@ -574,7 +603,7 @@ static int copy_hardlink (const char *sr
+  *
+  *	Return 0 on success, -1 on error.
+  */
+-static int copy_special (const char *dst,
++static int copy_special (const char *src, const char *dst,
+                          const struct stat *statp, const struct timeval mt[],
+                          long int uid, long int gid)
+ {
+@@ -628,7 +657,7 @@ static int copy_file (const char *src, c
+ 	    || (fchown (ofd,
+ 	                (uid == -1) ? statp->st_uid : (uid_t) uid,
+ 	                (gid == -1) ? statp->st_gid : (gid_t) gid) != 0)
+-	    || (fchmod (ofd, statp->st_mode & 07777) != 0)) {
++	    || (perm_copy_fd (src, ifd, dst, ofd, &ctx) != 0) ) {
+ 		(void) close (ifd);
+ 		return -1;
+ 	}
+diff -up shadow-4.1.4.2/src/Makefile.in.acl shadow-4.1.4.2/src/Makefile.in
+--- shadow-4.1.4.2/src/Makefile.in.acl	2009-07-24 03:16:00.000000000 +0200
++++ shadow-4.1.4.2/src/Makefile.in	2010-04-29 16:08:34.347960372 +0200
+@@ -430,9 +430,9 @@ su_SOURCES = \
+ 
+ su_LDADD = $(LDADD) $(LIBPAM) $(LIBCRYPT_NOPAM) $(LIBSKEY) $(LIBMD)
+ sulogin_LDADD = $(LDADD) $(LIBCRYPT)
+-useradd_LDADD = $(LDADD) $(LIBPAM_SUID) $(LIBAUDIT) $(LIBSELINUX)
+-userdel_LDADD = $(LDADD) $(LIBPAM_SUID) $(LIBAUDIT) $(LIBSELINUX)
+-usermod_LDADD = $(LDADD) $(LIBPAM_SUID) $(LIBAUDIT) $(LIBSELINUX)
++useradd_LDADD = $(LDADD) $(LIBPAM_SUID) $(LIBAUDIT) $(LIBSELINUX) -lacl
++userdel_LDADD = $(LDADD) $(LIBPAM_SUID) $(LIBAUDIT) $(LIBSELINUX) -lacl
++usermod_LDADD = $(LDADD) $(LIBPAM_SUID) $(LIBAUDIT) $(LIBSELINUX) -lacl
+ vipw_LDADD = $(LDADD) $(LIBSELINUX)
+ all: all-am
+ 

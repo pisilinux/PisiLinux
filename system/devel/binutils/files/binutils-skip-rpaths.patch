@@ -1,0 +1,120 @@
+Index: ld/emultempl/elf32.em
+===================================================================
+--- ld/emultempl/elf32.em.orig	2009-11-23 14:02:48.000000000 +0100
++++ ld/emultempl/elf32.em	2009-11-23 14:03:07.000000000 +0100
+@@ -1394,15 +1394,46 @@ if test x"$LDEMUL_BEFORE_ALLOCATION" !=
+   else
+     ELF_INTERPRETER_SET_DEFAULT=
+   fi
++
++  libpath_nl=
++  for path in $NATIVE_LIB_DIRS; do
++    libpath_nl="$libpath_nl\n$path"
++  done
++
+ fragment <<EOF
+ 
++static int
++gld${EMULATION_NAME}_is_contained (const char *path, const char *dc)
++{
++  while (*dc) 
++    {
++      const char *pc = path;
++
++      while (*dc && *pc && *dc == *pc && *dc != '\n'
++	     && *pc != ':' && *dc != '=') 
++	{
++	  dc++;
++	  pc++;
++	}
++      if ((*pc == 0 || *pc == ':') && (*dc == '\n' || *dc == '=' || *dc == 0))
++	return 1;
++
++      while (*dc && *dc != '\n')
++	dc++;
++      if (*dc == '\n')
++	dc++;
++    }
++
++  return 0;
++}
++
+ /* This is called after the sections have been attached to output
+    sections, but before any sizes or addresses have been set.  */
+ 
+ static void
+ gld${EMULATION_NAME}_before_allocation (void)
+ {
+-  const char *rpath;
++  char *rpath;
+   asection *sinterp;
+ 
+   if (link_info.hash->type == bfd_link_elf_hash_table)
+@@ -1417,7 +1448,66 @@ gld${EMULATION_NAME}_before_allocation (
+      by dynamic linking.  */
+   rpath = command_line.rpath;
+   if (rpath == NULL)
+-    rpath = (const char *) getenv ("LD_RUN_PATH");
++    rpath = getenv ("LD_RUN_PATH");
++
++  if (rpath != NULL && getenv ("PARDUS_IGNORED_RPATHS")) 
++    {
++      char *dirs = 0;
++      FILE *ldso = fopen (getenv ("PARDUS_IGNORED_RPATHS"), "r");
++      if (ldso) 
++	{
++	  off_t endcur = 0;
++	  fseek (ldso, 0, SEEK_END);
++	  endcur = ftell (ldso);
++	  fseek (ldso, 0, SEEK_SET);
++	  dirs = xmalloc (endcur);
++	  if (fread (dirs, 1, endcur, ldso) != (size_t) endcur)
++	    {
++	      free (dirs);
++	      dirs = NULL;
++	    }
++	}
++      if (dirs)
++	{
++	  char *cr;
++	  rpath = xstrdup (rpath);
++	  cr = rpath; /* cursor read */
++
++	  while (*cr) 
++            {
++	      if (gld${EMULATION_NAME}_is_contained (cr, dirs)
++		  || gld${EMULATION_NAME}_is_contained (cr, "$libpath_nl")) 
++	        { 
++		  char *cc = cr, *cw = cr;
++		  while (*cc && *cc != ':')
++		    cc++;
++		  if (*cc == ':') 
++                    {
++		      cc++;
++		      for (; *cc; cc++, cw++)
++		        *cw = *cc;
++                    }
++                  else if (cw > rpath)
++                     cw[-1] = 0;
++
++		  *cw = 0;
++	        } 
++	      else 
++		{
++		  while (*cr && *cr != ':')
++		    cr++;
++		  if (*cr == ':')
++		    cr++;
++		}
++	    }
++	  if (*rpath == '\0') 
++	    {
++	      free (rpath);
++	      rpath = NULL;
++	    }	
++	}
++    }
++
+   if (! (bfd_elf_size_dynamic_sections
+ 	 (link_info.output_bfd, command_line.soname, rpath,
+ 	  command_line.filter_shlib,

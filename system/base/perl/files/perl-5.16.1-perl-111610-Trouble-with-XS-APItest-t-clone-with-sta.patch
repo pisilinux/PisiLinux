@@ -1,0 +1,56 @@
+From 4a808ed163df1057031bc6d085300fe1ef6f57d2 Mon Sep 17 00:00:00 2001
+From: Michael Schroeder <mls@suse.de>
+Date: Fri, 8 Jun 2012 20:29:54 -0700
+Subject: [PATCH] [perl #111610] Trouble with XS-APItest/t/clone-with-stack.t
+
+I ran into a bit of a problem when building perl-5.16.0.
+'make test' showed a segfault in ext/XS-APItest/t/clone-with-stack.t.
+It seems to be caused by accessing already freed memory, it
+segfaults because I have MALLOC_PERTUBE_ set, thus glibc fills
+freed memory with some value.
+
+Digging deeper, it seems like perl_clone() does not fix
+the cx's blk_oldcop element when doing context cloning, thus
+blk_oldcop still points to PL_compiling in the old interp--the
+calling scope for the BEGIN block being the compilation of the
+code surrounding it--and the POPBLOCK done in leavesub will copy
+the data from the old interp to PL_curcop.
+
+After fixing this, it still crashed because interp_dup->Iop was
+zero after the runops_standard() call (which is probably
+correct as the end of the BEGIN block was reached). So I
+also added an if statement that checks the pointer.
+---
+ ext/XS-APItest/APItest.xs | 3 ++-
+ sv.c                      | 1 +
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/ext/XS-APItest/APItest.xs b/ext/XS-APItest/APItest.xs
+index 2c0ee61..69b7066 100644
+--- a/ext/XS-APItest/APItest.xs
++++ b/ext/XS-APItest/APItest.xs
+@@ -3084,7 +3084,8 @@ CODE:
+     PERL_SET_CONTEXT(interp_dup);
+ 
+     /* continue after 'clone_with_stack' */
+-    interp_dup->Iop = interp_dup->Iop->op_next;
++    if (interp_dup->Iop)
++	interp_dup->Iop = interp_dup->Iop->op_next;
+ 
+     /* run with new perl */
+     Perl_runops_standard(interp_dup);
+diff --git a/sv.c b/sv.c
+index 2034c00..fcd76a9 100644
+--- a/sv.c
++++ b/sv.c
+@@ -12312,6 +12312,7 @@ Perl_cx_dup(pTHX_ PERL_CONTEXT *cxs, I32 ix, I32 max, CLONE_PARAMS* param)
+ 	    Perl_croak(aTHX_ "Cloning substitution context is unimplemented");
+ 	}
+ 	else {
++	    ncx->blk_oldcop = (COP*)any_dup(ncx->blk_oldcop, param->proto_perl);
+ 	    switch (CxTYPE(ncx)) {
+ 	    case CXt_SUB:
+ 		ncx->blk_sub.cv		= (ncx->blk_sub.olddepth == 0
+-- 
+1.7.11.4
+

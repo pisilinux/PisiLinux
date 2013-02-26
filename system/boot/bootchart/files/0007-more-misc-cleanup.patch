@@ -1,0 +1,166 @@
+From 33c046d2ba23bbb5c6c4e2a10b63f130793128f9 Mon Sep 17 00:00:00 2001
+From: Michael Meeks <michael.meeks@novell.com>
+Date: Tue, 2 Nov 2010 16:23:15 +0000
+Subject: [PATCH 07/34] more misc cleanup
+
+---
+ pybootchartgui/parsing.py      |   34 +++++++++++++++++-----------------
+ pybootchartgui/process_tree.py |   13 +++++++------
+ 2 files changed, 24 insertions(+), 23 deletions(-)
+
+diff --git a/pybootchartgui/parsing.py b/pybootchartgui/parsing.py
+index c7603c3..fdfdd7e 100644
+--- a/pybootchartgui/parsing.py
++++ b/pybootchartgui/parsing.py
+@@ -70,7 +70,8 @@ class Trace:
+ 
+         self.proc_tree = ProcessTree(writer, self.kernel, self.ps_stats,
+ 				     self.headers.get("profile.process"),
+-				     options.prune, idle, self.taskstats)
++				     options.prune, idle, self.taskstats,
++				     self.parent_map is not None)
+ #       return (state.headers, state.cpu_stats, state.disk_stats, state.mem_stats, proc_tree, times, state.filename)
+ 
+     def valid(self):
+@@ -299,15 +300,14 @@ def _parse_proc_stat_log(file):
+ 			system = float((times[2] + times[5] + times[6]) - (ltimes[2] + ltimes[5] + ltimes[6]))
+ 			idle = float(times[3] - ltimes[3])
+ 			iowait = float(times[4] - ltimes[4])
+-			
++
+ 			aSum = max(user + system + idle + iowait, 1)
+ 			samples.append( CPUSample(time, user/aSum, system/aSum, iowait/aSum) )
+-		
+-		ltimes = times		
++
++		ltimes = times
+ 		# skip the rest of statistics lines
+ 	return samples
+ 
+-		
+ def _parse_proc_disk_stat_log(file, numCpu):
+ 	"""
+ 	Parse file for disk stats, but only look at the whole device, eg. sda,
+@@ -322,19 +322,19 @@ def _parse_proc_disk_stat_log(file, numCpu):
+ 			return False
+ 		disk = linetokens[2]
+ 		return disk_regex_re.match(disk)
+-	
++
+ 	disk_stat_samples = []
+ 
+ 	for time, lines in _parse_timed_blocks(file):
+-		sample = DiskStatSample(time)		
++		sample = DiskStatSample(time)
+ 		relevant_tokens = [linetokens for linetokens in map (string.split,lines) if is_relevant_line(linetokens)]
+-		
++
+ 		for tokens in relevant_tokens:
+-			disk, rsect, wsect, use = tokens[2], int(tokens[5]), int(tokens[9]), int(tokens[12])			
++			disk, rsect, wsect, use = tokens[2], int(tokens[5]), int(tokens[9]), int(tokens[12])
+ 			sample.add_diskdata([rsect, wsect, use])
+-		
++
+ 		disk_stat_samples.append(sample)
+-			
++
+ 	disk_stats = []
+ 	for sample1, sample2 in zip(disk_stat_samples[:-1], disk_stat_samples[1:]):
+ 		interval = sample1.time - sample2.time
+@@ -344,7 +344,7 @@ def _parse_proc_disk_stat_log(file, numCpu):
+ 		util = float( sums[2] ) / 10 / interval / numCpu
+ 		util = max(0.0, min(1.0, util))
+ 		disk_stats.append(DiskSample(sample2.time, readTput, writeTput, util))
+-	
++
+ 	return disk_stats
+ 
+ def _parse_proc_meminfo_log(file):
+@@ -372,7 +372,7 @@ def _parse_proc_meminfo_log(file):
+ # if we boot the kernel with: initcall_debug printk.time=1 we can
+ # get all manner of interesting data from the dmesg output
+ # We turn this into a pseudo-process tree: each event is
+-# characterised by a 
++# characterised by a
+ # we don't try to detect a "kernel finished" state - since the kernel
+ # continues to do interesting things after init is called.
+ #
+@@ -442,15 +442,15 @@ def _parse_dmesg(writer, file):
+ 				process.duration = (time_ms / 10) - process.start_time
+ 			else:
+ 				print "corrupted init call for %s" % (func)
+-				
++
+ 		elif type == "async_waiting" or type == "async_continuing":
+ 			continue # ignore
+ 
+ 	return processMap.values()
+-	
++
+ #
+ # Parse binary pacct accounting file output if we have one
+-# cf. /usr/include/linux/acct.h 
++# cf. /usr/include/linux/acct.h
+ #
+ def _parse_pacct(writer, file):
+ 	# read LE int32
+@@ -540,7 +540,7 @@ def _do_parse(writer, state, name, file):
+     elif name == "paternity.log":
+        state.parent_map = _parse_paternity_log(writer, file)
+     elif name == "proc_ps.log":  # obsoleted by TASKSTATS
+-        state.ps_stats = _parse_proc_ps_log(writer, file)
++       state.ps_stats = _parse_proc_ps_log(writer, file)
+     elif name == "kernel_pacct": # obsoleted by PROC_EVENTS
+        state.parent_map = _parse_pacct(writer, file)
+     t2 = clock()
+diff --git a/pybootchartgui/process_tree.py b/pybootchartgui/process_tree.py
+index 7a317cb..af5cd57 100644
+--- a/pybootchartgui/process_tree.py
++++ b/pybootchartgui/process_tree.py
+@@ -37,7 +37,9 @@ class ProcessTree:
+     LOGGER_PROC = 'bootchart-colle'
+     EXPLODER_PROCESSES = set(['hwup'])
+ 
+-    def __init__(self, writer, kernel, psstats, monitoredApp, prune, idle, taskstats, for_testing = False):
++    def __init__(self, writer, kernel, psstats, monitoredApp, prune,
++                 idle, taskstats, accurate_parentage,
++                 for_testing = False):
+         self.writer = writer
+         self.process_tree = []
+         self.taskstats = taskstats
+@@ -49,7 +51,8 @@ class ProcessTree:
+ 	self.sample_period = psstats.sample_period
+ 
+ 	self.build()
+-        self.update_ppids_for_daemons(self.process_list)
++        if not accurate_parentage:
++            self.update_ppids_for_daemons(self.process_list)
+ 
+         self.start_time = self.get_start_time(self.process_tree)
+         self.end_time = self.get_end_time(self.process_tree)
+@@ -89,8 +92,6 @@ class ProcessTree:
+     def sort(self, process_subtree):
+         """Sort process tree."""
+         for p in process_subtree:
+-# FIXME should we sort by CPU usage too ?
+-# FIXME: we should collapse time-less parents ...
+             p.child_list.sort(key = lambda p: p.pid)
+             self.sort(p.child_list)
+ 
+@@ -148,11 +149,11 @@ class ProcessTree:
+             for p in process_list:
+                 p.child_list = []
+             self.build()
+-            
++
+     def prune(self, process_subtree, parent):
+         """Prunes the process tree by removing idle processes and processes
+ 	   that only live for the duration of a single top sample.  Sibling
+-	   processes with the same command line (i.e. threads) are merged 
++	   processes with the same command line (i.e. threads) are merged
+ 	   together. This filters out sleepy background processes, short-lived
+ 	   processes and bootcharts' analysis tools.
+         """
+-- 
+1.7.3.1
+

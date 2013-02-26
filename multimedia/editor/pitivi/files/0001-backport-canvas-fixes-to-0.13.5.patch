@@ -1,0 +1,253 @@
+From df2ffd5fbdaf487957b83696e29f1ab3430aea4c Mon Sep 17 00:00:00 2001
+From: Alessandro Decina <alessandro.d@gmail.com>
+Date: Mon, 4 Oct 2010 15:02:49 +0200
+Subject: [PATCH] backport canvas fixes to 0.13.5
+
+---
+ pitivi/ui/controller.py     |    3 +++
+ pitivi/ui/preview.py        |    7 ++++---
+ pitivi/ui/previewer.py      |    9 +++++----
+ pitivi/ui/timeline.py       |   33 +++++++++++++++------------------
+ pitivi/ui/timelinecanvas.py |   32 +++++++++++---------------------
+ pitivi/ui/trackobject.py    |   10 ++++++----
+ 6 files changed, 44 insertions(+), 50 deletions(-)
+
+diff --git a/pitivi/ui/controller.py b/pitivi/ui/controller.py
+index 685cc2f..57bbb55 100644
+--- a/pitivi/ui/controller.py
++++ b/pitivi/ui/controller.py
+@@ -166,6 +166,9 @@ class Controller(object):
+     def _event_common(self, item, target, event):
+         if not self._canvas:
+             self._canvas = item.get_canvas()
++            # might there be a better way to do this?
++            self._hadj = self._canvas.app.gui.timeline.hadj
++            self._vadj = self._canvas.app.gui.timeline.vadj
+         self._last_event = event
+         s = event.get_state()
+         self._shift_down = s & gtk.gdk.SHIFT_MASK
+diff --git a/pitivi/ui/preview.py b/pitivi/ui/preview.py
+index 196f1c7..0b2b65e 100644
+--- a/pitivi/ui/preview.py
++++ b/pitivi/ui/preview.py
+@@ -49,6 +49,8 @@ class Preview(goocanvas.ItemSimple, goocanvas.Item, Zoomable):
+         self.height = float(height)
+         self.element = element
+         self.props.pointer_events = False
++        # ghetto hack
++        self.hadj = instance.gui.timeline.hadj
+ 
+ ## properties
+ 
+@@ -100,12 +102,11 @@ class Preview(goocanvas.ItemSimple, goocanvas.Item, Zoomable):
+                 border_width), self.height)
+ 
+     def do_simple_paint(self, cr, bounds):
+-
+-
++        x1 = -self.hadj.get_value()
+         cr.identity_matrix()
+         if self.element.factory:
+             self.previewer.render_cairo(cr, intersect(self.bounds, bounds),
+-            self.element, self.bounds.y1)
++            self.element, x1, self.bounds.y1)
+ 
+     def do_simple_is_item_at(self, x, y, cr, pointer_event):
+         return (between(0, x, self.nsToPixel(self.element.duration)) and
+diff --git a/pitivi/ui/previewer.py b/pitivi/ui/previewer.py
+index a356542..ce84c3d 100644
+--- a/pitivi/ui/previewer.py
++++ b/pitivi/ui/previewer.py
+@@ -154,7 +154,7 @@ class Previewer(Signallable, Loggable):
+         self.default_thumb = cairo.ImageSurface.create_from_png(path)
+         self._connectSettings(instance.settings)
+ 
+-    def render_cairo(self, cr, bounds, element, y1):
++    def render_cairo(self, cr, bounds, element, hscroll_pos, y1):
+         """Render a preview of element onto a cairo context within the current
+         bounds, which may or may not be the entire object and which may or may
+         not intersect the visible portion of the object"""
+@@ -165,7 +165,7 @@ class Previewer(Signallable, Loggable):
+ 
+ class DefaultPreviewer(Previewer):
+ 
+-    def render_cairo(self, cr, bounds, element, y1):
++    def render_cairo(self, cr, bounds, element, hscroll_pos, y1):
+         # TODO: draw a single thumbnail
+         pass
+ 
+@@ -207,7 +207,7 @@ class RandomAccessPreviewer(Previewer):
+ 
+ ## public interface
+ 
+-    def render_cairo(self, cr, bounds, element, y1):
++    def render_cairo(self, cr, bounds, element, hscroll_pos, y1):
+         if not self._view:
+             return
+         # The idea is to conceptually divide the clip into a sequence of
+@@ -229,7 +229,8 @@ class RandomAccessPreviewer(Previewer):
+         # tdur = duration in ns of thumbnail
+         # sof  = start of file in pixel coordinates
+         x1 = bounds.x1;
+-        sof = Zoomable.nsToPixel(element.start - element.in_point)
++        sof = Zoomable.nsToPixel(element.start - element.in_point) +\
++            hscroll_pos
+ 
+         # i = left edge of thumbnail to be drawn. We start with x1 and
+         # subtract the distance to the nearest leftward rectangle.
+diff --git a/pitivi/ui/timeline.py b/pitivi/ui/timeline.py
+index 77a4c7d..c707c60 100644
+--- a/pitivi/ui/timeline.py
++++ b/pitivi/ui/timeline.py
+@@ -252,27 +252,20 @@ class Timeline(gtk.Table, Loggable, Zoomable):
+ 
+         # proportional timeline
+         self._canvas = TimelineCanvas(self.app)
+-        timelinewindow = gtk.ScrolledWindow(self.hadj, self.vadj)
+-        timelinewindow.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+-        timelinewindow.add(self._canvas)
+-        timelinewindow.set_shadow_type(gtk.SHADOW_IN)
+-        timelinewindow.set_name("timelinewindow")
+-
+-        # temp fix for padding between scrollbar and scrolled window
+-        #FIXME: should be set at an global position for easy editing?
+-        gtk.rc_parse_string("""
+-            style 'timelinewindow'
+-            {
+-                GtkScrolledWindow::scrollbar-spacing = 0
+-            }
+-            widget '*.timelinewindow' style 'timelinewindow'
+-        """)
+-
+-        self.attach(timelinewindow, 1, 2, 1, 2)
++        self._root_item = self._canvas.get_root_item()
++        self.attach(self._canvas, 1, 2, 1, 2)
++
++        # scrollbar
++        self._hscrollbar = gtk.HScrollbar(self.hadj)
++        self._vscrollbar = gtk.VScrollbar(self.vadj)
++        self.attach(self._hscrollbar, 1, 2, 2, 3, yoptions=0)
++        self.attach(self._vscrollbar, 2, 3, 1, 2, xoptions=0)
++        self.hadj.connect("value-changed", self._updateScrollPosition)
++        self.vadj.connect("value-changed", self._updateScrollPosition)
+ 
+         # error infostub
+         self.infostub = InfoStub()
+-        self.attach(self.infostub, 1, 2, 2, 3, yoptions=0)
++        self.attach(self.infostub, 1, 2, 4, 5, yoptions=0)
+ 
+         self.show_all()
+         self.infostub.hide()
+@@ -472,6 +465,10 @@ class Timeline(gtk.Table, Loggable, Zoomable):
+ 
+ ## Zooming and Scrolling
+ 
++    def _updateScrollPosition(self, adjustment):
++        self._root_item.set_simple_transform( -self.hadj.get_value(), 
++            -self.vadj.get_value(), 1.0, 0)
++
+     def _zoomAdjustmentChangedCb(self, adjustment):
+         # GTK crack
+         self._updateZoom = False
+diff --git a/pitivi/ui/timelinecanvas.py b/pitivi/ui/timelinecanvas.py
+index 31f3595..e38a577 100644
+--- a/pitivi/ui/timelinecanvas.py
++++ b/pitivi/ui/timelinecanvas.py
+@@ -63,8 +63,9 @@ class PlayheadController(Controller, Zoomable):
+         Controller.__init__(self, *args, **kwargs)
+ 
+     def set_pos(self, item, pos):
+-        self._canvas.app.current.seeker.seek(
+-            Zoomable.pixelToNs(pos[0]))
++        x, y = pos
++        x += self._hadj.get_value()
++        self._canvas.app.current.seeker.seek(Zoomable.pixelToNs(x))
+ 
+ class TimelineCanvas(goocanvas.Canvas, Zoomable, Loggable):
+ 
+@@ -124,7 +125,9 @@ class TimelineCanvas(goocanvas.Canvas, Zoomable, Loggable):
+         self.set_size_request(-1, height)
+ 
+     def from_event(self, event):
+-        return Point(*self.convert_from_pixels(event.x, event.y))
++        x, y = event.x, event.y
++        x += self.app.gui.timeline.hadj.get_value()
++        return Point(*self.convert_from_pixels(x, y))
+ 
+     def setExpanded(self, track_object, expanded):
+         track_ui = None
+@@ -179,19 +182,6 @@ class TimelineCanvas(goocanvas.Canvas, Zoomable, Loggable):
+             event.area.x, event.area.y,
+             event.area.width, event.area.height)
+ 
+-        y = 0
+-        for track in self._tracks[:-1]:
+-            y += track.height
+-            self.style.paint_box(event.window,
+-                gtk.STATE_NORMAL,
+-                gtk.SHADOW_OUT,
+-                event.area,
+-                self,
+-                "",
+-                event.area.x - 5, y + 1,
+-                event.area.width + 10,  TRACK_SPACING - 2)
+-            y += TRACK_SPACING 
+-
+         goocanvas.Canvas.do_expose_event(self, event)
+ 
+ ## implements selection marquee
+@@ -217,7 +207,9 @@ class TimelineCanvas(goocanvas.Canvas, Zoomable, Loggable):
+             self._got_motion_notify = True
+             cur = self.from_event(event)
+             pos, size = self._normalize(self._mousedown, cur)
+-            self._marquee.props.x, self._marquee.props.y = pos
++            x, y = pos
++            x += self.app.gui.timeline.hadj.get_value()
++            self._marquee.props.x, self._marquee.props.y = (x, y)
+             self._marquee.props.width, self._marquee.props.height = size
+             return True
+         return False
+@@ -274,10 +266,8 @@ class TimelineCanvas(goocanvas.Canvas, Zoomable, Loggable):
+ 
+     def _request_size(self):
+         alloc = self.get_allocation()
+-        w = Zoomable.nsToPixel(self.max_duration)
+-        h = max(self._height, alloc.height)
+-        self.set_bounds(0, 0, w, h)
+-        self._playhead.props.height = h + 10
++        self.set_bounds(0, 0, alloc.width, alloc.height)
++        self._playhead.props.height = alloc.height + 10
+ 
+     def zoomChanged(self):
+         if self.timeline:
+diff --git a/pitivi/ui/trackobject.py b/pitivi/ui/trackobject.py
+index 19b1aee..7ed0254 100644
+--- a/pitivi/ui/trackobject.py
++++ b/pitivi/ui/trackobject.py
+@@ -121,8 +121,9 @@ class TimelineController(controller.Controller):
+ 
+     def set_pos(self, item, pos):
+         x, y = pos
+-        position = Zoomable.pixelToNs(x)
+-        priority = int((y - self._y_offset) // (LAYER_HEIGHT_EXPANDED + LAYER_SPACING))
++        position = Zoomable.pixelToNs(x + self._hadj.get_value())
++        priority = int((y - self._y_offset + self._vadj.get_value()) //
++            (LAYER_HEIGHT_EXPANDED + LAYER_SPACING))
+         self._context.setMode(self._getMode())
+         self._context.editTo(position, priority)
+ 
+@@ -229,8 +230,9 @@ class TrackObject(View, goocanvas.Group, Zoomable):
+                     mode = SELECT_ADD
+                 timeline.setSelectionToObj(element, mode)
+             else:
+-                self._view.app.current.seeker.seek(
+-                    Zoomable.pixelToNs(pos[0]))
++                x, y = pos
++                x += self._hadj.get_value()
++                self._view.app.current.seeker.seek(Zoomable.pixelToNs(x))
+                 timeline.setSelectionToObj(element, SELECT)
+ 
+     def __init__(self, instance, element, track, timeline):
+-- 
+1.7.1.1
+

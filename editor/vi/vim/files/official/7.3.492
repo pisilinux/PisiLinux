@@ -1,0 +1,718 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.492
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.492
+Problem:    Can't indent conditions separately from function arguments.
+Solution:   Add the 'k' flag in 'cino. (Lech Lorens)
+Files:	    runtime/doc/indent.txt, src/misc1.c, src/testdir/test3.in,
+	    src/testdir/test3.ok
+
+
+*** ../vim-7.3.491/runtime/doc/indent.txt	2011-06-26 03:16:58.000000000 +0200
+--- runtime/doc/indent.txt	2012-04-05 17:12:14.000000000 +0200
+***************
+*** 459,464 ****
+--- 460,481 ----
+  		  a_short_line(argument,    a_short_line(argument,
+  			       argument);		 argument);
+  <
++ 							*cino-k*
++ 	kN    When in unclosed parentheses which follow "if", "for" or
++ 	      "while" and N is non-zero, overrides the behaviour defined by
++ 	      "(N": causes the indent to be N characters relative to the outer
++ 	      context (i.e. the line where "if", "for" or "while" is).  Has
++ 	      no effect on deeper levels of nesting.  Affects flags like "wN"
++ 	      only for the "if", "for" and "while" conditions.  If 0, defaults
++ 	      to behaviour defined by the "(N" flag.  (default: 0).
++ 
++ 		cino=(0			   cino=(0,ks >
++ 		  if (condition1	    if (condition1
++ 		      && condition2)		    && condition2)
++ 		      action();			action();
++ 		  function(argument1	    function(argument1
++ 			   && argument2);	     && argument2);
++ <
+  							*cino-m*
+  	mN    When N is non-zero, line up a line starting with a closing
+  	      parentheses with the first character of the line with the
+***************
+*** 527,540 ****
+  
+  								*cino-#*
+  	#N    When N is non-zero recognize shell/Perl comments, starting with
+! 	      '#'.  Default N is zero: don't recognizes '#' comments.  Note
+  	      that lines starting with # will still be seen as preprocessor
+  	      lines.
+  
+  
+  The defaults, spelled out in full, are:
+  	cinoptions=>s,e0,n0,f0,{0,}0,^0,L-1,:s,=s,l0,b0,gs,hs,N0,ps,ts,is,+s,
+! 			c3,C0,/0,(2s,us,U0,w0,W0,m0,j0,J0,)20,*70,#0
+  
+  Vim puts a line in column 1 if:
+  - It starts with '#' (preprocessor directives), if 'cinkeys' contains '#'.
+--- 546,559 ----
+  
+  								*cino-#*
+  	#N    When N is non-zero recognize shell/Perl comments, starting with
+! 	      '#'.  Default N is zero: don't recognize '#' comments.  Note
+  	      that lines starting with # will still be seen as preprocessor
+  	      lines.
+  
+  
+  The defaults, spelled out in full, are:
+  	cinoptions=>s,e0,n0,f0,{0,}0,^0,L-1,:s,=s,l0,b0,gs,hs,N0,ps,ts,is,+s,
+! 			c3,C0,/0,(2s,us,U0,w0,W0,k0,m0,j0,J0,)20,*70,#0
+  
+  Vim puts a line in column 1 if:
+  - It starts with '#' (preprocessor directives), if 'cinkeys' contains '#'.
+*** ../vim-7.3.491/src/misc1.c	2012-02-29 13:49:03.000000000 +0100
+--- src/misc1.c	2012-04-05 17:12:14.000000000 +0200
+***************
+*** 5771,5776 ****
+--- 5771,5822 ----
+  }
+  
+  /*
++  * Check whether in "p" there is an "if", "for" or "while" before offset.
++  * Return 0 if there is none.
++  * Otherwise return !0 and update "*poffset" to point to the place where the
++  * string was found.
++  */
++     static int
++ cin_is_if_for_while_before_offset(line, offset, poffset)
++     char_u *line;
++     size_t offset;
++     int    *poffset;
++ {
++ 
++     if (offset-- < 2)
++ 	return 0;
++     while (offset > 2 && vim_iswhite(line[offset]))
++ 	--offset;
++ 
++     offset -= 1;
++     if (!STRNCMP(line + offset, "if", 2))
++ 	goto probablyFound;
++ 
++     if (offset >= 1)
++     {
++ 	offset -= 1;
++ 	if (!STRNCMP(line + offset, "for", 3))
++ 	    goto probablyFound;
++ 
++ 	if (offset >= 2)
++ 	{
++ 	    offset -= 2;
++ 	    if (!STRNCMP(line + offset, "while", 5))
++ 		goto probablyFound;
++ 	}
++     }
++ 
++     return 0;
++ probablyFound:
++     if (!offset || !vim_isIDc(line[offset - 1]))
++     {
++ 	*poffset = offset;
++ 	return 1;
++     }
++     return 0;
++ }
++ 
++ /*
+   * Return TRUE if we are at the end of a do-while.
+   *    do
+   *       nothing;
+***************
+*** 6124,6130 ****
+  
+  /*
+   * Find the matching '(', failing if it is in a comment.
+!  * Return NULL of no match found.
+   */
+      static pos_T *
+  find_match_paren(ind_maxparen, ind_maxcomment)	    /* XXX */
+--- 6170,6176 ----
+  
+  /*
+   * Find the matching '(', failing if it is in a comment.
+!  * Return NULL if no match found.
+   */
+      static pos_T *
+  find_match_paren(ind_maxparen, ind_maxcomment)	    /* XXX */
+***************
+*** 6393,6398 ****
+--- 6439,6450 ----
+       */
+      int ind_cpp_namespace = 0;
+  
++     /*
++      * handle continuation lines containing conditions of if(), for() and
++      * while()
++      */
++     int ind_if_for_while = 0;
++ 
+      pos_T	cur_curpos;
+      int		amount;
+      int		scope_amount;
+***************
+*** 6437,6442 ****
+--- 6489,6495 ----
+      int		cont_amount = 0;    /* amount for continuation line */
+      int		original_line_islabel;
+      int		added_to_amount = 0;
++     int		is_if_for_while = 0;
+  
+      for (options = curbuf->b_p_cino; *options; )
+      {
+***************
+*** 6509,6514 ****
+--- 6562,6568 ----
+  	    case 'l': ind_keep_case_label = n; break;
+  	    case '#': ind_hash_comment = n; break;
+  	    case 'N': ind_cpp_namespace = n; break;
++ 	    case 'k': ind_if_for_while = n; break;
+  	}
+  	if (*options == ',')
+  	    ++options;
+***************
+*** 6812,6817 ****
+--- 6866,6900 ----
+  	if (amount == -1)
+  	{
+  	    int	    ignore_paren_col = 0;
++ 	    int	    is_if_for_while = 0;
++ 
++ 	    if (ind_if_for_while)
++ 	    {
++ 		/* Look for the outermost opening parenthesis on this line
++ 		 * and check whether it belongs to an "if", "for" or "while". */
++ 
++ 		pos_T	    cursor_save = curwin->w_cursor;
++ 		pos_T	    outermost;
++ 		char_u	    *line;
++ 		int	    look_col;
++ 
++ 		trypos = &our_paren_pos;
++ 		do {
++ 		    outermost = *trypos;
++ 		    curwin->w_cursor.lnum = outermost.lnum;
++ 		    curwin->w_cursor.col = outermost.col;
++ 
++ 		    trypos = find_match_paren(ind_maxparen, ind_maxcomment);
++ 		} while (trypos && trypos->lnum == outermost.lnum);
++ 
++ 		curwin->w_cursor = cursor_save;
++ 
++ 		line = ml_get(outermost.lnum);
++ 
++ 		is_if_for_while =
++ 		    cin_is_if_for_while_before_offset(line, outermost.col,
++ 						      &outermost.col);
++ 	    }
+  
+  	    amount = skip_label(our_paren_pos.lnum, &look, ind_maxcomment);
+  	    look = skipwhite(look);
+***************
+*** 6836,6842 ****
+  		curwin->w_cursor.lnum = save_lnum;
+  		look = ml_get(our_paren_pos.lnum) + look_col;
+  	    }
+! 	    if (theline[0] == ')' || ind_unclosed == 0
+  		    || (!ind_unclosed_noignore && *look == '('
+  						    && ignore_paren_col == 0))
+  	    {
+--- 6919,6925 ----
+  		curwin->w_cursor.lnum = save_lnum;
+  		look = ml_get(our_paren_pos.lnum) + look_col;
+  	    }
+! 	    if (theline[0] == ')' || (ind_unclosed == 0 && is_if_for_while == 0)
+  		    || (!ind_unclosed_noignore && *look == '('
+  						    && ignore_paren_col == 0))
+  	    {
+***************
+*** 6907,6913 ****
+  	    {
+  		/* Line up with the start of the matching paren line. */
+  	    }
+! 	    else if (ind_unclosed == 0 || (!ind_unclosed_noignore
+  				    && *look == '(' && ignore_paren_col == 0))
+  	    {
+  		if (cur_amount != MAXCOL)
+--- 6990,6997 ----
+  	    {
+  		/* Line up with the start of the matching paren line. */
+  	    }
+! 	    else if ((ind_unclosed == 0 && is_if_for_while == 0)
+! 		     || (!ind_unclosed_noignore
+  				    && *look == '(' && ignore_paren_col == 0))
+  	    {
+  		if (cur_amount != MAXCOL)
+***************
+*** 6943,6949 ****
+  		    if (find_match_paren(ind_maxparen, ind_maxcomment) != NULL)
+  			amount += ind_unclosed2;
+  		    else
+! 			amount += ind_unclosed;
+  		}
+  		/*
+  		 * For a line starting with ')' use the minimum of the two
+--- 7027,7038 ----
+  		    if (find_match_paren(ind_maxparen, ind_maxcomment) != NULL)
+  			amount += ind_unclosed2;
+  		    else
+! 		    {
+! 			if (is_if_for_while)
+! 			    amount += ind_if_for_while;
+! 			else
+! 			    amount += ind_unclosed;
+! 		    }
+  		}
+  		/*
+  		 * For a line starting with ')' use the minimum of the two
+*** ../vim-7.3.491/src/testdir/test3.in	2011-12-14 20:21:29.000000000 +0100
+--- src/testdir/test3.in	2012-04-05 17:12:14.000000000 +0200
+***************
+*** 1574,1579 ****
+--- 1574,1793 ----
+  }
+  
+  STARTTEST
++ :set cino=k2s,(0
++ 2kdd3j=][
++ ENDTEST
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 	&& condition2)
++ 	action();
++ 	function(argument1
++ 	&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 	c3))
++ 	foo;
++ 	if (c1 &&
++ 	(c2 || c3))
++ 	{
++ 	}
++ 
++ 	if (   c1
++ 	&& (      c2
++ 	|| c3))
++ 	foo;
++ 	func( c1
++ 	&& (     c2
++ 	|| c3))
++ 	foo;
++ }
++ 
++ STARTTEST
++ :set cino=k2s,(s
++ 2kdd3j=][
++ ENDTEST
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 	&& condition2)
++ 	action();
++ 	function(argument1
++ 	&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 	c3))
++ 	foo;
++ 	if (c1 &&
++ 	(c2 || c3))
++ 	{
++ 	}
++ 
++ 	if (   c1
++ 	&& (      c2
++ 	|| c3))
++ 	foo;
++ 	func(   c1
++ 	&& (      c2
++ 	|| c3))
++ 	foo;
++ }
++ 
++ STARTTEST
++ :set cino=k2s,(s,U1
++ 2kdd3j=][
++ ENDTEST
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 	&& condition2)
++ 	action();
++ 	function(argument1
++ 	&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 	c3))
++ 	foo;
++ 	if (c1 &&
++ 	(c2 || c3))
++ 	{
++ 	}
++ 	if (c123456789
++ 	&& (c22345
++ 	|| c3))
++ 	printf("foo\n");
++ 
++ 	c = c1 &&
++ 	(
++ 	c2 ||
++ 	c3
++ 	) && c4;
++ }
++ 
++ STARTTEST
++ :set cino=k2s,(0,W4
++ 2kdd3j=][
++ ENDTEST
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 	&& condition2)
++ 	action();
++ 	function(argument1
++ 	&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 	c3))
++ 	foo;
++ 	if (c1 &&
++ 	(c2 || c3))
++ 	{
++ 	}
++ 	if (c123456789
++ 	&& (c22345
++ 	|| c3))
++ 	printf("foo\n");
++ 
++ 	if (   c1
++ 	&& (   c2
++ 	|| c3))
++ 	foo;
++ 
++ 	a_long_line(
++ 	argument,
++ 	argument);
++ 	a_short_line(argument,
++ 	argument);
++ }
++ 
++ STARTTEST
++ :set cino=k2s,u2
++ 2kdd3j=][
++ ENDTEST
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 	&& condition2)
++ 	action();
++ 	function(argument1
++ 	&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 	c3))
++ 	foo;
++ 	if (c1 &&
++ 	(c2 || c3))
++ 	{
++ 	}
++ 	if (c123456789
++ 	&& (c22345
++ 	|| c3))
++ 	printf("foo\n");
++ }
++ 
++ STARTTEST
++ :set cino=k2s,(0,w1
++ 2kdd3j=][
++ ENDTEST
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 	&& condition2)
++ 	action();
++ 	function(argument1
++ 	&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 	c3))
++ 	foo;
++ 	if (c1 &&
++ 	(c2 || c3))
++ 	{
++ 	}
++ 	if (c123456789
++ 	&& (c22345
++ 	|| c3))
++ 	printf("foo\n");
++ 
++ 	if (   c1
++ 	&& (      c2
++ 	|| c3))
++ 	foo;
++ 	func(   c1
++ 	&& (      c2
++ 	|| c3))
++ 	foo;
++ }
++ 
++ STARTTEST
++ :set cino=k2,(s
++ 2kdd3j=][
++ ENDTEST
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 	  && condition2)
++ 		action();
++ 	function(argument1
++ 		&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 		  c3))
++ 		foo;
++ 	if (c1 &&
++ 	  (c2 || c3))
++ 	{
++ 	}
++ }
++ 
++ STARTTEST
+  :set cino=N-s
+  /^NAMESPACESTART
+  =/^NAMESPACEEND
+*** ../vim-7.3.491/src/testdir/test3.ok	2011-12-14 20:21:29.000000000 +0100
+--- src/testdir/test3.ok	2012-04-05 17:12:14.000000000 +0200
+***************
+*** 1411,1416 ****
+--- 1411,1602 ----
+  }
+  
+  
++ void func(void)
++ {
++ 	if (condition1
++ 			&& condition2)
++ 		action();
++ 	function(argument1
++ 			 && argument2);
++ 
++ 	if (c1 && (c2 ||
++ 				c3))
++ 		foo;
++ 	if (c1 &&
++ 			(c2 || c3))
++ 	{
++ 	}
++ 
++ 	if (   c1
++ 			&& (      c2
++ 					  || c3))
++ 		foo;
++ 	func( c1
++ 		  && (     c2
++ 				   || c3))
++ 		foo;
++ }
++ 
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 			&& condition2)
++ 		action();
++ 	function(argument1
++ 		&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 				c3))
++ 		foo;
++ 	if (c1 &&
++ 			(c2 || c3))
++ 	{
++ 	}
++ 
++ 	if (   c1
++ 			&& (      c2
++ 				|| c3))
++ 		foo;
++ 	func(   c1
++ 		&& (      c2
++ 			|| c3))
++ 		foo;
++ }
++ 
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 			&& condition2)
++ 		action();
++ 	function(argument1
++ 		&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 				c3))
++ 		foo;
++ 	if (c1 &&
++ 			(c2 || c3))
++ 	{
++ 	}
++ 	if (c123456789
++ 			&& (c22345
++ 				|| c3))
++ 		printf("foo\n");
++ 
++ 	c = c1 &&
++ 		(
++ 			c2 ||
++ 			c3
++ 		) && c4;
++ }
++ 
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 			&& condition2)
++ 		action();
++ 	function(argument1
++ 			 && argument2);
++ 
++ 	if (c1 && (c2 ||
++ 				c3))
++ 		foo;
++ 	if (c1 &&
++ 			(c2 || c3))
++ 	{
++ 	}
++ 	if (c123456789
++ 			&& (c22345
++ 				|| c3))
++ 		printf("foo\n");
++ 
++ 	if (   c1
++ 			&& (   c2
++ 				   || c3))
++ 		foo;
++ 
++ 	a_long_line(
++ 		argument,
++ 		argument);
++ 	a_short_line(argument,
++ 				 argument);
++ }
++ 
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 			&& condition2)
++ 		action();
++ 	function(argument1
++ 			&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 			  c3))
++ 		foo;
++ 	if (c1 &&
++ 			(c2 || c3))
++ 	{
++ 	}
++ 	if (c123456789
++ 			&& (c22345
++ 			  || c3))
++ 		printf("foo\n");
++ }
++ 
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 			&& condition2)
++ 		action();
++ 	function(argument1
++ 			 && argument2);
++ 
++ 	if (c1 && (c2 ||
++ 				c3))
++ 		foo;
++ 	if (c1 &&
++ 			(c2 || c3))
++ 	{
++ 	}
++ 	if (c123456789
++ 			&& (c22345
++ 				|| c3))
++ 		printf("foo\n");
++ 
++ 	if (   c1
++ 			&& (      c2
++ 				|| c3))
++ 		foo;
++ 	func(   c1
++ 		 && (      c2
++ 			 || c3))
++ 		foo;
++ }
++ 
++ 
++ void func(void)
++ {
++ 	if (condition1
++ 	  && condition2)
++ 		action();
++ 	function(argument1
++ 		&& argument2);
++ 
++ 	if (c1 && (c2 ||
++ 		  c3))
++ 		foo;
++ 	if (c1 &&
++ 	  (c2 || c3))
++ 	{
++ 	}
++ }
++ 
++ 
+  NAMESPACESTART
+  /* valid namespaces with normal indent */
+  namespace
+*** ../vim-7.3.491/src/version.c	2012-04-05 16:56:38.000000000 +0200
+--- src/version.c	2012-04-05 17:14:18.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     492,
+  /**/
+
+-- 
+You were lucky to have a LAKE! There were a hundred and sixty of
+us living in a small shoebox in the middle of the road.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

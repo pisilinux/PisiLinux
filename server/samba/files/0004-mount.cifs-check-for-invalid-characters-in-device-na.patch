@@ -1,0 +1,70 @@
+From 539782ce6a2bdf1b2ae8e0d89269bb0a8f408dfc Mon Sep 17 00:00:00 2001
+From: Jeff Layton <jlayton@redhat.com>
+Date: Tue, 26 Jan 2010 09:05:21 -0500
+Subject: [PATCH 4/5] mount.cifs: check for invalid characters in device name and mountpoint
+
+It's apparently possible to corrupt the mtab if you pass embedded
+newlines to addmntent. Apparently tabs are also a problem with certain
+earlier glibc versions. Backslashes are also a minor issue apparently,
+but we can't reasonably filter those.
+
+Make sure that neither the devname or mountpoint contain any problematic
+characters before allowing the mount to proceed.
+
+Signed-off-by: Jeff Layton <jlayton@redhat.com>
+---
+ source/client/mount.cifs.c |   34 ++++++++++++++++++++++++++++++++++
+ 1 files changed, 34 insertions(+), 0 deletions(-)
+
+--- source/client/mount.cifs.c.orig	2010-01-26 18:02:51.000000000 +0200
++++ source/client/mount.cifs.c	2010-01-26 18:04:58.000000000 +0200
+@@ -1161,6 +1161,36 @@ static void print_cifs_mount_version(voi
+ 		MOUNT_CIFS_VENDOR_SUFFIX);
+ }
+ 
++/*
++ * This function borrowed from fuse-utils...
++ *
++ * glibc's addmntent (at least as of 2.10 or so) doesn't properly encode
++ * newlines embedded within the text fields. To make sure no one corrupts
++ * the mtab, fail the mount if there are embedded newlines.
++ */
++static int check_newline(const char *progname, const char *name)
++{
++    char *s;
++    for (s = "\n"; *s; s++) {
++        if (strchr(name, *s)) {
++            fprintf(stderr, "%s: illegal character 0x%02x in mount entry\n",
++                    progname, *s);
++            return EX_USAGE;
++        }
++    }
++    return 0;
++}
++
++static int check_mtab(const char *progname, const char *devname,
++			const char *dir)
++{
++	if (check_newline(progname, devname) == -1 ||
++	    check_newline(progname, dir) == -1)
++		return EX_USAGE;
++	return 0;
++}
++
++
+ int main(int argc, char ** argv)
+ {
+ 	int c;
+@@ -1604,6 +1634,10 @@ mount_retry:
+ 	if (verboseflag)
+ 		fprintf(stderr, "\n");
+ 
++	rc = check_mtab(thisprogram, dev_name, mountpoint);
++	if (rc)
++		goto mount_exit;
++
+ 	if (!fakemnt && mount(dev_name, ".", "cifs", flags, options)) {
+ 		switch (errno) {
+ 		case ECONNREFUSED:
+--
+1.6.6

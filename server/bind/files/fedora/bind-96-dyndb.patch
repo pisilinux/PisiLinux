@@ -1,0 +1,729 @@
+diff -up bind-9.9.2/bin/named/main.c.dyndb bind-9.9.2/bin/named/main.c
+--- bind-9.9.2/bin/named/main.c.dyndb	2012-09-27 02:35:19.000000000 +0200
++++ bind-9.9.2/bin/named/main.c	2012-10-11 13:13:10.626497598 +0200
+@@ -45,6 +45,7 @@
+ #include <isccc/result.h>
+ 
+ #include <dns/dispatch.h>
++#include <dns/dynamic_db.h>
+ #include <dns/name.h>
+ #include <dns/result.h>
+ #include <dns/view.h>
+diff -up bind-9.9.2/bin/named/server.c.dyndb bind-9.9.2/bin/named/server.c
+--- bind-9.9.2/bin/named/server.c.dyndb	2012-09-27 02:35:19.000000000 +0200
++++ bind-9.9.2/bin/named/server.c	2012-10-11 13:13:10.630497590 +0200
+@@ -63,6 +63,7 @@
+ #include <dns/db.h>
+ #include <dns/dispatch.h>
+ #include <dns/dlz.h>
++#include <dns/dynamic_db.h>
+ #include <dns/dns64.h>
+ #include <dns/forward.h>
+ #include <dns/journal.h>
+@@ -1161,6 +1162,72 @@ configure_peer(const cfg_obj_t *cpeer, i
+ }
+ 
+ static isc_result_t
++configure_dynamic_db(const cfg_obj_t *dynamic_db, isc_mem_t *mctx,
++		     const dns_dyndb_arguments_t *dyndb_args)
++{
++	isc_result_t result;
++	const cfg_obj_t *obj;
++	const cfg_obj_t *options;
++	const cfg_listelt_t *element;
++	const char *name;
++	const char *libname;
++	const char **argv = NULL;
++	unsigned int i;
++	unsigned int len;
++
++	/* Get the name of the database. */
++	obj = cfg_tuple_get(dynamic_db, "name");
++	name = cfg_obj_asstring(obj);
++
++	/* Get options. */
++	options = cfg_tuple_get(dynamic_db, "options");
++
++	/* Get library name. */
++	obj = NULL;
++	CHECK(cfg_map_get(options, "library", &obj));
++	libname = cfg_obj_asstring(obj);
++
++	/* Create a list of arguments. */
++	obj = NULL;
++	result = cfg_map_get(options, "arg", &obj);
++	if (result == ISC_R_NOTFOUND)
++		len = 0;
++	else if (result == ISC_R_SUCCESS)
++		len = cfg_list_length(obj, isc_boolean_false);
++	else
++		goto cleanup;
++
++	/* Account for the last terminating NULL. */
++	len++;
++
++	argv = isc_mem_allocate(mctx, len * sizeof(const char *));
++	if (argv == NULL) {
++		result = ISC_R_NOMEMORY;
++		goto cleanup;
++	}
++	for (element = cfg_list_first(obj), i = 0;
++	     element != NULL;
++	     element = cfg_list_next(element), i++)
++	{
++		REQUIRE(i < len);
++
++		obj = cfg_listelt_value(element);
++		argv[i] = cfg_obj_asstring(obj);
++	}
++	REQUIRE(i < len);
++	argv[i] = NULL;
++
++	CHECK(dns_dynamic_db_load(libname, name, mctx, argv, dyndb_args));
++
++cleanup:
++	if (argv != NULL)
++		isc_mem_free(mctx, argv);
++
++	return result;
++}
++
++
++static isc_result_t
+ disable_algorithms(const cfg_obj_t *disabled, dns_resolver_t *resolver) {
+ 	isc_result_t result;
+ 	const cfg_obj_t *algorithms;
+@@ -1586,6 +1653,7 @@ configure_view(dns_view_t *view, cfg_obj
+ 	const cfg_obj_t *dlz;
+ 	unsigned int dlzargc;
+ 	char **dlzargv;
++	const cfg_obj_t *dynamic_db_list;
+ 	const cfg_obj_t *disabled;
+ 	const cfg_obj_t *obj;
+ 	const cfg_listelt_t *element;
+@@ -1816,6 +1884,8 @@ configure_view(dns_view_t *view, cfg_obj
+ 		}
+ 	}
+ 
++
++
+ 	/*
+ 	 * Obtain configuration parameters that affect the decision of whether
+ 	 * we can reuse/share an existing cache.
+@@ -2721,6 +2791,37 @@ configure_view(dns_view_t *view, cfg_obj
+ 		dns_view_setrootdelonly(view, ISC_FALSE);
+ 
+ 	/*
++	 * Configure dynamic databases.
++	 */
++	dynamic_db_list = NULL;
++	if (voptions != NULL)
++		(void)cfg_map_get(voptions, "dynamic-db", &dynamic_db_list);
++	else
++		(void)cfg_map_get(config, "dynamic-db", &dynamic_db_list);
++	element = cfg_list_first(dynamic_db_list);
++	if (element != NULL) {
++		dns_dyndb_arguments_t *args;
++
++		args = dns_dyndb_arguments_create(mctx);
++		if (args == NULL) {
++			result = ISC_R_NOMEMORY;
++			goto cleanup;
++		}
++		dns_dyndb_set_view(args, view);
++		dns_dyndb_set_zonemgr(args, ns_g_server->zonemgr);
++		dns_dyndb_set_task(args, ns_g_server->task);
++		dns_dyndb_set_timermgr(args, ns_g_timermgr);
++		while (element != NULL) {
++			obj = cfg_listelt_value(element);
++			CHECK(configure_dynamic_db(obj, mctx, args));
++		
++			element = cfg_list_next(element);
++		}
++
++		dns_dyndb_arguments_destroy(mctx, args);
++	}
++
++	/*
+ 	 * Setup automatic empty zones.  If recursion is off then
+ 	 * they are disabled by default.
+ 	 */
+@@ -4388,6 +4489,7 @@ load_configuration(const char *filename,
+ 		cfg_aclconfctx_detach(&ns_g_aclconfctx);
+ 	CHECK(cfg_aclconfctx_create(ns_g_mctx, &ns_g_aclconfctx));
+ 
++	dns_dynamic_db_cleanup(ISC_FALSE);
+ 	/*
+ 	 * Parse the global default pseudo-config file.
+ 	 */
+@@ -5493,6 +5595,8 @@ shutdown_server(isc_task_t *task, isc_ev
+ 			dns_view_detach(&view);
+ 	}
+ 
++	dns_dynamic_db_cleanup(ISC_TRUE);
++
+ 	while ((nsc = ISC_LIST_HEAD(server->cachelist)) != NULL) {
+ 		ISC_LIST_UNLINK(server->cachelist, nsc, link);
+ 		dns_cache_detach(&nsc->cache);
+diff -up bind-9.9.2/lib/dns/dynamic_db.c.dyndb bind-9.9.2/lib/dns/dynamic_db.c
+--- bind-9.9.2/lib/dns/dynamic_db.c.dyndb	2012-10-11 13:13:10.630497590 +0200
++++ bind-9.9.2/lib/dns/dynamic_db.c	2012-10-11 13:13:10.630497590 +0200
+@@ -0,0 +1,366 @@
++/*
++ * Copyright (C) 2008-2011  Red Hat, Inc.
++ *
++ * Permission to use, copy, modify, and/or distribute this software for any
++ * purpose with or without fee is hereby granted, provided that the above
++ * copyright notice and this permission notice appear in all copies.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS" AND Red Hat DISCLAIMS ALL WARRANTIES WITH
++ * REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
++ * AND FITNESS.  IN NO EVENT SHALL Red Hat BE LIABLE FOR ANY SPECIAL, DIRECT,
++ * INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
++ * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
++ * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
++ * PERFORMANCE OF THIS SOFTWARE.
++ */
++
++
++#include <config.h>
++
++#include <isc/buffer.h>
++#include <isc/mem.h>
++#include <isc/mutex.h>
++#include <isc/once.h>
++#include <isc/result.h>
++#include <isc/region.h>
++#include <isc/task.h>
++#include <isc/types.h>
++#include <isc/util.h>
++
++#include <dns/dynamic_db.h>
++#include <dns/log.h>
++#include <dns/types.h>
++#include <dns/view.h>
++#include <dns/zone.h>
++
++#include <string.h>
++
++#if HAVE_DLFCN_H
++#include <dlfcn.h>
++#endif
++
++#ifndef DYNDB_LIBDIR
++#define DYNDB_LIBDIR ""
++#endif
++
++#define CHECK(op)						\
++	do { result = (op);					\
++		if (result != ISC_R_SUCCESS) goto cleanup;	\
++	} while (0)
++
++
++typedef isc_result_t (*register_func_t)(isc_mem_t *mctx, const char *name,
++		const char * const *argv,
++		const dns_dyndb_arguments_t *dyndb_args);
++typedef void (*destroy_func_t)(void);
++
++typedef struct dyndb_implementation dyndb_implementation_t;
++
++struct dyndb_implementation {
++	isc_mem_t			*mctx;
++	void				*handle;
++	register_func_t			register_function;
++	destroy_func_t			destroy_function;
++	LINK(dyndb_implementation_t)	link;
++};
++
++struct dns_dyndb_arguments {
++	dns_view_t	*view;
++	dns_zonemgr_t	*zmgr;
++	isc_task_t	*task;
++	isc_timermgr_t	*timermgr;
++};
++
++/* List of implementations. Locked by dyndb_lock. */
++static LIST(dyndb_implementation_t) dyndb_implementations;
++/* Locks dyndb_implementations. */
++static isc_mutex_t dyndb_lock;
++static isc_once_t once = ISC_ONCE_INIT;
++
++static void
++dyndb_initialize(void) {
++	RUNTIME_CHECK(isc_mutex_init(&dyndb_lock) == ISC_R_SUCCESS);
++	INIT_LIST(dyndb_implementations);
++}
++
++
++#if HAVE_DLFCN_H
++static isc_result_t
++load_symbol(void *handle, const char *symbol_name, void **symbolp)
++{
++	const char *errmsg;
++	void *symbol;
++
++	REQUIRE(handle != NULL);
++	REQUIRE(symbolp != NULL && *symbolp == NULL);
++
++	symbol = dlsym(handle, symbol_name);
++	if (symbol == NULL) {
++		errmsg = dlerror();
++		if (errmsg == NULL)
++			errmsg = "returned function pointer is NULL";
++		isc_log_write(dns_lctx, DNS_LOGCATEGORY_DATABASE,
++			      DNS_LOGMODULE_DYNDB, ISC_LOG_ERROR,
++			      "failed to lookup symbol %s: %s",
++			      symbol_name, errmsg);
++		return ISC_R_FAILURE;
++	}
++	dlerror();
++
++	*symbolp = symbol;
++
++	return ISC_R_SUCCESS;
++}
++
++static isc_result_t
++load_library(isc_mem_t *mctx, const char *filename, dyndb_implementation_t **impp)
++{
++	isc_result_t result;
++	size_t module_size;
++	isc_buffer_t *module_buf = NULL;
++	isc_region_t module_region;
++	void *handle = NULL;
++	dyndb_implementation_t *imp;
++	register_func_t register_function = NULL;
++	destroy_func_t destroy_function = NULL;
++
++	REQUIRE(impp != NULL && *impp == NULL);
++
++	/* Build up the full path. */
++	module_size = strlen(DYNDB_LIBDIR) + strlen(filename) + 1;
++	CHECK(isc_buffer_allocate(mctx, &module_buf, module_size));
++	isc_buffer_putstr(module_buf, DYNDB_LIBDIR);
++	isc_buffer_putstr(module_buf, filename);
++	isc_buffer_putuint8(module_buf, 0);
++	isc_buffer_region(module_buf, &module_region);
++
++	handle = dlopen((char *)module_region.base, RTLD_LAZY);
++	if (handle == NULL) {
++		isc_log_write(dns_lctx, DNS_LOGCATEGORY_DATABASE,
++			      DNS_LOGMODULE_DYNDB, ISC_LOG_ERROR,
++			      "failed to dynamically load driver '%s': %s",
++			      filename, dlerror());
++		result = ISC_R_FAILURE;
++		goto cleanup;
++	}
++	dlerror();
++
++	CHECK(load_symbol(handle, "dynamic_driver_init",
++			  (void **)&register_function));
++	CHECK(load_symbol(handle, "dynamic_driver_destroy",
++			  (void **)&destroy_function));
++
++	imp = isc_mem_get(mctx, sizeof(dyndb_implementation_t));
++	if (imp == NULL) {
++		result = ISC_R_NOMEMORY;
++		goto cleanup;
++	}
++
++	imp->mctx = NULL;
++	isc_mem_attach(mctx, &imp->mctx);
++	imp->handle = handle;
++	imp->register_function = register_function;
++	imp->destroy_function = destroy_function;
++	INIT_LINK(imp, link);
++
++	*impp = imp;
++
++cleanup:
++	if (result != ISC_R_SUCCESS && handle != NULL)
++		dlclose(handle);
++	if (module_buf != NULL)
++		isc_buffer_free(&module_buf);
++
++	return result;
++}
++
++static void
++unload_library(dyndb_implementation_t **impp)
++{
++	dyndb_implementation_t *imp;
++
++	REQUIRE(impp != NULL && *impp != NULL);
++
++	imp = *impp;
++
++	isc_mem_putanddetach(&imp->mctx, imp, sizeof(dyndb_implementation_t));
++
++	*impp = NULL;
++}
++
++#else	/* HAVE_DLFCN_H */
++static isc_result_t
++load_library(isc_mem_t *mctx, const char *filename, dyndb_implementation_t **impp)
++{
++	UNUSED(mctx);
++	UNUSED(filename);
++	UNUSED(impp);
++
++	isc_log_write(dns_lctx, DNS_LOGCATEGORY_DATABASE, DNS_LOGMODULE_DYNDB,
++		      ISC_LOG_ERROR,
++		      "dynamic database support is not implemented")
++
++	return ISC_R_NOTIMPLEMENTED;
++}
++
++static void
++unload_library(dyndb_implementation_t **impp)
++{
++	dyndb_implementation_t *imp;
++
++	REQUIRE(impp != NULL && *impp != NULL);
++
++	imp = *impp;
++
++	isc_mem_putanddetach(&imp->mctx, imp, sizeof(dyndb_implementation_t));
++
++	*impp = NULL;
++}
++#endif	/* HAVE_DLFCN_H */
++
++isc_result_t
++dns_dynamic_db_load(const char *libname, const char *name, isc_mem_t *mctx,
++		    const char * const *argv,
++		    const dns_dyndb_arguments_t *dyndb_args)
++{
++	isc_result_t result;
++	dyndb_implementation_t *implementation = NULL;
++
++	RUNTIME_CHECK(isc_once_do(&once, dyndb_initialize) == ISC_R_SUCCESS);
++
++	CHECK(load_library(mctx, libname, &implementation));
++	CHECK(implementation->register_function(mctx, name, argv, dyndb_args));
++
++	LOCK(&dyndb_lock);
++	APPEND(dyndb_implementations, implementation, link);
++	UNLOCK(&dyndb_lock);
++
++	return ISC_R_SUCCESS;
++
++cleanup:
++	if (implementation != NULL)
++		unload_library(&implementation);
++
++	return result;
++}
++
++void
++dns_dynamic_db_cleanup(isc_boolean_t exiting)
++{
++	dyndb_implementation_t *elem;
++	dyndb_implementation_t *prev;
++
++	RUNTIME_CHECK(isc_once_do(&once, dyndb_initialize) == ISC_R_SUCCESS);
++
++	LOCK(&dyndb_lock);
++	elem = TAIL(dyndb_implementations);
++	while (elem != NULL) {
++		prev = PREV(elem, link);
++		UNLINK(dyndb_implementations, elem, link);
++		elem->destroy_function();
++		unload_library(&elem);
++		elem = prev;
++	}
++	UNLOCK(&dyndb_lock);
++
++	if (exiting == ISC_TRUE)
++		isc_mutex_destroy(&dyndb_lock);
++}
++
++dns_dyndb_arguments_t *
++dns_dyndb_arguments_create(isc_mem_t *mctx)
++{
++	dns_dyndb_arguments_t *args;
++
++	args = isc_mem_get(mctx, sizeof(*args));
++	if (args != NULL)
++		memset(args, 0, sizeof(*args));
++
++	return args;
++}
++
++void
++dns_dyndb_arguments_destroy(isc_mem_t *mctx, dns_dyndb_arguments_t *args)
++{
++	REQUIRE(args != NULL);
++
++	dns_dyndb_set_view(args, NULL);
++	dns_dyndb_set_zonemgr(args, NULL);
++	dns_dyndb_set_task(args, NULL);
++	dns_dyndb_set_timermgr(args, NULL);
++
++	isc_mem_put(mctx, args, sizeof(*args));
++}
++
++void
++dns_dyndb_set_view(dns_dyndb_arguments_t *args, dns_view_t *view)
++{
++	REQUIRE(args != NULL);
++
++	if (args->view != NULL)
++		dns_view_detach(&args->view);
++	if (view != NULL)
++		dns_view_attach(view, &args->view);
++}
++
++dns_view_t *
++dns_dyndb_get_view(dns_dyndb_arguments_t *args)
++{
++	REQUIRE(args != NULL);
++
++	return args->view;
++}
++
++void
++dns_dyndb_set_zonemgr(dns_dyndb_arguments_t *args, dns_zonemgr_t *zmgr)
++{
++	REQUIRE(args != NULL);
++
++	if (args->zmgr != NULL)
++		dns_zonemgr_detach(&args->zmgr);
++	if (zmgr != NULL)
++		dns_zonemgr_attach(zmgr, &args->zmgr);
++}
++
++dns_zonemgr_t *
++dns_dyndb_get_zonemgr(dns_dyndb_arguments_t *args)
++{
++	REQUIRE(args != NULL);
++
++	return args->zmgr;
++}
++
++void
++dns_dyndb_set_task(dns_dyndb_arguments_t *args, isc_task_t *task)
++{
++	REQUIRE(args != NULL);
++
++	if (args->task != NULL)
++		isc_task_detach(&args->task);
++	if (task != NULL)
++		isc_task_attach(task, &args->task);
++}
++
++isc_task_t *
++dns_dyndb_get_task(dns_dyndb_arguments_t *args)
++{
++	REQUIRE(args != NULL);
++
++	return args->task;
++}
++
++void
++dns_dyndb_set_timermgr(dns_dyndb_arguments_t *args, isc_timermgr_t *timermgr)
++{
++	REQUIRE(args != NULL);
++
++	args->timermgr = timermgr;
++}
++
++isc_timermgr_t *
++dns_dyndb_get_timermgr(dns_dyndb_arguments_t *args)
++{
++	REQUIRE(args != NULL);
++
++	return args->timermgr;
++}
+diff -up bind-9.9.2/lib/dns/include/dns/dynamic_db.h.dyndb bind-9.9.2/lib/dns/include/dns/dynamic_db.h
+--- bind-9.9.2/lib/dns/include/dns/dynamic_db.h.dyndb	2012-10-11 13:13:10.631497588 +0200
++++ bind-9.9.2/lib/dns/include/dns/dynamic_db.h	2012-10-11 13:13:10.631497588 +0200
+@@ -0,0 +1,50 @@
++/*
++ * Copyright (C) 2008-2011  Red Hat, Inc.
++ *
++ * Permission to use, copy, modify, and/or distribute this software for any
++ * purpose with or without fee is hereby granted, provided that the above
++ * copyright notice and this permission notice appear in all copies.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS" AND Red Hat DISCLAIMS ALL WARRANTIES WITH
++ * REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
++ * AND FITNESS.  IN NO EVENT SHALL Red Hat BE LIABLE FOR ANY SPECIAL, DIRECT,
++ * INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
++ * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
++ * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
++ * PERFORMANCE OF THIS SOFTWARE.
++ */
++
++
++#ifndef DYNAMIC_DB_H
++#define DYNAMIC_DB_H
++
++#include <isc/types.h>
++
++#include <dns/types.h>
++
++/*
++ * TODO:
++ * Reformat the prototypes.
++ * Add annotated comments.
++ */
++
++isc_result_t dns_dynamic_db_load(const char *libname, const char *name,
++				 isc_mem_t *mctx, const char * const *argv,
++				 const dns_dyndb_arguments_t *dyndb_args);
++
++void dns_dynamic_db_cleanup(isc_boolean_t exiting);
++
++dns_dyndb_arguments_t *dns_dyndb_arguments_create(isc_mem_t *mctx);
++void dns_dyndb_arguments_destroy(isc_mem_t *mctx, dns_dyndb_arguments_t *args);
++
++void dns_dyndb_set_view(dns_dyndb_arguments_t *args, dns_view_t *view);
++dns_view_t *dns_dyndb_get_view(dns_dyndb_arguments_t *args);
++void dns_dyndb_set_zonemgr(dns_dyndb_arguments_t *args, dns_zonemgr_t *zmgr);
++dns_zonemgr_t *dns_dyndb_get_zonemgr(dns_dyndb_arguments_t *args);
++void dns_dyndb_set_task(dns_dyndb_arguments_t *args, isc_task_t *task);
++isc_task_t *dns_dyndb_get_task(dns_dyndb_arguments_t *args);
++void dns_dyndb_set_timermgr(dns_dyndb_arguments_t *args,
++			    isc_timermgr_t *timermgr);
++isc_timermgr_t *dns_dyndb_get_timermgr(dns_dyndb_arguments_t *args);
++
++#endif
+diff -up bind-9.9.2/lib/dns/include/dns/log.h.dyndb bind-9.9.2/lib/dns/include/dns/log.h
+--- bind-9.9.2/lib/dns/include/dns/log.h.dyndb	2012-09-27 02:35:19.000000000 +0200
++++ bind-9.9.2/lib/dns/include/dns/log.h	2012-10-11 13:13:45.309399482 +0200
+@@ -76,6 +76,7 @@ LIBDNS_EXTERNAL_DATA extern isc_logmodul
+ #define DNS_LOGMODULE_DLZ		(&dns_modules[26])
+ #define DNS_LOGMODULE_DNSSEC		(&dns_modules[27])
+ #define DNS_LOGMODULE_CRYPTO		(&dns_modules[28])
++#define DNS_LOGMODULE_DYNDB		(&dns_modules[29])
+ 
+ ISC_LANG_BEGINDECLS
+ 
+diff -up bind-9.9.2/lib/dns/include/dns/Makefile.in.dyndb bind-9.9.2/lib/dns/include/dns/Makefile.in
+--- bind-9.9.2/lib/dns/include/dns/Makefile.in.dyndb	2012-09-27 02:35:19.000000000 +0200
++++ bind-9.9.2/lib/dns/include/dns/Makefile.in	2012-10-11 13:13:10.632497587 +0200
+@@ -22,7 +22,7 @@ top_srcdir =	@top_srcdir@
+ @BIND9_VERSION@
+ 
+ HEADERS =	acl.h adb.h byaddr.h cache.h callbacks.h cert.h compress.h \
+-		clientinfo.h db.h dbiterator.h dbtable.h diff.h dispatch.h \
++		clientinfo.h db.h dbiterator.h dbtable.h diff.h dispatch.h dynamic_db.h \
+ 		dlz.h dnssec.h ds.h events.h fixedname.h iptable.h journal.h \
+ 		keyflags.h keytable.h keyvalues.h lib.h log.h \
+ 		master.h masterdump.h message.h name.h ncache.h nsec.h \
+diff -up bind-9.9.2/lib/dns/include/dns/types.h.dyndb bind-9.9.2/lib/dns/include/dns/types.h
+--- bind-9.9.2/lib/dns/include/dns/types.h.dyndb	2012-09-27 02:35:19.000000000 +0200
++++ bind-9.9.2/lib/dns/include/dns/types.h	2012-10-11 13:13:10.632497587 +0200
+@@ -60,6 +60,7 @@ typedef struct dns_dbtable			dns_dbtable
+ typedef void					dns_dbversion_t;
+ typedef struct dns_dlzimplementation		dns_dlzimplementation_t;
+ typedef struct dns_dlzdb			dns_dlzdb_t;
++typedef struct dns_dyndb_arguments		dns_dyndb_arguments_t;
+ typedef struct dns_sdlzimplementation		dns_sdlzimplementation_t;
+ typedef struct dns_decompress			dns_decompress_t;
+ typedef struct dns_dispatch			dns_dispatch_t;
+diff -up bind-9.9.2/lib/dns/log.c.dyndb bind-9.9.2/lib/dns/log.c
+--- bind-9.9.2/lib/dns/log.c.dyndb	2012-09-27 02:35:19.000000000 +0200
++++ bind-9.9.2/lib/dns/log.c	2012-10-11 13:15:15.085414483 +0200
+@@ -82,6 +82,7 @@ LIBDNS_EXTERNAL_DATA isc_logmodule_t dns
+ 	{ "dns/dlz",		0 },
+ 	{ "dns/dnssec",		0 },
+ 	{ "dns/crypto",		0 },
++	{ "dns/dynamic_db",	0 },
+ 	{ NULL, 		0 }
+ };
+ 
+diff -up bind-9.9.2/lib/dns/Makefile.in.dyndb bind-9.9.2/lib/dns/Makefile.in
+--- bind-9.9.2/lib/dns/Makefile.in.dyndb	2012-10-11 13:13:10.605497637 +0200
++++ bind-9.9.2/lib/dns/Makefile.in	2012-10-11 13:13:10.633497585 +0200
+@@ -59,7 +59,7 @@ DNSOBJS =	acache.@O@ acl.@O@ adb.@O@ bya
+ 		cache.@O@ callbacks.@O@ clientinfo.@O@ compress.@O@ \
+ 		db.@O@ dbiterator.@O@ dbtable.@O@ diff.@O@ dispatch.@O@ \
+ 		dlz.@O@ dns64.@O@ dnssec.@O@ ds.@O@ forward.@O@ iptable.@O@ \
+-		journal.@O@ keydata.@O@ keytable.@O@ \
++		dynamic_db.@O@ journal.@O@ keydata.@O@ keytable.@O@ \
+ 		lib.@O@ log.@O@ lookup.@O@ \
+ 		master.@O@ masterdump.@O@ message.@O@ \
+ 		name.@O@ ncache.@O@ nsec.@O@ nsec3.@O@ order.@O@ peer.@O@ \
+@@ -88,7 +88,7 @@ DNSSRCS =	acache.c acl.c adb.c byaddr.c
+ 		cache.c callbacks.c clientinfo.c compress.c \
+ 		db.c dbiterator.c dbtable.c diff.c dispatch.c \
+ 		dlz.c dns64.c dnssec.c ds.c forward.c iptable.c journal.c \
+-		keydata.c keytable.c lib.c log.c lookup.c \
++		dynamic_db.c keydata.c keytable.c lib.c log.c lookup.c \
+ 		master.c masterdump.c message.c \
+ 		name.c ncache.c nsec.c nsec3.c order.c peer.c portlist.c \
+ 		rbt.c rbtdb.c rbtdb64.c rcode.c rdata.c rdatalist.c \
+@@ -119,6 +119,11 @@ version.@O@: version.c
+ 		-DLIBAGE=${LIBAGE} \
+ 		-c ${srcdir}/version.c
+ 
++dynamic_db.@O@: dynamic_db.c
++	${LIBTOOL_MODE_COMPILE} ${CC} ${ALL_CFLAGS} \
++	-DDYNDB_LIBDIR=\"@libdir@/bind/\" \
++	-c ${srcdir}/dynamic_db.c
++
+ libdns.@SA@: ${OBJS}
+ 	${AR} ${ARFLAGS} $@ ${OBJS}
+ 	${RANLIB} $@
+diff -up bind-9.9.2/lib/isccfg/namedconf.c.dyndb bind-9.9.2/lib/isccfg/namedconf.c
+--- bind-9.9.2/lib/isccfg/namedconf.c.dyndb	2012-09-27 02:35:19.000000000 +0200
++++ bind-9.9.2/lib/isccfg/namedconf.c	2012-10-11 13:13:10.634497583 +0200
+@@ -89,6 +89,7 @@ static cfg_type_t cfg_type_controls;
+ static cfg_type_t cfg_type_controls_sockaddr;
+ static cfg_type_t cfg_type_destinationlist;
+ static cfg_type_t cfg_type_dialuptype;
++static cfg_type_t cfg_type_dynamic_db;
+ static cfg_type_t cfg_type_ixfrdifftype;
+ static cfg_type_t cfg_type_key;
+ static cfg_type_t cfg_type_logfile;
+@@ -871,6 +872,7 @@ namedconf_or_view_clauses[] = {
+ 	{ "zone", &cfg_type_zone, CFG_CLAUSEFLAG_MULTI },
+ 	/* only 1 DLZ per view allowed */
+ 	{ "dlz", &cfg_type_dynamically_loadable_zones, 0 },
++	{ "dynamic-db", &cfg_type_dynamic_db, CFG_CLAUSEFLAG_MULTI },
+ 	{ "server", &cfg_type_server, CFG_CLAUSEFLAG_MULTI },
+ 	{ "trusted-keys", &cfg_type_dnsseckeys, CFG_CLAUSEFLAG_MULTI },
+ 	{ "managed-keys", &cfg_type_managedkeys, CFG_CLAUSEFLAG_MULTI },
+@@ -1983,6 +1985,40 @@ static cfg_type_t cfg_type_dialuptype =
+ 	&cfg_rep_string, dialup_enums
+ };
+ 
++/*
++ * Dynamic database clauses.
++ */
++
++static cfg_clausedef_t
++dynamic_db_clauses[] = {
++	{ "library", &cfg_type_qstring, 0 },
++	{ "arg", &cfg_type_qstring, CFG_CLAUSEFLAG_MULTI },
++	{ NULL, NULL, 0 }
++};
++
++static cfg_clausedef_t *
++dynamic_db_clausesets[] = {
++	dynamic_db_clauses,
++	NULL
++};
++
++static cfg_type_t cfg_type_dynamic_db_opts = {
++	"dynamically_loadable_zones_opts", cfg_parse_map,
++	cfg_print_map, cfg_doc_map, &cfg_rep_map,
++	dynamic_db_clausesets
++};
++
++static cfg_tuplefielddef_t dynamic_db_fields[] = {
++	{ "name", &cfg_type_astring, 0 },
++	{ "options", &cfg_type_dynamic_db_opts, 0 },
++	{ NULL, NULL, 0 }
++};
++
++static cfg_type_t cfg_type_dynamic_db = {
++	"dynamic_db", cfg_parse_tuple, cfg_print_tuple, cfg_doc_tuple,
++	&cfg_rep_tuple, dynamic_db_fields
++};
++
+ static const char *notify_enums[] = { "explicit", "master-only", NULL };
+ static isc_result_t
+ parse_notify_type(cfg_parser_t *pctx, const cfg_type_t *type, cfg_obj_t **ret) {

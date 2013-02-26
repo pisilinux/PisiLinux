@@ -1,0 +1,206 @@
+
+ based on upstream patch:
+
+	commit 848e5e6ce3978d921366b799d907a78a12299924
+	Author: Karel Zak <kzak@redhat.com>
+	Date:   Wed Aug 18 09:02:03 2010 +0200
+
+	agetty: add -s to reuse existing baud rate
+
+	For example:
+
+	/sbin/agetty -s /dev/ttyS0 9600
+
+	will reuse the speed the kernel configured on the port. If the setting
+	from kernel is useless (tty returns BREAK character) then the baud
+	rate from command line (9600) is used.
+
+	Addresses: http://bugzilla.redhat.com/show_bug.cgi?id=623685
+	Signed-off-by: Karel Zak <kzak@redhat.com>
+
+ and
+
+	commit e98f4af950a64db188e0a9f3eed20fefaa463a99
+	Author: Karel Zak <kzak@redhat.com>
+	Date:   Fri Oct 22 21:24:50 2010 +0200
+
+	agetty: fix -s option (baud rate setup)
+
+	The problem is pretty visible in strace output:
+
+	broken version:
+	ioctl(0, SNDCTL_TMR_TIMEBASE or TCGETS, {B115200 opost isig icanon echo ...}) = 0
+	[...]
+	ioctl(0, SNDCTL_TMR_START or TCSETS, {B0 -opost -isig -icanon -echo ...}) = 0
+					   ^^^
+	fixed version:
+	ioctl(0, SNDCTL_TMR_TIMEBASE or TCGETS, {B115200 opost isig icanon echo ...}) = 0
+	[...]
+	ioctl(0, SNDCTL_TMR_START or TCSETS, {B115200 -opost -isig -icanon -echo ...}) = 0
+
+	Reported-by: Jon Masters <jcm@redhat.com>
+	Addresses: http://bugzilla.redhat.com/show_bug.cgi?id=645640
+	Signed-off-by: Karel Zak <kzak@redhat.com>
+
+diff -up util-linux-ng-2.18/login-utils/agetty.8.kzak util-linux-ng-2.18/login-utils/agetty.8
+--- util-linux-ng-2.18/login-utils/agetty.8.kzak	2010-02-04 12:53:56.000000000 +0100
++++ util-linux-ng-2.18/login-utils/agetty.8	2010-10-22 22:07:43.000000000 +0200
+@@ -3,7 +3,7 @@
+ agetty \- alternative Linux getty
+ 
+ .SH SYNOPSIS
+-.BR "agetty " [\-8ihLmnUw]
++.BR "agetty " [\-8ihLmnsUw]
+ .RI "[-f " issue_file ]
+ .RI "[-l " login_program ]
+ .RI "[-I " init ]
+@@ -12,16 +12,6 @@ agetty \- alternative Linux getty
+ .I port
+ .I baud_rate,...
+ .RI [ term ]
+-.br
+-.BR "agetty " [\-8ihLmnw]
+-.RI "[-f " issue_file ]
+-.RI "[-l " login_program ]
+-.RI "[-I " init ]
+-.RI "[-t " timeout ]
+-.RI "[-H " login_host ]
+-.I baud_rate,...
+-.I port
+-.RI [ term ]
+ 
+ .SH DESCRIPTION
+ .ad
+@@ -163,6 +153,10 @@ Force the line to be a local line with n
+ be useful when you have a locally attached terminal where the serial line
+ does not set the carrier detect signal.
+ .TP
++\-s
++Try to keep the existing baud rate. The baud rates from
++the command line are used when agetty receives a BREAK character.
++.TP
+ \-U
+ Turn on support for detecting an uppercase only terminal.  This setting will
+ detect a login name containing only capitals as indicating an uppercase
+diff -up util-linux-ng-2.18/login-utils/agetty.c.kzak util-linux-ng-2.18/login-utils/agetty.c
+--- util-linux-ng-2.18/login-utils/agetty.c.kzak	2010-04-01 16:11:56.000000000 +0200
++++ util-linux-ng-2.18/login-utils/agetty.c	2010-10-22 22:15:40.000000000 +0200
+@@ -133,6 +133,7 @@ struct options {
+ #define F_CUSTISSUE	(1<<6)		/* give alternative issue file */
+ #define F_NOPROMPT	(1<<7)		/* don't ask for login name! */
+ #define F_LCUC		(1<<8)		/* Support for *LCUC stty modes */
++#define F_KEEPSPEED	(1<<9)		/* Follow baud rate from kernel */
+ 
+ /* Storage for things detected while the login name was read. */
+ 
+@@ -203,7 +204,7 @@ void parse_args P_((int argc, char **arg
+ void parse_speeds P_((struct options *op, char *arg));
+ void update_utmp P_((char *line));
+ void open_tty P_((char *tty, struct termios *tp, int local));
+-void termio_init P_((struct termios *tp, int speed, struct options *op));
++void termio_init P_((struct termios *tp, struct options *op));
+ void auto_baud P_((struct termios *tp));
+ void do_prompt P_((struct options *op, struct termios *tp));
+ void next_speed P_((struct termios *tp, struct options *op));
+@@ -297,7 +298,7 @@ main(argc, argv)
+     tcsetpgrp(0, getpid());
+     /* Initialize the termios settings (raw mode, eight-bit, blocking i/o). */
+     debug("calling termio_init\n");
+-    termio_init(&termios, options.speeds[FIRST_SPEED], &options);
++    termio_init(&termios, &options);
+ 
+     /* write the modem init string and DON'T flush the buffers */
+     if (options.flags & F_INITSTRING) {
+@@ -373,7 +374,7 @@ parse_args(argc, argv, op)
+     extern int optind;			/* getopt */
+     int     c;
+ 
+-    while (isascii(c = getopt(argc, argv, "8I:LH:f:hil:mt:wUn"))) {
++    while (isascii(c = getopt(argc, argv, "8I:LH:f:hil:mst:wUn"))) {
+ 	switch (c) {
+ 	case '8':
+ 	    op->eightbits = 1;
+@@ -443,6 +444,9 @@ parse_args(argc, argv, op)
+ 	case 'n':
+ 	    op->flags |= F_NOPROMPT;
+ 	    break;
++	case 's':
++	    op->flags |= F_KEEPSPEED;		/* keep kernel defined speed */
++	    break;
+ 	case 't':				/* time out */
+ 	    if ((op->timeout = atoi(optarg)) <= 0)
+ 		error(_("bad timeout value: %s"), optarg);
+@@ -691,11 +695,17 @@ char gbuf[1024];
+ char area[1024];
+ 
+ void
+-termio_init(tp, speed, op)
++termio_init(tp, op)
+      struct termios *tp;
+-     int     speed;
+      struct options *op;
+ {
++    speed_t ispeed, ospeed;
++
++    if (op->flags & F_KEEPSPEED) {
++	ispeed = cfgetispeed(tp);		/* save the original setting */
++	ospeed = cfgetospeed(tp);
++    } else
++	ospeed = ispeed = op->speeds[FIRST_SPEED];
+ 
+     /*
+      * Initial termios settings: 8-bit characters, raw-mode, blocking i/o.
+@@ -706,14 +716,20 @@ termio_init(tp, speed, op)
+     /* flush input and output queues, important for modems! */
+     (void) tcflush(0, TCIOFLUSH);
+ 
++    tp->c_iflag = tp->c_lflag = tp->c_oflag = 0;
++
+     tp->c_cflag = CS8 | HUPCL | CREAD;
+-    cfsetispeed(tp, speed);
+-    cfsetospeed(tp, speed);
++
++    /* Note that the speed is stored in the c_cflag termios field, so we have
++     * set the speed always when the cflag se reseted.
++     */
++    cfsetispeed(tp, ispeed);
++    cfsetospeed(tp, ospeed);
++
+     if (op->flags & F_LOCAL) {
+ 	tp->c_cflag |= CLOCAL;
+     }
+ 
+-    tp->c_iflag = tp->c_lflag = tp->c_oflag = 0;
+ #ifdef HAVE_STRUCT_TERMIOS_C_LINE
+     tp->c_line = 0;
+ #endif
+@@ -973,9 +989,18 @@ next_speed(tp, op)
+      struct termios *tp;
+      struct options *op;
+ {
+-    static int baud_index = FIRST_SPEED;/* current speed index */
++    static int baud_index = -1;
++
++    if (baud_index == -1)
++	/*
++	 * if the F_KEEPSPEED flags is set then the FIRST_SPEED is not
++	 * tested yet (see termio_init()).
++	 */
++	baud_index = (op->flags & F_KEEPSPEED) ? FIRST_SPEED :
++		                                 1 % op->numspeed;
++    else
++	baud_index = (baud_index + 1) % op->numspeed;
+ 
+-    baud_index = (baud_index + 1) % op->numspeed;
+     cfsetispeed(tp, op->speeds[baud_index]);
+     cfsetospeed(tp, op->speeds[baud_index]);
+     (void) tcsetattr(0, TCSANOW, tp);
+@@ -1203,7 +1228,7 @@ bcode(s)
+ void
+ usage()
+ {
+-    fprintf(stderr, _("Usage: %s [-8hiLmUw] [-l login_program] [-t timeout] [-I initstring] [-H login_host] baud_rate,... line [termtype]\nor\t[-hiLmw] [-l login_program] [-t timeout] [-I initstring] [-H login_host] line baud_rate,... [termtype]\n"), progname);
++    fprintf(stderr, _("Usage: %s [-8hiLmsUw] [-l login_program] [-t timeout] [-I initstring] [-H login_host] baud_rate,... line [termtype]\nor\t[-hiLmw] [-l login_program] [-t timeout] [-I initstring] [-H login_host] line baud_rate,... [termtype]\n"), progname);
+     exit(1);
+ }
+ 

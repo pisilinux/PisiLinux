@@ -1,0 +1,275 @@
+--- /dev/null	2007-02-06 15:45:45.046837255 +0100
++++ openobex-1.3/src/obex_push.1	2007-02-07 09:21:04.000000000 +0100
+@@ -0,0 +1,39 @@
++.TH OBEX_PUSH 1 "04 June 2003" "1.0.0"  "openobex-apps"
++.SH NAME
++obex_push \- Push and Receive Files over the Bluetooth OBEX Push Channel
++.SH SYNOPSIS
++obex_push \fI[\fR\fB<channel>\fR\fI]  \fI[\fR\fB<bdaddr> <filename>\fR\fI] 
++.SH DESCRIPTION
++obex_push can send and receive files over the Bluetooth OBEX Push Channel.
++.PP
++To configure your bluetooth device, you should do the following:
++.PP
++Add modules into /etc/modules.conf: 
++.PP
++.RS
++.nf
++alias net-pf-31 bluez
++alias bt-proto-0 l2cap
++alias bt-proto-2 sco
++alias bt-proto-3 rfcomm
++.fi
++.RE
++.PP
++Link your bluetooth device with your computer.
++.PP
++You can see the SDP services with:
++.PP
++$ sdptool browse <bdaddr>
++.PP
++.SH OPTIONS
++If no options are given, any files sent over bluetooth will be received over channel 10 and stored in /tmp.
++.PP 
++If \fI<bdaddr>\fR and \fI<filename>\fR are given, the file will be send to the device specified with \fI<bdaddr>\fR.
++.TP
++\fI<channel>\fR - The bluetooth channel to use. Lookup the OBEX Push channel with sdptool browse <bdaddr>.
++.TP
++\fI<bdaddr>\fR - The bluetooth address <bdaddr> of the device to send to.
++.TP
++\fI<filename>\fR - The file to send.
++.SH AUTHOR
++Harald Hoyer \fI<harald@redhat.com>\fR
+--- /dev/null	2007-02-06 15:45:45.046837255 +0100
++++ openobex-1.3/apps/obex_push.c	2007-02-07 09:36:56.000000000 +0100
+@@ -0,0 +1,177 @@
++/*********************************************************************
++ *                
++ * Filename:      obex_push.c
++ * Version:       0.1
++ * Description:   Demonstrates use of PUSH command
++ * Status:        Experimental.
++ * Author:        Harald Hoyer <harald@redhat.com
++ *
++ *     modified irobex_palm3.c
++ * 
++ *     Copyright (C) 2003-2007 Harald Hoyer, All Rights Reserved.
++ *     Copyright (C) 2003-2007 Red Hat, Inc.
++ *     
++ *     This program is free software; you can redistribute it and/or 
++ *     modify it under the terms of the GNU General Public License as 
++ *     published by the Free Software Foundation; either version 2 of 
++ *     the License, or (at your option) any later version.
++ * 
++ *     This program is distributed in the hope that it will be useful,
++ *     but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ *     GNU General Public License for more details.
++ * 
++ *     You should have received a copy of the GNU General Public License 
++ *     along with this program; if not, write to the Free Software 
++ *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
++ *     MA 02111-1307 USA
++ *
++ *
++ *     Start without arguments to receive a file.
++ *     Start with address and filename as argument to send a file. 
++ *     
++ ********************************************************************/
++
++#include <stdio.h>
++#include <stdlib.h>
++
++#ifndef _WIN32
++#include <unistd.h>
++#endif
++
++#ifdef HAVE_CONFIG_H
++#include <config.h>
++#endif
++
++#if _WIN32
++#include <winsock.h>
++#else
++#include <sys/socket.h>
++#include <arpa/inet.h>
++#include <netdb.h>
++#include <netinet/in.h>
++#endif /* _WIN32 */
++
++#include <libgen.h>
++
++#include <bluetooth/bluetooth.h>
++#include <bluetooth/rfcomm.h>
++
++
++#include <openobex/obex.h>
++#include "obex_put_common.h"
++#include "obex_io.h"
++
++#define OBEX_PUSH_HANDLE	10
++
++#define TRUE  1
++#define FALSE 0
++
++obex_t *handle = NULL;
++volatile int finished = FALSE;
++extern int last_rsp;
++
++/*
++ * Function main (argc, )
++ *
++ *    Starts all the fun!
++ *
++ */
++int main(int argc, char *argv[])
++{
++	obex_object_t *object;
++	int ret, exitval = EXIT_SUCCESS;
++	bdaddr_t bdaddr;
++	uint8_t channel;
++	char *filename;
++	if ((argc < 1) || (argc > 4))	{
++		printf ("Usage: %s [<channel>] [<bdaddr> <filename>]\n", argv[0]); 
++		return -1;
++	}
++	handle = OBEX_Init(OBEX_TRANS_BLUETOOTH, obex_event, 0);
++
++	switch (argc) {
++#ifdef HAVE_BLUETOOTH
++	case 4:
++		channel = atoi(argv[1]);
++		str2ba(argv[2], &bdaddr);
++		filename = argv[3];
++		break;
++	case 3:
++		str2ba(argv[1], &bdaddr);
++		filename = argv[2];
++		channel = OBEX_PUSH_HANDLE;
++		break;
++	case 2:
++		channel = atoi(argv[1]);
++		break;
++	case 1:
++		channel = OBEX_PUSH_HANDLE;
++		break;
++#endif
++	default:
++		printf("Wrong number of arguments\n");
++		exit(0);
++	}
++
++	printf("Send and receive files through bluetooth OBEX PUSH channel %d\n", channel);
++	if (argc <= 2)	{
++		char cmd[1024];
++		int ret;
++		/* We are server*/
++		snprintf(cmd, sizeof(cmd), "sdptool add --channel=%d OPUSH", channel);
++		ret = system(cmd);
++		if (ret != 0) {
++			fprintf(stderr, "Command failed: %s\n", cmd);
++		}
++		
++		printf("Waiting for files\n");
++		BtOBEX_ServerRegister(handle, NULL, channel);
++		
++		while (!finished)
++			OBEX_HandleInput(handle, 1);
++	}
++	else {
++		char *basefilename = basename(strdup(filename));
++		/* We are a client */
++		if (bacmp(&bdaddr, BDADDR_ANY) == 0) {
++			printf("Device address error! (Bluetooth)\n");
++			return -1;
++		}
++
++		/* Try to connect to peer */
++		ret = BtOBEX_TransportConnect(handle, BDADDR_ANY, &bdaddr,
++					      channel);
++		if (ret < 0) {
++			printf("Sorry, unable to connect!\n");
++			return EXIT_FAILURE;
++		}
++
++		object = OBEX_ObjectNew(handle, OBEX_CMD_CONNECT);
++		ret = do_sync_request(handle, object, FALSE);
++		if ((last_rsp != OBEX_RSP_SUCCESS) || (ret < 0)) {
++			printf("Sorry, unable to connect!\n");
++			return EXIT_FAILURE;
++		}
++		if ((object = build_object_from_file(handle, filename,
++					basefilename)))
++		{
++			ret = do_sync_request(handle, object, FALSE);
++			if ((last_rsp != OBEX_RSP_SUCCESS) || (ret < 0))
++				exitval = EXIT_FAILURE;
++		} else
++			exitval = EXIT_FAILURE;
++
++		object = OBEX_ObjectNew(handle, OBEX_CMD_DISCONNECT);
++		ret = do_sync_request(handle, object, FALSE);
++		if ((last_rsp != OBEX_RSP_SUCCESS) || (ret < 0))
++			exitval = EXIT_FAILURE;
++
++		if (exitval == EXIT_SUCCESS)
++			printf("PUT successful\n");
++		else
++			printf("PUT failed\n");
++	}
++//	sleep(1);
++	return exitval;
++}
+--- /dev/null	2007-02-06 15:45:45.046837255 +0100
++++ openobex-1.3/apps/obex_push.1	2007-02-07 09:21:04.000000000 +0100
+@@ -0,0 +1,26 @@
++.TH OBEX_PUSH 1 "07 Feb 2007" "1.0.0"  "openobex-apps"
++.SH NAME
++obex_push \- Push and Receive Files over the Bluetooth OBEX Push Channel
++.SH SYNOPSIS
++obex_push \fI[\fR\fB<channel>\fR\fI]  \fI[\fR\fB<bdaddr> <filename>\fR\fI] 
++.SH DESCRIPTION
++obex_push can send and receive files over the Bluetooth OBEX Push Channel.
++.PP
++Link your bluetooth device with your computer.
++.PP
++You can see the SDP services with:
++.PP
++$ sdptool browse <bdaddr>
++.PP
++.SH OPTIONS
++If no options are given, any files sent over bluetooth will be received over channel 10 and stored in /tmp.
++.PP 
++If \fI<bdaddr>\fR and \fI<filename>\fR are given, the file will be send to the device specified with \fI<bdaddr>\fR.
++.TP
++\fI<channel>\fR - The bluetooth channel to use. Lookup the OBEX Push channel with sdptool browse <bdaddr>.
++.TP
++\fI<bdaddr>\fR - The bluetooth address <bdaddr> of the device to send to.
++.TP
++\fI<filename>\fR - The file to send.
++.SH AUTHOR
++Harald Hoyer \fI<harald@redhat.com>\fR
+--- openobex-1.3/apps/Makefile.am.push	2006-01-03 19:36:15.000000000 +0100
++++ openobex-1.3/apps/Makefile.am	2007-02-07 09:21:04.000000000 +0100
+@@ -6,7 +6,7 @@
+ 	obex_io.c obex_io.h \
+ 	obex_put_common.c obex_put_common.h
+ 
+-bin_PROGRAMS = irxfer obex_tcp irobex_palm3 obex_test
++bin_PROGRAMS = irxfer obex_tcp irobex_palm3 obex_test obex_push
+ 
+ obex_test_SOURCES = \
+ 	obex_test.c obex_test.h \
+@@ -16,6 +16,11 @@
+ 
+ obex_test_LDADD = libmisc.a $(top_builddir)/lib/libopenobex.la @BLUETOOTH_LIBS@
+ 
++obex_push_SOURCES = obex_push.c
++obex_push_LDADD = $(top_builddir)/lib/libopenobex.la @BLUETOOTH_LIBS@ @USB_LIBS@ libmisc.a
++
++man_MANS = obex_push.1
++
+ AM_CFLAGS = @OPENOBEX_CFLAGS@
+ 
+ LDADD = libmisc.a $(top_builddir)/lib/libopenobex.la
+ 

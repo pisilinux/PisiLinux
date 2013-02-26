@@ -1,0 +1,103 @@
+diff -ur k3b-2.0.2/libk3b/jobs/k3bdvdcopyjob.cpp k3b-2.0.2-use_growisofs_instead_of_wodim/libk3b/jobs/k3bdvdcopyjob.cpp
+--- k3b-2.0.2/libk3b/jobs/k3bdvdcopyjob.cpp	2011-01-15 21:47:30.000000000 +0100
++++ k3b-2.0.2-use_growisofs_instead_of_wodim/libk3b/jobs/k3bdvdcopyjob.cpp	2011-04-23 02:48:59.000000000 +0200
+@@ -169,13 +169,20 @@
+         // first let's determine which application to use
+         d->usedWritingApp = writingApp();
+         if ( d->usedWritingApp == K3b::WritingAppAuto ) {
+-            // let's default to cdrecord for the time being
++            // prefer growisofs to wodim, which doesn't work all that great for DVDs
++            // (and doesn't support BluRay at all)
++            if ( k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "wodim" ) )
++                d->usedWritingApp = K3b::WritingAppGrowisofs;
++            // otherwise, let's default to cdrecord for the time being
+             // FIXME: use growisofs for non-dao and non-auto mode
+-            if ( K3b::Device::isBdMedia( d->sourceDiskInfo.mediaType() ) ) {
+-                if ( k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "blu-ray" ) )
++            else {
++                if ( K3b::Device::isBdMedia( d->sourceDiskInfo.mediaType() ) ) {
++                    if ( k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "blu-ray" ) )
++                        d->usedWritingApp = K3b::WritingAppCdrecord;
++                    else
++                        d->usedWritingApp = K3b::WritingAppGrowisofs;
++                } else
+                     d->usedWritingApp = K3b::WritingAppCdrecord;
+-                else
+-                    d->usedWritingApp = K3b::WritingAppGrowisofs;
+             }
+         }
+ 
+diff -ur k3b-2.0.2/libk3b/jobs/k3bmetawriter.cpp k3b-2.0.2-use_growisofs_instead_of_wodim/libk3b/jobs/k3bmetawriter.cpp
+--- k3b-2.0.2/libk3b/jobs/k3bmetawriter.cpp	2011-01-15 21:47:30.000000000 +0100
++++ k3b-2.0.2-use_growisofs_instead_of_wodim/libk3b/jobs/k3bmetawriter.cpp	2011-04-23 02:42:06.000000000 +0200
+@@ -261,11 +261,13 @@
+     bool cdrecordOnTheFly = false;
+     bool cdrecordCdText = false;
+     bool cdrecordBluRay = false;
++    bool cdrecordWodim = false;
+     bool growisofsBluRay = false;
+     if( k3bcore->externalBinManager()->binObject("cdrecord") ) {
+         cdrecordOnTheFly = k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "audio-stdin" );
+         cdrecordCdText = k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "cdtext" );
+         cdrecordBluRay = k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "blu-ray" );
++        cdrecordWodim = k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "wodim" );
+     }
+     if( k3bcore->externalBinManager()->binObject("growisofs") ) {
+         growisofsBluRay = k3bcore->externalBinManager()->binObject("growisofs")->hasFeature( "blu-ray" );
+@@ -316,10 +318,16 @@
+                 d->usedWritingApp = WritingAppGrowisofs;
+             }
+             else if( mediaType & Device::MEDIA_DVD_ALL ) {
+-                d->usedWritingApp = WritingAppCdrecord;
++                // wodim (at least on fedora) doesn't do DVDs all that well, use growisofs instead
++                if ( cdrecordWodim ) {
++                    d->usedWritingApp = WritingAppGrowisofs;
++                }
++                else {
++                    d->usedWritingApp = WritingAppCdrecord;
++                }
+             }
+             else if( mediaType & Device::MEDIA_BD_ALL ) {
+-                if( cdrecordBluRay ) {
++                if( cdrecordBluRay && ! cdrecordWodim ) {
+                     d->usedWritingApp = WritingAppCdrecord;
+                 }
+                 else if( growisofsBluRay ) {
+diff -ur k3b-2.0.2/libk3b/projects/datacd/k3bdatajob.cpp k3b-2.0.2-use_growisofs_instead_of_wodim/libk3b/projects/datacd/k3bdatajob.cpp
+--- k3b-2.0.2/libk3b/projects/datacd/k3bdatajob.cpp	2011-01-15 21:47:30.000000000 +0100
++++ k3b-2.0.2-use_growisofs_instead_of_wodim/libk3b/projects/datacd/k3bdatajob.cpp	2011-04-23 02:55:48.000000000 +0200
+@@ -58,7 +58,7 @@
+ {
+ public:
+     Private()
+-        : usedWritingApp(K3b::WritingAppCdrecord),
++        : usedWritingApp(K3b::WritingAppAuto),
+           verificationJob( 0 ),
+           pipe( 0 ) {
+     }
+@@ -813,8 +813,12 @@
+ 
+         d->usedWritingApp = writingApp();
+         // let's default to cdrecord for the time being (except for special cases below)
++        // but prefer growisofs to wodim for DVDs
+         if ( d->usedWritingApp == K3b::WritingAppAuto ) {
+-            d->usedWritingApp = K3b::WritingAppCdrecord;
++            if (k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "wodim" ))
++                d->usedWritingApp = K3b::WritingAppGrowisofs;
++            else
++                d->usedWritingApp = K3b::WritingAppCdrecord;
+         }
+ 
+         // -------------------------------
+@@ -930,7 +934,10 @@
+     else if ( foundMedium & K3b::Device::MEDIA_BD_ALL ) {
+         d->usedWritingApp = writingApp();
+         if( d->usedWritingApp == K3b::WritingAppAuto ) {
+-            d->usedWritingApp = K3b::WritingAppCdrecord;
++            if (k3bcore->externalBinManager()->binObject("cdrecord")->hasFeature( "wodim" ))
++                d->usedWritingApp = K3b::WritingAppGrowisofs;
++            else
++                d->usedWritingApp = K3b::WritingAppCdrecord;
+         }
+ 
+         if ( d->usedWritingApp == K3b::WritingAppCdrecord &&

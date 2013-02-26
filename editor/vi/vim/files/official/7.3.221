@@ -1,0 +1,287 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.221
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.221
+Problem:    Text from the clipboard is sometimes handled as linewise, but not
+            consistently.
+Solution:   Assume the text is linewise when it ends in a CR or NL.
+Files:      src/gui_gtk_x11.c, src/gui_mac.c, src/ops.c, src/os_msdos.c,
+            src/os_mswin.c, src/os_qnx.c, src/ui.c
+
+
+*** ../mercurial/vim73/src/gui_gtk_x11.c	2011-02-25 17:10:22.000000000 +0100
+--- src/gui_gtk_x11.c	2011-06-19 00:58:31.000000000 +0200
+***************
+*** 1173,1179 ****
+      char_u	    *tmpbuf = NULL;
+      guchar	    *tmpbuf_utf8 = NULL;
+      int		    len;
+!     int		    motion_type;
+  
+      if (data->selection == clip_plus.gtk_sel_atom)
+  	cbd = &clip_plus;
+--- 1173,1179 ----
+      char_u	    *tmpbuf = NULL;
+      guchar	    *tmpbuf_utf8 = NULL;
+      int		    len;
+!     int		    motion_type = MAUTO;
+  
+      if (data->selection == clip_plus.gtk_sel_atom)
+  	cbd = &clip_plus;
+***************
+*** 1182,1188 ****
+  
+      text = (char_u *)data->data;
+      len  = data->length;
+-     motion_type = MCHAR;
+  
+      if (text == NULL || len <= 0)
+      {
+--- 1182,1187 ----
+*** ../mercurial/vim73/src/gui_mac.c	2011-06-12 20:33:30.000000000 +0200
+--- src/gui_mac.c	2011-06-19 00:59:07.000000000 +0200
+***************
+*** 4671,4677 ****
+      if (flavor)
+  	type = **textOfClip;
+      else
+! 	type = (strchr(*textOfClip, '\r') != NULL) ? MLINE : MCHAR;
+  
+      tempclip = lalloc(scrapSize + 1, TRUE);
+      mch_memmove(tempclip, *textOfClip + flavor, scrapSize);
+--- 4671,4677 ----
+      if (flavor)
+  	type = **textOfClip;
+      else
+! 	type = MAUTO;
+  
+      tempclip = lalloc(scrapSize + 1, TRUE);
+      mch_memmove(tempclip, *textOfClip + flavor, scrapSize);
+*** ../mercurial/vim73/src/ops.c	2011-04-01 16:28:33.000000000 +0200
+--- src/ops.c	2011-06-19 00:59:39.000000000 +0200
+***************
+*** 5733,5739 ****
+      }
+  }
+  
+! /* Convert from the GUI selection string into the '*'/'+' register */
+      void
+  clip_yank_selection(type, str, len, cbd)
+      int		type;
+--- 5733,5741 ----
+      }
+  }
+  
+! /*
+!  * Convert from the GUI selection string into the '*'/'+' register.
+!  */
+      void
+  clip_yank_selection(type, str, len, cbd)
+      int		type;
+***************
+*** 6090,6098 ****
+      if (yank_type == MBLOCK)
+  	yank_type = MAUTO;
+  #endif
+-     if (yank_type == MAUTO)
+- 	yank_type = ((len > 0 && (str[len - 1] == '\n' || str[len - 1] == '\r'))
+- 							     ? MLINE : MCHAR);
+      str_to_reg(y_current, yank_type, str, len, block_len);
+  
+  # ifdef FEAT_CLIPBOARD
+--- 6092,6097 ----
+***************
+*** 6113,6125 ****
+   * is appended.
+   */
+      static void
+! str_to_reg(y_ptr, type, str, len, blocklen)
+      struct yankreg	*y_ptr;		/* pointer to yank register */
+!     int			type;		/* MCHAR, MLINE or MBLOCK */
+      char_u		*str;		/* string to put in register */
+      long		len;		/* length of string */
+      long		blocklen;	/* width of Visual block */
+  {
+      int		lnum;
+      long	start;
+      long	i;
+--- 6112,6125 ----
+   * is appended.
+   */
+      static void
+! str_to_reg(y_ptr, yank_type, str, len, blocklen)
+      struct yankreg	*y_ptr;		/* pointer to yank register */
+!     int			yank_type;	/* MCHAR, MLINE, MBLOCK, MAUTO */
+      char_u		*str;		/* string to put in register */
+      long		len;		/* length of string */
+      long		blocklen;	/* width of Visual block */
+  {
++     int		type;			/* MCHAR, MLINE or MBLOCK */
+      int		lnum;
+      long	start;
+      long	i;
+***************
+*** 6136,6141 ****
+--- 6136,6147 ----
+      if (y_ptr->y_array == NULL)		/* NULL means empty register */
+  	y_ptr->y_size = 0;
+  
++     if (yank_type == MAUTO)
++ 	type = ((len > 0 && (str[len - 1] == NL || str[len - 1] == CAR))
++ 							     ? MLINE : MCHAR);
++     else
++ 	type = yank_type;
++ 
+      /*
+       * Count the number of lines within the string
+       */
+*** ../mercurial/vim73/src/os_msdos.c	2010-12-17 18:06:00.000000000 +0100
+--- src/os_msdos.c	2011-06-19 01:00:56.000000000 +0200
+***************
+*** 2232,2238 ****
+      void
+  clip_mch_request_selection(VimClipboard *cbd)
+  {
+!     int		type = MCHAR;
+      char_u	*pAllocated = NULL;
+      char_u	*pClipText = NULL;
+      int		clip_data_format = 0;
+--- 2232,2238 ----
+      void
+  clip_mch_request_selection(VimClipboard *cbd)
+  {
+!     int		type = MAUTO;
+      char_u	*pAllocated = NULL;
+      char_u	*pClipText = NULL;
+      int		clip_data_format = 0;
+***************
+*** 2280,2293 ****
+  	{
+  	    clip_data_format = CF_TEXT;
+  	    pClipText = pAllocated;
+- 	    type = (vim_strchr((char*)pClipText, '\r') != NULL) ? MLINE : MCHAR;
+  	}
+  
+  	else if ((pAllocated = Win16GetClipboardData(CF_OEMTEXT)) != NULL)
+  	{
+  	    clip_data_format = CF_OEMTEXT;
+  	    pClipText = pAllocated;
+- 	    type = (vim_strchr((char*)pClipText, '\r') != NULL) ? MLINE : MCHAR;
+  	}
+  
+  	/* Did we get anything? */
+--- 2280,2291 ----
+*** ../mercurial/vim73/src/os_mswin.c	2011-01-17 20:08:04.000000000 +0100
+--- src/os_mswin.c	2011-06-19 01:01:51.000000000 +0200
+***************
+*** 1410,1418 ****
+      {
+  	char_u *temp_clipboard;
+  
+! 	/* If the type is not known guess it. */
+  	if (metadata.type == -1)
+! 	    metadata.type = (vim_strchr(str, '\n') == NULL) ? MCHAR : MLINE;
+  
+  	/* Translate <CR><NL> into <NL>. */
+  	temp_clipboard = crnl_to_nl(str, &str_size);
+--- 1410,1418 ----
+      {
+  	char_u *temp_clipboard;
+  
+! 	/* If the type is not known detect it. */
+  	if (metadata.type == -1)
+! 	    metadata.type = MAUTO;
+  
+  	/* Translate <CR><NL> into <NL>. */
+  	temp_clipboard = crnl_to_nl(str, &str_size);
+*** ../mercurial/vim73/src/os_qnx.c	2010-05-15 21:22:11.000000000 +0200
+--- src/os_qnx.c	2011-06-19 01:02:26.000000000 +0200
+***************
+*** 93,99 ****
+  	    clip_length  = clip_header->length - 1;
+  
+  	    if( clip_text != NULL && is_type_set == FALSE )
+! 		type = (strchr( clip_text, '\r' ) != NULL) ? MLINE : MCHAR;
+  	}
+  
+  	if( (clip_text != NULL) && (clip_length > 0) )
+--- 93,99 ----
+  	    clip_length  = clip_header->length - 1;
+  
+  	    if( clip_text != NULL && is_type_set == FALSE )
+! 		type = MAUTO;
+  	}
+  
+  	if( (clip_text != NULL) && (clip_length > 0) )
+*** ../mercurial/vim73/src/ui.c	2010-09-21 22:09:28.000000000 +0200
+--- src/ui.c	2011-06-19 01:03:31.000000000 +0200
+***************
+*** 1609,1615 ****
+  
+  #if defined(FEAT_HANGULIN) || defined(PROTO)
+      void
+! push_raw_key (s, len)
+      char_u  *s;
+      int	    len;
+  {
+--- 1609,1615 ----
+  
+  #if defined(FEAT_HANGULIN) || defined(PROTO)
+      void
+! push_raw_key(s, len)
+      char_u  *s;
+      int	    len;
+  {
+***************
+*** 2016,2022 ****
+      long_u	*length;
+      int		*format;
+  {
+!     int		motion_type;
+      long_u	len;
+      char_u	*p;
+      char	**text_list = NULL;
+--- 2016,2022 ----
+      long_u	*length;
+      int		*format;
+  {
+!     int		motion_type = MAUTO;
+      long_u	len;
+      char_u	*p;
+      char	**text_list = NULL;
+***************
+*** 2036,2042 ****
+  	*(int *)success = FALSE;
+  	return;
+      }
+-     motion_type = MCHAR;
+      p = (char_u *)value;
+      len = *length;
+      if (*type == vim_atom)
+--- 2036,2041 ----
+*** ../vim-7.3.220/src/version.c	2011-06-19 00:27:46.000000000 +0200
+--- src/version.c	2011-06-19 01:03:59.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     221,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+190. You quickly hand over your wallet, leather jacket, and car keys
+     during a mugging, then proceed to beat the crap out of your
+     assailant when he asks for your laptop.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

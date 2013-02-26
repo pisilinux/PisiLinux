@@ -1,0 +1,131 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.559
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.559
+Problem:    home_replace() does not work with 8.3 filename.
+Solution:   Make ":p" expand 8.3 name to full path. (Yasuhiro Matsumoto)
+Files:	    src/eval.c, src/misc1.c
+
+
+*** ../vim-7.3.558/src/eval.c	2012-06-13 14:28:16.000000000 +0200
+--- src/eval.c	2012-06-20 13:52:47.000000000 +0200
+***************
+*** 23554,23559 ****
+--- 23554,23580 ----
+  		return -1;
+  	}
+  
++ #ifdef WIN3264
++ # if _WIN32_WINNT >= 0x0500
++ 	if (vim_strchr(*fnamep, '~') != NULL)
++ 	{
++ 	    /* Expand 8.3 filename to full path.  Needed to make sure the same
++ 	     * file does not have two different names.
++ 	     * Note: problem does not occur if _WIN32_WINNT < 0x0500. */
++ 	    p = alloc(_MAX_PATH + 1);
++ 	    if (p != NULL)
++ 	    {
++ 		if (GetLongPathName(*fnamep, p, MAXPATHL))
++ 		{
++ 		    vim_free(*bufp);
++ 		    *bufp = *fnamep = p;
++ 		}
++ 		else
++ 		    vim_free(p);
++ 	    }
++ 	}
++ # endif
++ #endif
+  	/* Append a path separator to a directory. */
+  	if (mch_isdir(*fnamep))
+  	{
+*** ../vim-7.3.558/src/misc1.c	2012-06-20 12:40:01.000000000 +0200
+--- src/misc1.c	2012-06-20 13:57:22.000000000 +0200
+***************
+*** 4499,4505 ****
+  {
+      size_t	dirlen = 0, envlen = 0;
+      size_t	len;
+!     char_u	*homedir_env;
+      char_u	*p;
+  
+      if (src == NULL)
+--- 4499,4505 ----
+  {
+      size_t	dirlen = 0, envlen = 0;
+      size_t	len;
+!     char_u	*homedir_env, *homedir_env_orig;
+      char_u	*p;
+  
+      if (src == NULL)
+***************
+*** 4525,4533 ****
+  	dirlen = STRLEN(homedir);
+  
+  #ifdef VMS
+!     homedir_env = mch_getenv((char_u *)"SYS$LOGIN");
+  #else
+!     homedir_env = mch_getenv((char_u *)"HOME");
+  #endif
+  
+      if (homedir_env != NULL && *homedir_env == NUL)
+--- 4525,4548 ----
+  	dirlen = STRLEN(homedir);
+  
+  #ifdef VMS
+!     homedir_env_orig = homedir_env = mch_getenv((char_u *)"SYS$LOGIN");
+  #else
+!     homedir_env_orig = homedir_env = mch_getenv((char_u *)"HOME");
+! #endif
+! #if defined(FEAT_MODIFY_FNAME) || defined(WIN3264)
+!     if (vim_strchr(homedir_env, '~') != NULL)
+!     {
+! 	int	usedlen = 0;
+! 	int	flen;
+! 	char_u	*fbuf = NULL;
+! 
+! 	flen = (int)STRLEN(homedir_env);
+! 	(void)modify_fname(":p", &usedlen, &homedir_env, &fbuf, &flen);
+! 	flen = (int)STRLEN(homedir_env);
+! 	if (flen > 0 && vim_ispathsep(homedir_env[flen - 1]))
+! 	    /* Remove the trailing / that is added to a directory. */
+! 	    homedir_env[flen - 1] = NUL;
+!     }
+  #endif
+  
+      if (homedir_env != NULL && *homedir_env == NUL)
+***************
+*** 4585,4590 ****
+--- 4600,4608 ----
+      /* if (dstlen == 0) out of space, what to do??? */
+  
+      *dst = NUL;
++ 
++     if (homedir_env != homedir_env_orig)
++ 	vim_free(homedir_env);
+  }
+  
+  /*
+*** ../vim-7.3.558/src/version.c	2012-06-20 12:40:01.000000000 +0200
+--- src/version.c	2012-06-20 14:02:11.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     559,
+  /**/
+
+-- 
+The future isn't what it used to be.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

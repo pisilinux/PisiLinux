@@ -1,0 +1,553 @@
+diff -up tcp_wrappers_7.6/clean_exit.c.warnings tcp_wrappers_7.6/clean_exit.c
+--- tcp_wrappers_7.6/clean_exit.c.warnings	1994-12-28 17:42:20.000000000 +0100
++++ tcp_wrappers_7.6/clean_exit.c	2011-08-16 10:29:50.939543675 +0200
+@@ -13,6 +13,7 @@ static char sccsid[] = "@(#) clean_exit.
+ #endif
+ 
+ #include <stdio.h>
++#include <unistd.h>
+ 
+ extern void exit();
+ 
+diff -up tcp_wrappers_7.6/fakelog.c.warnings tcp_wrappers_7.6/fakelog.c
+--- tcp_wrappers_7.6/fakelog.c.warnings	1994-12-28 17:42:22.000000000 +0100
++++ tcp_wrappers_7.6/fakelog.c	2011-08-16 10:29:51.035482124 +0200
+@@ -17,6 +17,7 @@ static char sccsid[] = "@(#) fakelog.c 1
+ 
+ /* ARGSUSED */
+ 
++void
+ openlog(name, logopt, facility)
+ char   *name;
+ int     logopt;
+@@ -27,6 +28,7 @@ int     facility;
+ 
+ /* vsyslog - format one record */
+ 
++void
+ vsyslog(severity, fmt, ap)
+ int     severity;
+ char   *fmt;
+@@ -43,6 +45,7 @@ va_list ap;
+ 
+ /* VARARGS */
+ 
++void
+ VARARGS(syslog, int, severity)
+ {
+     va_list ap;
+@@ -56,6 +59,7 @@ VARARGS(syslog, int, severity)
+ 
+ /* closelog - dummy */
+ 
++void
+ closelog()
+ {
+     /* void */
+diff -up tcp_wrappers_7.6/fix_options.c.warnings tcp_wrappers_7.6/fix_options.c
+--- tcp_wrappers_7.6/fix_options.c.warnings	2011-08-16 10:29:44.033435020 +0200
++++ tcp_wrappers_7.6/fix_options.c	2011-08-16 10:29:51.516543916 +0200
+@@ -32,13 +32,15 @@ static char sccsid[] = "@(#) fix_options
+ 
+ /* fix_options - get rid of IP-level socket options */
+ 
++void
+ fix_options(request)
+ struct request_info *request;
+ {
+ #ifdef IP_OPTIONS
+     unsigned char optbuf[BUFFER_SIZE / 3], *cp;
+     char    lbuf[BUFFER_SIZE], *lp;
+-    int     optsize = sizeof(optbuf), ipproto;
++    unsigned int optsize = sizeof(optbuf);
++    int     ipproto;
+     struct protoent *ip;
+     int     fd = request->fd;
+     unsigned int opt;
+@@ -46,7 +48,7 @@ struct request_info *request;
+     struct in_addr dummy;
+ #ifdef INET6
+     struct sockaddr_storage ss;
+-    int sslen;
++    unsigned int sslen;
+ 
+     /*
+      * check if this is AF_INET socket
+diff -up tcp_wrappers_7.6/hosts_access.c.warnings tcp_wrappers_7.6/hosts_access.c
+--- tcp_wrappers_7.6/hosts_access.c.warnings	2011-08-16 10:29:50.233418824 +0200
++++ tcp_wrappers_7.6/hosts_access.c	2011-08-16 10:29:51.653475947 +0200
+@@ -39,6 +39,8 @@ static char sccsid[] = "@(#) hosts_acces
+ #include <errno.h>
+ #include <setjmp.h>
+ #include <string.h>
++#include <stdlib.h>
++#include <rpcsvc/ypclnt.h>
+ #ifdef INET6
+ #include <netdb.h>
+ #endif
+@@ -58,6 +60,8 @@ extern int errno;
+ 
+ extern jmp_buf tcpd_buf;
+ 
++int match_pattern_ylo(const char *, const char *);
++
+ /* Delimiters for lists of daemons or clients. */
+ 
+ static char sep[] = ", \t\r\n";
+diff -up tcp_wrappers_7.6/inetcf.c.warnings tcp_wrappers_7.6/inetcf.c
+--- tcp_wrappers_7.6/inetcf.c.warnings	2011-08-16 10:29:48.117418621 +0200
++++ tcp_wrappers_7.6/inetcf.c	2011-08-16 10:29:51.752605633 +0200
+@@ -42,6 +42,8 @@ char   *inet_files[] = {
+ static void inet_chk();
+ static char *base_name();
+ 
++int     check_path(char *, struct stat *);
++
+  /*
+   * Structure with everything we know about a service.
+   */
+diff -up tcp_wrappers_7.6/options.c.warnings tcp_wrappers_7.6/options.c
+--- tcp_wrappers_7.6/options.c.warnings	2011-08-16 10:29:50.655606523 +0200
++++ tcp_wrappers_7.6/options.c	2011-08-16 10:29:51.884484798 +0200
+@@ -41,12 +41,14 @@ static char sccsid[] = "@(#) options.c 1
+ #include <netinet/in.h>
+ #include <netdb.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <syslog.h>
+ #include <pwd.h>
+ #include <grp.h>
+ #include <ctype.h>
+ #include <setjmp.h>
+ #include <string.h>
++#include <unistd.h>
+ 
+ #ifndef MAXPATHNAMELEN
+ #define MAXPATHNAMELEN  BUFSIZ
+@@ -108,21 +110,21 @@ struct option {
+ /* List of known keywords. Add yours here. */
+ 
+ static struct option option_table[] = {
+-    "user", user_option, NEED_ARG,
+-    "group", group_option, NEED_ARG,
+-    "umask", umask_option, NEED_ARG,
+-    "linger", linger_option, NEED_ARG,
+-    "keepalive", keepalive_option, 0,
+-    "spawn", spawn_option, NEED_ARG | EXPAND_ARG,
+-    "twist", twist_option, NEED_ARG | EXPAND_ARG | USE_LAST,
+-    "rfc931", rfc931_option, OPT_ARG,
+-    "setenv", setenv_option, NEED_ARG | EXPAND_ARG,
+-    "nice", nice_option, OPT_ARG,
+-    "severity", severity_option, NEED_ARG,
+-    "allow", allow_option, USE_LAST,
+-    "deny", deny_option, USE_LAST,
+-    "banners", banners_option, NEED_ARG,
+-    0,
++    { "user", user_option, NEED_ARG },
++    { "group", group_option, NEED_ARG },
++    { "umask", umask_option, NEED_ARG },
++    { "linger", linger_option, NEED_ARG },
++    { "keepalive", keepalive_option, 0 },
++    { "spawn", spawn_option, NEED_ARG | EXPAND_ARG },
++    { "twist", twist_option, NEED_ARG | EXPAND_ARG | USE_LAST },
++    { "rfc931", rfc931_option, OPT_ARG },
++    { "setenv", setenv_option, NEED_ARG | EXPAND_ARG },
++    { "nice", nice_option, OPT_ARG },
++    { "severity", severity_option, NEED_ARG },
++    { "allow", allow_option, USE_LAST },
++    { "deny", deny_option, USE_LAST },
++    { "banners", banners_option, NEED_ARG },
++    { NULL, NULL, 0 }
+ };
+ 
+ /* process_options - process access control options */
+@@ -227,13 +229,13 @@ struct request_info *request;
+     sprintf(path, "%s/%s", value, eval_daemon(request));
+     if ((fp = fopen(path, "r")) != 0) {
+ 	while ((ch = fgetc(fp)) == 0)
+-	    write(request->fd, "", 1);
++	    (void)write(request->fd, "", 1);
+ 	ungetc(ch, fp);
+ 	while (fgets(ibuf, sizeof(ibuf) - 1, fp)) {
+ 	    if (split_at(ibuf, '\n'))
+ 		strcat(ibuf, "\r\n");
+ 	    percent_x(obuf, sizeof(obuf), ibuf, request);
+-	    write(request->fd, obuf, strlen(obuf));
++	    (void)write(request->fd, obuf, strlen(obuf));
+ 	}
+ 	fclose(fp);
+     } else if (stat(value, &st) < 0) {
+@@ -462,85 +464,85 @@ struct syslog_names {
+ 
+ static struct syslog_names log_fac[] = {
+ #ifdef LOG_KERN
+-    "kern", LOG_KERN,
++    { "kern", LOG_KERN },
+ #endif
+ #ifdef LOG_USER
+-    "user", LOG_USER,
++    { "user", LOG_USER },
+ #endif
+ #ifdef LOG_MAIL
+-    "mail", LOG_MAIL,
++    { "mail", LOG_MAIL },
+ #endif
+ #ifdef LOG_DAEMON
+-    "daemon", LOG_DAEMON,
++    { "daemon", LOG_DAEMON },
+ #endif
+ #ifdef LOG_AUTH
+-    "auth", LOG_AUTH,
++    { "auth", LOG_AUTH },
+ #endif
+ #ifdef LOG_LPR
+-    "lpr", LOG_LPR,
++    { "lpr", LOG_LPR },
+ #endif
+ #ifdef LOG_NEWS
+-    "news", LOG_NEWS,
++    { "news", LOG_NEWS },
+ #endif
+ #ifdef LOG_UUCP
+-    "uucp", LOG_UUCP,
++    { "uucp", LOG_UUCP },
+ #endif
+ #ifdef LOG_CRON
+-    "cron", LOG_CRON,
++    { "cron", LOG_CRON },
+ #endif
+ #ifdef LOG_LOCAL0
+-    "local0", LOG_LOCAL0,
++    { "local0", LOG_LOCAL0 },
+ #endif
+ #ifdef LOG_LOCAL1
+-    "local1", LOG_LOCAL1,
++    { "local1", LOG_LOCAL1 },
+ #endif
+ #ifdef LOG_LOCAL2
+-    "local2", LOG_LOCAL2,
++    { "local2", LOG_LOCAL2 },
+ #endif
+ #ifdef LOG_LOCAL3
+-    "local3", LOG_LOCAL3,
++    { "local3", LOG_LOCAL3 },
+ #endif
+ #ifdef LOG_LOCAL4
+-    "local4", LOG_LOCAL4,
++    { "local4", LOG_LOCAL4 },
+ #endif
+ #ifdef LOG_LOCAL5
+-    "local5", LOG_LOCAL5,
++    { "local5", LOG_LOCAL5 },
+ #endif
+ #ifdef LOG_LOCAL6
+-    "local6", LOG_LOCAL6,
++    { "local6", LOG_LOCAL6 },
+ #endif
+ #ifdef LOG_LOCAL7
+-    "local7", LOG_LOCAL7,
++    { "local7", LOG_LOCAL7 },
+ #endif
+-    0,
++    { NULL, 0 }
+ };
+ 
+ static struct syslog_names log_sev[] = {
+ #ifdef LOG_EMERG
+-    "emerg", LOG_EMERG,
++    { "emerg", LOG_EMERG },
+ #endif
+ #ifdef LOG_ALERT
+-    "alert", LOG_ALERT,
++    { "alert", LOG_ALERT },
+ #endif
+ #ifdef LOG_CRIT
+-    "crit", LOG_CRIT,
++    { "crit", LOG_CRIT },
+ #endif
+ #ifdef LOG_ERR
+-    "err", LOG_ERR,
++    { "err", LOG_ERR },
+ #endif
+ #ifdef LOG_WARNING
+-    "warning", LOG_WARNING,
++    { "warning", LOG_WARNING },
+ #endif
+ #ifdef LOG_NOTICE
+-    "notice", LOG_NOTICE,
++    { "notice", LOG_NOTICE },
+ #endif
+ #ifdef LOG_INFO
+-    "info", LOG_INFO,
++    { "info", LOG_INFO },
+ #endif
+ #ifdef LOG_DEBUG
+-    "debug", LOG_DEBUG,
++    { "debug", LOG_DEBUG },
+ #endif
+-    0,
++    { NULL, 0 }
+ };
+ 
+ /* severity_map - lookup facility or severity value */
+@@ -601,7 +603,7 @@ char   *string;
+     if (src[0] == 0)
+ 	return (0);
+ 
+-    while (ch = *src) {
++    while ((ch = *src)) {
+ 	if (ch == ':') {
+ 	    if (*++src == 0)
+ 		tcpd_warn("rule ends in \":\"");
+diff -up tcp_wrappers_7.6/percent_m.c.warnings tcp_wrappers_7.6/percent_m.c
+--- tcp_wrappers_7.6/percent_m.c.warnings	2011-08-16 10:29:47.751442576 +0200
++++ tcp_wrappers_7.6/percent_m.c	2011-08-16 10:29:52.002543916 +0200
+@@ -27,7 +27,7 @@ char   *ibuf;
+     char   *bp = obuf;
+     char   *cp = ibuf;
+ 
+-    while (*bp = *cp)
++    while ((*bp = *cp))
+ 	if (*cp == '%' && cp[1] == 'm') {
+ #ifdef HAVE_STRERROR
+             strcpy(bp, strerror(errno));
+diff -up tcp_wrappers_7.6/percent_x.c.warnings tcp_wrappers_7.6/percent_x.c
+--- tcp_wrappers_7.6/percent_x.c.warnings	1994-12-28 17:42:38.000000000 +0100
++++ tcp_wrappers_7.6/percent_x.c	2011-08-16 10:29:52.116485510 +0200
+@@ -19,6 +19,7 @@ static char sccsid[] = "@(#) percent_x.c
+ #include <stdio.h>
+ #include <syslog.h>
+ #include <string.h>
++#include <unistd.h>
+ 
+ extern void exit();
+ 
+diff -up tcp_wrappers_7.6/rfc931.c.warnings tcp_wrappers_7.6/rfc931.c
+--- tcp_wrappers_7.6/rfc931.c.warnings	2011-08-16 10:29:48.741484651 +0200
++++ tcp_wrappers_7.6/rfc931.c	2011-08-16 10:29:52.222484375 +0200
+@@ -23,6 +23,7 @@ static char sccsid[] = "@(#) rfc931.c 1.
+ #include <setjmp.h>
+ #include <signal.h>
+ #include <string.h>
++#include <unistd.h>
+ 
+ /* Local stuff. */
+ 
+@@ -92,7 +93,7 @@ char   *dest;
+     char   *cp;
+     char   *result = unknown;
+     FILE   *fp;
+-    unsigned saved_timeout;
++    unsigned saved_timeout = 0;
+     struct sigaction nact, oact;
+ 
+ #ifdef INET6
+@@ -223,7 +224,7 @@ char   *dest;
+ 		     * protocol, not part of the data.
+ 		     */
+ 
+-		    if (cp = strchr(user, '\r'))
++		    if ((cp = strchr(user, '\r')))
+ 			*cp = 0;
+ 		    result = user;
+ 		}
+diff -up tcp_wrappers_7.6/safe_finger.c.warnings tcp_wrappers_7.6/safe_finger.c
+--- tcp_wrappers_7.6/safe_finger.c.warnings	2011-08-16 10:29:50.766483063 +0200
++++ tcp_wrappers_7.6/safe_finger.c	2011-08-16 10:29:52.341606268 +0200
+@@ -24,8 +24,13 @@ static char sccsid[] = "@(#) safe_finger
+ #include <sys/stat.h>
+ #include <signal.h>
+ #include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <sys/wait.h>
+ #include <ctype.h>
+ #include <pwd.h>
++#include <grp.h>
+ 
+ extern void exit();
+ 
+@@ -40,6 +45,8 @@ char    path[] = "PATH=/bin:/usr/bin:/us
+ #define	UNPRIV_NAME	"nobody"	/* Preferred privilege level */
+ #define	UNPRIV_UGID	32767		/* Default uid and gid */
+ 
++int     pipe_stdin(char  **);
++
+ int     finger_pid;
+ 
+ void    cleanup(sig)
+@@ -49,6 +56,7 @@ int     sig;
+     exit(0);
+ }
+ 
++int
+ main(argc, argv)
+ int     argc;
+ char  **argv;
+diff -up tcp_wrappers_7.6/scaffold.c.warnings tcp_wrappers_7.6/scaffold.c
+--- tcp_wrappers_7.6/scaffold.c.warnings	2011-08-16 10:29:47.197478983 +0200
++++ tcp_wrappers_7.6/scaffold.c	2011-08-16 10:29:52.508448914 +0200
+@@ -20,6 +20,8 @@ static char sccs_id[] = "@(#) scaffold.c
+ #include <syslog.h>
+ #include <setjmp.h>
+ #include <string.h>
++#include <unistd.h>
++#include <stdlib.h>
+ 
+ #ifndef INADDR_NONE
+ #define	INADDR_NONE	(-1)		/* XXX should be 0xffffffff */
+@@ -174,7 +176,9 @@ char   *host;
+     struct hostent *hp;
+ #endif
+     int     count;
++#ifndef INET6
+     char   *addr;
++#endif
+ 
+     if ((hp = find_inet_addr(host)) == 0)
+ 	return (0);
+diff -up tcp_wrappers_7.6/socket.c.warnings tcp_wrappers_7.6/socket.c
+--- tcp_wrappers_7.6/socket.c.warnings	2011-08-16 10:29:48.319483715 +0200
++++ tcp_wrappers_7.6/socket.c	2011-08-16 10:29:52.630463906 +0200
+@@ -95,7 +95,7 @@ struct request_info *request;
+     static struct sockaddr_in client;
+     static struct sockaddr_in server;
+ #endif
+-    int     len;
++    unsigned len;
+     char    buf[BUFSIZ];
+     int     fd = request->fd;
+ 
+@@ -228,7 +228,7 @@ struct host_info *host;
+     struct sockaddr *sin = host->sin;
+     struct sockaddr_in sin4;
+     struct addrinfo hints, *res, *res0 = NULL;
+-    int salen, alen, err = 1;
++    int salen, alen = 0, err = 1;
+     char *ap = NULL, *rap, hname[NI_MAXHOST];
+ 
+     if (sin != NULL) {
+@@ -471,7 +471,7 @@ int     fd;
+ #else
+     struct sockaddr_in sin;
+ #endif
+-    int     size = sizeof(sin);
++    unsigned int size = sizeof(sin);
+ 
+     /*
+      * Eat up the not-yet received datagram. Some systems insist on a
+diff -up tcp_wrappers_7.6/tcpd.c.warnings tcp_wrappers_7.6/tcpd.c
+--- tcp_wrappers_7.6/tcpd.c.warnings	2011-08-16 10:29:45.699419586 +0200
++++ tcp_wrappers_7.6/tcpd.c	2011-08-16 10:29:52.746454541 +0200
+@@ -24,6 +24,7 @@ static char sccsid[] = "@(#) tcpd.c 1.10
+ #include <stdio.h>
+ #include <syslog.h>
+ #include <string.h>
++#include <unistd.h>
+ 
+ #ifndef MAXPATHNAMELEN
+ #define MAXPATHNAMELEN	BUFSIZ
+@@ -38,9 +39,12 @@ static char sccsid[] = "@(#) tcpd.c 1.10
+ #include "patchlevel.h"
+ #include "tcpd.h"
+ 
++void fix_options(struct request_info *);
++
+ int     allow_severity = SEVERITY;	/* run-time adjustable */
+ int     deny_severity = LOG_WARNING;	/* ditto */
+ 
++int
+ main(argc, argv)
+ int     argc;
+ char  **argv;
+diff -up tcp_wrappers_7.6/tcpdchk.c.warnings tcp_wrappers_7.6/tcpdchk.c
+--- tcp_wrappers_7.6/tcpdchk.c.warnings	2011-08-16 10:29:45.552501988 +0200
++++ tcp_wrappers_7.6/tcpdchk.c	2011-08-16 10:47:12.440605857 +0200
+@@ -33,6 +33,8 @@ static char sccsid[] = "@(#) tcpdchk.c 1
+ #include <errno.h>
+ #include <netdb.h>
+ #include <string.h>
++#include <unistd.h>
++#include <stdlib.h>
+ 
+ extern int errno;
+ extern void exit();
+@@ -202,13 +204,15 @@ struct request_info *request;
+     char    sv_list[BUFLEN];		/* becomes list of daemons */
+     char   *cl_list;			/* becomes list of requests */
+     char   *sh_cmd;			/* becomes optional shell command */
++#ifndef PROCESS_OPTIONS
+     char    buf[BUFSIZ];
++#endif
+     int     verdict;
+     struct tcpd_context saved_context;
+ 
+     saved_context = tcpd_context;		/* stupid compilers */
+ 
+-    if (fp = fopen(table, "r")) {
++    if ((fp = fopen(table, "r"))) {
+ 	tcpd_context.file = table;
+ 	tcpd_context.line = 0;
+ 	while (xgets(sv_list, sizeof(sv_list), fp)) {
+@@ -334,7 +338,7 @@ char   *list;
+ 	    clients = 0;
+ 	} else {
+ 	    clients++;
+-	    if (host = split_at(cp + 1, '@')) {	/* user@host */
++	    if ((host = split_at(cp + 1, '@'))) {	/* user@host */
+ 		check_user(cp);
+ 		check_host(host);
+ 	    } else {
+@@ -450,7 +454,7 @@ char   *pat;
+ 	tcpd_warn("netgroup support disabled");
+ #endif
+ #endif
+-    } else if (mask = split_at(pat, '/')) {	/* network/netmask */
++    } else if ((mask = split_at(pat, '/'))) {	/* network/netmask */
+ #ifdef INET6
+ 	int mask_len;
+ 
+diff -up tcp_wrappers_7.6/tcpdmatch.c.warnings tcp_wrappers_7.6/tcpdmatch.c
+--- tcp_wrappers_7.6/tcpdmatch.c.warnings	2011-08-16 10:29:49.531427106 +0200
++++ tcp_wrappers_7.6/tcpdmatch.c	2011-08-16 10:29:52.968605853 +0200
+@@ -29,6 +29,7 @@ static char sccsid[] = "@(#) tcpdmatch.c
+ #include <syslog.h>
+ #include <setjmp.h>
+ #include <string.h>
++#include <unistd.h>
+ 
+ extern void exit();
+ extern int optind;
+@@ -65,7 +66,9 @@ char  **argv;
+     char   *myname = argv[0];
+     char   *client;
+     char   *server;
++#ifndef INET6
+     char   *addr;
++#endif
+     char   *user;
+     char   *daemon;
+     struct request_info request;
+diff -up tcp_wrappers_7.6/try-from.c.warnings tcp_wrappers_7.6/try-from.c
+--- tcp_wrappers_7.6/try-from.c.warnings	1994-12-28 17:42:55.000000000 +0100
++++ tcp_wrappers_7.6/try-from.c	2011-08-16 10:29:53.095607440 +0200
+@@ -37,6 +37,7 @@ static char sccsid[] = "@(#) try-from.c
+ int     allow_severity = SEVERITY;	/* run-time adjustable */
+ int     deny_severity = LOG_WARNING;	/* ditto */
+ 
++int
+ main(argc, argv)
+ int     argc;
+ char  **argv;
+diff -up tcp_wrappers_7.6/update.c.warnings tcp_wrappers_7.6/update.c
+--- tcp_wrappers_7.6/update.c.warnings	2011-08-16 10:29:46.279421273 +0200
++++ tcp_wrappers_7.6/update.c	2011-08-16 10:29:53.282606493 +0200
+@@ -22,6 +22,7 @@ static char sccsid[] = "@(#) update.c 1.
+ #include <stdio.h>
+ #include <syslog.h>
+ #include <string.h>
++#include <unistd.h>
+ 
+ /* Local stuff. */
+ 

@@ -1,0 +1,232 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.579
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.579 (after 7.3.569)
+Problem:    Can't compile with Python 2.5.
+Solution:   Use PyCObject when Capsules are not available.
+Files:	    src/if_py_both.h, src/if_python.c, src/if_python3.c
+
+
+*** ../vim-7.3.578/src/if_py_both.h	2012-06-29 16:19:46.000000000 +0200
+--- src/if_py_both.h	2012-06-29 16:15:29.000000000 +0200
+***************
+*** 56,62 ****
+      /* name,	    function,		calling,    documentation */
+      {"write",	    OutputWrite,	1,	    ""},
+      {"writelines",  OutputWritelines,	1,	    ""},
+!     {"flush",       OutputFlush,        1,          ""},
+      { NULL,	    NULL,		0,	    NULL}
+  };
+  
+--- 56,62 ----
+      /* name,	    function,		calling,    documentation */
+      {"write",	    OutputWrite,	1,	    ""},
+      {"writelines",  OutputWritelines,	1,	    ""},
+!     {"flush",	    OutputFlush,	1,	    ""},
+      { NULL,	    NULL,		0,	    NULL}
+  };
+  
+***************
+*** 506,513 ****
+      /* name,	     function,		calling,    documentation */
+      {"command",	     VimCommand,	1,	    "Execute a Vim ex-mode command" },
+      {"eval",	     VimEval,		1,	    "Evaluate an expression using Vim evaluator" },
+!     {"bindeval",     VimEvalPy,         1,          "Like eval(), but returns objects attached to vim ones"},
+!     {"strwidth",     VimStrwidth,       1,          "Screen string width, counts <Tab> as having width 1"},
+      { NULL,	     NULL,		0,	    NULL }
+  };
+  
+--- 506,513 ----
+      /* name,	     function,		calling,    documentation */
+      {"command",	     VimCommand,	1,	    "Execute a Vim ex-mode command" },
+      {"eval",	     VimEval,		1,	    "Evaluate an expression using Vim evaluator" },
+!     {"bindeval",     VimEvalPy,		1,	    "Like eval(), but returns objects attached to vim ones"},
+!     {"strwidth",     VimStrwidth,	1,	    "Screen string width, counts <Tab> as having width 1"},
+      { NULL,	     NULL,		0,	    NULL }
+  };
+  
+***************
+*** 2432,2448 ****
+--- 2432,2463 ----
+  convert_dl(PyObject *obj, typval_T *tv,
+  				    pytotvfunc py_to_tv, PyObject *lookupDict)
+  {
++ # ifdef PY_USE_CAPSULE
+      PyObject	*capsule;
++ # else
++     PyCObject	*cobject;
++ # endif
+      char	hexBuf[sizeof(void *) * 2 + 3];
+  
+      sprintf(hexBuf, "%p", obj);
+  
++ # ifdef PY_USE_CAPSULE
+      capsule = PyDict_GetItemString(lookupDict, hexBuf);
+      if (capsule == NULL)
++ # else
++     cobject = (PyCObject *)PyDict_GetItemString(lookupDict, hexBuf);
++     if (cobject == NULL)
++ # endif
+      {
++ # ifdef PY_USE_CAPSULE
+  	capsule = PyCapsule_New(tv, NULL, NULL);
+  	PyDict_SetItemString(lookupDict, hexBuf, capsule);
+  	Py_DECREF(capsule);
++ # else
++ 	cobject = PyCObject_FromVoidPtr(tv, NULL);
++ 	PyDict_SetItemString(lookupDict, hexBuf, cobject);
++ 	Py_DECREF(cobject);
++ # endif
+  	if (py_to_tv(obj, tv, lookupDict) == -1)
+  	{
+  	    tv->v_type = VAR_UNKNOWN;
+***************
+*** 2458,2464 ****
+      }
+      else
+      {
+! 	typval_T	*v = PyCapsule_GetPointer(capsule, NULL);
+  	copy_tv(v, tv);
+      }
+      return 0;
+--- 2473,2485 ----
+      }
+      else
+      {
+! 	typval_T	*v;
+! 
+! # ifdef PY_USE_CAPSULE
+! 	v = PyCapsule_GetPointer(capsule, NULL);
+! # else
+! 	v = PyCObject_AsVoidPtr(cobject);
+! # endif
+  	copy_tv(v, tv);
+      }
+      return 0;
+*** ../vim-7.3.578/src/if_python.c	2012-06-29 12:54:32.000000000 +0200
+--- src/if_python.c	2012-06-29 16:17:44.000000000 +0200
+***************
+*** 71,76 ****
+--- 71,80 ----
+  # define PySequenceMethods Py_ssize_t
+  #endif
+  
++ #if defined(PY_VERSION_HEX) && PY_VERSION_HEX >= 0x02070000
++ # define PY_USE_CAPSULE
++ #endif
++ 
+  #if defined(PY_VERSION_HEX) && PY_VERSION_HEX >= 0x02050000
+  # define PyInt Py_ssize_t
+  # define PyInquiry lenfunc
+***************
+*** 220,227 ****
+  #  define PyObject_Malloc dll_PyObject_Malloc
+  #  define PyObject_Free dll_PyObject_Free
+  # endif
+! # define PyCapsule_New dll_PyCapsule_New
+! # define PyCapsule_GetPointer dll_PyCapsule_GetPointer
+  
+  /*
+   * Pointers for dynamic link
+--- 224,236 ----
+  #  define PyObject_Malloc dll_PyObject_Malloc
+  #  define PyObject_Free dll_PyObject_Free
+  # endif
+! # ifdef PY_USE_CAPSULE
+! #  define PyCapsule_New dll_PyCapsule_New
+! #  define PyCapsule_GetPointer dll_PyCapsule_GetPointer
+! # else
+! #  define PyCObject_FromVoidPtr dll_PyCObject_FromVoidPtr
+! #  define PyCObject_AsVoidPtr dll_PyCObject_AsVoidPtr
+! # endif
+  
+  /*
+   * Pointers for dynamic link
+***************
+*** 309,316 ****
+--- 318,330 ----
+  static void* (*dll_PyObject_Malloc)(size_t);
+  static void (*dll_PyObject_Free)(void*);
+  # endif
++ # ifdef PY_USE_CAPSULE
+  static PyObject* (*dll_PyCapsule_New)(void *, char *, PyCapsule_Destructor);
+  static void* (*dll_PyCapsule_GetPointer)(PyObject *, char *);
++ # else
++ static PyCObject* (*dll_PyCObject_FromVoidPtr)(void *cobj, void (*destr)(void *));
++ static void* (*dll_PyCObject_AsVoidPtr)(PyCObject *);
++ # endif
+  
+  static HINSTANCE hinstPython = 0; /* Instance of python.dll */
+  
+***************
+*** 403,409 ****
+      {"PyType_Ready", (PYTHON_PROC*)&dll_PyType_Ready},
+      {"Py_BuildValue", (PYTHON_PROC*)&dll_Py_BuildValue},
+      {"Py_FindMethod", (PYTHON_PROC*)&dll_Py_FindMethod},
+! # if (PY_VERSION_HEX >= 0x02050000) && SIZEOF_SIZE_T != SIZEOF_INT
+      {"Py_InitModule4_64", (PYTHON_PROC*)&dll_Py_InitModule4},
+  # else
+      {"Py_InitModule4", (PYTHON_PROC*)&dll_Py_InitModule4},
+--- 417,424 ----
+      {"PyType_Ready", (PYTHON_PROC*)&dll_PyType_Ready},
+      {"Py_BuildValue", (PYTHON_PROC*)&dll_Py_BuildValue},
+      {"Py_FindMethod", (PYTHON_PROC*)&dll_Py_FindMethod},
+! # if defined(PY_VERSION_HEX) && PY_VERSION_HEX >= 0x02050000 \
+! 	&& SIZEOF_SIZE_T != SIZEOF_INT
+      {"Py_InitModule4_64", (PYTHON_PROC*)&dll_Py_InitModule4},
+  # else
+      {"Py_InitModule4", (PYTHON_PROC*)&dll_Py_InitModule4},
+***************
+*** 424,431 ****
+--- 439,451 ----
+      {"PyObject_Malloc", (PYTHON_PROC*)&dll_PyObject_Malloc},
+      {"PyObject_Free", (PYTHON_PROC*)&dll_PyObject_Free},
+  # endif
++ # ifdef PY_USE_CAPSULE
+      {"PyCapsule_New", (PYTHON_PROC*)&dll_PyCapsule_New},
+      {"PyCapsule_GetPointer", (PYTHON_PROC*)&dll_PyCapsule_GetPointer},
++ # else
++     {"PyCObject_FromVoidPtr", (PYTHON_PROC*)&dll_PyCObject_FromVoidPtr},
++     {"PyCObject_AsVoidPtr", (PYTHON_PROC*)&dll_PyCObject_AsVoidPtr},
++ # endif
+      {"", NULL},
+  };
+  
+*** ../vim-7.3.578/src/if_python3.c	2012-06-29 12:54:32.000000000 +0200
+--- src/if_python3.c	2012-06-29 16:16:54.000000000 +0200
+***************
+*** 75,80 ****
+--- 75,83 ----
+  # define CODEC_ERROR_HANDLER NULL
+  #endif
+  
++ /* Python 3 does not support CObjects, always use Capsules */
++ #define PY_USE_CAPSULE
++ 
+  #define PyInt Py_ssize_t
+  #define PyString_Check(obj) PyUnicode_Check(obj)
+  #define PyString_AsBytes(obj) PyUnicode_AsEncodedString(obj, (char *)ENC_OPT, CODEC_ERROR_HANDLER)
+*** ../vim-7.3.578/src/version.c	2012-06-29 16:19:46.000000000 +0200
+--- src/version.c	2012-06-29 16:21:25.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     579,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+78. You find yourself dialing IP numbers on the phone.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

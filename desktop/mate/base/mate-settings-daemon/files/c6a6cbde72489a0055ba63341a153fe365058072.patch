@@ -1,0 +1,113 @@
+From c6a6cbde72489a0055ba63341a153fe365058072 Mon Sep 17 00:00:00 2001
+From: Jasmine Hassan <jasmine.aura@gmail.com>
+Date: Sat, 15 Dec 2012 07:25:51 +0000
+Subject: [keyboard] add g_strv_behead, reduce code & fix filter_xkb_config()
+
+Fixes compiler warning: 'i' may be used uninitialized in this function
+
+Indeed, rather than initializing 'i' to zero, 'lv' (char arr of **lv) was
+erroneously being assigned the value of 0 in the for loop's initialization.
+
+g_strv_behead copied from gkbd_strv_behead from libgnomekbd/gkbd-util.c
+
+For reference: Using shared gkbd_strv_* utility functions, reducing the code
+http://git.gnome.org/browse/gnome-settings-daemon/commit/?id=f62d0846143b8a65606daa6860e6b2cd7f9cb465
+---
+diff --git a/plugins/keyboard/msd-keyboard-xkb.c b/plugins/keyboard/msd-keyboard-xkb.c
+index 0254f68..b9b5c24 100644
+--- a/plugins/keyboard/msd-keyboard-xkb.c
++++ b/plugins/keyboard/msd-keyboard-xkb.c
+@@ -103,22 +103,14 @@ static void msd_keyboard_log_appender(const char file[], const char function[],
+ }
+ #endif
+ 
+-static void g_strv_delete_str (gchar **a, gchar *str)
++static void
++g_strv_behead (gchar **arr)
+ {
+-	int i;
+-	int j;
+-	gchar **b;
+-	b = g_new0 (gchar *, g_strv_length (a) - 1);
+-
+-	j = 0;
+-	for (i = 0; a[i] != NULL; i++) {
+-		if (g_strcmp0 (a[i], str) != 0) {
+-			b[j] = g_strdup (a[i]);
+-			j++;
+-		}
+-	}
+-	g_strfreev (a);
+-	a = b;
++	if (arr == NULL || *arr == NULL)
++		return;
++
++	g_free (*arr);
++	memmove (arr, arr + 1, g_strv_length (arr) * sizeof (gchar *));
+ }
+ 
+ static void
+@@ -398,7 +390,6 @@ filter_xkb_config (void)
+ 	gchar *lname;
+ 	gchar *vname;
+ 	gchar **lv;
+-	int i;
+ 	gboolean any_change = FALSE;
+ 
+ 	xkl_debug (100, "Filtering configuration against the registry\n");
+@@ -412,24 +403,20 @@ filter_xkb_config (void)
+ 			return FALSE;
+ 		}
+ 	}
+-	lv = g_strdupv(current_kbd_config.layouts_variants);
++	lv = current_kbd_config.layouts_variants;
+ 	item = xkl_config_item_new ();
+-	for (lv = 0; lv[i] != NULL; i++) {
+-		xkl_debug (100, "Checking [%s]\n", lv[i]);
+-		if (matekbd_keyboard_config_split_items
+-		    (lv[i], &lname, &vname)) {
++	while (*lv) {
++		xkl_debug (100, "Checking [%s]\n", *lv);
++		if (matekbd_keyboard_config_split_items (*lv, &lname, &vname)) {
++			gboolean should_be_dropped = FALSE;
+ 			g_snprintf (item->name, sizeof (item->name), "%s",
+ 				    lname);
+ 			if (!xkl_config_registry_find_layout
+ 			    (xkl_registry, item)) {
+ 				xkl_debug (100, "Bad layout [%s]\n",
+ 					   lname);
+-				g_strv_delete_str (current_kbd_config.layouts_variants,
+-							lv[i]);
+-				any_change = TRUE;
+-				continue;
+-			}
+-			if (vname) {
++				should_be_dropped = TRUE;
++			} else if (vname) {
+ 				g_snprintf (item->name,
+ 					    sizeof (item->name), "%s",
+ 					    vname);
+@@ -438,14 +425,16 @@ filter_xkb_config (void)
+ 					xkl_debug (100,
+ 						   "Bad variant [%s(%s)]\n",
+ 						   lname, vname);
+-					g_strv_delete_str
+-					    (current_kbd_config.layouts_variants,
+-					     lv[i]);
+-					any_change = TRUE;
+-					continue;
++					should_be_dropped = TRUE;
+ 				}
+ 			}
++			if (should_be_dropped) {
++				g_strv_behead (lv);
++				any_change = TRUE;
++				continue;
++			}
+ 		}
++		lv++;
+ 	}
+ 	g_object_unref (item);
+ 	return any_change;
+--
+cgit v0.9.0.3-65-g4555

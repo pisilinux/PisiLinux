@@ -1,0 +1,106 @@
+commit bb604f9e70de515b13e2a935d8ad9d2fb0290849
+Author: Jan Kratochvil <jan.kratochvil@redhat.com>
+Date:   Mon Jun 28 20:12:52 2010 +0000
+
+    gdb/
+    	Fix modification of cplus_struct_default.
+    	* dwarf2read.c (dwarf2_add_member_fn) <no DW_AT_vtable_elem_location>:
+    	Call ALLOCATE_CPLUS_STRUCT_TYPE.
+<removed>
+    	* gdbtypes.c (cplus_struct_default): New empty initializer, comment it.
+</removed>
+    
+    gdb/testsuite/
+    	* gdb.cp/virtbase.cc (class RTTI_base, class RTTI_data)
+    	(main) <rtti_data>: New.
+    	* gdb.cp/virtbase.exp (print rtti_data): New.
+
+### a/gdb/ChangeLog
+### b/gdb/ChangeLog
+## -1,3 +1,10 @@
++2010-06-28  Jan Kratochvil  <jan.kratochvil@redhat.com>
++
++	Fix modification of cplus_struct_default.
++	* dwarf2read.c (dwarf2_add_member_fn) <no DW_AT_vtable_elem_location>:
++	Call ALLOCATE_CPLUS_STRUCT_TYPE.
++	* gdbtypes.c (cplus_struct_default): New empty initializer, comment it.
++
+### a/gdb/testsuite/ChangeLog
+### b/gdb/testsuite/ChangeLog
+## -1,4 +1,10 @@
++2010-06-28  Jan Kratochvil  <jan.kratochvil@redhat.com>
++
++	* gdb.cp/virtbase.cc (class RTTI_base, class RTTI_data)
++	(main) <rtti_data>: New.
++	* gdb.cp/virtbase.exp (print rtti_data): New.
++
+###--- a/gdb/gdbtypes.c
+###+++ b/gdb/gdbtypes.c
+###@@ -1733,7 +1733,8 @@ check_stub_method_group (struct type *type, int method_id)
+###     }
+### }
+### 
+###-const struct cplus_struct_type cplus_struct_default;
+###+/* Ensure it is in .rodata (if available) by workarounding GCC PR 44690.  */
+###+const struct cplus_struct_type cplus_struct_default = { };
+### 
+### void
+### allocate_cplus_struct_type (struct type *type)
+Index: gdb-7.1/gdb/dwarf2read.c
+===================================================================
+--- gdb-7.1.orig/gdb/dwarf2read.c	2010-06-29 18:26:47.000000000 +0200
++++ gdb-7.1/gdb/dwarf2read.c	2010-06-29 18:39:43.000000000 +0200
+@@ -5404,6 +5404,7 @@ dwarf2_add_member_fn (struct field_info 
+ 	  complaint (&symfile_complaints,
+ 		     _("Member function \"%s\" (offset %d) is virtual but the vtable offset is not specified"),
+ 		     fieldname, die->offset);
++	  ALLOCATE_CPLUS_STRUCT_TYPE (type);
+ 	  TYPE_CPLUS_DYNAMIC (type) = 1;
+ 	}
+     }
+Index: gdb-7.1/gdb/testsuite/gdb.cp/virtbase.cc
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.cp/virtbase.cc	2010-02-03 00:40:28.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.cp/virtbase.cc	2010-06-29 18:39:43.000000000 +0200
+@@ -74,8 +74,19 @@ public:
+   virtual void b() {}
+ };
+ 
++class RTTI_base
++{
++public:
++  virtual ~RTTI_base() {}
++};
+ 
+-
++class RTTI_data
++{
++public:
++  RTTI_base base;
++  int data;
++  RTTI_data() : data(1) {}
++};
+ 
+ int main() {
+   ph::Derived tst;
+@@ -84,6 +95,7 @@ int main() {
+ 
+   E *e = new E;
+   RHB *b = new RHC();
++  RTTI_data rtti_data;
+ 
+   return 0;			// breakpoint 3
+ }
+Index: gdb-7.1/gdb/testsuite/gdb.cp/virtbase.exp
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.cp/virtbase.exp	2010-02-04 22:04:30.000000000 +0100
++++ gdb-7.1/gdb/testsuite/gdb.cp/virtbase.exp	2010-06-29 18:39:56.000000000 +0200
+@@ -60,3 +60,8 @@ gdb_test "print *(D *) e" " = {<C> = {v 
+ # https://bugzilla.redhat.com/show_bug.cgi?id=560741
+ gdb_test "set print object on" ""
+ gdb_test "print/x b->mA" " = 0xaaaaaaaa"
++
++# A regression test reported to Red Hat bugzilla, see:
++# https://bugzilla.redhat.com/show_bug.cgi?id=606660
++# `set print object on' is expected.
++gdb_test "print rtti_data" " = .*, data = 1\}"

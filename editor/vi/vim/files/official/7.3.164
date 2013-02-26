@@ -1,0 +1,181 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.164
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.164
+Problem:    C-indenting: a preprocessor statement confuses detection of a
+	    function delcaration.
+Solution:   Ignore preprocessor lines. (Lech Lorens)  Also recognize the style
+	    to put a comma before the argument name.
+Files:	    src/misc1.c, src/testdir/test3.in, src/testdir/test3.ok
+
+
+*** ../vim-7.3.163/src/misc1.c	2011-04-11 16:56:29.000000000 +0200
+--- src/misc1.c	2011-04-28 12:49:55.000000000 +0200
+***************
+*** 5396,5403 ****
+  cin_ispreproc(s)
+      char_u *s;
+  {
+!     s = skipwhite(s);
+!     if (*s == '#')
+  	return TRUE;
+      return FALSE;
+  }
+--- 5396,5402 ----
+  cin_ispreproc(s)
+      char_u *s;
+  {
+!     if (*skipwhite(s) == '#')
+  	return TRUE;
+      return FALSE;
+  }
+***************
+*** 5513,5518 ****
+--- 5512,5521 ----
+      else
+  	s = *sp;
+  
++     /* Ignore line starting with #. */
++     if (cin_ispreproc(s))
++ 	return FALSE;
++ 
+      while (*s && *s != '(' && *s != ';' && *s != '\'' && *s != '"')
+      {
+  	if (cin_iscomment(s))	/* ignore comments */
+***************
+*** 5538,5550 ****
+  		retval = TRUE;
+  	    goto done;
+  	}
+! 	if (*s == ',' && cin_nocode(s + 1))
+  	{
+! 	    /* ',' at the end: continue looking in the next line */
+  	    if (lnum >= curbuf->b_ml.ml_line_count)
+  		break;
+! 
+! 	    s = ml_get(++lnum);
+  	}
+  	else if (cin_iscomment(s))	/* ignore comments */
+  	    s = cin_skipcomment(s);
+--- 5541,5569 ----
+  		retval = TRUE;
+  	    goto done;
+  	}
+! 	if ((*s == ',' && cin_nocode(s + 1)) || s[1] == NUL || cin_nocode(s))
+  	{
+! 	    int comma = (*s == ',');
+! 
+! 	    /* ',' at the end: continue looking in the next line.
+! 	     * At the end: check for ',' in the next line, for this style:
+! 	     * func(arg1
+! 	     *       , arg2) */
+! 	    for (;;)
+! 	    {
+! 		if (lnum >= curbuf->b_ml.ml_line_count)
+! 		    break;
+! 		s = ml_get(++lnum);
+! 		if (!cin_ispreproc(s))
+! 		    break;
+! 	    }
+  	    if (lnum >= curbuf->b_ml.ml_line_count)
+  		break;
+! 	    /* Require a comma at end of the line or a comma or ')' at the
+! 	     * start of next line. */
+! 	    s = skipwhite(s);
+! 	    if (!comma && *s != ',' && *s != ')')
+! 		break;
+  	}
+  	else if (cin_iscomment(s))	/* ignore comments */
+  	    s = cin_skipcomment(s);
+*** ../vim-7.3.163/src/testdir/test3.in	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test3.in	2011-04-28 12:15:12.000000000 +0200
+***************
+*** 1315,1320 ****
+--- 1315,1349 ----
+  }
+  
+  STARTTEST
++ :set cino=(0,ts
++ 2kdd=][
++ ENDTEST
++ 
++ void func(int a
++ #if defined(FOO)
++ 		  , int b
++ 		  , int c
++ #endif
++ 		 )
++ {
++ }
++ 
++ STARTTEST
++ :set cino=(0
++ 2kdd=][
++ ENDTEST
++ 
++ void
++ func(int a
++ #if defined(FOO)
++ 		  , int b
++ 		  , int c
++ #endif
++ 		 )
++ {
++ }
++ 
++ STARTTEST
+  :g/^STARTTEST/.,/^ENDTEST/d
+  :1;/start of AUTO/,$wq! test.out
+  ENDTEST
+*** ../vim-7.3.163/src/testdir/test3.ok	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test3.ok	2011-04-28 12:54:04.000000000 +0200
+***************
+*** 1183,1185 ****
+--- 1183,1206 ----
+  		foo;
+  }
+  
++ 
++ void func(int a
++ #if defined(FOO)
++ 		  , int b
++ 		  , int c
++ #endif
++ 		 )
++ {
++ }
++ 
++ 
++ 	void
++ func(int a
++ #if defined(FOO)
++ 	 , int b
++ 	 , int c
++ #endif
++ 	)
++ {
++ }
++ 
+*** ../vim-7.3.163/src/version.c	2011-04-28 12:56:57.000000000 +0200
+--- src/version.c	2011-04-28 12:59:55.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     164,
+  /**/
+
+-- 
+Due knot trussed yore spell chequer two fined awl miss steaks.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

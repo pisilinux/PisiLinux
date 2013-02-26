@@ -1,0 +1,71 @@
+diff -up stardict-3.0.1/src/dictmanage.cpp.2-bz441209 stardict-3.0.1/src/dictmanage.cpp
+--- stardict-3.0.1/src/dictmanage.cpp.2-bz441209	2007-09-04 18:20:04.000000000 +1000
++++ stardict-3.0.1/src/dictmanage.cpp	2008-08-04 13:42:47.000000000 +1000
+@@ -4,6 +4,23 @@
+ #include "conf.h"
+ #include "stardict.h"
+ 
++#ifdef _WIN32
++#include <windows.h>
++#endif
++
++static std::string get_defaultdict_filename()
++{
++#ifndef _WIN32
++	// WIN32 default dictionary list has not been implemented yet.
++        std::string res;
++        gchar *tmp = g_build_filename("/etc/", "stardict", NULL);
++        res=tmp;
++        g_free(tmp);
++        res += G_DIR_SEPARATOR_S "defaultdict.cfg";
++#endif
++        return res;
++}
++
+ class GetAllDictList {
+ public:
+ 	GetAllDictList(std::list<std::string> &dict_all_list_) :
+@@ -242,12 +259,42 @@ static void update_configxml(std::list<s
+ 		}
+ 		i = gpAppFrame->dictinfo.groups.begin();
+ 	}
++
++
++
++	// Loads config file for default dictionaries of current locale (LANG).
++        GKeyFile *keyfile = g_key_file_new ();
++        GKeyFileFlags flags = GKeyFileFlags(G_KEY_FILE_KEEP_COMMENTS 
++			| G_KEY_FILE_KEEP_TRANSLATIONS);
++
++        GError *error = NULL;
++        if (!g_key_file_load_from_file(keyfile, get_defaultdict_filename().c_str(), flags, &error))
++                g_error (error->message);
++
++	gchar **defaultdicts = g_key_file_get_locale_string_list(keyfile, "dict", "default", (char*)g_getenv("LANG"), NULL, NULL);
++
++	// All found dictionary files will be set disabled by default,
++	// except when specified for current locale in conf file.
++	// (On WIN32, all found dictionaries will be set enabled by default.)
+ 	gpAppFrame->dictinfo.active_group = i->name;
+ 	for (std::list<std::string>::iterator j = dict_new_install_list.begin(); j != dict_new_install_list.end(); ++j) {
+ 		DictManageItem item;
+ 		item.type = LOCAL_DICT;
+-		item.enable = true;
+ 		item.file_or_id = *j;
++#ifndef _WIN32
++		item.enable = true;
++#else
++		item.enable = false;
++		const gchar* founddict = item.file_or_id.c_str();
++
++		for (guint cnt_i = 0; cnt_i < g_strv_length(defaultdicts); cnt_i++) {
++			if (g_pattern_match_simple(g_strconcat("*", (char*)defaultdicts[cnt_i], NULL), founddict)) {
++				item.enable = true;
++				break;
++			}
++		}
++#endif
++
+ 		i->querydict.push_back(item);
+ 		i->scandict.push_back(item);
+ 	}

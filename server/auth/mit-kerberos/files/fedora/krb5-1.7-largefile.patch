@@ -1,0 +1,294 @@
+* Turn on large file support in gssftp and rcp (and the rest of the bsd
+  applications) using AC_SYS_LARGEFILE.
+* The size of off_t might now be greater than that of an int or a long, so
+  if we have a "long long" type, assume that format specifiers for it work
+  correctly and that we can cast off_t values to long long for displaying
+  and logging.
+* Check for fseeko(), which takes an off_t, and if we find it, use it
+  instead of fseek(), which takes a long and might not handle the full
+  range of values.
+RT#6524
+Index: krb5/src/appl/gssftp/configure.in
+===================================================================
+--- krb5/src/appl/gssftp/configure.in	(revision 22425)
++++ krb5/src/appl/gssftp/configure.in	(working copy)
+@@ -12,6 +12,9 @@
+ AC_HEADER_STDARG
+ AC_CHECK_HEADER(termios.h,[AC_CHECK_FUNC(cfsetispeed,AC_DEFINE(POSIX_TERMIOS,1,[Define if POSIX termios interface found]))])
+ AC_CHECK_HEADERS(unistd.h stdlib.h string.h sys/select.h sys/sockio.h paths.h)
++AC_SYS_LARGEFILE
++AC_FUNC_FSEEKO
++AC_CHECK_TYPES([long long])
+ CHECK_UTMP
+ DECLARE_SYS_ERRLIST
+ AC_REPLACE_FUNCS(getdtablesize)
+Index: krb5/src/appl/gssftp/ftp/ftp_var.h
+===================================================================
+--- krb5/src/appl/gssftp/ftp/ftp_var.h	(revision 22425)
++++ krb5/src/appl/gssftp/ftp/ftp_var.h	(working copy)
+@@ -46,13 +46,19 @@
+ #define FDOPEN_SOCKET(s, mode) fdopen_socket(s, mode)
+ #define SOCKETNO(fd) _get_osfhandle(fd)
+ #define PERROR_SOCKET(str) do { errno = SOCKET_ERRNO; perror(str); } while(0)
++#define FSEEK(fd, offset, whence) fseek(fd, (long) offset, whence)
+ #else
+ #define FCLOSE_SOCKET(f) fclose(f)
+ FILE* fdopen_socket(int *s, char* mode);
+ #define FDOPEN_SOCKET(s, mode) fdopen_socket(&s, mode)
+ #define SOCKETNO(fd) (fd)
+ #define PERROR_SOCKET(str) perror(str)
++#ifdef HAVE_FSEEKO
++#define FSEEK(fd, offset, whence) fseeko(fd, (off_t) offset, whence)
++#else
++#define FSEEK(fd, offset, whence) fseek(fd, (long) offset, whence)
+ #endif
++#endif
+ 
+ #ifdef _WIN32
+ typedef void (*sig_t)(int);
+Index: krb5/src/appl/gssftp/ftp/ftp.c
+===================================================================
+--- krb5/src/appl/gssftp/ftp/ftp.c	(revision 22425)
++++ krb5/src/appl/gssftp/ftp/ftp.c	(working copy)
+@@ -150,7 +150,11 @@
+ 
+ static void proxtrans (char *, char *, char *);
+ static int initconn (void);
++#ifdef HAVE_LONG_LONG
++static void ptransfer (char *, long long, struct timeval *, struct timeval *);
++#else
+ static void ptransfer (char *, long, struct timeval *, struct timeval *);
++#endif
+ static void abort_remote (FILE *);
+ static void tvsub (struct timeval *, struct timeval *, struct timeval *);
+ static char *gunique (char *);
+@@ -775,7 +779,11 @@
+ 	FILE *volatile fin, *volatile dout = 0;
+ 	int (*volatile closefunc)();
+ 	volatile sig_t oldintr, oldintp;
++#ifdef HAVE_LONG_LONG
++	volatile long long bytes = 0, hashbytes = HASHBYTES;
++#else
+ 	volatile long bytes = 0, hashbytes = HASHBYTES;
++#endif
+ 	char *volatile lmode;
+ 	unsigned char buf[FTP_BUFSIZ], *bufp;
+ 
+@@ -872,7 +880,7 @@
+ 
+ 	if (restart_point &&
+ 	    (strcmp(cmd, "STOR") == 0 || strcmp(cmd, "APPE") == 0)) {
+-		if (fseek(fin, (long) restart_point, 0) < 0) {
++		if (FSEEK(fin, restart_point, 0) < 0) {
+ 			fprintf(stderr, "local: %s: %s\n", local,
+ 				strerror(errno));
+ 			restart_point = 0;
+@@ -1266,7 +1274,7 @@
+ 		if (restart_point) {
+ 			register int i, n, ch;
+ 
+-			if (fseek(fout, 0L, L_SET) < 0)
++			if (FSEEK(fout, 0L, L_SET) < 0)
+ 				goto done;
+ 			n = restart_point;
+ 			for (i = 0; i++ < n;) {
+@@ -1275,7 +1283,7 @@
+ 				if (ch == '\n')
+ 					i++;
+ 			}
+-			if (fseek(fout, 0L, L_INCR) < 0) {
++			if (FSEEK(fout, 0L, L_INCR) < 0) {
+ done:
+ 				fprintf(stderr, "local: %s: %s\n", local,
+ 					strerror(errno));
+@@ -1538,8 +1546,13 @@
+ 	return (FDOPEN_SOCKET(data, lmode));
+ }
+ 
++#ifdef HAVE_LONG_LONG
++static void ptransfer(char *direction, long long bytes,
++		      struct timeval *t0, struct timeval *t1)
++#else
+ static void ptransfer(char *direction, long bytes,
+ 		      struct timeval *t0, struct timeval *t1)
++#endif
+ {
+ 	struct timeval td;
+ 	float s, kbs;
+@@ -1549,8 +1562,13 @@
+ 		s = td.tv_sec + (td.tv_usec / 1000000.);
+ #define	nz(x)	((x) == 0 ? 1 : (x))
+ 		kbs = (bytes / nz(s))/1024.0;
++#ifdef HAVE_LONG_LONG
++		printf("%lld bytes %s in %.2g seconds (%.2g Kbytes/s)\n",
++		    bytes, direction, s, kbs);
++#else
+ 		printf("%ld bytes %s in %.2g seconds (%.2g Kbytes/s)\n",
+ 		    bytes, direction, s, kbs);
++#endif
+ 	}
+ }
+ 
+Index: krb5/src/appl/gssftp/ftpd/ftpcmd.y
+===================================================================
+--- krb5/src/appl/gssftp/ftpd/ftpcmd.y	(revision 22425)
++++ krb5/src/appl/gssftp/ftpd/ftpcmd.y	(working copy)
+@@ -1497,12 +1497,20 @@
+ 		    (stbuf.st_mode&S_IFMT) != S_IFREG)
+ 			reply(550, "%s: not a plain file.", filename);
+ 		else
++#ifdef HAVE_LONG_LONG
++			reply(213, "%llu", (long long) stbuf.st_size);
++#else
+ 			reply(213, "%lu", (long) stbuf.st_size);
++#endif
+ 		break;}
+ 	case TYPE_A: {
+ 		FILE *fin;
+ 		register int c;
++#ifdef HAVE_LONG_LONG
++		register long long count;
++#else
+ 		register long count;
++#endif
+ 		struct stat stbuf;
+ 		fin = fopen(filename, "r");
+ 		if (fin == NULL) {
+@@ -1524,7 +1532,11 @@
+ 		}
+ 		(void) fclose(fin);
+ 
++#ifdef HAVE_LONG_LONG
++		reply(213, "%lld", count);
++#else
+ 		reply(213, "%ld", count);
++#endif
+ 		break;}
+ 	default:
+ 		reply(504, "SIZE not implemented for Type %c.", "?AEIL"[type]);
+Index: krb5/src/appl/gssftp/ftpd/ftpd_var.h
+===================================================================
+--- krb5/src/appl/gssftp/ftpd/ftpd_var.h	(revision 22425)
++++ krb5/src/appl/gssftp/ftpd/ftpd_var.h	(working copy)
+@@ -41,6 +41,12 @@
+ char *radix_error (int);
+ int radix_encode (unsigned char *, unsigned char *, int *, int);
+ 
++#ifdef HAVE_FSEEKO
++#define FSEEK(fd, offset, whence) fseeko(fd, (off_t) offset, whence)
++#else
++#define FSEEK(fd, offset, whence) fseek(fd, (long) offset, whence)
++#endif
++
+ /* ftpd.c */
+ void ack(char *);
+ int auth_data(char *);
+Index: krb5/src/appl/gssftp/ftpd/ftpd.c
+===================================================================
+--- krb5/src/appl/gssftp/ftpd/ftpd.c	(revision 22425)
++++ krb5/src/appl/gssftp/ftpd/ftpd.c	(working copy)
+@@ -1146,7 +1146,11 @@
+ done:
+ 	(*closefunc)(fin);
+ 	if (logging > 2 && !cmd)
+-	        syslog(LOG_NOTICE, "get: %i bytes transferred", byte_count);
++#ifdef HAVE_LONG_LONG
++	        syslog(LOG_NOTICE, "get: %lld bytes transferred", (long long) byte_count);
++#else
++	        syslog(LOG_NOTICE, "get: %ld bytes transferred", (long) byte_count);
++#endif
+ }
+ 
+ void
+@@ -1191,7 +1195,7 @@
+ 			 * because we are changing from reading to
+ 			 * writing.
+ 			 */
+-			if (fseek(fout, 0L, L_INCR) < 0) {
++			if (FSEEK(fout, 0L, L_INCR) < 0) {
+ 				perror_reply(550, name);
+ 				goto done;
+ 			}
+@@ -1216,7 +1220,11 @@
+ done:
+ 	(*closefunc)(fout);
+ 	if (logging > 2)
+-	        syslog(LOG_NOTICE, "put: %i bytes transferred", byte_count);
++#ifdef HAVE_LONG_LONG
++	        syslog(LOG_NOTICE, "get: %lld bytes transferred", byte_count);
++#else
++	        syslog(LOG_NOTICE, "get: %ld bytes transferred", (long) byte_count);
++#endif
+ }
+ 
+ FILE *
+@@ -1278,8 +1286,13 @@
+ 	byte_count = 0;
+ 	if (size != (off_t) -1)
+ 		/* cast size to long in case sizeof(off_t) > sizeof(long) */
++#ifdef HAVE_LONG_LONG
++		(void) snprintf (sizebuf, sizeof(sizebuf), " (%lld bytes)",
++				 (long long)size);
++#else
+ 		(void) snprintf (sizebuf, sizeof(sizebuf), " (%ld bytes)",
+ 				 (long)size);
++#endif
+ 	else
+ 		sizebuf[0] = '\0';
+ 	if (pdata >= 0) {
+@@ -1991,13 +2004,23 @@
+ 		siglongjmp(urgcatch, 1);
+ 	}
+ 	if (strcmp(cp, "STAT") == 0) {
++#ifdef HAVE_LONG_LONG
+ 		if (file_size != (off_t) -1)
++			reply(213, "Status: %llu of %llu bytes transferred",
++			      (unsigned long long) byte_count, 
++			      (unsigned long long) file_size);
++		else
++			reply(213, "Status: %llu bytes transferred", 
++			      (unsigned long long) byte_count);
++#else
++		if (file_size != (off_t) -1)
+ 			reply(213, "Status: %lu of %lu bytes transferred",
+ 			      (unsigned long) byte_count, 
+ 			      (unsigned long) file_size);
+ 		else
+ 			reply(213, "Status: %lu bytes transferred", 
+ 			      (unsigned long) byte_count);
++#endif
+ 	}
+ }
+ 
+Index: krb5/src/appl/bsd/configure.in
+===================================================================
+--- krb5/src/appl/bsd/configure.in	(revision 22425)
++++ krb5/src/appl/bsd/configure.in	(working copy)
+@@ -51,6 +51,9 @@
+ AC_TYPE_MODE_T
+ AC_CHECK_FUNCS(isatty inet_aton getenv gettosbyname killpg initgroups setpriority setreuid setresuid waitpid setsid ptsname setlogin tcgetpgrp tcsetpgrp setpgid strsave utimes rmufile rresvport_af)
+ AC_CHECK_HEADERS(unistd.h stdlib.h string.h sys/filio.h sys/sockio.h sys/label.h sys/tty.h ttyent.h lastlog.h sys/select.h sys/ptyvar.h utmp.h sys/time.h sys/ioctl_compat.h paths.h arpa/nameser.h)
++AC_SYS_LARGEFILE
++AC_FUNC_FSEEKO
++AC_CHECK_TYPES([long long])
+ AC_HEADER_STDARG
+ AC_REPLACE_FUNCS(getdtablesize)
+ dnl
+Index: krb5/src/appl/bsd/krcp.c
+===================================================================
+--- krb5/src/appl/bsd/krcp.c	(revision 22425)
++++ krb5/src/appl/bsd/krcp.c	(working copy)
+@@ -764,8 +764,13 @@
+ 		continue;
+ 	    }
+ 	}
++#ifdef HAVE_LONG_LONG
++	(void) snprintf(buf, sizeof(buf), "C%04o %lld %s\n",
++			(int) stb.st_mode&07777, (long long) stb.st_size, last);
++#else
+ 	(void) snprintf(buf, sizeof(buf), "C%04o %ld %s\n",
+ 			(int) stb.st_mode&07777, (long ) stb.st_size, last);
++#endif
+ 	(void) rcmd_stream_write(rem, buf, strlen(buf), 0);
+ 	if (response() < 0) {
+ 	    (void) close(f);

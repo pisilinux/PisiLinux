@@ -1,0 +1,685 @@
+commit 6f795a79f590271d12f3c8ad430f70856152d0fa
+Author: Gwenole Beauchesne <gbeauchesne@splitted-desktop.com>
+Date:   Fri Feb 12 11:03:00 2010 +0000
+
+    Add compatibility with original VA-API 0.29.
+
+diff --git a/configure b/configure
+index 91fd164..7b1f2c4 100755
+--- a/configure
++++ b/configure
+@@ -5895,21 +5895,36 @@ if test -n "$_vaapiprefix"; then
+ fi
+ if test "$_vaapi" = yes -o "$_vaapi" = auto; then
+   _vaapi=no
++  _vaapi_old=no
+   cat > $TMPC <<EOF
+ #include <va/va_x11.h>
+ int main(void) { (void) vaGetDisplay(0); return 0; }
+ EOF
+-  cc_check $_vaapiinc $_vaapilib -lva-x11 && _vaapi=yes
++  cc_check $_vaapiinc $_vaapilib -lva-x11 && _vaapi=yes || {
++    cat > $TMPC <<EOF
++#include <va_x11.h>
++int main(void) { (void) vaGetDisplay(0); return 0; }
++EOF
++    cc_check $_vaapiinc $_vaapilib -lva && _vaapi=yes _vaapi_old=yes
++  }
+ fi
+ 
+ if test "$_vaapi" = yes ; then
+   def_vaapi='#define CONFIG_VAAPI 1'
+   extra_cflags="$extra_cflags $_vaapiinc"
+-  libs_mencoder="$libs_mencoder $_vaapilib -lva"
+-  libs_mplayer="$libs_mplayer $_vaapilib -lva -lva-x11"
++  if test "$_vaapi_old" = no ; then
++    def_vaapi_old='#define CONFIG_VAAPI_OLD 0'
++    libs_mencoder="$libs_mencoder $_vaapilib -lva"
++    libs_mplayer="$libs_mplayer $_vaapilib -lva -lva-x11"
++  else
++    def_vaapi_old='#define CONFIG_VAAPI_OLD 1'
++    _mencoder="no"
++    libs_mplayer="$libs_mplayer $_vaapilib -lva"
++  fi
+   vomodules="vaapi $vomodules"
+ else
+   def_vaapi='#define CONFIG_VAAPI 0'
++  def_vaapi_old='#define CONFIG_VAAPI_OLD 0'
+   novomodules="vaapi $novomodules"
+   libavhwaccels=`echo $libavhwaccels | sed -e "s/\(MPEG[124]\|H26[34]\|WMV3\|VC1\)_VAAPI_HWACCEL//g"`
+ fi
+@@ -8421,6 +8436,7 @@ CONFIG_MUXERS   = $_mencoder
+ CONFIG_POSTPROC = yes
+ CONFIG_RTPDEC   = $networking
+ CONFIG_VAAPI    = $_vaapi
++CONFIG_VAAPI_OLD= $_vaapi_old
+ CONFIG_VDPAU    = $_vdpau
+ CONFIG_XRENDER	= $_xrender
+ CONFIG_XVMC     = $_xvmc
+@@ -8805,6 +8821,7 @@ $def_tdfxvid
+ $def_tga
+ $def_v4l2
+ $def_vaapi
++$def_vaapi_old
+ $def_vaapi_glx
+ $def_vdpau
+ $def_vesa
+diff --git a/ffmpeg/libavcodec/vaapi_compat.h b/ffmpeg/libavcodec/vaapi_compat.h
+new file mode 100644
+index 0000000..2f7ece8
+--- /dev/null
++++ b/ffmpeg/libavcodec/vaapi_compat.h
+@@ -0,0 +1,96 @@
++/*
++ * Video Acceleration API (video decoding)
++ * HW decode acceleration for MPEG-2, MPEG-4, H.264 and VC-1
++ *
++ * Copyright (C) 2008-2009 Splitted-Desktop Systems
++ *
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with FFmpeg; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++ */
++
++#ifndef AVCODEC_VAAPI_COMPAT_H
++#define AVCODEC_VAAPI_COMPAT_H
++
++/* Compatibility glue with original VA-API 0.29 */
++#if CONFIG_VAAPI_OLD
++typedef struct _VASliceParameterBufferBase {
++    unsigned int slice_data_size;
++    unsigned int slice_data_offset;
++    unsigned int slice_data_flag;
++} VASliceParameterBufferBase;
++#endif
++
++#ifndef VA_SDS_VERSION
++#define VA_SDS_VERSION 0
++#endif
++
++#ifndef VA_CHECK_VERSION
++#define VA_MAJOR_VERSION 0
++#define VA_MINOR_VERSION 29
++#define VA_CHECK_VERSION(major,minor,micro) \
++        (VA_MAJOR_VERSION > (major) || \
++         (VA_MAJOR_VERSION == (major) && VA_MINOR_VERSION > (minor)) || \
++         (VA_MAJOR_VERSION == (major) && VA_MINOR_VERSION == (minor) && VA_MICRO_VERSION >= (micro)))
++#endif
++
++#ifndef VA_FOURCC
++#define VA_FOURCC(ch0, ch1, ch2, ch3)           \
++    ((uint32_t)(uint8_t)(ch0) |                 \
++     ((uint32_t)(uint8_t)(ch1) << 8) |          \
++     ((uint32_t)(uint8_t)(ch2) << 16) |         \
++     ((uint32_t)(uint8_t)(ch3) << 24 ))
++#endif
++
++#ifndef VA_INVALID_ID
++#define VA_INVALID_ID           0xffffffff
++#endif
++#ifndef VA_INVALID_SURFACE
++#define VA_INVALID_SURFACE      VA_INVALID_ID
++#endif
++
++/* Compatibility glue with VA-API >= 0.31 */
++#if VA_CHECK_VERSION(0,31,0)
++#define vaSyncSurface(dpy, context, surface) (vaSyncSurface)((dpy), (surface))
++#define vaPutImage2             vaPutImage
++#define vaAssociateSubpicture2  vaAssociateSubpicture
++#endif
++
++/* Used in codec implementation to set up the right bit-fields */
++#if CONFIG_VAAPI_OLD
++# define BFV(a, b)              a
++# define BFM(a, b, c)           c
++# define BFMP(p, a, b, c)       p##_##c
++# define NEW(x)                 /* nothing */
++#else
++# define BFV(a, b)              a.b
++# define BFM(a, b, c)           a.b.c
++# define BFMP(p, a, b, c)       a.b.c
++# define NEW(x)                 x
++#endif
++
++#if CONFIG_VAAPI_OLD
++# define V_raw_coding           raw_coding_flag
++# define M_raw_coding           raw_coding
++# define V_bitplane_present     bitplane_present_flag
++# define M_bitplane_present     bitplane_present
++#else
++# define V_raw_coding           raw_coding
++# define M_raw_coding           raw_coding
++# define V_bitplane_present     bitplane_present
++# define M_bitplane_present     bitplane_present
++#endif
++
++#endif /* AVCODEC_VAAPI_COMPAT_H */
+diff --git a/ffmpeg/libavcodec/vaapi_h264.c b/ffmpeg/libavcodec/vaapi_h264.c
+index 739bce7..27a0ee4 100644
+--- a/ffmpeg/libavcodec/vaapi_h264.c
++++ b/ffmpeg/libavcodec/vaapi_h264.c
+@@ -110,8 +110,8 @@ static void fill_vaapi_pic(VAPictureH264 *va_pic,
+     if (pic_structure == 0)
+         pic_structure = pic->reference;
+ 
+-    va_pic->picture_id = ff_vaapi_get_surface_id(pic);
+-    va_pic->frame_idx  = pic->long_ref ? pic->pic_id : pic->frame_num;
++    va_pic->picture_id    = ff_vaapi_get_surface_id(pic);
++    NEW(va_pic->frame_idx = pic->long_ref ? pic->pic_id : pic->frame_num);
+ 
+     va_pic->flags      = 0;
+     if (pic_structure != PICT_FRAME)
+@@ -304,42 +304,42 @@ static int start_frame(AVCodecContext          *avctx,
+     fill_vaapi_pic(&pic_param->CurrPic, s->current_picture_ptr, s->picture_structure);
+     if (fill_vaapi_ReferenceFrames(pic_param, h) < 0)
+         return -1;
+-    pic_param->picture_width_in_mbs_minus1                      = s->mb_width - 1;
+-    pic_param->picture_height_in_mbs_minus1                     = s->mb_height - 1;
+-    pic_param->bit_depth_luma_minus8                            = h->sps.bit_depth_luma - 8;
+-    pic_param->bit_depth_chroma_minus8                          = h->sps.bit_depth_chroma - 8;
+-    pic_param->num_ref_frames                                   = h->sps.ref_frame_count;
+-    pic_param->seq_fields.value                                 = 0; /* reset all bits */
+-    pic_param->seq_fields.bits.chroma_format_idc                = h->sps.chroma_format_idc;
+-    pic_param->seq_fields.bits.residual_colour_transform_flag   = h->sps.residual_color_transform_flag; /* XXX: only for 4:4:4 high profile? */
+-    pic_param->seq_fields.bits.gaps_in_frame_num_value_allowed_flag = h->sps.gaps_in_frame_num_allowed_flag;
+-    pic_param->seq_fields.bits.frame_mbs_only_flag              = h->sps.frame_mbs_only_flag;
+-    pic_param->seq_fields.bits.mb_adaptive_frame_field_flag     = h->sps.mb_aff;
+-    pic_param->seq_fields.bits.direct_8x8_inference_flag        = h->sps.direct_8x8_inference_flag;
+-    pic_param->seq_fields.bits.MinLumaBiPredSize8x8             = h->sps.level_idc >= 31; /* A.3.3.2 */
+-    pic_param->seq_fields.bits.log2_max_frame_num_minus4        = h->sps.log2_max_frame_num - 4;
+-    pic_param->seq_fields.bits.pic_order_cnt_type               = h->sps.poc_type;
+-    pic_param->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 = h->sps.log2_max_poc_lsb - 4;
+-    pic_param->seq_fields.bits.delta_pic_order_always_zero_flag = h->sps.delta_pic_order_always_zero_flag;
+-    pic_param->num_slice_groups_minus1                          = h->pps.slice_group_count - 1;
+-    pic_param->slice_group_map_type                             = h->pps.mb_slice_group_map_type;
+-    pic_param->slice_group_change_rate_minus1                   = 0; /* XXX: unimplemented in FFmpeg */
+-    pic_param->pic_init_qp_minus26                              = h->pps.init_qp - 26;
+-    pic_param->pic_init_qs_minus26                              = h->pps.init_qs - 26;
+-    pic_param->chroma_qp_index_offset                           = h->pps.chroma_qp_index_offset[0];
+-    pic_param->second_chroma_qp_index_offset                    = h->pps.chroma_qp_index_offset[1];
+-    pic_param->pic_fields.value                                 = 0; /* reset all bits */
+-    pic_param->pic_fields.bits.entropy_coding_mode_flag         = h->pps.cabac;
+-    pic_param->pic_fields.bits.weighted_pred_flag               = h->pps.weighted_pred;
+-    pic_param->pic_fields.bits.weighted_bipred_idc              = h->pps.weighted_bipred_idc;
+-    pic_param->pic_fields.bits.transform_8x8_mode_flag          = h->pps.transform_8x8_mode;
+-    pic_param->pic_fields.bits.field_pic_flag                   = s->picture_structure != PICT_FRAME;
+-    pic_param->pic_fields.bits.constrained_intra_pred_flag      = h->pps.constrained_intra_pred;
+-    pic_param->pic_fields.bits.pic_order_present_flag           = h->pps.pic_order_present;
+-    pic_param->pic_fields.bits.deblocking_filter_control_present_flag = h->pps.deblocking_filter_parameters_present;
+-    pic_param->pic_fields.bits.redundant_pic_cnt_present_flag   = h->pps.redundant_pic_cnt_present;
+-    pic_param->pic_fields.bits.reference_pic_flag               = h->nal_ref_idc != 0;
+-    pic_param->frame_num                                        = h->frame_num;
++    pic_param->picture_width_in_mbs_minus1                              = s->mb_width - 1;
++    pic_param->picture_height_in_mbs_minus1                             = s->mb_height - 1;
++    pic_param->bit_depth_luma_minus8                                    = h->sps.bit_depth_luma - 8;
++    pic_param->bit_depth_chroma_minus8                                  = h->sps.bit_depth_chroma - 8;
++    pic_param->num_ref_frames                                           = h->sps.ref_frame_count;
++    pic_param->BFV(seq_fields,value)                                    = 0; /* reset all bits */
++    pic_param->BFM(seq_fields,bits,chroma_format_idc)                   = h->sps.chroma_format_idc;
++    pic_param->BFM(seq_fields,bits,residual_colour_transform_flag)      = h->sps.residual_color_transform_flag; /* XXX: only for 4:4:4 high profile? */
++    NEW(pic_param->BFM(seq_fields,bits,gaps_in_frame_num_value_allowed_flag) = h->sps.gaps_in_frame_num_allowed_flag);
++    pic_param->BFM(seq_fields,bits,frame_mbs_only_flag)                 = h->sps.frame_mbs_only_flag;
++    pic_param->BFM(seq_fields,bits,mb_adaptive_frame_field_flag)        = h->sps.mb_aff;
++    pic_param->BFM(seq_fields,bits,direct_8x8_inference_flag)           = h->sps.direct_8x8_inference_flag;
++    pic_param->BFM(seq_fields,bits,MinLumaBiPredSize8x8)                = h->sps.level_idc >= 31; /* A.3.3.2 */
++    NEW(pic_param->BFM(seq_fields,bits,log2_max_frame_num_minus4)       = h->sps.log2_max_frame_num - 4);
++    NEW(pic_param->BFM(seq_fields,bits,pic_order_cnt_type)              = h->sps.poc_type);
++    NEW(pic_param->BFM(seq_fields,bits,log2_max_pic_order_cnt_lsb_minus4) = h->sps.log2_max_poc_lsb - 4);
++    NEW(pic_param->BFM(seq_fields,bits,delta_pic_order_always_zero_flag)  = h->sps.delta_pic_order_always_zero_flag);
++    pic_param->num_slice_groups_minus1                                  = h->pps.slice_group_count - 1;
++    pic_param->slice_group_map_type                                     = h->pps.mb_slice_group_map_type;
++    NEW(pic_param->slice_group_change_rate_minus1                       = 0); /* XXX: unimplemented in FFmpeg */
++    pic_param->pic_init_qp_minus26                                      = h->pps.init_qp - 26;
++    NEW(pic_param->pic_init_qs_minus26                                  = h->pps.init_qs - 26);
++    pic_param->chroma_qp_index_offset                                   = h->pps.chroma_qp_index_offset[0];
++    pic_param->second_chroma_qp_index_offset                            = h->pps.chroma_qp_index_offset[1];
++    pic_param->BFV(pic_fields,value)                                    = 0; /* reset all bits */
++    pic_param->BFM(pic_fields,bits,entropy_coding_mode_flag)            = h->pps.cabac;
++    pic_param->BFM(pic_fields,bits,weighted_pred_flag)                  = h->pps.weighted_pred;
++    pic_param->BFM(pic_fields,bits,weighted_bipred_idc)                 = h->pps.weighted_bipred_idc;
++    pic_param->BFM(pic_fields,bits,transform_8x8_mode_flag)             = h->pps.transform_8x8_mode;
++    pic_param->BFM(pic_fields,bits,field_pic_flag)                      = s->picture_structure != PICT_FRAME;
++    pic_param->BFM(pic_fields,bits,constrained_intra_pred_flag)         = h->pps.constrained_intra_pred;
++    NEW(pic_param->BFM(pic_fields,bits,pic_order_present_flag)          = h->pps.pic_order_present);
++    NEW(pic_param->BFM(pic_fields,bits,deblocking_filter_control_present_flag) = h->pps.deblocking_filter_parameters_present);
++    NEW(pic_param->BFM(pic_fields,bits,redundant_pic_cnt_present_flag)  = h->pps.redundant_pic_cnt_present);
++    NEW(pic_param->BFM(pic_fields,bits,reference_pic_flag)              = h->nal_ref_idc != 0);
++    pic_param->frame_num                                                = h->frame_num;
+ 
+     /* Fill in VAIQMatrixBufferH264. */
+     iq_matrix = ff_vaapi_alloc_iq_matrix(vactx, sizeof(VAIQMatrixBufferH264));
+diff --git a/ffmpeg/libavcodec/vaapi_internal.h b/ffmpeg/libavcodec/vaapi_internal.h
+index 2c0fdf9..ff83b96 100644
+--- a/ffmpeg/libavcodec/vaapi_internal.h
++++ b/ffmpeg/libavcodec/vaapi_internal.h
+@@ -24,8 +24,14 @@
+ #ifndef AVCODEC_VAAPI_INTERNAL_H
+ #define AVCODEC_VAAPI_INTERNAL_H
+ 
++#include "config.h"
++#if CONFIG_VAAPI_OLD
++#include <va.h>
++#else
+ #include <va/va.h>
++#endif
+ #include "vaapi.h"
++#include "vaapi_compat.h"
+ #include "avcodec.h"
+ #include "mpegvideo.h"
+ 
+diff --git a/ffmpeg/libavcodec/vaapi_mpeg2.c b/ffmpeg/libavcodec/vaapi_mpeg2.c
+index 2e870dc..277c7a5 100644
+--- a/ffmpeg/libavcodec/vaapi_mpeg2.c
++++ b/ffmpeg/libavcodec/vaapi_mpeg2.c
+@@ -52,24 +52,24 @@ static int vaapi_mpeg2_start_frame(AVCodecContext *avctx, av_unused const uint8_
+     pic_param = ff_vaapi_alloc_pic_param(vactx, sizeof(VAPictureParameterBufferMPEG2));
+     if (!pic_param)
+         return -1;
+-    pic_param->horizontal_size                                  = s->width;
+-    pic_param->vertical_size                                    = s->height;
+-    pic_param->forward_reference_picture                        = VA_INVALID_ID;
+-    pic_param->backward_reference_picture                       = VA_INVALID_ID;
+-    pic_param->picture_coding_type                              = s->pict_type;
+-    pic_param->f_code                                           = mpeg2_get_f_code(s);
+-    pic_param->picture_coding_extension.value                   = 0; /* reset all bits */
+-    pic_param->picture_coding_extension.bits.intra_dc_precision = s->intra_dc_precision;
+-    pic_param->picture_coding_extension.bits.picture_structure  = s->picture_structure;
+-    pic_param->picture_coding_extension.bits.top_field_first    = s->top_field_first;
+-    pic_param->picture_coding_extension.bits.frame_pred_frame_dct = s->frame_pred_frame_dct;
+-    pic_param->picture_coding_extension.bits.concealment_motion_vectors = s->concealment_motion_vectors;
+-    pic_param->picture_coding_extension.bits.q_scale_type       = s->q_scale_type;
+-    pic_param->picture_coding_extension.bits.intra_vlc_format   = s->intra_vlc_format;
+-    pic_param->picture_coding_extension.bits.alternate_scan     = s->alternate_scan;
+-    pic_param->picture_coding_extension.bits.repeat_first_field = s->repeat_first_field;
+-    pic_param->picture_coding_extension.bits.progressive_frame  = s->progressive_frame;
+-    pic_param->picture_coding_extension.bits.is_first_field     = mpeg2_get_is_frame_start(s);
++    pic_param->horizontal_size                                               = s->width;
++    pic_param->vertical_size                                                 = s->height;
++    pic_param->forward_reference_picture                                     = VA_INVALID_ID;
++    pic_param->backward_reference_picture                                    = VA_INVALID_ID;
++    pic_param->picture_coding_type                                           = s->pict_type;
++    pic_param->f_code                                                        = mpeg2_get_f_code(s);
++    pic_param->BFV(picture_coding_extension,value)                           = 0; /* reset all bits */
++    pic_param->BFM(picture_coding_extension,bits,intra_dc_precision)         = s->intra_dc_precision;
++    pic_param->BFM(picture_coding_extension,bits,picture_structure)          = s->picture_structure;
++    pic_param->BFM(picture_coding_extension,bits,top_field_first)            = s->top_field_first;
++    pic_param->BFM(picture_coding_extension,bits,frame_pred_frame_dct)       = s->frame_pred_frame_dct;
++    pic_param->BFM(picture_coding_extension,bits,concealment_motion_vectors) = s->concealment_motion_vectors;
++    pic_param->BFM(picture_coding_extension,bits,q_scale_type)               = s->q_scale_type;
++    pic_param->BFM(picture_coding_extension,bits,intra_vlc_format)           = s->intra_vlc_format;
++    pic_param->BFM(picture_coding_extension,bits,alternate_scan)             = s->alternate_scan;
++    pic_param->BFM(picture_coding_extension,bits,repeat_first_field)         = s->repeat_first_field;
++    pic_param->BFM(picture_coding_extension,bits,progressive_frame)          = s->progressive_frame;
++    pic_param->BFM(picture_coding_extension,bits,is_first_field)             = mpeg2_get_is_frame_start(s);
+ 
+     switch (s->pict_type) {
+     case FF_B_TYPE:
+@@ -131,7 +131,9 @@ static int vaapi_mpeg2_decode_slice(AVCodecContext *avctx, const uint8_t *buffer
+     if (!slice_param)
+         return -1;
+     slice_param->macroblock_offset              = macroblock_offset;
++#if VA_CHECK_VERSION(0,31,1) || (VA_CHECK_VERSION(0,31,0) && VA_SDS_VERSION >= 3)
+     slice_param->slice_horizontal_position      = s->mb_x;
++#endif
+     slice_param->slice_vertical_position        = s->mb_y;
+     slice_param->quantiser_scale_code           = quantiser_scale_code;
+     slice_param->intra_slice_flag               = intra_slice_flag;
+diff --git a/ffmpeg/libavcodec/vaapi_mpeg4.c b/ffmpeg/libavcodec/vaapi_mpeg4.c
+index 8f02e91..557ae6c 100644
+--- a/ffmpeg/libavcodec/vaapi_mpeg4.c
++++ b/ffmpeg/libavcodec/vaapi_mpeg4.c
+@@ -55,42 +55,46 @@ static int vaapi_mpeg4_start_frame(AVCodecContext *avctx, av_unused const uint8_
+     pic_param = ff_vaapi_alloc_pic_param(vactx, sizeof(VAPictureParameterBufferMPEG4));
+     if (!pic_param)
+         return -1;
+-    pic_param->vop_width                                = s->width;
+-    pic_param->vop_height                               = s->height;
+-    pic_param->forward_reference_picture                = VA_INVALID_ID;
+-    pic_param->backward_reference_picture               = VA_INVALID_ID;
+-    pic_param->vol_fields.value                         = 0; /* reset all bits */
+-    pic_param->vol_fields.bits.short_video_header       = avctx->codec->id == CODEC_ID_H263;
+-    pic_param->vol_fields.bits.chroma_format            = CHROMA_420;
+-    pic_param->vol_fields.bits.interlaced               = !s->progressive_sequence;
+-    pic_param->vol_fields.bits.obmc_disable             = 1;
+-    pic_param->vol_fields.bits.sprite_enable            = s->vol_sprite_usage;
+-    pic_param->vol_fields.bits.sprite_warping_accuracy  = s->sprite_warping_accuracy;
+-    pic_param->vol_fields.bits.quant_type               = s->mpeg_quant;
+-    pic_param->vol_fields.bits.quarter_sample           = s->quarter_sample;
+-    pic_param->vol_fields.bits.data_partitioned         = s->data_partitioning;
+-    pic_param->vol_fields.bits.reversible_vlc           = s->rvlc;
+-    pic_param->vol_fields.bits.resync_marker_disable    = !s->resync_marker;
+-    pic_param->no_of_sprite_warping_points              = s->num_sprite_warping_points;
++    pic_param->vop_width                                               = s->width;
++    pic_param->vop_height                                              = s->height;
++    pic_param->forward_reference_picture                               = VA_INVALID_ID;
++    pic_param->backward_reference_picture                              = VA_INVALID_ID;
++    pic_param->BFV(vol_fields,value)                                   = 0; /* reset all bits */
++    pic_param->BFM(vol_fields,bits,short_video_header)                 = avctx->codec->id == CODEC_ID_H263;
++    pic_param->BFM(vol_fields,bits,chroma_format)                      = CHROMA_420;
++    pic_param->BFM(vol_fields,bits,interlaced)                         = !s->progressive_sequence;
++    pic_param->BFM(vol_fields,bits,obmc_disable)                       = 1;
++    pic_param->BFM(vol_fields,bits,sprite_enable)                      = s->vol_sprite_usage;
++    pic_param->BFM(vol_fields,bits,sprite_warping_accuracy)            = s->sprite_warping_accuracy;
++    pic_param->BFM(vol_fields,bits,quant_type)                         = s->mpeg_quant;
++    pic_param->BFM(vol_fields,bits,quarter_sample)                     = s->quarter_sample;
++    pic_param->BFM(vol_fields,bits,data_partitioned)                   = s->data_partitioning;
++    pic_param->BFM(vol_fields,bits,reversible_vlc)                     = s->rvlc;
++#if VA_CHECK_VERSION(0,31,1) || (VA_CHECK_VERSION(0,31,0) && VA_SDS_VERSION >= 4)
++    pic_param->BFM(vol_fields,bits,resync_marker_disable)              = !s->resync_marker;
++#endif
++    pic_param->no_of_sprite_warping_points                             = s->num_sprite_warping_points;
+     for (i = 0; i < s->num_sprite_warping_points && i < 3; i++) {
+-        pic_param->sprite_trajectory_du[i]              = s->sprite_traj[i][0];
+-        pic_param->sprite_trajectory_dv[i]              = s->sprite_traj[i][1];
++        pic_param->sprite_trajectory_du[i]                             = s->sprite_traj[i][0];
++        pic_param->sprite_trajectory_dv[i]                             = s->sprite_traj[i][1];
+     }
+-    pic_param->quant_precision                          = s->quant_precision;
+-    pic_param->vop_fields.value                         = 0; /* reset all bits */
+-    pic_param->vop_fields.bits.vop_coding_type          = s->pict_type - FF_I_TYPE;
+-    pic_param->vop_fields.bits.backward_reference_vop_coding_type = s->pict_type == FF_B_TYPE ? s->next_picture.pict_type - FF_I_TYPE : 0;
+-    pic_param->vop_fields.bits.vop_rounding_type        = s->no_rounding;
+-    pic_param->vop_fields.bits.intra_dc_vlc_thr         = mpeg4_get_intra_dc_vlc_thr(s);
+-    pic_param->vop_fields.bits.top_field_first          = s->top_field_first;
+-    pic_param->vop_fields.bits.alternate_vertical_scan_flag = s->alternate_scan;
+-    pic_param->vop_fcode_forward                        = s->f_code;
+-    pic_param->vop_fcode_backward                       = s->b_code;
+-    pic_param->vop_time_increment_resolution            = avctx->time_base.den;
+-    pic_param->num_macroblocks_in_gob                   = s->mb_width * ff_h263_get_gob_height(s);
+-    pic_param->num_gobs_in_vop                          = (s->mb_width * s->mb_height) / pic_param->num_macroblocks_in_gob;
+-    pic_param->TRB                                      = s->pb_time;
+-    pic_param->TRD                                      = s->pp_time;
++    pic_param->quant_precision                                         = s->quant_precision;
++    pic_param->BFV(vop_fields,value)                                   = 0; /* reset all bits */
++    pic_param->BFM(vop_fields,bits,vop_coding_type)                    = s->pict_type - FF_I_TYPE;
++    pic_param->BFM(vop_fields,bits,backward_reference_vop_coding_type) = s->pict_type == FF_B_TYPE ? s->next_picture.pict_type - FF_I_TYPE : 0;
++    pic_param->BFM(vop_fields,bits,vop_rounding_type)                  = s->no_rounding;
++    pic_param->BFM(vop_fields,bits,intra_dc_vlc_thr)                   = mpeg4_get_intra_dc_vlc_thr(s);
++    pic_param->BFM(vop_fields,bits,top_field_first)                    = s->top_field_first;
++    pic_param->BFM(vop_fields,bits,alternate_vertical_scan_flag)       = s->alternate_scan;
++    pic_param->vop_fcode_forward                                       = s->f_code;
++    pic_param->vop_fcode_backward                                      = s->b_code;
++#if VA_CHECK_VERSION(0,31,1) || (VA_CHECK_VERSION(0,31,0) && VA_SDS_VERSION >= 4)
++    pic_param->vop_time_increment_resolution                            = avctx->time_base.den;
++#endif
++    pic_param->num_macroblocks_in_gob                                  = s->mb_width * ff_h263_get_gob_height(s);
++    pic_param->num_gobs_in_vop                                         = (s->mb_width * s->mb_height) / pic_param->num_macroblocks_in_gob;
++    pic_param->TRB                                                     = s->pb_time;
++    pic_param->TRD                                                     = s->pp_time;
+ 
+     if (s->pict_type == FF_B_TYPE)
+         pic_param->backward_reference_picture = ff_vaapi_get_surface_id(&s->next_picture);
+@@ -99,7 +103,7 @@ static int vaapi_mpeg4_start_frame(AVCodecContext *avctx, av_unused const uint8_
+ 
+     /* Fill in VAIQMatrixBufferMPEG4 */
+     /* Only the first inverse quantisation method uses the weighthing matrices */
+-    if (pic_param->vol_fields.bits.quant_type) {
++    if (pic_param->BFM(vol_fields,bits,quant_type)) {
+         iq_matrix = ff_vaapi_alloc_iq_matrix(vactx, sizeof(VAIQMatrixBufferMPEG4));
+         if (!iq_matrix)
+             return -1;
+diff --git a/ffmpeg/libavcodec/vaapi_vc1.c b/ffmpeg/libavcodec/vaapi_vc1.c
+index 2c24042..3bbbd24 100644
+--- a/ffmpeg/libavcodec/vaapi_vc1.c
++++ b/ffmpeg/libavcodec/vaapi_vc1.c
+@@ -146,100 +146,100 @@ static int vaapi_vc1_start_frame(AVCodecContext *avctx, av_unused const uint8_t
+     pic_param = ff_vaapi_alloc_pic_param(vactx, sizeof(VAPictureParameterBufferVC1));
+     if (!pic_param)
+         return -1;
+-    pic_param->forward_reference_picture                            = VA_INVALID_ID;
+-    pic_param->backward_reference_picture                           = VA_INVALID_ID;
+-    pic_param->inloop_decoded_picture                               = VA_INVALID_ID;
+-    pic_param->sequence_fields.value                                = 0; /* reset all bits */
+-    pic_param->sequence_fields.bits.pulldown                        = v->broadcast;
+-    pic_param->sequence_fields.bits.interlace                       = v->interlace;
+-    pic_param->sequence_fields.bits.tfcntrflag                      = v->tfcntrflag;
+-    pic_param->sequence_fields.bits.finterpflag                     = v->finterpflag;
+-    pic_param->sequence_fields.bits.psf                             = v->psf;
+-    pic_param->sequence_fields.bits.multires                        = v->multires;
+-    pic_param->sequence_fields.bits.overlap                         = v->overlap;
+-    pic_param->sequence_fields.bits.syncmarker                      = s->resync_marker;
+-    pic_param->sequence_fields.bits.rangered                        = v->rangered;
+-    pic_param->sequence_fields.bits.max_b_frames                    = s->avctx->max_b_frames;
+-    pic_param->coded_width                                          = s->avctx->coded_width;
+-    pic_param->coded_height                                         = s->avctx->coded_height;
+-    pic_param->entrypoint_fields.value                              = 0; /* reset all bits */
+-    pic_param->entrypoint_fields.bits.broken_link                   = v->broken_link;
+-    pic_param->entrypoint_fields.bits.closed_entry                  = v->closed_entry;
+-    pic_param->entrypoint_fields.bits.panscan_flag                  = v->panscanflag;
+-    pic_param->entrypoint_fields.bits.loopfilter                    = s->loop_filter;
+-    pic_param->conditional_overlap_flag                             = v->condover;
+-    pic_param->fast_uvmc_flag                                       = v->fastuvmc;
+-    pic_param->range_mapping_fields.value                           = 0; /* reset all bits */
+-    pic_param->range_mapping_fields.bits.luma_flag                  = v->range_mapy_flag;
+-    pic_param->range_mapping_fields.bits.luma                       = v->range_mapy;
+-    pic_param->range_mapping_fields.bits.chroma_flag                = v->range_mapuv_flag;
+-    pic_param->range_mapping_fields.bits.chroma                     = v->range_mapuv;
+-    pic_param->b_picture_fraction                                   = v->bfraction_lut_index;
+-    pic_param->cbp_table                                            = v->cbpcy_vlc ? v->cbpcy_vlc - ff_vc1_cbpcy_p_vlc : 0;
+-    pic_param->mb_mode_table                                        = 0; /* XXX: interlaced frame */
+-    pic_param->range_reduction_frame                                = v->rangeredfrm;
+-    pic_param->rounding_control                                     = v->rnd;
+-    pic_param->post_processing                                      = v->postproc;
+-    pic_param->picture_resolution_index                             = v->respic;
+-    pic_param->luma_scale                                           = v->lumscale;
+-    pic_param->luma_shift                                           = v->lumshift;
+-    pic_param->picture_fields.value                                 = 0; /* reset all bits */
+-    pic_param->picture_fields.bits.picture_type                     = vc1_get_PTYPE(v);
+-    pic_param->picture_fields.bits.frame_coding_mode                = v->fcm;
+-    pic_param->picture_fields.bits.top_field_first                  = v->tff;
+-    pic_param->picture_fields.bits.is_first_field                   = v->fcm == 0; /* XXX: interlaced frame */
+-    pic_param->picture_fields.bits.intensity_compensation           = v->mv_mode == MV_PMODE_INTENSITY_COMP;
+-    pic_param->raw_coding.value                                     = 0; /* reset all bits */
+-    pic_param->raw_coding.flags.mv_type_mb                          = v->mv_type_is_raw;
+-    pic_param->raw_coding.flags.direct_mb                           = v->dmb_is_raw;
+-    pic_param->raw_coding.flags.skip_mb                             = v->skip_is_raw;
+-    pic_param->raw_coding.flags.field_tx                            = 0; /* XXX: interlaced frame */
+-    pic_param->raw_coding.flags.forward_mb                          = 0; /* XXX: interlaced frame */
+-    pic_param->raw_coding.flags.ac_pred                             = v->acpred_is_raw;
+-    pic_param->raw_coding.flags.overflags                           = v->overflg_is_raw;
+-    pic_param->bitplane_present.value                               = 0; /* reset all bits */
+-    pic_param->bitplane_present.flags.bp_mv_type_mb                 = vc1_has_MVTYPEMB_bitplane(v);
+-    pic_param->bitplane_present.flags.bp_direct_mb                  = vc1_has_DIRECTMB_bitplane(v);
+-    pic_param->bitplane_present.flags.bp_skip_mb                    = vc1_has_SKIPMB_bitplane(v);
+-    pic_param->bitplane_present.flags.bp_field_tx                   = 0; /* XXX: interlaced frame */
+-    pic_param->bitplane_present.flags.bp_forward_mb                 = 0; /* XXX: interlaced frame */
+-    pic_param->bitplane_present.flags.bp_ac_pred                    = vc1_has_ACPRED_bitplane(v);
+-    pic_param->bitplane_present.flags.bp_overflags                  = vc1_has_OVERFLAGS_bitplane(v);
+-    pic_param->reference_fields.value                               = 0; /* reset all bits */
+-    pic_param->reference_fields.bits.reference_distance_flag        = v->refdist_flag;
+-    pic_param->reference_fields.bits.reference_distance             = 0; /* XXX: interlaced frame */
+-    pic_param->reference_fields.bits.num_reference_pictures         = 0; /* XXX: interlaced frame */
+-    pic_param->reference_fields.bits.reference_field_pic_indicator  = 0; /* XXX: interlaced frame */
+-    pic_param->mv_fields.value                                      = 0; /* reset all bits */
+-    pic_param->mv_fields.bits.mv_mode                               = vc1_get_MVMODE(v);
+-    pic_param->mv_fields.bits.mv_mode2                              = vc1_get_MVMODE2(v);
+-    pic_param->mv_fields.bits.mv_table                              = s->mv_table_index;
+-    pic_param->mv_fields.bits.two_mv_block_pattern_table            = 0; /* XXX: interlaced frame */
+-    pic_param->mv_fields.bits.four_mv_switch                        = 0; /* XXX: interlaced frame */
+-    pic_param->mv_fields.bits.four_mv_block_pattern_table           = 0; /* XXX: interlaced frame */
+-    pic_param->mv_fields.bits.extended_mv_flag                      = v->extended_mv;
+-    pic_param->mv_fields.bits.extended_mv_range                     = v->mvrange;
+-    pic_param->mv_fields.bits.extended_dmv_flag                     = v->extended_dmv;
+-    pic_param->mv_fields.bits.extended_dmv_range                    = 0; /* XXX: interlaced frame */
+-    pic_param->pic_quantizer_fields.value                           = 0; /* reset all bits */
+-    pic_param->pic_quantizer_fields.bits.dquant                     = v->dquant;
+-    pic_param->pic_quantizer_fields.bits.quantizer                  = v->quantizer_mode;
+-    pic_param->pic_quantizer_fields.bits.half_qp                    = v->halfpq;
+-    pic_param->pic_quantizer_fields.bits.pic_quantizer_scale        = v->pq;
+-    pic_param->pic_quantizer_fields.bits.pic_quantizer_type         = v->pquantizer;
+-    pic_param->pic_quantizer_fields.bits.dq_frame                   = v->dquantfrm;
+-    pic_param->pic_quantizer_fields.bits.dq_profile                 = v->dqprofile;
+-    pic_param->pic_quantizer_fields.bits.dq_sb_edge                 = v->dqprofile == DQPROFILE_SINGLE_EDGE  ? v->dqsbedge : 0;
+-    pic_param->pic_quantizer_fields.bits.dq_db_edge                 = v->dqprofile == DQPROFILE_DOUBLE_EDGES ? v->dqsbedge : 0;
+-    pic_param->pic_quantizer_fields.bits.dq_binary_level            = v->dqbilevel;
+-    pic_param->pic_quantizer_fields.bits.alt_pic_quantizer          = v->altpq;
+-    pic_param->transform_fields.value                               = 0; /* reset all bits */
+-    pic_param->transform_fields.bits.variable_sized_transform_flag  = v->vstransform;
+-    pic_param->transform_fields.bits.mb_level_transform_type_flag   = v->ttmbf;
+-    pic_param->transform_fields.bits.frame_level_transform_type     = v->ttfrm;
+-    pic_param->transform_fields.bits.transform_ac_codingset_idx1    = v->c_ac_table_index;
+-    pic_param->transform_fields.bits.transform_ac_codingset_idx2    = v->y_ac_table_index;
+-    pic_param->transform_fields.bits.intra_transform_dc_table       = v->s.dc_table_index;
++    pic_param->forward_reference_picture                                 = VA_INVALID_ID;
++    pic_param->backward_reference_picture                                = VA_INVALID_ID;
++    pic_param->inloop_decoded_picture                                    = VA_INVALID_ID;
++    pic_param->BFV(sequence_fields,value)                                = 0; /* reset all bits */
++    NEW(pic_param->BFM(sequence_fields,bits,pulldown)                    = v->broadcast);
++    pic_param->BFM(sequence_fields,bits,interlace)                       = v->interlace;
++    NEW(pic_param->BFM(sequence_fields,bits,tfcntrflag)                  = v->tfcntrflag);
++    NEW(pic_param->BFM(sequence_fields,bits,finterpflag)                 = v->finterpflag);
++    NEW(pic_param->BFM(sequence_fields,bits,psf)                         = v->psf);
++    NEW(pic_param->BFM(sequence_fields,bits,multires)                    = v->multires);
++    pic_param->BFM(sequence_fields,bits,overlap)                         = v->overlap;
++    pic_param->BFM(sequence_fields,bits,syncmarker)                      = s->resync_marker;
++    NEW(pic_param->BFM(sequence_fields,bits,rangered)                    = v->rangered);
++    NEW(pic_param->BFM(sequence_fields,bits,max_b_frames)                = s->avctx->max_b_frames);
++    pic_param->coded_width                                               = s->avctx->coded_width;
++    pic_param->coded_height                                              = s->avctx->coded_height;
++    NEW(pic_param->BFV(entrypoint_fields,value)                          = 0); /* reset all bits */
++    pic_param->BFM(entrypoint_fields,bits,broken_link)                   = v->broken_link;
++    pic_param->BFM(entrypoint_fields,bits,closed_entry)                  = v->closed_entry;
++    NEW(pic_param->BFM(entrypoint_fields,bits,panscan_flag)              = v->panscanflag);
++    pic_param->BFM(entrypoint_fields,bits,loopfilter)                    = s->loop_filter;
++    pic_param->conditional_overlap_flag                                  = v->condover;
++    pic_param->fast_uvmc_flag                                            = v->fastuvmc;
++    pic_param->BFV(range_mapping_fields,value)                           = 0; /* reset all bits */
++    pic_param->BFMP(range_mapping,range_mapping_fields,bits,luma_flag)   = v->range_mapy_flag;
++    pic_param->BFMP(range_mapping,range_mapping_fields,bits,luma)        = v->range_mapy;
++    pic_param->BFMP(range_mapping,range_mapping_fields,bits,chroma_flag) = v->range_mapuv_flag;
++    pic_param->BFMP(range_mapping,range_mapping_fields,bits,chroma)      = v->range_mapuv;
++    pic_param->b_picture_fraction                                        = v->bfraction_lut_index;
++    pic_param->cbp_table                                                 = v->cbpcy_vlc ? v->cbpcy_vlc - ff_vc1_cbpcy_p_vlc : 0;
++    pic_param->mb_mode_table                                             = 0; /* XXX: interlaced frame */
++    pic_param->range_reduction_frame                                     = v->rangeredfrm;
++    pic_param->rounding_control                                          = v->rnd;
++    pic_param->post_processing                                           = v->postproc;
++    pic_param->picture_resolution_index                                  = v->respic;
++    pic_param->luma_scale                                                = v->lumscale;
++    pic_param->luma_shift                                                = v->lumshift;
++    pic_param->BFV(picture_fields,value)                                 = 0; /* reset all bits */
++    pic_param->BFM(picture_fields,bits,picture_type)                     = vc1_get_PTYPE(v);
++    pic_param->BFM(picture_fields,bits,frame_coding_mode)                = v->fcm;
++    pic_param->BFM(picture_fields,bits,top_field_first)                  = v->tff;
++    pic_param->BFM(picture_fields,bits,is_first_field)                   = v->fcm == 0; /* XXX: interlaced frame */
++    pic_param->BFM(picture_fields,bits,intensity_compensation)           = v->mv_mode == MV_PMODE_INTENSITY_COMP;
++    pic_param->BFV(V_raw_coding,value)                                   = 0; /* reset all bits */
++    pic_param->BFM(M_raw_coding,flags,mv_type_mb)                        = v->mv_type_is_raw;
++    pic_param->BFM(M_raw_coding,flags,direct_mb)                         = v->dmb_is_raw;
++    pic_param->BFM(M_raw_coding,flags,skip_mb)                           = v->skip_is_raw;
++    pic_param->BFM(M_raw_coding,flags,field_tx)                          = 0; /* XXX: interlaced frame */
++    pic_param->BFM(M_raw_coding,flags,forward_mb)                        = 0; /* XXX: interlaced frame */
++    pic_param->BFM(M_raw_coding,flags,ac_pred)                           = v->acpred_is_raw;
++    pic_param->BFM(M_raw_coding,flags,overflags)                         = v->overflg_is_raw;
++    pic_param->BFV(V_bitplane_present,value)                             = 0; /* reset all bits */
++    pic_param->BFM(M_bitplane_present,flags,bp_mv_type_mb)               = vc1_has_MVTYPEMB_bitplane(v);
++    pic_param->BFM(M_bitplane_present,flags,bp_direct_mb)                = vc1_has_DIRECTMB_bitplane(v);
++    pic_param->BFM(M_bitplane_present,flags,bp_skip_mb)                  = vc1_has_SKIPMB_bitplane(v);
++    pic_param->BFM(M_bitplane_present,flags,bp_field_tx)                 = 0; /* XXX: interlaced frame */
++    pic_param->BFM(M_bitplane_present,flags,bp_forward_mb)               = 0; /* XXX: interlaced frame */
++    pic_param->BFM(M_bitplane_present,flags,bp_ac_pred)                  = vc1_has_ACPRED_bitplane(v);
++    pic_param->BFM(M_bitplane_present,flags,bp_overflags)                = vc1_has_OVERFLAGS_bitplane(v);
++    pic_param->BFV(reference_fields,value)                               = 0; /* reset all bits */
++    pic_param->BFM(reference_fields,bits,reference_distance_flag)        = v->refdist_flag;
++    pic_param->BFM(reference_fields,bits,reference_distance)             = 0; /* XXX: interlaced frame */
++    pic_param->BFM(reference_fields,bits,num_reference_pictures)         = 0; /* XXX: interlaced frame */
++    pic_param->BFM(reference_fields,bits,reference_field_pic_indicator)  = 0; /* XXX: interlaced frame */
++    pic_param->BFV(mv_fields,value)                                      = 0; /* reset all bits */
++    pic_param->BFM(mv_fields,bits,mv_mode)                               = vc1_get_MVMODE(v);
++    pic_param->BFM(mv_fields,bits,mv_mode2)                              = vc1_get_MVMODE2(v);
++    pic_param->BFM(mv_fields,bits,mv_table)                              = s->mv_table_index;
++    pic_param->BFM(mv_fields,bits,two_mv_block_pattern_table)            = 0; /* XXX: interlaced frame */
++    pic_param->BFM(mv_fields,bits,four_mv_switch)                        = 0; /* XXX: interlaced frame */
++    pic_param->BFM(mv_fields,bits,four_mv_block_pattern_table)           = 0; /* XXX: interlaced frame */
++    pic_param->BFM(mv_fields,bits,extended_mv_flag)                      = v->extended_mv;
++    pic_param->BFM(mv_fields,bits,extended_mv_range)                     = v->mvrange;
++    pic_param->BFM(mv_fields,bits,extended_dmv_flag)                     = v->extended_dmv;
++    pic_param->BFM(mv_fields,bits,extended_dmv_range)                    = 0; /* XXX: interlaced frame */
++    pic_param->BFV(pic_quantizer_fields,value)                           = 0; /* reset all bits */
++    pic_param->BFM(pic_quantizer_fields,bits,dquant)                     = v->dquant;
++    pic_param->BFM(pic_quantizer_fields,bits,quantizer)                  = v->quantizer_mode;
++    pic_param->BFM(pic_quantizer_fields,bits,half_qp)                    = v->halfpq;
++    pic_param->BFM(pic_quantizer_fields,bits,pic_quantizer_scale)        = v->pq;
++    pic_param->BFM(pic_quantizer_fields,bits,pic_quantizer_type)         = v->pquantizer;
++    pic_param->BFM(pic_quantizer_fields,bits,dq_frame)                   = v->dquantfrm;
++    pic_param->BFM(pic_quantizer_fields,bits,dq_profile)                 = v->dqprofile;
++    pic_param->BFM(pic_quantizer_fields,bits,dq_sb_edge)                 = v->dqprofile == DQPROFILE_SINGLE_EDGE  ? v->dqsbedge : 0;
++    pic_param->BFM(pic_quantizer_fields,bits,dq_db_edge)                 = v->dqprofile == DQPROFILE_DOUBLE_EDGES ? v->dqsbedge : 0;
++    pic_param->BFM(pic_quantizer_fields,bits,dq_binary_level)            = v->dqbilevel;
++    pic_param->BFM(pic_quantizer_fields,bits,alt_pic_quantizer)          = v->altpq;
++    pic_param->BFV(transform_fields,value)                               = 0; /* reset all bits */
++    pic_param->BFM(transform_fields,bits,variable_sized_transform_flag)  = v->vstransform;
++    pic_param->BFM(transform_fields,bits,mb_level_transform_type_flag)   = v->ttmbf;
++    pic_param->BFM(transform_fields,bits,frame_level_transform_type)     = v->ttfrm;
++    pic_param->BFM(transform_fields,bits,transform_ac_codingset_idx1)    = v->c_ac_table_index;
++    pic_param->BFM(transform_fields,bits,transform_ac_codingset_idx2)    = v->y_ac_table_index;
++    pic_param->BFM(transform_fields,bits,intra_transform_dc_table)       = v->s.dc_table_index;
+ 
+     switch (s->pict_type) {
+     case FF_B_TYPE:
+@@ -250,29 +250,29 @@ static int vaapi_vc1_start_frame(AVCodecContext *avctx, av_unused const uint8_t
+         break;
+     }
+ 
+-    if (pic_param->bitplane_present.value) {
++    if (pic_param->BFV(V_bitplane_present,value)) {
+         uint8_t *bitplane;
+         const uint8_t *ff_bp[3];
+         int x, y, n;
+ 
+         switch (s->pict_type) {
+         case FF_P_TYPE:
+-            ff_bp[0] = pic_param->bitplane_present.flags.bp_direct_mb  ? v->direct_mb_plane    : NULL;
+-            ff_bp[1] = pic_param->bitplane_present.flags.bp_skip_mb    ? s->mbskip_table       : NULL;
+-            ff_bp[2] = pic_param->bitplane_present.flags.bp_mv_type_mb ? v->mv_type_mb_plane   : NULL;
++            ff_bp[0] = pic_param->BFM(M_bitplane_present,flags,bp_direct_mb)  ? v->direct_mb_plane    : NULL;
++            ff_bp[1] = pic_param->BFM(M_bitplane_present,flags,bp_skip_mb)    ? s->mbskip_table       : NULL;
++            ff_bp[2] = pic_param->BFM(M_bitplane_present,flags,bp_mv_type_mb) ? v->mv_type_mb_plane   : NULL;
+             break;
+         case FF_B_TYPE:
+             if (!v->bi_type) {
+-                ff_bp[0] = pic_param->bitplane_present.flags.bp_direct_mb ? v->direct_mb_plane : NULL;
+-                ff_bp[1] = pic_param->bitplane_present.flags.bp_skip_mb   ? s->mbskip_table    : NULL;
++                ff_bp[0] = pic_param->BFM(M_bitplane_present,flags,bp_direct_mb) ? v->direct_mb_plane : NULL;
++                ff_bp[1] = pic_param->BFM(M_bitplane_present,flags,bp_skip_mb)   ? s->mbskip_table    : NULL;
+                 ff_bp[2] = NULL; /* XXX: interlaced frame (FORWARD plane) */
+                 break;
+             }
+             /* fall-through (BI-type) */
+         case FF_I_TYPE:
+             ff_bp[0] = NULL; /* XXX: interlaced frame (FIELDTX plane) */
+-            ff_bp[1] = pic_param->bitplane_present.flags.bp_ac_pred    ? v->acpred_plane       : NULL;
+-            ff_bp[2] = pic_param->bitplane_present.flags.bp_overflags  ? v->over_flags_plane   : NULL;
++            ff_bp[1] = pic_param->BFM(M_bitplane_present,flags,bp_ac_pred)    ? v->acpred_plane       : NULL;
++            ff_bp[2] = pic_param->BFM(M_bitplane_present,flags,bp_overflags)  ? v->over_flags_plane   : NULL;
+             break;
+         default:
+             ff_bp[0] = NULL;
+diff --git a/libvo/vo_vaapi.c b/libvo/vo_vaapi.c
+index f487996..4d27fb6 100644
+--- a/libvo/vo_vaapi.c
++++ b/libvo/vo_vaapi.c
+@@ -46,7 +46,11 @@
+ #include <assert.h>
+ #include <X11/Xlib.h>
+ #include <X11/Xutil.h>
++#if CONFIG_VAAPI_OLD
++#include <va_x11.h>
++#else
+ #include <va/va_x11.h>
++#endif
+ #if CONFIG_VAAPI_GLX
+ #include <va/va_glx.h>
+ #endif

@@ -1,0 +1,87 @@
+--- procps-3.2.7/sysctl.c.kzak	2007-04-03 01:26:01.000000000 +0200
++++ procps-3.2.7/sysctl.c	2007-04-03 01:26:13.000000000 +0200
+@@ -63,6 +63,44 @@
+ static const char ERR_PRELOAD_FILE[] = "error: unable to open preload file \"%s\"\n";
+ static const char WARN_BAD_LINE[] = "warning: %s(%d): invalid syntax, continuing...\n";
+ 
++/* Ignore deprecated sysctls
++ * -- we use this list when we scan (DisplayAll) /proc/sys only. We don't use it
++ *    in case when user direcly uses deprecated key. It's better when user can read
++ *    an error message from kernel.
++ */
++struct sysctl_ignore {
++	const char *prefix;
++	int        prefix_len;
++	const char *option;
++	int        option_len;
++};
++
++#define IGNORE_ENTRY(prefix, option) \
++		{ prefix, sizeof(prefix)-1, option, sizeof(option)-1 }
++
++static struct sysctl_ignore Ignore[] =
++{
++	IGNORE_ENTRY( "net.ipv6.neigh", "base_reachable_time" ),
++	IGNORE_ENTRY( "net.ipv6.neigh", "retrans_time" )
++};
++
++static bool IsIgnored(const char *name)
++{
++  unsigned int i;
++  int sz = strlen(name);
++
++  for (i = 0; i < sizeof(Ignore)/sizeof(struct sysctl_ignore); i++) {
++     struct sysctl_ignore *p = &Ignore[i];
++
++     if (sz < (p->prefix_len + p->option_len))
++	     continue;
++
++     if (strncmp(name, p->prefix, p->prefix_len) == 0 &&
++         strcmp(name + (sz - p->option_len), p->option) == 0)
++       return true;
++  }
++  return false;
++}
+ 
+ static void slashdot(char *restrict p, char old, char new){
+   p = strpbrk(p,"/.");
+@@ -122,7 +160,7 @@
+  *     Read a sysctl setting 
+  *
+  */
+-static int ReadSetting(const char *restrict const name) {
++static int ReadSetting(const char *restrict const name, bool useign) {
+    int rc = 0;
+    char *restrict tmpname;
+    char *restrict outname;
+@@ -145,6 +183,12 @@
+    outname = strdup(name);
+    slashdot(outname,'/','.'); /* change / to . */
+ 
++   if (useign && IsIgnored(outname)) {
++     free(outname);
++     free(tmpname);
++     return rc;
++   }
++
+    if (stat(tmpname, &st)==0) {
+ 	if (st.st_mode & (S_IRUSR|S_IROTH|S_IRGRP))	   
+ 	   	fp = fopen(tmpname, "r");
+@@ -257,7 +301,7 @@
+                strcat(tmpdir, "/");
+                DisplayAll(tmpdir);
+             } else {
+-               rc |= ReadSetting(tmpdir+strlen(PROC_PATH));
++               rc |= ReadSetting(tmpdir+strlen(PROC_PATH), true);
+             }
+          }
+          free(tmpdir);
+@@ -519,7 +563,7 @@
+          if (WriteMode || index(*argv, '='))
+             ReturnCode = WriteSetting(*argv);
+          else
+-            ReturnCode = ReadSetting(*argv);
++            ReturnCode = ReadSetting(*argv, false);
+       }
+    }
+ 

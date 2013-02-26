@@ -1,0 +1,2859 @@
+diff -up openssh-5.6p1/configure.ac.ldap openssh-5.6p1/configure.ac
+--- openssh-5.6p1/configure.ac.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/configure.ac	2010-08-23 12:28:11.000000000 +0200
+@@ -1358,6 +1358,106 @@ AC_ARG_WITH(authorized-keys-command,
+ 	]
+ )
+ 
++# Check whether user wants LDAP support
++LDAP_MSG="no"
++INSTALL_SSH_LDAP_HELPER=""
++AC_ARG_WITH(ldap,
++	[  --with-ldap[[=PATH]]      Enable LDAP pubkey support (optionally in PATH)],
++	[
++		if test "x$withval" != "xno" ; then
++
++			INSTALL_SSH_LDAP_HELPER="yes"
++			CPPFLAGS="$CPPFLAGS -DLDAP_DEPRECATED"
++
++			if test "x$withval" != "xyes" ; then
++				CPPFLAGS="$CPPFLAGS -I${withval}/include"
++				LDFLAGS="$LDFLAGS -L${withval}/lib"
++			fi
++
++			AC_DEFINE([WITH_LDAP_PUBKEY], 1, [Enable LDAP pubkey support])
++			LDAP_MSG="yes"
++
++			AC_CHECK_HEADERS(lber.h)
++			AC_CHECK_HEADERS(ldap.h, , AC_MSG_ERROR(could not locate <ldap.h>))
++			AC_CHECK_HEADERS(ldap_ssl.h)
++
++			AC_ARG_WITH(ldap-lib,
++				[  --with-ldap-lib=type    select ldap library [auto|netscape5|netscape4|netscape3|umich|openldap]])
++
++			if test -z "$with_ldap_lib"; then
++				with_ldap_lib=auto
++			fi
++
++			if test -z "$found_ldap_lib" -a \( $with_ldap_lib = auto -o $with_ldap_lib = umich -o $with_ldap_lib = openldap \); then
++				AC_CHECK_LIB(lber, main, LIBS="-llber $LIBS" found_ldap_lib=yes)
++				AC_CHECK_LIB(ldap, main, LIBS="-lldap $LIBS" found_ldap_lib=yes)
++			fi
++
++			if test -z "$found_ldap_lib" -a \( $with_ldap_lib = auto -o $with_ldap_lib = netscape5 \); then
++				AC_CHECK_LIB(ldap50, main, LIBS="-lldap50 -lssldap50 -lssl3 -lnss3 -lnspr4 -lprldap50 -lplc4 -lplds4 $LIBS" found_ldap_lib=yes)
++			fi
++
++			if test -z "$found_ldap_lib" -a \( $with_ldap_lib = auto -o $with_ldap_lib = netscape4 \); then
++				AC_CHECK_LIB(ldapssl41, main, LIBS="-lldapssl41 -lplc3 -lplds3 -lnspr3 $LIBS" found_ldap_lib=yes)
++				if test -z "$found_ldap_lib"; then
++					AC_CHECK_LIB(ldapssl40, main, LIBS="-lldapssl40 $LIBS" found_ldap_lib=yes)
++				fi
++				if test -z "$found_ldap_lib"; then
++					AC_CHECK_LIB(ldap41, main, LIBS="-lldap41 $LIBS" found_ldap_lib=yes)
++				fi
++				if test -z "$found_ldap_lib"; then
++					AC_CHECK_LIB(ldap40, main, LIBS="-lldap40 $LIBS" found_ldap_lib=yes)
++				fi
++			fi
++
++			if test -z "$found_ldap_lib" -a \( $with_ldap_lib = auto -o $with_ldap_lib = netscape3 \); then
++				AC_CHECK_LIB(ldapssl30, main, LIBS="-lldapssl30 $LIBS" found_ldap_lib=yes)
++			fi
++
++			if test -z "$found_ldap_lib"; then
++				AC_MSG_ERROR(could not locate a valid LDAP library)
++			fi
++
++			AC_MSG_CHECKING([for working LDAP support])
++			AC_TRY_COMPILE(
++				[#include <sys/types.h>
++				 #include <ldap.h>],
++				[(void)ldap_init(0, 0);],
++				[AC_MSG_RESULT(yes)],
++				[
++				    AC_MSG_RESULT(no) 
++					AC_MSG_ERROR([** Incomplete or missing ldap libraries **])
++				])
++			AC_CHECK_FUNCS( \
++				ldap_init \
++				ldap_get_lderrno \
++				ldap_set_lderrno \
++				ldap_parse_result \
++				ldap_memfree \
++				ldap_controls_free \
++				ldap_set_option \
++				ldap_get_option \
++				ldapssl_init \
++				ldap_start_tls_s \
++				ldap_pvt_tls_set_option \
++				ldap_initialize \
++			)
++			AC_CHECK_FUNCS(ldap_set_rebind_proc,
++				AC_MSG_CHECKING([number arguments of ldap_set_rebind_proc])
++				AC_TRY_COMPILE(
++					[#include <lber.h>
++					#include <ldap.h>],
++					[ldap_set_rebind_proc(0, 0, 0);],
++					[ac_cv_ldap_set_rebind_proc=3],
++					[ac_cv_ldap_set_rebind_proc=2])
++				AC_MSG_RESULT($ac_cv_ldap_set_rebind_proc)
++				AC_DEFINE(LDAP_SET_REBIND_PROC_ARGS, $ac_cv_ldap_set_rebind_proc, [number arguments of ldap_set_rebind_proc])
++			)
++		fi
++	]
++)
++AC_SUBST(INSTALL_SSH_LDAP_HELPER)
++
+ dnl    Checks for library functions. Please keep in alphabetical order
+ AC_CHECK_FUNCS( \
+ 	arc4random \
+diff -up openssh-5.6p1/ldapbody.c.ldap openssh-5.6p1/ldapbody.c
+--- openssh-5.6p1/ldapbody.c.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldapbody.c	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,494 @@
++/* $OpenBSD: ldapbody.c,v 1.1 2009/12/03 03:34:42 jfch Exp $ */
++/*
++ * Copyright (c) 2009 Jan F. Chadima.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "ldapincludes.h"
++#include "log.h"
++#include "xmalloc.h"
++#include "ldapconf.h"
++#include "ldapmisc.h"
++#include "ldapbody.h"
++#include <stdio.h>
++#include <unistd.h>
++
++#define LDAPSEARCH_FORMAT "(&(objectclass=posixAccount)(objectclass=ldapPublicKey)(uid=%s)%s)"
++#define PUBKEYATTR "sshPublicKey"
++#define LDAP_LOGFILE	"%s/ldap.%d"
++
++static FILE *logfile = NULL;
++static LDAP *ld;
++
++static char *attrs[] = {
++    PUBKEYATTR,
++    NULL
++};
++
++void
++ldap_checkconfig (void)
++{
++#ifdef HAVE_LDAP_INITIALIZE
++		if (options.host == NULL && options.uri == NULL)
++#else
++		if (options.host == NULL)
++#endif
++		    fatal ("missing  \"host\" in config file");
++}
++
++#if defined(LDAP_API_FEATURE_X_OPENLDAP) && (LDAP_API_VERSION > 2000)
++static int
++_rebind_proc (LDAP * ld, LDAP_CONST char *url, int request, ber_int_t msgid)
++{
++	struct timeval timeout;
++	int rc;
++#if defined(HAVE_LDAP_PARSE_RESULT) && defined(HAVE_LDAP_CONTROLS_FREE)
++	LDAPMessage *result;
++#endif /* HAVE_LDAP_PARSE_RESULT && HAVE_LDAP_CONTROLS_FREE */
++
++	debug2 ("Doing LDAP rebind to %s", options.binddn);
++	if (options.ssl == SSL_START_TLS) {
++		if ((rc = ldap_start_tls_s (ld, NULL, NULL)) != LDAP_SUCCESS) {
++			error ("ldap_starttls_s: %s", ldap_err2string (rc));
++			return LDAP_OPERATIONS_ERROR;
++		}
++	}
++
++#if !defined(HAVE_LDAP_PARSE_RESULT) || !defined(HAVE_LDAP_CONTROLS_FREE)
++	return ldap_simple_bind_s (ld, options.binddn, options.bindpw);
++#else
++	if (ldap_simple_bind(ld, options.binddn, options.bindpw) < 0)
++	    fatal ("ldap_simple_bind %s", ldap_err2string (ldap_get_lderrno (ld, 0, 0)));
++
++	timeout.tv_sec = options.bind_timelimit;
++	timeout.tv_usec = 0;
++	result = NULL;
++	if ((rc = ldap_result (ld, msgid, FALSE, &timeout, &result)) < 1) {
++		error ("ldap_result %s", ldap_err2string (ldap_get_lderrno (ld, 0, 0)));
++		ldap_msgfree (result);
++		return LDAP_OPERATIONS_ERROR;
++	}
++	debug3 ("LDAP rebind to %s succesfull", options.binddn);
++	return rc;
++#endif
++}
++#else
++
++static int
++_rebind_proc (LDAP * ld, char **whop, char **credp, int *methodp, int freeit)
++{
++	if (freeit)
++	    return LDAP_SUCCESS;
++
++	*whop = strdup (options.binddn);
++	*credp = strdup (options.bindpw);
++	*methodp = LDAP_AUTH_SIMPLE;
++	debug2 ("Doing LDAP rebind for %s", *whop);
++	return LDAP_SUCCESS;
++}
++#endif
++
++void
++ldap_do_connect(void)
++{
++	int rc, msgid, ld_errno = 0;
++	struct timeval timeout;
++#if defined(HAVE_LDAP_PARSE_RESULT) && defined(HAVE_LDAP_CONTROLS_FREE)
++	int parserc;
++	LDAPMessage *result;
++	LDAPControl **controls;
++	int reconnect = 0;
++#endif /* HAVE_LDAP_PARSE_RESULT && HAVE_LDAP_CONTROLS_FREE */
++
++	debug ("LDAP do connect");
++
++retry:
++	if (reconnect) {
++		debug3 ("Reconnecting with ld_errno %d", ld_errno);
++		if (options.bind_policy == 0 ||
++		    (ld_errno != LDAP_SERVER_DOWN && ld_errno != LDAP_TIMEOUT) ||
++			reconnect > 5)
++			    fatal ("Cannot connect to LDAP server");
++	
++		if (reconnect > 1)
++			sleep (reconnect - 1);
++
++		if (ld != NULL) {
++			ldap_unbind (ld);
++			ld = NULL;
++		}
++		logit("reconnecting to LDAP server...");
++	}
++
++	if (ld == NULL) {
++		int rc;
++		struct timeval tv;
++
++#ifdef HAVE_LDAP_SET_OPTION
++		if (options.debug > 0) {
++#ifdef LBER_OPT_LOG_PRINT_FILE
++			if (options.logdir) {
++				char *logfilename;
++				int logfilenamelen;
++
++				logfilenamelen = strlen (LDAP_LOGFILE) + strlen ("000000") + strlen (options.logdir);
++				logfilename = xmalloc (logfilenamelen);
++				snprintf (logfilename, logfilenamelen, LDAP_LOGFILE, options.logdir, (int) getpid ());
++				logfilename[logfilenamelen - 1] = 0;
++				if ((logfile = fopen (logfilename, "a")) == NULL)
++				    fatal ("cannot append to %s: %s", logfilename, strerror (errno));
++				debug3 ("LDAP debug into %s", logfilename);
++				xfree (logfilename);
++				ber_set_option (NULL, LBER_OPT_LOG_PRINT_FILE, logfile);
++			}
++#endif
++			if (options.debug) {
++#ifdef LBER_OPT_DEBUG_LEVEL
++				ber_set_option (NULL, LBER_OPT_DEBUG_LEVEL, &options.debug);
++#endif /* LBER_OPT_DEBUG_LEVEL */
++#ifdef LDAP_OPT_DEBUG_LEVEL
++				ldap_set_option (NULL, LDAP_OPT_DEBUG_LEVEL, &options.debug);
++#endif /* LDAP_OPT_DEBUG_LEVEL */
++				debug3 ("Set LDAP debug to %d", options.debug);
++			}
++		}
++#endif /* HAVE_LDAP_SET_OPTION */
++
++		ld = NULL;
++#ifdef HAVE_LDAPSSL_INIT
++		if (options.host != NULL) {
++			if (options.ssl_on == SSL_LDAPS) {
++				if ((rc = ldapssl_client_init (options.sslpath, NULL)) != LDAP_SUCCESS)
++				    fatal ("ldapssl_client_init %s", ldap_err2string (rc));
++				debug3 ("LDAPssl client init");
++			}
++
++			if (options.ssl_on != SSL_OFF) {
++				if ((ld = ldapssl_init (options.host, options.port, TRUE)) == NULL)
++				    fatal ("ldapssl_init failed");
++				debug3 ("LDAPssl init");
++			}
++		}
++#endif /* HAVE_LDAPSSL_INIT */
++
++		/* continue with opening */
++		if (ld == NULL) {
++#if defined (HAVE_LDAP_START_TLS_S) || (defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_X_TLS))
++			/* Some global TLS-specific options need to be set before we create our
++			 * session context, so we set them here. */
++
++#ifdef LDAP_OPT_X_TLS_RANDOM_FILE
++			/* rand file */
++			if (options.tls_randfile != NULL) {
++				if ((rc = ldap_set_option (NULL, LDAP_OPT_X_TLS_RANDOM_FILE,
++				    options.tls_randfile)) != LDAP_SUCCESS)
++					fatal ("ldap_set_option(LDAP_OPT_X_TLS_RANDOM_FILE): %s",
++					    ldap_err2string (rc));
++				debug3 ("Set TLS random file %s", options.tls_randfile);
++			}
++#endif /* LDAP_OPT_X_TLS_RANDOM_FILE */
++
++			/* ca cert file */
++			if (options.tls_cacertfile != NULL) {
++				if ((rc = ldap_set_option (NULL, LDAP_OPT_X_TLS_CACERTFILE,
++				    options.tls_cacertfile)) != LDAP_SUCCESS)
++					error ("ldap_set_option(LDAP_OPT_X_TLS_CACERTFILE): %s",
++					    ldap_err2string (rc));
++				debug3 ("Set TLS CA cert file %s ", options.tls_cacertfile);
++			}
++
++			/* ca cert directory */
++			if (options.tls_cacertdir != NULL) {
++				if ((rc = ldap_set_option (NULL, LDAP_OPT_X_TLS_CACERTDIR,
++				    options.tls_cacertdir)) != LDAP_SUCCESS)
++					fatal ("ldap_set_option(LDAP_OPT_X_TLS_CACERTDIR): %s",
++					    ldap_err2string (rc));
++				debug3 ("Set TLS CA cert dir %s ", options.tls_cacertdir);
++			}
++
++			/* require cert? */
++			if ((rc = ldap_set_option (NULL, LDAP_OPT_X_TLS_REQUIRE_CERT,
++			    &options.tls_checkpeer)) != LDAP_SUCCESS)
++				fatal ("ldap_set_option(LDAP_OPT_X_TLS_REQUIRE_CERT): %s",
++				    ldap_err2string (rc));
++			debug3 ("Set TLS check peer to %d ", options.tls_checkpeer);
++
++			/* set cipher suite, certificate and private key: */
++			if (options.tls_ciphers != NULL) {
++				if ((rc = ldap_set_option (NULL, LDAP_OPT_X_TLS_CIPHER_SUITE,
++				    options.tls_ciphers)) != LDAP_SUCCESS)
++					fatal ("ldap_set_option(LDAP_OPT_X_TLS_CIPHER_SUITE): %s",
++					    ldap_err2string (rc));
++				debug3 ("Set TLS ciphers to %s ", options.tls_ciphers);
++			}
++
++			/* cert file */
++			if (options.tls_cert != NULL) {
++				if ((rc = ldap_set_option (NULL, LDAP_OPT_X_TLS_CERTFILE,
++				    options.tls_cert)) != LDAP_SUCCESS)
++					fatal ("ldap_set_option(LDAP_OPT_X_TLS_CERTFILE): %s",
++					    ldap_err2string (rc));
++				debug3 ("Set TLS cert file %s ", options.tls_cert);
++			}
++
++			/* key file */
++			if (options.tls_key != NULL) {
++				if ((rc = ldap_set_option (NULL, LDAP_OPT_X_TLS_KEYFILE,
++				    options.tls_key)) != LDAP_SUCCESS)
++					fatal ("ldap_set_option(LDAP_OPT_X_TLS_KEYFILE): %s",
++					    ldap_err2string (rc));
++				debug3 ("Set TLS key file %s ", options.tls_key);
++			}
++#endif
++#ifdef HAVE_LDAP_INITIALIZE
++			if (options.uri != NULL) {
++				if ((rc = ldap_initialize (&ld, options.uri)) != LDAP_SUCCESS)
++					fatal ("ldap_initialize %s", ldap_err2string (rc));
++				debug3 ("LDAP initialize %s", options.uri);
++			}
++	}
++#endif /* HAVE_LDAP_INTITIALIZE */
++
++		/* continue with opening */
++		if ((ld == NULL) && (options.host != NULL)) {
++#ifdef HAVE_LDAP_INIT
++			if ((ld = ldap_init (options.host, options.port)) == NULL)
++			    fatal ("ldap_init failed");
++			debug3 ("LDAP init %s:%d", options.host, options.port);
++#else
++			if ((ld = ldap_open (options.host, options.port)) == NULL)
++			    fatal ("ldap_open failed");
++			debug3 ("LDAP open %s:%d", options.host, options.port);
++#endif /* HAVE_LDAP_INIT */
++		}
++
++		if (ld == NULL)
++			fatal ("no way to open ldap");
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_X_TLS)
++		if (options.ssl == SSL_LDAPS) {
++			if ((rc = ldap_set_option (ld, LDAP_OPT_X_TLS, &options.tls_checkpeer)) != LDAP_SUCCESS)
++				fatal ("ldap_set_option(LDAP_OPT_X_TLS) %s", ldap_err2string (rc));
++			debug3 ("LDAP set LDAP_OPT_X_TLS_%d", options.tls_checkpeer);
++		}
++#endif /* LDAP_OPT_X_TLS */
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_PROTOCOL_VERSION)
++		(void) ldap_set_option (ld, LDAP_OPT_PROTOCOL_VERSION,
++		    &options.ldap_version);
++#else
++		ld->ld_version = options.ldap_version;
++#endif
++		debug3 ("LDAP set version to %d", options.ldap_version);
++
++#if LDAP_SET_REBIND_PROC_ARGS == 3
++		ldap_set_rebind_proc (ld, _rebind_proc, NULL);
++#elif LDAP_SET_REBIND_PROC_ARGS == 2
++		ldap_set_rebind_proc (ld, _rebind_proc);
++#else
++#warning unknown LDAP_SET_REBIND_PROC_ARGS
++#endif
++		debug3 ("LDAP set rebind proc");
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_DEREF)
++		(void) ldap_set_option (ld, LDAP_OPT_DEREF, &options.deref);
++#else
++		ld->ld_deref = options.deref;
++#endif
++		debug3 ("LDAP set deref to %d", options.deref);
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_TIMELIMIT)
++		(void) ldap_set_option (ld, LDAP_OPT_TIMELIMIT,
++		    &options.timelimit);
++#else
++		ld->ld_timelimit = options.timelimit;
++#endif
++		debug3 ("LDAP set timelimit to %d", options.timelimit);
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_X_OPT_CONNECT_TIMEOUT)
++		/*
++		 * This is a new option in the Netscape SDK which sets 
++		 * the TCP connect timeout. For want of a better value,
++		 * we use the bind_timelimit to control this.
++		 */
++		timeout = options.bind_timelimit * 1000;
++		(void) ldap_set_option (ld, LDAP_X_OPT_CONNECT_TIMEOUT, &timeout);
++		debug3 ("LDAP set opt connect timeout to %d", timeout);
++#endif
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_NETWORK_TIMEOUT)
++		tv.tv_sec = options.bind_timelimit;
++		tv.tv_usec = 0;
++		(void) ldap_set_option (ld, LDAP_OPT_NETWORK_TIMEOUT, &tv);
++		debug3 ("LDAP set opt network timeout to %ld.0", tv.tv_sec);
++#endif
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_REFERRALS)
++		(void) ldap_set_option (ld, LDAP_OPT_REFERRALS,
++		    options.referrals ? LDAP_OPT_ON : LDAP_OPT_OFF);
++		debug3 ("LDAP set referrals to %d", options.referrals);
++#endif
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_RESTART)
++		(void) ldap_set_option (ld, LDAP_OPT_RESTART,
++		    options.restart ? LDAP_OPT_ON : LDAP_OPT_OFF);
++		debug3 ("LDAP set restart to %d", options.restart);
++#endif
++
++#ifdef HAVE_LDAP_START_TLS_S
++		if (options.ssl == SSL_START_TLS) {
++			int version;
++
++			if (ldap_get_option (ld, LDAP_OPT_PROTOCOL_VERSION, &version)
++			    == LDAP_SUCCESS) {
++				if (version < LDAP_VERSION3) {
++					version = LDAP_VERSION3;
++					(void) ldap_set_option (ld, LDAP_OPT_PROTOCOL_VERSION,
++					    &version);
++					debug3 ("LDAP set version to %d", version);
++				}
++			}
++
++			if ((rc = ldap_start_tls_s (ld, NULL, NULL)) != LDAP_SUCCESS)
++			    fatal ("ldap_starttls_s: %s", ldap_err2string (rc));
++			debug3 ("LDAP start TLS");
++		}
++#endif /* HAVE_LDAP_START_TLS_S */
++	}
++
++	if ((msgid = ldap_simple_bind (ld, options.binddn,
++	    options.bindpw)) == -1) {
++		ld_errno = ldap_get_lderrno (ld, 0, 0);
++
++		error ("ldap_simple_bind %s", ldap_err2string (ld_errno));
++		reconnect++;
++		goto retry;
++	}
++	debug3 ("LDAP simple bind (%s)", options.binddn);
++
++	timeout.tv_sec = options.bind_timelimit;
++	timeout.tv_usec = 0;
++	if ((rc = ldap_result (ld, msgid, FALSE, &timeout, &result)) < 1) {
++		ld_errno = ldap_get_lderrno (ld, 0, 0);
++
++		error ("ldap_result %s", ldap_err2string (ld_errno));
++		reconnect++;
++		goto retry;
++	}
++	debug3 ("LDAP result in time");
++
++#if defined(HAVE_LDAP_PARSE_RESULT) && defined(HAVE_LDAP_CONTROLS_FREE)
++	controls = NULL;
++	if ((parserc = ldap_parse_result (ld, result, &rc, 0, 0, 0, &controls, TRUE)) != LDAP_SUCCESS)
++	    fatal ("ldap_parse_result %s", ldap_err2string (parserc));
++	debug3 ("LDAP parse result OK");
++
++	if (controls != NULL) {
++		ldap_controls_free (controls);
++	}
++#else
++	rc = ldap_result2error (session->ld, result, TRUE);
++#endif
++	if (rc != LDAP_SUCCESS)
++	    fatal ("error trying to bind as user \"%s\" (%s)",
++		options.binddn, ldap_err2string (rc));
++
++	debug2 ("LDAP do connect OK");
++}
++
++void
++process_user (const char *user, FILE *output)
++{
++	LDAPMessage *res, *e;
++	char *buffer;
++	int bufflen, rc, i;
++	struct timeval timeout;
++
++	debug ("LDAP process user");
++
++	/* quick check for attempts to be evil */
++	if ((strchr(user, '(') != NULL) || (strchr(user, ')') != NULL) ||
++	    (strchr(user, '*') != NULL) || (strchr(user, '\\') != NULL)) {
++		logit ("illegal user name %s not processed", user);
++		return;
++	}
++
++	/* build  filter for LDAP request */
++	bufflen = strlen (LDAPSEARCH_FORMAT) + strlen (user);
++	if (options.ssh_filter != NULL)
++	    bufflen += strlen (options.ssh_filter);
++	buffer = xmalloc (bufflen);
++	snprintf(buffer, bufflen, LDAPSEARCH_FORMAT, user, (options.ssh_filter != NULL) ? options.ssh_filter : NULL);
++	buffer[bufflen - 1] = 0;
++
++	debug3 ("LDAP search scope = %d %s", options.scope, buffer);
++
++	timeout.tv_sec = options.timelimit;
++	timeout.tv_usec = 0;
++	if ((rc = ldap_search_st(ld, options.base, options.scope, buffer, attrs, 0, &timeout, &res)) != LDAP_SUCCESS) {
++		error ("ldap_search_st(): %s", ldap_err2string (rc));
++		xfree (buffer);
++		return;
++	}
++
++	/* free */
++	xfree (buffer);
++
++	for (e = ldap_first_entry(ld, res); e != NULL; e = ldap_next_entry(ld, e)) {
++		int num;
++		struct berval **keys;
++
++		keys = ldap_get_values_len(ld, e, PUBKEYATTR);
++		num = ldap_count_values_len(keys);
++		for (i = 0 ; i < num ; i++) {
++			char *cp; //, *options = NULL;
++
++			for (cp = keys[i]->bv_val; *cp == ' ' || *cp == '\t'; cp++);
++			if (!*cp || *cp == '\n' || *cp == '#')
++			    continue;
++
++			/* We have found the desired key. */
++			fprintf (output, "%s\n", keys[i]->bv_val);
++		}
++
++		ldap_value_free_len(keys);
++	}
++
++	ldap_msgfree(res);
++	debug2 ("LDAP process user finished");
++}
++
++void
++ldap_do_close(void)
++{
++	int rc;
++
++	debug ("LDAP do close");
++	if ((rc = ldap_unbind_ext(ld, NULL, NULL)) != LDAP_SUCCESS)
++	    fatal ("ldap_unbind_ext: %s",
++                                    ldap_err2string (rc));
++
++	ld = NULL;
++	debug2 ("LDAP do close OK");
++	return;
++}
++
+diff -up openssh-5.6p1/ldapbody.h.ldap openssh-5.6p1/ldapbody.h
+--- openssh-5.6p1/ldapbody.h.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldapbody.h	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,37 @@
++/* $OpenBSD: ldapbody.h,v 1.1 2009/12/03 03:34:42 jfch Exp $ */
++/*
++ * Copyright (c) 2009 Jan F. Chadima.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef LDAPBODY_H
++#define LDAPBODY_H
++
++#include <stdio.h>
++
++void ldap_checkconfig(void);
++void ldap_do_connect(void);
++void process_user(const char *, FILE *);
++void ldap_do_close(void);
++
++#endif /* LDAPBODY_H */
++
+diff -up openssh-5.6p1/ldapconf.c.ldap openssh-5.6p1/ldapconf.c
+--- openssh-5.6p1/ldapconf.c.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldapconf.c	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,682 @@
++/* $OpenBSD: ldapconf.c,v 1.1 2009/12/03 03:34:42 jfch Exp $ */
++/*
++ * Copyright (c) 2009 Jan F. Chadima.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "ldapincludes.h"
++#include "ldap-helper.h"
++#include "log.h"
++#include "misc.h"
++#include "xmalloc.h"
++#include "ldapconf.h"
++#include <unistd.h>
++#include <string.h>
++
++/* Keyword tokens. */
++
++typedef enum {
++	lBadOption,
++	lHost, lURI, lBase, lBindDN, lBindPW, lRootBindDN,
++	lScope, lDeref, lPort, lTimeLimit, lBind_TimeLimit,
++	lLdap_Version, lBind_Policy, lSSLPath, lSSL, lReferrals,
++	lRestart, lTLS_CheckPeer, lTLS_CaCertFile,
++	lTLS_CaCertDir, lTLS_Ciphers, lTLS_Cert, lTLS_Key,
++	lTLS_RandFile, lLogDir, lDebug, lSSH_Filter,
++	lDeprecated, lUnsupported
++} OpCodes;
++
++/* Textual representations of the tokens. */
++
++static struct {
++	const char *name;
++	OpCodes opcode;
++} keywords[] = {
++	{ "URI", lURI },
++	{ "Base", lBase },
++	{ "BindDN", lBindDN },
++	{ "BindPW", lBindPW },
++	{ "RootBindDN", lRootBindDN },
++	{ "Host", lHost },
++	{ "Port", lPort },
++	{ "Scope", lScope },
++	{ "Deref", lDeref },
++	{ "TimeLimit", lTimeLimit },
++	{ "TimeOut", lTimeLimit },
++	{ "Bind_Timelimit", lBind_TimeLimit },
++	{ "Network_TimeOut", lBind_TimeLimit },
++/*
++ * Todo
++ * SIZELIMIT
++ */
++	{ "Ldap_Version", lLdap_Version },
++	{ "Version", lLdap_Version },
++	{ "Bind_Policy", lBind_Policy },
++	{ "SSLPath", lSSLPath },
++	{ "SSL", lSSL },
++	{ "Referrals", lReferrals },
++	{ "Restart", lRestart },
++	{ "TLS_CheckPeer", lTLS_CheckPeer },
++	{ "TLS_ReqCert", lTLS_CheckPeer },
++	{ "TLS_CaCertFile", lTLS_CaCertFile },
++	{ "TLS_CaCert", lTLS_CaCertFile },
++	{ "TLS_CaCertDir", lTLS_CaCertDir },
++	{ "TLS_Ciphers", lTLS_Ciphers },
++	{ "TLS_Cipher_Suite", lTLS_Ciphers },
++	{ "TLS_Cert", lTLS_Cert },
++	{ "TLS_Certificate", lTLS_Cert },
++	{ "TLS_Key", lTLS_Key },
++	{ "TLS_RandFile", lTLS_RandFile },
++/*
++ * Todo
++ * TLS_CRLCHECK
++ * TLS_CRLFILE
++ */
++	{ "LogDir", lLogDir },
++	{ "Debug", lDebug },
++	{ "SSH_Filter", lSSH_Filter },
++	{ NULL, lBadOption }
++};
++
++/* Configuration ptions. */
++
++Options options;
++
++/*
++ * Returns the number of the token pointed to by cp or oBadOption.
++ */
++
++static OpCodes
++parse_token(const char *cp, const char *filename, int linenum)
++{
++	u_int i;
++
++	for (i = 0; keywords[i].name; i++)
++		if (strcasecmp(cp, keywords[i].name) == 0)
++			return keywords[i].opcode;
++
++	if (config_warning_config_file) 
++	    logit("%s: line %d: Bad configuration option: %s",
++		filename, linenum, cp);
++	return lBadOption;
++}
++
++/*
++ * Processes a single option line as used in the configuration files. This
++ * only sets those values that have not already been set.
++ */
++#define WHITESPACE " \t\r\n"
++
++static int
++process_config_line(char *line, const char *filename, int linenum)
++{
++	char *s, **charptr, **xstringptr, *endofnumber, *keyword, *arg;
++	char *rootbinddn = NULL;
++	int opcode, *intptr, value;
++	size_t len;
++
++	/* Strip trailing whitespace */
++	for (len = strlen(line) - 1; len > 0; len--) {
++		if (strchr(WHITESPACE, line[len]) == NULL)
++			break;
++		line[len] = '\0';
++	}
++
++	s = line;
++	/* Get the keyword. (Each line is supposed to begin with a keyword). */
++	if ((keyword = strdelim(&s)) == NULL)
++		return 0;
++	/* Ignore leading whitespace. */
++	if (*keyword == '\0')
++		keyword = strdelim(&s);
++	if (keyword == NULL || !*keyword || *keyword == '\n' || *keyword == '#')
++		return 0;
++
++	opcode = parse_token(keyword, filename, linenum);
++
++	switch (opcode) {
++	case lBadOption:
++		/* don't panic, but count bad options */
++		return -1;
++		/* NOTREACHED */
++
++	case lHost:
++		xstringptr = &options.host;
++parse_xstring:
++		if (!s || *s == '\0')
++		    fatal("%s line %d: missing dn",filename,linenum);
++		if (*xstringptr == NULL)
++		    *xstringptr = xstrdup(s);
++		return 0;
++
++	case lURI:
++		xstringptr = &options.uri;
++		goto parse_xstring;
++
++	case lBase:
++		xstringptr = &options.base;
++		goto parse_xstring;
++
++	case lBindDN:
++		xstringptr = &options.binddn;
++		goto parse_xstring;
++
++	case lBindPW:
++		charptr = &options.bindpw;
++parse_string:
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%.200s line %d: Missing argument.", filename, linenum);
++		if (*charptr == NULL)
++			*charptr = xstrdup(arg);
++		break;
++
++	case lRootBindDN:
++		xstringptr = &rootbinddn;
++		goto parse_xstring;
++
++	case lScope:
++		intptr = &options.scope;
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%.200s line %d: Missing sub/one/base argument.", filename, linenum);
++		value = 0;	/* To avoid compiler warning... */
++		if (strcasecmp (arg, "sub") == 0 || strcasecmp (arg, "subtree") == 0)
++			value = LDAP_SCOPE_SUBTREE;
++		else if (strcasecmp (arg, "one") == 0)
++			value = LDAP_SCOPE_ONELEVEL;
++		else if (strcasecmp (arg, "base") == 0)
++			value = LDAP_SCOPE_BASE;
++		else
++			fatal("%.200s line %d: Bad sub/one/base argument.", filename, linenum);
++		if (*intptr == -1)
++			*intptr = value;
++		break;
++
++	case lDeref:
++		intptr = &options.scope;
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%.200s line %d: Missing never/searching/finding/always argument.", filename, linenum);
++		value = 0;	/* To avoid compiler warning... */
++		if (!strcasecmp (arg, "never"))
++			value = LDAP_DEREF_NEVER;
++		else if (!strcasecmp (arg, "searching"))
++			value = LDAP_DEREF_SEARCHING;
++		else if (!strcasecmp (arg, "finding"))
++			value = LDAP_DEREF_FINDING;
++		else if (!strcasecmp (arg, "always"))
++			value = LDAP_DEREF_ALWAYS;
++		else
++			fatal("%.200s line %d: Bad never/searching/finding/always argument.", filename, linenum);
++		if (*intptr == -1)
++			*intptr = value;
++		break;
++
++	case lPort:
++		intptr = &options.port;
++parse_int:
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%.200s line %d: Missing argument.", filename, linenum);
++		if (arg[0] < '0' || arg[0] > '9')
++			fatal("%.200s line %d: Bad number.", filename, linenum);
++
++		/* Octal, decimal, or hex format? */
++		value = strtol(arg, &endofnumber, 0);
++		if (arg == endofnumber)
++			fatal("%.200s line %d: Bad number.", filename, linenum);
++		if (*intptr == -1)
++			*intptr = value;
++		break;
++
++	case lTimeLimit:
++		intptr = &options.timelimit;
++parse_time:
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%s line %d: missing time value.",
++			    filename, linenum);
++		if ((value = convtime(arg)) == -1)
++			fatal("%s line %d: invalid time value.",
++			    filename, linenum);
++		if (*intptr == -1)
++			*intptr = value;
++		break;
++
++	case lBind_TimeLimit:
++		intptr = &options.bind_timelimit;
++		goto parse_time;
++
++	case lLdap_Version:
++		intptr = &options.ldap_version;
++		goto parse_int;
++
++	case lBind_Policy:
++		intptr = &options.bind_policy;
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%.200s line %d: Missing soft/hard argument.", filename, linenum);
++		value = 0;	/* To avoid compiler warning... */
++		if (strcasecmp(arg, "hard") == 0 || strcasecmp(arg, "hard_open") == 0 || strcasecmp(arg, "hard_init") == 0)
++			value = 1;
++		else if (strcasecmp(arg, "soft") == 0)
++			value = 0;
++		else
++			fatal("%.200s line %d: Bad soft/hard argument.", filename, linenum);
++		if (*intptr == -1)
++		break;
++
++	case lSSLPath:
++		charptr = &options.sslpath;
++		goto parse_string;
++
++	case lSSL:
++		intptr = &options.ssl;
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%.200s line %d: Missing yes/no/start_tls argument.", filename, linenum);
++		value = 0;	/* To avoid compiler warning... */
++		if (strcasecmp(arg, "yes") == 0 || strcasecmp(arg, "true") == 0 || strcasecmp(arg, "on") == 0)
++			value = SSL_LDAPS;
++		else if (strcasecmp(arg, "no") == 0 || strcasecmp(arg, "false") == 0 || strcasecmp(arg, "off") == 0)
++			value = SSL_OFF;
++		else if (!strcasecmp (arg, "start_tls"))
++			value = SSL_START_TLS;
++		else
++			fatal("%.200s line %d: Bad yes/no/start_tls argument.", filename, linenum);
++		if (*intptr == -1)
++			*intptr = value;
++		break;
++
++	case lReferrals:
++		intptr = &options.referrals;
++parse_flag:
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%.200s line %d: Missing yes/no argument.", filename, linenum);
++		value = 0;	/* To avoid compiler warning... */
++		if (strcasecmp(arg, "yes") == 0 || strcasecmp(arg, "true") == 0 || strcasecmp(arg, "on") == 0)
++			value = 1;
++		else if (strcasecmp(arg, "no") == 0 || strcasecmp(arg, "false") == 0 || strcasecmp(arg, "off") == 0)
++			value = 0;
++		else
++			fatal("%.200s line %d: Bad yes/no argument.", filename, linenum);
++		if (*intptr == -1)
++			*intptr = value;
++		break;
++
++	case lRestart:
++		intptr = &options.restart;
++		goto parse_flag;
++
++	case lTLS_CheckPeer:
++		intptr = &options.tls_checkpeer;
++		arg = strdelim(&s);
++		if (!arg || *arg == '\0')
++			fatal("%.200s line %d: Missing never/hard/demand/alow/try argument.", filename, linenum);
++		value = 0;	/* To avoid compiler warning... */
++		if (strcasecmp(arg, "never") == 0 || strcasecmp(arg, "no") == 0 || strcasecmp(arg, "false") == 0 || strcasecmp(arg, "off") == 0)
++			value = LDAP_OPT_X_TLS_NEVER;
++		else if (strcasecmp(arg, "hard") == 0 || strcasecmp(arg, "yes") == 0 || strcasecmp(arg, "true") == 0 || strcasecmp(arg, "on") == 0)
++			value = LDAP_OPT_X_TLS_HARD;
++		else if (strcasecmp(arg, "demand") == 0)
++			value = LDAP_OPT_X_TLS_DEMAND;
++		else if (strcasecmp(arg, "allow") == 0)
++			value = LDAP_OPT_X_TLS_ALLOW;
++		else if (strcasecmp(arg, "try") == 0)
++			value = LDAP_OPT_X_TLS_TRY;
++		else
++			fatal("%.200s line %d: Bad never/hard/demand/alow/try argument.", filename, linenum);
++		if (*intptr == -1)
++		break;
++
++	case lTLS_CaCertFile:
++		charptr = &options.tls_cacertfile;
++		goto parse_string;
++
++	case lTLS_CaCertDir:
++		charptr = &options.tls_cacertdir;
++		goto parse_string;
++
++	case lTLS_Ciphers:
++		xstringptr = &options.tls_ciphers;
++		goto parse_xstring;
++
++	case lTLS_Cert:
++		charptr = &options.tls_cert;
++		goto parse_string;
++
++	case lTLS_Key:
++		charptr = &options.tls_key;
++		goto parse_string;
++
++	case lTLS_RandFile:
++		charptr = &options.tls_randfile;
++		goto parse_string;
++
++	case lLogDir:
++		charptr = &options.logdir;
++		goto parse_string;
++
++	case lDebug:
++		intptr = &options.debug;
++		goto parse_int;
++
++	case lSSH_Filter:
++		xstringptr = &options.ssh_filter;
++		goto parse_xstring;
++
++	case lDeprecated:
++		debug("%s line %d: Deprecated option \"%s\"",
++		    filename, linenum, keyword);
++		return 0;
++
++	case lUnsupported:
++		error("%s line %d: Unsupported option \"%s\"",
++		    filename, linenum, keyword);
++		return 0;
++
++	default:
++		fatal("process_config_line: Unimplemented opcode %d", opcode);
++	}
++
++	/* Check that there is no garbage at end of line. */
++	if ((arg = strdelim(&s)) != NULL && *arg != '\0') {
++		fatal("%.200s line %d: garbage at end of line; \"%.200s\".",
++		    filename, linenum, arg);
++	}
++	return 0;
++}
++
++/*
++ * Reads the config file and modifies the options accordingly.  Options
++ * should already be initialized before this call.  This never returns if
++ * there is an error.  If the file does not exist, this returns 0.
++ */
++
++void
++read_config_file(const char *filename)
++{
++	FILE *f;
++	char line[1024];
++	int active, linenum;
++	int bad_options = 0;
++	struct stat sb;
++
++	if ((f = fopen(filename, "r")) == NULL)
++		fatal("fopen %s: %s", filename, strerror(errno));
++
++	if (fstat(fileno(f), &sb) == -1)
++		fatal("fstat %s: %s", filename, strerror(errno));
++	if (((sb.st_uid != 0 && sb.st_uid != getuid()) ||
++	    (sb.st_mode & 022) != 0))
++		fatal("Bad owner or permissions on %s", filename);
++
++	debug("Reading configuration data %.200s", filename);
++
++	/*
++	 * Mark that we are now processing the options.  This flag is turned
++	 * on/off by Host specifications.
++	 */
++	active = 1;
++	linenum = 0;
++	while (fgets(line, sizeof(line), f)) {
++		/* Update line number counter. */
++		linenum++;
++		if (process_config_line(line, filename, linenum) != 0)
++			bad_options++;
++	}
++	fclose(f);
++	if ((bad_options > 0) && config_exclusive_config_file) 
++		fatal("%s: terminating, %d bad configuration options",
++		    filename, bad_options);
++}
++
++/*
++ * Initializes options to special values that indicate that they have not yet
++ * been set.  Read_config_file will only set options with this value. Options
++ * are processed in the following order: command line, user config file,
++ * system config file.  Last, fill_default_options is called.
++ */
++
++void
++initialize_options(void)
++{
++	memset(&options, 'X', sizeof(options));
++	options.host = NULL;
++	options.uri = NULL;
++	options.base = NULL;
++	options.binddn = NULL;
++	options.bindpw = NULL;
++	options.scope = -1;
++	options.deref = -1;
++	options.port = -1;
++	options.timelimit = -1;
++	options.bind_timelimit = -1;
++	options.ldap_version = -1;
++	options.bind_policy = -1;
++	options.sslpath = NULL;
++	options.ssl = -1;
++	options.referrals = -1;
++	options.restart = -1;
++	options.tls_checkpeer = -1;
++	options.tls_cacertfile = NULL;
++	options.tls_cacertdir = NULL;
++	options.tls_ciphers = NULL;
++	options.tls_cert = NULL;
++	options.tls_key = NULL;
++	options.tls_randfile = NULL;
++	options.logdir = NULL;
++	options.debug = -1;
++	options.ssh_filter = NULL;
++}
++
++/*
++ * Called after processing other sources of option data, this fills those
++ * options for which no value has been specified with their default values.
++ */
++
++void
++fill_default_options(void)
++{
++	if (options.uri != NULL) {
++		LDAPURLDesc *ludp;
++
++		if (ldap_url_parse(options.uri, &ludp) == LDAP_SUCCESS) {
++			if (options.ssl == -1) {
++				if (strcmp (ludp->lud_scheme, "ldap") == 0)
++				    options.ssl = 2;
++				if (strcmp (ludp->lud_scheme, "ldapi") == 0)
++				    options.ssl = 0;
++				else if (strcmp (ludp->lud_scheme, "ldaps") == 0)
++				    options.ssl = 1;
++			}
++			if (options.host == NULL)
++			    options.host = xstrdup (ludp->lud_host);
++			if (options.port == -1)
++			    options.port = ludp->lud_port;
++
++			ldap_free_urldesc (ludp);
++		}
++	} 
++	if (options.ssl == -1)
++	    options.ssl = SSL_START_TLS;
++	if (options.port == -1)
++	    options.port = (options.ssl == 0) ? 389 : 636;
++	if (options.uri == NULL) {
++		int len;
++#define MAXURILEN 4096
++
++		options.uri = xmalloc (MAXURILEN);
++		len = snprintf (options.uri, MAXURILEN, "ldap%s://%s:%d",
++		    (options.ssl == 0) ? "" : "s", options.host, options.port);
++		options.uri[MAXURILEN - 1] = 0;
++		options.uri = xrealloc (options.uri, len + 1, 1);
++	}
++	if (options.binddn == NULL)
++	    options.binddn = "";
++	if (options.bindpw == NULL)
++	    options.bindpw = "";
++	if (options.scope == -1)
++	    options.scope = LDAP_SCOPE_SUBTREE;
++	if (options.deref == -1)
++	    options.deref = LDAP_DEREF_NEVER;
++	if (options.timelimit == -1)
++	    options.timelimit = 10;
++	if (options.bind_timelimit == -1)
++	    options.bind_timelimit = 10;
++	if (options.ldap_version == -1)
++	    options.ldap_version = 3;
++	if (options.bind_policy == -1)
++	    options.bind_policy = 1;
++	if (options.referrals == -1)
++	    options.referrals = 1;
++	if (options.restart == -1)
++	    options.restart = 1;
++	if (options.tls_checkpeer == -1)
++	    options.tls_checkpeer = LDAP_OPT_X_TLS_HARD;
++	if (options.debug == -1)
++	    options.debug = 0;
++	if (options.ssh_filter == NULL)
++	    options.ssh_filter = "";
++}
++
++static const char *
++lookup_opcode_name(OpCodes code)
++{
++	u_int i;
++
++	for (i = 0; keywords[i].name != NULL; i++)
++	    if (keywords[i].opcode == code)
++		return(keywords[i].name);
++	return "UNKNOWN";
++}
++
++static void
++dump_cfg_string(OpCodes code, const char *val)
++{
++	if (val == NULL)
++	    debug3("%s <UNDEFINED>", lookup_opcode_name(code));
++	else
++	    debug3("%s %s", lookup_opcode_name(code), val);
++}
++
++static void
++dump_cfg_int(OpCodes code, int val)
++{
++	if (val == -1)
++	    debug3("%s <UNDEFINED>", lookup_opcode_name(code));
++	else
++	    debug3("%s %d", lookup_opcode_name(code), val);
++}
++
++struct names {
++	int value;
++	char *name;
++};
++
++static void
++dump_cfg_namedint(OpCodes code, int val, struct names *names)
++{
++	u_int i;
++
++	if (val == -1)
++	    debug3("%s <UNDEFINED>", lookup_opcode_name(code));
++	else {
++		for (i = 0; names[i].value != -1; i++)
++	 	    if (names[i].value == val) {
++	    		debug3("%s %s", lookup_opcode_name(code), names[i].name);
++			    return;
++		}
++		debug3("%s unknown: %d", lookup_opcode_name(code), val);
++	}
++}
++
++static struct names _yesnotls[] = {
++	{ 0, "No" },
++	{ 1, "Yes" },
++	{ 2, "Start_TLS" },
++	{ -1, NULL }};
++
++static struct names _scope[] = {
++	{ LDAP_SCOPE_BASE, "Base" },
++	{ LDAP_SCOPE_ONELEVEL, "One" },
++	{ LDAP_SCOPE_SUBTREE, "Sub"},
++	{ -1, NULL }};
++
++static struct names _deref[] = {
++	{ LDAP_DEREF_NEVER, "Never" },
++	{ LDAP_DEREF_SEARCHING, "Searching" },
++	{ LDAP_DEREF_FINDING, "Finding" },
++	{ LDAP_DEREF_ALWAYS, "Always" },
++	{ -1, NULL }};
++
++static struct names _yesno[] = {
++	{ 0, "No" },
++	{ 1, "Yes" },
++	{ -1, NULL }};
++
++static struct names _bindpolicy[] = {
++	{ 0, "Soft" },
++	{ 1, "Hard" },
++	{ -1, NULL }};
++
++static struct names _checkpeer[] = {
++	{ LDAP_OPT_X_TLS_NEVER, "Never" },
++	{ LDAP_OPT_X_TLS_HARD, "Hard" },
++	{ LDAP_OPT_X_TLS_DEMAND, "Demand" },
++	{ LDAP_OPT_X_TLS_ALLOW, "Allow" },
++	{ LDAP_OPT_X_TLS_TRY, "TRY" },
++	{ -1, NULL }};
++
++void
++dump_config(void)
++{
++	dump_cfg_string(lURI, options.uri);
++	dump_cfg_string(lHost, options.host);
++	dump_cfg_int(lPort, options.port);
++	dump_cfg_namedint(lSSL, options.ssl, _yesnotls);
++	dump_cfg_int(lLdap_Version, options.ldap_version);
++	dump_cfg_int(lTimeLimit, options.timelimit);
++	dump_cfg_int(lBind_TimeLimit, options.bind_timelimit);
++	dump_cfg_string(lBase, options.base);
++	dump_cfg_string(lBindDN, options.binddn);
++	dump_cfg_string(lBindPW, options.bindpw);
++	dump_cfg_namedint(lScope, options.scope, _scope);
++	dump_cfg_namedint(lDeref, options.deref, _deref);
++	dump_cfg_namedint(lReferrals, options.referrals, _yesno);
++	dump_cfg_namedint(lRestart, options.restart, _yesno);
++	dump_cfg_namedint(lBind_Policy, options.bind_policy, _bindpolicy);
++	dump_cfg_string(lSSLPath, options.sslpath);
++	dump_cfg_namedint(lTLS_CheckPeer, options.tls_checkpeer, _checkpeer);
++	dump_cfg_string(lTLS_CaCertFile, options.tls_cacertfile);
++	dump_cfg_string(lTLS_CaCertDir, options.tls_cacertdir);
++	dump_cfg_string(lTLS_Ciphers, options.tls_ciphers);
++	dump_cfg_string(lTLS_Cert, options.tls_cert);
++	dump_cfg_string(lTLS_Key, options.tls_key);
++	dump_cfg_string(lTLS_RandFile, options.tls_randfile);
++	dump_cfg_string(lLogDir, options.logdir);
++	dump_cfg_int(lDebug, options.debug);
++	dump_cfg_string(lSSH_Filter, options.ssh_filter);
++}
++
+diff -up openssh-5.6p1/ldapconf.h.ldap openssh-5.6p1/ldapconf.h
+--- openssh-5.6p1/ldapconf.h.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldapconf.h	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,71 @@
++/* $OpenBSD: ldapconf.c,v 1.1 2009/12/03 03:34:42 jfch Exp $ */
++/*
++ * Copyright (c) 2009 Jan F. Chadima.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef LDAPCONF_H
++#define LDAPCONF_H
++
++#define SSL_OFF          0
++#define SSL_LDAPS        1
++#define SSL_START_TLS    2
++
++/* Data structure for representing option data. */
++
++typedef struct {
++	char *host;
++	char *uri;
++	char *base;
++	char *binddn;
++	char *bindpw;
++	int scope;
++	int deref;
++	int port;
++	int timelimit;
++	int bind_timelimit;
++	int ldap_version;
++	int bind_policy;
++	char *sslpath;
++	int ssl;
++	int referrals;
++	int restart;
++	int tls_checkpeer;
++	char *tls_cacertfile;
++	char *tls_cacertdir;
++	char *tls_ciphers;
++	char *tls_cert;
++	char *tls_key;
++	char *tls_randfile;
++	char *logdir;
++	int debug;
++	char *ssh_filter;
++}       Options;
++
++extern Options options;
++
++void read_config_file(const char *);
++void initialize_options(void);
++void fill_default_options(void);
++void dump_config(void);
++
++#endif /* LDAPCONF_H */
+diff -up openssh-5.6p1/ldap.conf.ldap openssh-5.6p1/ldap.conf
+--- openssh-5.6p1/ldap.conf.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldap.conf	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,88 @@
++# $Id: openssh-5.5p1-ldap.patch,v 1.3 2010/07/07 13:48:36 jfch2222 Exp $
++#
++# This is the example configuration file for the OpenSSH
++# LDAP backend
++# 
++# see ssh-ldap.conf(5)
++#
++
++# URI with your LDAP server name. This allows to use
++# Unix Domain Sockets to connect to a local LDAP Server.
++#uri ldap://127.0.0.1/
++#uri ldaps://127.0.0.1/   
++#uri ldapi://%2fvar%2frun%2fldapi_sock/
++# Note: %2f encodes the '/' used as directory separator
++
++# Another way to specify your LDAP server is to provide an
++# host name and the port of our LDAP server. Host name
++# must be resolvable without using LDAP.
++# Multiple hosts may be specified, each separated by a 
++# space. How long nss_ldap takes to failover depends on
++# whether your LDAP client library supports configurable
++# network or connect timeouts (see bind_timelimit).
++#host 127.0.0.1
++
++# The port.
++# Optional: default is 389.
++#port 389
++
++# The distinguished name to bind to the server with.
++# Optional: default is to bind anonymously.
++#binddn cn=openssh_keys,dc=example,dc=org
++
++# The credentials to bind with. 
++# Optional: default is no credential.
++#bindpw TopSecret
++
++# The distinguished name of the search base.
++#base dc=example,dc=org
++
++# The LDAP version to use (defaults to 3
++# if supported by client library)
++#ldap_version 3
++
++# The search scope.
++#scope sub
++#scope one
++#scope base
++
++# Search timelimit
++#timelimit 30
++
++# Bind/connect timelimit
++#bind_timelimit 30
++
++# Reconnect policy: hard (default) will retry connecting to
++# the software with exponential backoff, soft will fail
++# immediately.
++#bind_policy hard
++
++# SSL setup, may be implied by URI also.
++#ssl no
++#ssl on
++#ssl start_tls
++
++# OpenLDAP SSL options
++# Require and verify server certificate (yes/no)
++# Default is to use libldap's default behavior, which can be configured in
++# /etc/openldap/ldap.conf using the TLS_REQCERT setting.  The default for
++# OpenLDAP 2.0 and earlier is "no", for 2.1 and later is "yes".
++#tls_checkpeer hard
++
++# CA certificates for server certificate verification
++# At least one of these are required if tls_checkpeer is "yes"
++#tls_cacertfile /etc/ssl/ca.cert
++#tls_cacertdir /etc/pki/tls/certs
++
++# Seed the PRNG if /dev/urandom is not provided
++#tls_randfile /var/run/egd-pool
++
++# SSL cipher suite
++# See man ciphers for syntax
++#tls_ciphers TLSv1
++
++# Client certificate and key
++# Use these, if your server requires client authentication.
++#tls_cert
++#tls_key
++
+diff -up openssh-5.6p1/ldap-helper.c.ldap openssh-5.6p1/ldap-helper.c
+--- openssh-5.6p1/ldap-helper.c.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldap-helper.c	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,154 @@
++/* $OpenBSD: ssh-pka-ldap.c,v 1.1 2009/12/03 03:34:42 jfch Exp $ */
++/*
++ * Copyright (c) 2009 Jan F. Chadima.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "ldapincludes.h"
++#include "log.h"
++#include "misc.h"
++#include "xmalloc.h"
++#include "ldapconf.h"
++#include "ldapbody.h"
++#include <string.h>
++#include <unistd.h>
++
++static int config_debug = 0;
++int config_exclusive_config_file = 0;
++static char *config_file_name = "/etc/ssh/ldap.conf";
++static char *config_single_user = NULL;
++static int config_verbose = SYSLOG_LEVEL_VERBOSE;
++int config_warning_config_file = 0;
++extern char *__progname;
++
++static void
++usage(void)
++{
++	fprintf(stderr, "usage: %s [options]\n",
++	    __progname);
++	fprintf(stderr, "Options:\n");
++	fprintf(stderr, "  -d          Output the log messages to stderr.\n");
++	fprintf(stderr, "  -e          Check the config file for unknown commands.\n");
++	fprintf(stderr, "  -f file     Use alternate config file (default is /etc/ssh/ldap.conf).\n");
++	fprintf(stderr, "  -s user     Do not demonize, send the user's key to stdout.\n");
++	fprintf(stderr, "  -v          Increase verbosity of the debug output (implies -d).\n");
++	fprintf(stderr, "  -w          Warn on unknown commands int the config file.\n");
++	exit(1);
++}
++
++/*
++ * Main program for the ssh pka ldap agent.
++ */
++
++int
++main(int ac, char **av)
++{
++	int opt;
++	FILE *outfile = NULL;
++
++	__progname = ssh_get_progname(av[0]);
++
++	log_init(__progname, SYSLOG_LEVEL_DEBUG3, SYSLOG_FACILITY_AUTH, 0);
++
++	/*
++	 * Initialize option structure to indicate that no values have been
++	 * set.
++	 */
++	initialize_options();
++
++	/* Parse command-line arguments. */
++	while ((opt = getopt(ac, av, "def:s:vw")) != -1) {
++		switch (opt) {
++		case 'd':
++			config_debug = 1;
++			break;
++
++		case 'e':
++			config_exclusive_config_file = 1;
++			config_warning_config_file = 1;
++			break;
++
++		case 'f':
++			config_file_name = optarg;
++			break;
++
++		case 's':
++			config_single_user = optarg;
++			outfile = fdopen (dup (fileno (stdout)), "w");
++			break;
++
++		case 'v':
++			config_debug = 1;
++			if (config_verbose < SYSLOG_LEVEL_DEBUG3)
++			    config_verbose++;
++			break;
++
++		case 'w':
++			config_warning_config_file = 1;
++			break;
++
++		case '?':
++		default:
++			usage();
++			break;
++		}
++	}
++
++	/* Initialize loging */
++	log_init(__progname, config_verbose, SYSLOG_FACILITY_AUTH, config_debug);
++
++	if (ac != optind)
++	    fatal ("illegal extra parameter %s", av[1]);
++
++	/* Ensure that fds 0 and 2 are open or directed to /dev/null */
++	if (config_debug == 0)
++	    sanitise_stdfd();
++
++	/* Read config file */
++	read_config_file(config_file_name);
++	fill_default_options();
++	if (config_verbose == SYSLOG_LEVEL_DEBUG3) {
++		debug3 ("=== Configuration ===");
++		dump_config();
++		debug3 ("=== *** ===");
++	}
++
++	ldap_checkconfig();
++	ldap_do_connect();
++
++	if (config_single_user) {
++		process_user (config_single_user, outfile);
++	} else {
++		fatal ("Not yet implemented");
++/* TODO
++ * open unix socket a run the loop on it
++ */
++	}
++
++	ldap_do_close();
++	return 0;
++}
++
++/* Ugly hack */
++void   *buffer_get_string(Buffer *b, u_int *l) {}
++void    buffer_put_string(Buffer *b, const void *f, u_int l) {}
++
+diff -up openssh-5.6p1/ldap-helper.h.ldap openssh-5.6p1/ldap-helper.h
+--- openssh-5.6p1/ldap-helper.h.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldap-helper.h	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,32 @@
++/* $OpenBSD: ldap-helper.h,v 1.1 2009/12/03 03:34:42 jfch Exp $ */
++/*
++ * Copyright (c) 2009 Jan F. Chadima.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef LDAP_HELPER_H
++#define LDAP_HELPER_H
++
++extern int config_exclusive_config_file;
++extern int config_warning_config_file;
++
++#endif /* LDAP_HELPER_H */
+diff -up openssh-5.6p1/ldapincludes.h.ldap openssh-5.6p1/ldapincludes.h
+--- openssh-5.6p1/ldapincludes.h.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldapincludes.h	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,41 @@
++/* $OpenBSD: ldapconf.c,v 1.1 2009/12/03 03:34:42 jfch Exp $ */
++/*
++ * Copyright (c) 2009 Jan F. Chadima.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef LDAPINCLUDES_H
++#define LDAPINCLUDES_H
++
++#include "includes.h"
++
++#ifdef HAVE_LBER_H
++#include <lber.h>
++#endif
++#ifdef HAVE_LDAP_H
++#include <ldap.h>
++#endif
++#ifdef HAVE_LDAP_SSL_H
++#include <ldap_ssl.h>
++#endif
++
++#endif /* LDAPINCLUDES_H */
+diff -up openssh-5.6p1/ldapmisc.c.ldap openssh-5.6p1/ldapmisc.c
+--- openssh-5.6p1/ldapmisc.c.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldapmisc.c	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,79 @@
++
++#include "ldapincludes.h"
++#include "ldapmisc.h"
++
++#ifndef HAVE_LDAP_GET_LDERRNO
++int
++ldap_get_lderrno (LDAP * ld, char **m, char **s)
++{
++#ifdef HAVE_LDAP_GET_OPTION
++	int rc;
++#endif
++	int lderrno;
++
++#if defined(HAVE_LDAP_GET_OPTION) && defined(LDAP_OPT_ERROR_NUMBER)
++	if ((rc = ldap_get_option (ld, LDAP_OPT_ERROR_NUMBER, &lderrno)) != LDAP_SUCCESS)
++	    return rc;
++#else
++	lderrno = ld->ld_errno;
++#endif
++
++	if (s != NULL) {
++#if defined(HAVE_LDAP_GET_OPTION) && defined(LDAP_OPT_ERROR_STRING)
++		if ((rc = ldap_get_option (ld, LDAP_OPT_ERROR_STRING, s)) != LDAP_SUCCESS)
++		    return rc;
++#else
++		*s = ld->ld_error;
++#endif
++	}
++
++	if (m != NULL) {
++#if defined(HAVE_LDAP_GET_OPTION) && defined(LDAP_OPT_MATCHED_DN)
++		if ((rc = ldap_get_option (ld, LDAP_OPT_MATCHED_DN, m)) != LDAP_SUCCESS)
++		    return rc;
++#else
++		*m = ld->ld_matched;
++#endif
++	}
++
++	return lderrno;
++}
++#endif
++
++#ifndef HAVE_LDAP_SET_LDERRNO
++int
++ldap_set_lderrno (LDAP * ld, int lderrno, const char *m, const char *s)
++{
++#ifdef HAVE_LDAP_SET_OPTION
++	int rc;
++#endif
++
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_ERROR_NUMBER)
++	if ((rc = ldap_set_option (ld, LDAP_OPT_ERROR_NUMBER, &lderrno)) != LDAP_SUCCESS)
++	    return rc;
++#else
++	ld->ld_errno = lderrno;
++#endif
++
++	if (s != NULL) {
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_ERROR_STRING)
++		if ((rc = ldap_set_option (ld, LDAP_OPT_ERROR_STRING, s)) != LDAP_SUCCESS)
++		    return rc;
++#else
++		ld->ld_error = s;
++#endif
++	}
++
++	if (m != NULL) {
++#if defined(HAVE_LDAP_SET_OPTION) && defined(LDAP_OPT_MATCHED_DN)
++		if ((rc = ldap_set_option (ld, LDAP_OPT_MATCHED_DN, m)) != LDAP_SUCCESS)
++		    return rc;
++#else
++		ld->ld_matched = m;
++#endif
++	}
++
++	return LDAP_SUCCESS;
++}
++#endif
++
+diff -up openssh-5.6p1/ldapmisc.h.ldap openssh-5.6p1/ldapmisc.h
+--- openssh-5.6p1/ldapmisc.h.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ldapmisc.h	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,35 @@
++/* $OpenBSD: ldapbody.h,v 1.1 2009/12/03 03:34:42 jfch Exp $ */
++/*
++ * Copyright (c) 2009 Jan F. Chadima.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef LDAPMISC_H
++#define LDAPMISC_H
++
++#include "ldapincludes.h"
++
++int ldap_get_lderrno (LDAP *, char **, char **);
++int ldap_set_lderrno (LDAP *, int, const char *, const char *);
++
++#endif /* LDAPMISC_H */
++
+diff -up openssh-5.6p1/lpk-user-example.txt.ldap openssh-5.6p1/lpk-user-example.txt
+--- openssh-5.6p1/lpk-user-example.txt.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/lpk-user-example.txt	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,117 @@
++
++Post to ML -> User Made Quick Install Doc.
++Contribution from John Lane <john@lane.uk.net>
++
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++
++OpenSSH LDAP keystore Patch
++===========================
++
++NOTE: these notes are a transcript of a specific installation
++      they work for me, your specifics may be different!
++      from John Lane March 17th 2005         john@lane.uk.net
++
++This is a patch to OpenSSH 4.0p1 to allow it to obtain users' public keys
++from their LDAP record as an alternative to ~/.ssh/authorized_keys.
++
++(Assuming here that necessary build stuff is in $BUILD)
++
++cd $BUILD/openssh-4.0p1
++patch -Np1 -i $BUILD/openssh-lpk-4.0p1-0.3.patch
++mkdir -p /var/empty &&
++./configure --prefix=/usr --sysconfdir=/etc/ssh \
++    --libexecdir=/usr/sbin --with-md5-passwords --with-pam \
++    --with-libs="-lldap" --with-cppflags="-DWITH_LDAP_PUBKEY"
++Now do.
++make &&
++make install
++
++Add the following config to /etc/ssh/ssh_config
++UseLPK yes
++LpkServers ldap://myhost.mydomain.com
++LpkUserDN  ou=People,dc=mydomain,dc=com
++
++We need to tell sshd about the SSL keys during boot, as root's
++environment does not exist at that time. Edit /etc/rc.d/init.d/sshd.
++Change the startup code from this:
++                echo "Starting SSH Server..."
++                loadproc /usr/sbin/sshd
++                ;;
++to this:
++                echo "Starting SSH Server..."
++                LDAPRC="/root/.ldaprc" loadproc /usr/sbin/sshd
++                ;;
++
++Re-start the sshd daemon:
++/etc/rc.d/init.d/sshd restart
++
++Install the additional LDAP schema
++cp $BUILD/openssh-lpk-0.2.schema  /etc/openldap/schema/openssh.schema
++
++Now add the openSSH LDAP schema to /etc/openldap/slapd.conf:
++Add the following to the end of the existing block of schema includes
++include         /etc/openldap/schema/openssh.schema
++
++Re-start the LDAP server:
++/etc/rc.d/init.d/slapd restart
++
++To add one or more public keys to a user, eg "testuser" :
++ldapsearch -x -W -Z -LLL -b "uid=testuser,ou=People,dc=mydomain,dc=com" -D
++"uid=testuser,ou=People,dc=mydomain,dc=com" > /tmp/testuser
++
++append the following to this /tmp/testuser file
++objectclass: ldapPublicKey
++sshPublicKey: ssh-rsa
++AAAAB3NzaC1yc2EAAAABJQAAAIB3dsrwqXqD7E4zYYrxwdDKBUQxKMioXy9pxFVai64kAPxjU9KS
++qIo7QfkjslfsjflksjfldfkjsldfjLX/5zkzRmT28I5piGzunPv17S89z8XwSsuAoR1t86t+5dlI
++7eZE/gVbn2UQkQq7+kdDTS2yXV6VnC52N/kKLG3ciBkBAw== General Purpose RSA Key
++
++Then do a modify:
++ldapmodify -x -D "uid=testuser,ou=People,dc=mydomain,dc=com" -W -f
++/tmp/testuser -Z
++Enter LDAP Password:
++modifying entry "uid=testuser,ou=People,dc=mydomain,dc=com"
++And check the modify is ok:
++ldapsearch -x -W -Z -b "uid=testuser,ou=People,dc=mydomain,dc=com" -D
++"uid=testuser,ou=People,dc=mydomain,dc=com"
++Enter LDAP Password:
++# extended LDIF
++#
++# LDAPv3
++# base <uid=testuser,ou=People,dc=mydomain,dc=com> with scope sub
++# filter: (objectclass=*)
++# requesting: ALL
++#
++
++# testuser, People, mydomain.com
++dn: uid=testuser,ou=People,dc=mydomain,dc=com
++uid: testuser
++cn: testuser
++objectClass: account
++objectClass: posixAccount
++objectClass: top
++objectClass: shadowAccount
++objectClass: ldapPublicKey
++shadowLastChange: 12757
++shadowMax: 99999
++shadowWarning: 7
++loginShell: /bin/bash
++uidNumber: 9999
++gidNumber: 501
++homeDirectory: /home/testuser
++userPassword:: e1NTSEF9UDgwV1hnM1VjUDRJK0k1YnFiL1d4ZUJObXlZZ3Z3UTU=
++sshPublicKey: ssh-rsa
++AAAAB3NzaC1yc2EAAAABJQAAAIB3dsrwqXqD7E4zYYrxwdDKBUQxKMioXy9pxFVai64kAPxjU9KSqIo7QfkjslfsjflksjfldfkjsldfjLX/5zkzRmT28I5piGzunPv17S89z
++8XwSsuAoR1t86t+5dlI7eZE/gVbn2UQkQq7+kdDTS2yXV6VnC52N/kKLG3ciBkBAw== General Purpose RSA Key
++
++# search result
++search: 3
++result: 0 Success
++
++# numResponses: 2
++# numEntries: 1
++
++Now start a ssh session to user "testuser" from usual ssh client (e.g.
++puTTY). Login should succeed.
++
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+diff -up openssh-5.6p1/Makefile.in.ldap openssh-5.6p1/Makefile.in
+--- openssh-5.6p1/Makefile.in.ldap	2010-05-12 08:51:39.000000000 +0200
++++ openssh-5.6p1/Makefile.in	2010-08-23 12:29:24.000000000 +0200
+@@ -26,6 +26,7 @@ ASKPASS_PROGRAM=$(libexecdir)/ssh-askpas
+ SFTP_SERVER=$(libexecdir)/sftp-server
+ SSH_KEYSIGN=$(libexecdir)/ssh-keysign
+ SSH_PKCS11_HELPER=$(libexecdir)/ssh-pkcs11-helper
++SSH_LDAP_HELPER=$(libexecdir)/ssh-ldap-helper
+ RAND_HELPER=$(libexecdir)/ssh-rand-helper
+ PRIVSEP_PATH=@PRIVSEP_PATH@
+ SSH_PRIVSEP_USER=@SSH_PRIVSEP_USER@
+@@ -61,8 +62,9 @@ EXEEXT=@EXEEXT@
+ 
+ INSTALL_SSH_PRNG_CMDS=@INSTALL_SSH_PRNG_CMDS@
+ INSTALL_SSH_RAND_HELPER=@INSTALL_SSH_RAND_HELPER@
++INSTALL_SSH_LDAP_HELPER=@INSTALL_SSH_LDAP_HELPER@
+ 
+-TARGETS=ssh$(EXEEXT) sshd$(EXEEXT) ssh-add$(EXEEXT) ssh-keygen$(EXEEXT) ssh-keyscan${EXEEXT} ssh-keysign${EXEEXT} ssh-pkcs11-helper$(EXEEXT) ssh-agent$(EXEEXT) scp$(EXEEXT) ssh-rand-helper${EXEEXT} sftp-server$(EXEEXT) sftp$(EXEEXT)
++TARGETS=ssh$(EXEEXT) sshd$(EXEEXT) ssh-add$(EXEEXT) ssh-keygen$(EXEEXT) ssh-keyscan${EXEEXT} ssh-keysign${EXEEXT} ssh-pkcs11-helper$(EXEEXT) ssh-agent$(EXEEXT) scp$(EXEEXT) ssh-rand-helper${EXEEXT} sftp-server$(EXEEXT) sftp$(EXEEXT) ssh-ldap-helper$(EXEEXT)
+ 
+ LIBSSH_OBJS=acss.o authfd.o authfile.o bufaux.o bufbn.o buffer.o \
+ 	canohost.o channels.o cipher.o cipher-acss.o cipher-aes.o \
+@@ -93,8 +95,8 @@ SSHDOBJS=sshd.o auth-rhosts.o auth-passw
+ 	audit.o audit-bsm.o platform.o sftp-server.o sftp-common.o \
+ 	roaming_common.o roaming_serv.o
+ 
+-MANPAGES	= moduli.5.out scp.1.out ssh-add.1.out ssh-agent.1.out ssh-keygen.1.out ssh-keyscan.1.out ssh.1.out sshd.8.out sftp-server.8.out sftp.1.out ssh-rand-helper.8.out ssh-keysign.8.out ssh-pkcs11-helper.8.out sshd_config.5.out ssh_config.5.out
+-MANPAGES_IN	= moduli.5 scp.1 ssh-add.1 ssh-agent.1 ssh-keygen.1 ssh-keyscan.1 ssh.1 sshd.8 sftp-server.8 sftp.1 ssh-rand-helper.8 ssh-keysign.8 ssh-pkcs11-helper.8 sshd_config.5 ssh_config.5
++MANPAGES	= moduli.5.out scp.1.out ssh-add.1.out ssh-agent.1.out ssh-keygen.1.out ssh-keyscan.1.out ssh.1.out sshd.8.out sftp-server.8.out sftp.1.out ssh-rand-helper.8.out ssh-keysign.8.out ssh-pkcs11-helper.8.out ssh-ldap-helper.8.out sshd_config.5.out ssh_config.5.out ssh-ldap.conf.5.out
++MANPAGES_IN	= moduli.5 scp.1 ssh-add.1 ssh-agent.1 ssh-keygen.1 ssh-keyscan.1 ssh.1 sshd.8 sftp-server.8 sftp.1 ssh-rand-helper.8 ssh-keysign.8 ssh-pkcs11-helper.8 ssh-ldap-helper.8 sshd_config.5 ssh_config.5 ssh-ldap.conf.5
+ MANTYPE		= @MANTYPE@
+ 
+ CONFIGFILES=sshd_config.out ssh_config.out moduli.out
+@@ -162,6 +164,9 @@ ssh-keysign$(EXEEXT): $(LIBCOMPAT) libss
+ ssh-pkcs11-helper$(EXEEXT): $(LIBCOMPAT) libssh.a ssh-pkcs11-helper.o ssh-pkcs11.o
+ 	$(LD) -o $@ ssh-pkcs11-helper.o ssh-pkcs11.o $(LDFLAGS) -lssh -lopenbsd-compat -lssh -lopenbsd-compat $(LIBS)
+ 
++ssh-ldap-helper$(EXEEXT): $(LIBCOMPAT) libssh.a ldapconf.o ldapbody.o ldapmisc.o ldap-helper.o
++	$(LD) -o $@ ldapconf.o ldapbody.o ldapmisc.o ldap-helper.o $(LDFLAGS) -lssh -lopenbsd-compat -lfipscheck $(LIBS)
++
+ ssh-keyscan$(EXEEXT): $(LIBCOMPAT) libssh.a ssh-keyscan.o roaming_dummy.o
+ 	$(LD) -o $@ ssh-keyscan.o roaming_dummy.o $(LDFLAGS) -lssh -lopenbsd-compat -lssh $(LIBS)
+ 
+@@ -266,6 +271,9 @@ install-files:
+ 	fi
+ 	$(INSTALL) -m 4711 $(STRIP_OPT) ssh-keysign$(EXEEXT) $(DESTDIR)$(SSH_KEYSIGN)$(EXEEXT)
+ 	$(INSTALL) -m 0755 $(STRIP_OPT) ssh-pkcs11-helper$(EXEEXT) $(DESTDIR)$(SSH_PKCS11_HELPER)$(EXEEXT)
++	if test ! -z "$(INSTALL_SSH_LDAP_HELPER)" ; then \
++		$(INSTALL) -m 0700 $(STRIP_OPT) ssh-ldap-helper $(DESTDIR)$(SSH_LDAP_HELPER) ; \
++	fi
+ 	$(INSTALL) -m 0755 $(STRIP_OPT) sftp$(EXEEXT) $(DESTDIR)$(bindir)/sftp$(EXEEXT)
+ 	$(INSTALL) -m 0755 $(STRIP_OPT) sftp-server$(EXEEXT) $(DESTDIR)$(SFTP_SERVER)$(EXEEXT)
+ 	$(INSTALL) -m 644 ssh.1.out $(DESTDIR)$(mandir)/$(mansubdir)1/ssh.1
+@@ -285,6 +293,10 @@ install-files:
+ 	$(INSTALL) -m 644 sftp-server.8.out $(DESTDIR)$(mandir)/$(mansubdir)8/sftp-server.8
+ 	$(INSTALL) -m 644 ssh-keysign.8.out $(DESTDIR)$(mandir)/$(mansubdir)8/ssh-keysign.8
+ 	$(INSTALL) -m 644 ssh-pkcs11-helper.8.out $(DESTDIR)$(mandir)/$(mansubdir)8/ssh-pkcs11-helper.8
++	if test ! -z "$(INSTALL_SSH_LDAP_HELPER)" ; then \
++		$(INSTALL) -m 644 ssh-ldap-helper.8.out $(DESTDIR)$(mandir)/$(mansubdir)8/ssh-ldap-helper.8 ; \
++		$(INSTALL) -m 644 ssh-ldap.conf.5.out $(DESTDIR)$(mandir)/$(mansubdir)5/ssh-ldap.conf.5 ; \
++	fi
+ 	-rm -f $(DESTDIR)$(bindir)/slogin
+ 	ln -s ./ssh$(EXEEXT) $(DESTDIR)$(bindir)/slogin
+ 	-rm -f $(DESTDIR)$(mandir)/$(mansubdir)1/slogin.1
+@@ -321,6 +333,13 @@ install-sysconf:
+ 	else \
+ 		echo "$(DESTDIR)$(sysconfdir)/moduli already exists, install will not overwrite"; \
+ 	fi
++	if test ! -z "$(INSTALL_SSH_LDAP_HELPER)" ; then \
++		if [ ! -f $(DESTDIR)$(sysconfdir)/ldap.conf ]; then \
++			$(INSTALL) -m 644 ldap.conf $(DESTDIR)$(sysconfdir)/ldap.conf; \
++		else \
++			echo "$(DESTDIR)$(sysconfdir)/ldap.conf already exists, install will not overwrite"; \
++		fi ; \
++	fi
+ 
+ host-key: ssh-keygen$(EXEEXT)
+ 	@if [ -z "$(DESTDIR)" ] ; then \
+@@ -384,6 +403,7 @@ uninstall:
+ 	-rm -f $(DESTDIR)$(mandir)/$(mansubdir)8/sftp-server.8
+ 	-rm -f $(DESTDIR)$(mandir)/$(mansubdir)8/ssh-keysign.8
+ 	-rm -f $(DESTDIR)$(mandir)/$(mansubdir)8/ssh-pkcs11-helper.8
++	-rm -f $(DESTDIR)$(mandir)/$(mansubdir)8/ssh-ldap-helper.8
+ 	-rm -f $(DESTDIR)$(mandir)/$(mansubdir)1/slogin.1
+ 
+ tests interop-tests:	$(TARGETS)
+diff -up openssh-5.6p1/openssh-lpk-openldap.schema.ldap openssh-5.6p1/openssh-lpk-openldap.schema
+--- openssh-5.6p1/openssh-lpk-openldap.schema.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/openssh-lpk-openldap.schema	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,21 @@
++#
++# LDAP Public Key Patch schema for use with openssh-ldappubkey
++#                              useful with PKA-LDAP also
++#
++# Author: Eric AUGE <eau@phear.org>
++# 
++# Based on the proposal of : Mark Ruijter
++#
++
++
++# octetString SYNTAX
++attributetype ( 1.3.6.1.4.1.24552.500.1.1.1.13 NAME 'sshPublicKey' 
++	DESC 'MANDATORY: OpenSSH Public key' 
++	EQUALITY octetStringMatch
++	SYNTAX 1.3.6.1.4.1.1466.115.121.1.40 )
++
++# printableString SYNTAX yes|no
++objectclass ( 1.3.6.1.4.1.24552.500.1.1.2.0 NAME 'ldapPublicKey' SUP top AUXILIARY
++	DESC 'MANDATORY: OpenSSH LPK objectclass'
++	MUST ( sshPublicKey $ uid ) 
++	)
+diff -up openssh-5.6p1/openssh-lpk-sun.schema.ldap openssh-5.6p1/openssh-lpk-sun.schema
+--- openssh-5.6p1/openssh-lpk-sun.schema.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/openssh-lpk-sun.schema	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,23 @@
++#
++# LDAP Public Key Patch schema for use with openssh-ldappubkey
++#                              useful with PKA-LDAP also
++#
++# Author: Eric AUGE <eau@phear.org>
++# 
++# Schema for Sun Directory Server.
++# Based on the original schema, modified by Stefan Fischer.
++#
++
++dn: cn=schema
++
++# octetString SYNTAX
++attributeTypes: ( 1.3.6.1.4.1.24552.500.1.1.1.13 NAME 'sshPublicKey' 
++	DESC 'MANDATORY: OpenSSH Public key' 
++	EQUALITY octetStringMatch
++	SYNTAX 1.3.6.1.4.1.1466.115.121.1.40 )
++
++# printableString SYNTAX yes|no
++objectClasses: ( 1.3.6.1.4.1.24552.500.1.1.2.0 NAME 'ldapPublicKey' SUP top AUXILIARY
++	DESC 'MANDATORY: OpenSSH LPK objectclass'
++	MUST ( sshPublicKey $ uid ) 
++	)
+diff -up openssh-5.6p1/README.lpk.ldap openssh-5.6p1/README.lpk
+--- openssh-5.6p1/README.lpk.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/README.lpk	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,274 @@
++OpenSSH LDAP PUBLIC KEY PATCH 
++Copyright (c) 2003 Eric AUGE (eau@phear.org)
++All rights reserved.
++
++Rewriten by Jan F. Chadima (jchadima@redhat.com)
++Copyright (c) 2010 Red Hat, Inc.
++The new PKA-LDAP patch is rewritten from the scratch.
++LDAP schema and part of the documentation is based on original
++LPK project (http://code.google.com/p/openssh-lpk),
++copyright (c) 2003 Eric AUGE
++The new openssh configuration is different from the original LPK one.
++
++Redistribution and use in source and binary forms, with or without
++modification, are permitted provided that the following conditions
++are met:
++1. Redistributions of source code must retain the above copyright
++   notice, this list of conditions and the following disclaimer.
++2. Redistributions in binary form must reproduce the above copyright
++   notice, this list of conditions and the following disclaimer in the
++   documentation and/or other materials provided with the distribution.
++3. The name of the author may not be used to endorse or promote products
++   derived from this software without specific prior written permission.
++
++THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++
++purposes of this patch:
++
++This patch would help to have authentication centralization policy
++using ssh public key authentication.
++This patch could be an alternative to other "secure" authentication system
++working in a similar way (Kerberos, SecurID, etc...), except the fact 
++that it's based on OpenSSH and its public key abilities.
++
++>> FYI: <<
++'uid': means unix accounts existing on the current server
++'ServerGroup:' mean server group configured on the current server by the SSH_Filter option in the ldap.conf.
++
++example schema:
++
++
++                                  server1 (uid: eau,rival,toto) (ServerGroup: unix)
++                ___________      /
++               /           \ --- - server3 (uid: eau, titi) (ServerGroup: unix)
++              | LDAP Server |    \
++	      | eau  ,rival |     server2 (uid: rival, eau) (ServerGroup: unix)
++	      | titi ,toto  |
++	      | userx,....  |         server5 (uid: eau)  (ServerGroup: mail)
++               \___________/ \       /
++	                       ----- - server4 (uid: eau, rival)  (no group configured)
++			             \
++				        etc...
++
++- WHAT WE NEED :
++
++  * configured LDAP server somewhere on the network (i.e. OpenLDAP)
++  * patched sshd (with this patch ;)
++  * LDAP user(/group) entry (look at users.ldif (& groups.ldif)):
++        User entry:
++	- attached to the 'ldapPublicKey' objectclass
++	- attached to the 'posixAccount' objectclass
++	- with a filled 'sshPublicKey' attribute 
++	Example:
++		dn: uid=eau,ou=users,dc=cuckoos,dc=net
++		objectclass: top
++		objectclass: person
++		objectclass: organizationalPerson
++		objectclass: posixAccount
++		objectclass: ldapPublicKey
++		description: Eric AUGE Account
++		userPassword: blah
++		cn: Eric AUGE
++		sn: Eric AUGE
++		uid: eau
++		uidNumber: 1034
++		gidNumber: 1
++		homeDirectory: /export/home/eau
++		sshPublicKey: ssh-dss AAAAB3...
++		sshPublicKey: ssh-dss AAAAM5...
++
++	Group entry:
++	- attached to the 'posixGroup' objectclass
++	- with a 'cn' groupname attribute
++	- with multiple 'memberUid' attributes filled with usernames allowed in this group
++	Example:
++		# few members
++		dn: cn=unix,ou=groups,dc=cuckoos,dc=net
++		objectclass: top
++		objectclass: posixGroup
++		description: Unix based servers group
++		cn: unix
++		gidNumber: 1002
++		memberUid: eau
++		memberUid: user1
++		memberUid: user2
++
++
++- HOW IT WORKS :
++
++  * without patch
++  If a user wants to authenticate to log in a server the sshd, will first look for authentication method allowed (RSAauth,kerberos,etc..)
++  and if RSAauth and tickets based auth fails, it will fallback to standard password authentication (if enabled).
++
++  * with the patch
++  If a user want to authenticate to log in a server, the sshd will first look for auth method including LDAP pubkey, if the ldappubkey options is enabled.
++  It will do an ldapsearch to get the public key directly from the LDAP instead of reading it from the server filesystem. 
++  (usually in $HOME/.ssh/authorized_keys)
++
++  2 tokens are added to sshd_config :
++  # here is the new patched ldap related tokens
++  AuthorizedKeysCommand /usr/libexec/openssh/ssh-ldap-helper -s %u
++  AuthorizedKeysCommandRunAs nobody
++
++  The LDAP configuratin is read from common /etc/ldap.conf configuration file.
++There is also one optional parameter in the LDAP configuration file, SSH_Filter, which is a LDAP filter limiting keys to be searched.
++
++- HOW TO INSERT A USER/KEY INTO AN LDAP ENTRY
++
++  * my way (there is plenty :)
++  - create ldif file (i.e. users.ldif)
++  - cat ~/.ssh/id_dsa.pub OR cat ~/.ssh/id_rsa.pub OR cat ~/.ssh/identity.pub
++  - my way in 4 steps :
++  Example:
++
++  # you add this to the user entry in the LDIF file :
++  [...]
++  objectclass: posixAccount
++  objectclass: ldapPublicKey
++  [...]
++  sshPubliKey: ssh-dss AAAABDh12DDUR2...
++  [...]
++
++  # insert your entry and you're done :)
++  ldapadd -D balblabla -w bleh < file.ldif 
++  
++  all standard options can be present in the 'sshPublicKey' attribute.
++
++- WHY :
++
++  Simply because, i was looking for a way to centralize all sysadmins authentication, easily,  without completely using LDAP 
++  as authentication method (like pam_ldap etc..).  
++  
++  After looking into Kerberos, SecurID, and other centralized secure authentications systems, the use of RSA and LDAP to get 
++  public key for authentication allows us to control who has access to which server (the user needs an account and to be in 'strongAuthenticationUser'
++  objectclass within LDAP and part of the group the SSH server is in). 
++
++  Passwords update are no longer a nightmare for a server farm (key pair passphrase is stored on each user's box and private key is locally encrypted using his passphrase 
++  so each user can change it as much as he wants). 
++
++  Blocking a user account can be done directly from the LDAP (if sshd is using RSAAuth + ldap only).
++
++- RULES :  
++  Entry in the LDAP server must respect 'posixAccount' and 'ldapPublicKey' which are defined in core.schema. 
++  and the additionnal lpk.schema.
++
++  This patch could allow a smooth transition between standard auth (/etc/passwd) and complete LDAP based authentication 
++  (pamldap, nss_ldap, etc..).
++
++  This can be an alternative to other (old?/expensive?) authentication methods (Kerberos/SecurID/..).
++  
++  Referring to schema at the beginning of this file if user 'eau' is only in group 'unix'
++  'eau' would ONLY access 'server1', 'server2', 'server3' AND 'server4' BUT NOT 'server5'.
++  If you then modify the LDAP 'mail' group entry to add 'memberUid: eau' THEN user 'eau' would be able
++  to log in 'server5' (i hope you got the idea, my english is bad :).
++
++  Each server's sshd is patched and configured to ask the public key and the group infos in the LDAP
++  server.
++  When you want to allow a new user to have access to the server parc, you just add him an account on 
++  your servers, you add his public key into his entry on the LDAP server, it's done. 
++
++  Because sshds are looking public keys into the LDAP directly instead of a file ($HOME/.ssh/authorized_keys).
++
++  When the user needs to change his passphrase he can do it directly from his workstation by changing 
++  his own key set lock passphrase, and all servers are automatically aware.
++ 
++  With a CAREFUL LDAP server configuration you could allow a user to add/delete/modify his own entry himself
++  so he can add/modify/delete himself his public key when needed.
++
++­ FLAWS :
++  LDAP must be well configured, getting the public key of some user is not a problem, but if anonymous LDAP 
++  allow write to users dn, somebody could replace someuser's public key by its own and impersonate some 
++  of your users in all your server farm be VERY CAREFUL.
++  
++  MITM attack when sshd is requesting the public key, could lead to a compromise of your servers allowing login 
++  as the impersonnated user.
++
++  If LDAP server is down then, no fallback on passwd auth.
++  
++  the ldap code part has not been well audited yet.
++
++- LDAP USER ENTRY EXAMPLES (LDIF Format, look in users.ldif)
++    --- CUT HERE ---
++    dn: uid=jdoe,ou=users,dc=foobar,dc=net
++    objectclass: top
++    objectclass: person
++    objectclass: organizationalPerson
++    objectclass: posixAccount
++    objectclass: ldapPublicKey
++    description: My account
++    cn: John Doe
++    sn: John Doe
++    uid: jdoe
++    uidNumber: 100
++    gidNumber: 100
++    homeDirectory: /home/jdoe
++    sshPublicKey: ssh-dss AAAAB3NzaC1kc3MAAAEBAOvL8pREUg9wSy/8+hQJ54YF3AXkB0OZrXB....
++    [...]
++    --- CUT HERE ---
++
++- LDAP GROUP ENTRY EXAMPLES (LDIF Format, look in groups.ldif)
++    --- CUT HERE ---
++    dn: cn=unix,ou=groups,dc=cuckoos,dc=net
++    objectclass: top
++    objectclass: posixGroup
++    description: Unix based servers group
++    cn: unix
++    gidNumber: 1002
++    memberUid: jdoe
++    memberUid: user1
++    memberUid: user2
++    [...]
++    --- CUT HERE ---
++
++>> FYI: << 
++Multiple 'sshPublicKey' in a user entry are allowed, as well as multiple 'memberUid' attributes in a group entry
++
++- COMPILING:
++  1. Apply the patch
++  2. ./configure --with-your-options --with-ldap=/prefix/to/ldap_libs_and_includes
++  3. make
++  4. it's done.
++
++- BLA :
++  I hope this could help, and i hope to be clear enough,, or give ideas.  questions/comments/improvements are welcome.
++  
++- TODO :
++  Possibility to reuse the ssh-ldap-helper.
++  Tune the LDAP part to all possible LDAP configurations.
++
++- DIFFERENCES FROM ORIGINAL lpk
++  No LDAP code in sshd.
++  Support for various LDAP platforms and configurations.
++  LDAP is configured in separate ldap.conf file.
++
++- DOCS/LINK :
++  http://pacsec.jp/core05/psj05-barisani-en.pdf
++  http://fritz.potsdam.edu/projects/openssh-lpk/
++  http://fritz.potsdam.edu/projects/sshgate/
++  http://dev.inversepath.com/trac/openssh-lpk
++  http://lam.sf.net/ ( http://lam.sourceforge.net/documentation/supportedSchemas.htm )
++
++- CONTRIBUTORS/IDEAS/GREETS :
++  - Eric AUGE <eau@phear.org>
++  - Andrea Barisani <andrea@inversepath.com>
++  - Falk Siemonsmeier.
++  - Jacob Rief.
++  - Michael Durchgraf.
++  - frederic peters.
++  - Finlay dobbie.
++  - Stefan Fisher.
++  - Robin H. Johnson.
++  - Adrian Bridgett.
++
++- CONTACT :
++    Jan F. Chadima <jchadima@redhat.com>
++
+diff -up openssh-5.6p1/ssh-ldap.conf.5.ldap openssh-5.6p1/ssh-ldap.conf.5
+--- openssh-5.6p1/ssh-ldap.conf.5.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ssh-ldap.conf.5	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,373 @@
++.\" $OpenBSD: ssh-ldap.conf.5,v 1.1 2010/02/10 23:20:38 markus Exp $
++.\"
++.\" Copyright (c) 2010 Jan F. Chadima.  All rights reserved.
++.\"
++.\" Permission to use, copy, modify, and distribute this software for any
++.\" purpose with or without fee is hereby granted, provided that the above
++.\" copyright notice and this permission notice appear in all copies.
++.\"
++.\" THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
++.\" WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
++.\" MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
++.\" ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++.\" WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
++.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
++.\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
++.\"
++.Dd $Mdocdate: may 12 2010 $
++.Dt SSH-LDAP.CONF 5
++.Os
++.Sh NAME
++.Nm ssh-ldap.conf
++.Nd configuration file for ssh-ldap-helper
++.Sh SYNOPSIS
++.Nm /etc/ssh/ldap.conf
++.Sh DESCRIPTION
++.Xr ssh-ldap-helper 8
++reads configuration data from
++.Pa /etc/ssh/ldap.conf
++(or the file specified with
++.Fl f
++on the command line).
++The file contains keyword-argument pairs, one per line.
++Lines starting with
++.Ql #
++and empty lines are interpreted as comments.
++.Pp
++The value starts with the first non-blank character after 
++the keyword's name, and terminates at the end of the line, 
++or at the last sequence of blanks before the end of the line.
++Quoting values that contain blanks 
++may be incorrect, as the quotes would become part of the value.
++The possible keywords and their meanings are as follows (note that
++keywords are case-insensitive, and arguments, on a case by case basis, may be case-sensitive).
++.It Cm URI
++The argument(s) are in the form
++.Pa ldap[si]://[name[:port]]
++and specify the URI(s) of an LDAP server(s) to which the
++.Xr ssh-ldap-helper 8 
++should connect. The URI scheme may be any of
++.Dq ldap ,
++.Dq ldaps 
++or
++.Dq ldapi ,
++which refer to LDAP over TCP, LDAP over SSL (TLS) and LDAP
++over IPC (UNIX domain sockets), respectively.
++Each server's name can be specified as a
++domain-style name or an IP address literal.  Optionally, the
++server's name can followed by a ':' and the port number the LDAP
++server is listening on.  If no port number is provided, the default
++port for the scheme is used (389 for ldap://, 636 for ldaps://).
++For LDAP over IPC, name is the name of the socket, and no port
++is required, nor allowed; note that directory separators must be 
++URL-encoded, like any other characters that are special to URLs; 
++A space separated list of URIs may be provided.
++There is no default.
++.It Cm Base
++Specifies the default base Distinguished Name (DN) to use when performing ldap operations.
++The base must be specified as a DN in LDAP format.
++There is no default.
++.It Cm BindDN
++Specifies the default BIND DN to use when connecting to the ldap server.
++The bind DN must be specified as a Distinguished Name in LDAP format.
++There is no default.
++.It Cm BindPW
++Specifies the default password to use when connecting to the ldap server via
++.Cm BindDN .
++There is no default.
++.It Cm RootBindDN
++Intentionaly does nothing. Recognized for compatibility reasons.
++.It Cm Host
++The argument(s) specifies the name(s) of an LDAP server(s) to which the
++.Xr ssh-ldap-helper 8
++should connect.  Each server's name can be specified as a
++domain-style name or an IP address and optionally followed by a ':' and
++the port number the ldap server is listening on.  A space-separated
++list of hosts may be provided.
++There is no default.
++.Cm Host
++is deprecated in favor of
++.Cm URI .
++.It Cm Port
++Specifies the default port used when connecting to LDAP servers(s).
++The port may be specified as a number.
++The default port is 389 for ldap:// or 636 for ldaps:// respectively.
++.Cm Port
++is deprecated in favor of
++.Cm URI .
++.It Cm Scope
++Specifies the starting point of an LDAP search and the depth from the base DN to which the search should descend.
++There are three options (values) that can be assigned to the
++.Cm Scope parameter:
++.Dq base ,
++.Dq one
++and
++.Dq subtree .
++Alias for the subtree is
++.Dq sub .
++The value
++.Dq base
++is used to indicate searching only the entry at the base DN, resulting in only that entry being returned (keeping in mind that it also has to meet the search filter criteria!).
++The value
++.Dq one
++is used to indicate searching all entries one level under the base DN, but not including the base DN and not including any entries under that one level under the base DN.
++The value
++.Dq subtree
++is used to indicate searching of all entries at all levels under and including the specified base DN.
++The default is
++.Dq subtree .
++.It Cm Deref
++Specifies how alias dereferencing is done when performing a search. There are four
++possible values that can be assigned to the
++.Cm Deref
++parameter:
++.Dq never ,
++.Dq searching ,
++.Dq finding ,
++and
++.Dq always .
++The value
++.Dq never
++means that the aliases are never dereferenced.
++The value
++.Dq searching
++means that the aliases are dereferenced in subordinates of the base object, but
++not in locating the base object of the search.
++The value
++.Dq finding
++means that the aliases are only dereferenced when locating the base object of the search.
++The value
++.Dq always
++means that the aliases are dereferenced both in searching and in locating the base object
++of the search.
++The default is
++.Dq never .
++.It Cm TimeLimit
++Specifies a time limit (in seconds) to use when performing searches.
++The number should be a non-negative integer. A
++.Cm TimeLimit
++of zero (0) specifies that the search time is unlimited. Please note that the server
++may still apply any server-side limit on the duration of a search operation.
++The default value is 10.
++.It Cm TimeOut
++Is an aliast to
++.Cm TimeLimit .
++.It Cm Bind_TimeLimit
++Specifies the timeout (in seconds) after which the poll(2)/select(2)
++following a connect(2) returns in case of no activity.
++The default value is 10.
++.It Cm Network_TimeOut
++Is an alias to
++.Cm Bind_TimeLimit .
++.It Cm Ldap_Version
++Specifies what version of the LDAP protocol should be used.
++The allowed values are 2 or 3. The default is 3.
++.It Cm Version
++Is an alias to
++.Cm Ldap_Version .
++.It Cm Bind_Policy
++Specifies the policy to use for reconnecting to an unavailable LDAP server. There are 2 available values:
++.Dq hard
++and
++.Dq soft.
++.Dq hard has 2 aliases
++.Dq hard_open
++and
++.Dq hard_init .
++The value
++.Dq hard
++means that reconects that the
++.Xr ssh-ldap-helper 8
++tries to reconnect to the LDAP server 5 times before failure. There is exponential backoff before retrying.
++The value
++.Dq soft
++means that
++.Xr ssh-ldap-helper 8
++fails immediately when it cannot connect to the LDAP seerver.
++The deault is
++.Dq hard .
++.It Cm SSLPath
++Specifies the path to the X.509 certificate database.
++There is no default.
++.It Cm SSL
++Specifies whether to use SSL/TLS or not.
++There are three allowed values:
++.Dq yes ,
++.Dq no
++and
++.Dq start_tls
++Both
++.Dq true
++and
++.Dq on
++are the aliases for
++.Dq yes .
++.Dq false
++and
++.Dq off
++are the aliases for
++.Dq no .
++If
++.Dqstart_tls
++is specified then StartTLS is used rather than raw LDAP over SSL.
++The default for ldap:// is
++.Dq start_tls ,
++for ldaps://
++.Dq yes
++and
++.Dq no
++for the ldapi:// .
++In case of host based configuration the default is
++.Dq start_tls .
++.It Cm Referrals
++Specifies if the client should automatically follow referrals returned
++by LDAP servers.
++The value can be or
++.Dq yes
++or
++.Dq no .
++.Dq true
++and
++.Dq on
++are the aliases for
++.Dq yes .
++.Dq false
++and
++.Dq off
++are the aliases for
++.Dq no .
++The default is yes.
++.It Cm Restart
++Specifies whether the LDAP client library should restart the select(2) system call when interrupted.
++The value can be or
++.Dq yes
++or
++.Dq no .
++.Dq true
++and
++.Dq on
++are the aliases for
++.Dq yes .
++.Dq false
++and
++.Dq off
++are the aliases for
++.Dq no .
++The default is yes.
++.It Cm TLS_CheckPeer
++Specifies what checks to perform on server certificates in a TLS session,
++if any. The value
++can be specified as one of the following keywords:
++.Dq never ,
++.Dq hard ,
++.Dq demand ,
++.Dq allow
++and
++.Dq try .
++.Dq true ,
++.Dq on
++and
++.Dq yes
++are aliases for
++.Dq hard .
++.Dq false ,
++.Dq off
++and
++.Dq no
++are the aliases for
++.Dq never .
++The value
++.Dq never
++means that the client will not request or check any server certificate.
++The value
++.Dq allow
++means that the server certificate is requested. If no certificate is provided,
++the session proceeds normally. If a bad certificate is provided, it will
++be ignored and the session proceeds normally.
++The value
++.Dq try
++means that the server certificate is requested. If no certificate is provided,
++the session proceeds normally. If a bad certificate is provided,
++the session is immediately terminated.
++The value
++.Dq demand
++means that the server certificate is requested. If no
++certificate is provided, or a bad certificate is provided, the session
++is immediately terminated.
++The value
++.Dq hard
++is the same as
++.Dq demand .
++It requires an SSL connection. In the case of the plain conection the
++session is immediately terminated.
++The default is
++.Dq hard .
++.It Cm TLS_ReqCert
++Is an alias for 
++.Cm TLS_CheckPeer .
++.It Cm TLS_CACertFile
++Specifies the file that contains certificates for all of the Certificate
++Authorities the client will recognize.
++There is no default.
++.It Cm TLS_CACert
++Is an alias for
++.Cm TLS_CACertFile .
++.It Cm TLS_CACertDIR
++Specifies the path of a directory that contains Certificate Authority
++certificates in separate individual files. The
++.Cm TLS_CACert
++is always used before
++.Cm TLS_CACertDir .
++The specified directory must be managed with the OpenSSL c_rehash utility.
++There is no default.
++.It Cm TLS_Ciphers
++Specifies acceptable cipher suite and preference order.
++The value should be a cipher specification for OpenSSL,
++e.g.,
++.Dq HIGH:MEDIUM:+SSLv2 .
++The default is
++.Dq ALL .
++.It Cm TLS_Cipher_Suite
++Is an alias for
++.Cm TLS_Ciphers .
++.It Cm TLS_Cert
++Specifies the file that contains the client certificate.
++There is no default.
++.It Cm TLS_Certificate
++Is an alias for
++.Cm TLS_Cert .
++.It Cm TLS_Key
++Specifies the file that contains the private key that matches the certificate
++stored in the
++.Cm TLS_Cert
++file. Currently, the private key must not be protected with a password, so
++it is of critical importance that the key file is protected carefully.
++There is no default.
++.It Cm TLS_RandFile
++Specifies the file to obtain random bits from when /dev/[u]random is
++not available. Generally set to the name of the EGD/PRNGD socket.
++The environment variable RANDFILE can also be used to specify the filename.
++There is no default.
++.It Cm LogDir
++Specifies the directory used for logging by the LDAP client library.
++There is no default.
++.It Cm Debug
++Specifies the debug level used for logging by the LDAP client library.
++There is no default.
++.It Cm SSH_Filter
++Specifies the user filter applied on the LDAP serch.
++The default is no filter.
++.Sh FILES
++.Bl -tag -width Ds
++.It Pa  /etc/ssh/ldap.conf
++Ldap configuration file for
++.Xr ssh-ldap-helper 8 .
++.Sh "SEE ALSO"
++.Xr ldap.conf 5 ,
++.Xr ssh-ldap-helper 8
++.Sh HISTORY
++.Nm
++first appeared in
++OpenSSH 5.5 + PKA-LDAP .
++.Sh AUTHORS
++.An Jan F. Chadima Aq jchadima@redhat.com
+diff -up openssh-5.6p1/ssh-ldap-helper.8.ldap openssh-5.6p1/ssh-ldap-helper.8
+--- openssh-5.6p1/ssh-ldap-helper.8.ldap	2010-08-23 12:28:11.000000000 +0200
++++ openssh-5.6p1/ssh-ldap-helper.8	2010-08-23 12:28:11.000000000 +0200
+@@ -0,0 +1,78 @@
++.\" $OpenBSD: ssh-ldap-helper.8,v 1.1 2010/02/10 23:20:38 markus Exp $
++.\"
++.\" Copyright (c) 2010 Jan F. Chadima.  All rights reserved.
++.\"
++.\" Permission to use, copy, modify, and distribute this software for any
++.\" purpose with or without fee is hereby granted, provided that the above
++.\" copyright notice and this permission notice appear in all copies.
++.\"
++.\" THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
++.\" WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
++.\" MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
++.\" ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++.\" WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
++.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
++.\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
++.\"
++.Dd $Mdocdate: April 29 2010 $
++.Dt SSH-LDAP-HELPER 8
++.Os
++.Sh NAME
++.Nm ssh-ldap-helper
++.Nd sshd helper program for ldap support
++.Sh SYNOPSIS
++.Nm ssh-ldap-helper
++.Op Fl devw
++.Op Fl f Ar file
++.Op Fl s Ar user
++.Sh DESCRIPTION
++.Nm
++is used by
++.Xr sshd 1
++to access keys provided by an LDAP.
++.Nm
++is disabled by default and can only be enabled in the
++sshd configuration file
++.Pa /etc/ssh/sshd_config
++by setting
++.Cm AuthorizedKeysCommand
++to
++.Dq /usr/libexec/ssh-ldap-helper -s %u .
++.Pp
++.Nm
++is not intended to be invoked by the user, but from
++.Xr sshd 8 .
++.Pp
++The options are as follows:
++.Bl -tag -width Ds
++.It Fl d
++Set the debug mode; 
++.Nm
++prints all logs to stderr instead of syslog.
++.It Fl e
++Implies \-w;
++.Nm
++halts if it encounters an unknown item in the ldap.conf file.
++.It Fl f
++.Nm
++uses this file as the ldap configuration file instead of /etc/ssh/ldap.conf (default).
++.It Fl s
++.Nm
++prints out the user's keys to stdout and exits.
++.It Fl v
++Implies \-d;
++increases verbosity.
++.It Fl w
++.Nm
++writes warnings about unknown items in the ldap.conf configuration file.
++
++.Sh SEE ALSO
++.Xr sshd 8 ,
++.Xr sshd_config 5 ,
++.Xr ssh-ldap.conf 5 ,
++.Sh HISTORY
++.Nm
++first appeared in
++OpenSSH 5.5 + PKA-LDAP .
++.Sh AUTHORS
++.An Jan F. Chadima Aq jchadima@redhat.com

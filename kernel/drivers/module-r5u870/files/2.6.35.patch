@@ -1,0 +1,92 @@
+Index: r5u870_k2.6.27/usbcam/usbcam_util.c
+===================================================================
+--- r5u870_k2.6.27.orig/usbcam/usbcam_util.c
++++ r5u870_k2.6.27/usbcam/usbcam_util.c
+@@ -160,7 +160,7 @@ USBCAM_EXPORT_SYMBOL(usbcam_choose_altse
+  */
+ static int usbcam_urb_allocbuf(struct urb *urbp, size_t nbytes)
+ {
+-	urbp->transfer_buffer = usb_buffer_alloc(urbp->dev,
++	urbp->transfer_buffer = usb_alloc_coherent(urbp->dev,
+ 						 nbytes,
+ 						 GFP_KERNEL,
+ 						 &urbp->transfer_dma);
+@@ -174,7 +174,7 @@ static int usbcam_urb_allocbuf(struct ur
+ 
+ static inline void usbcam_urb_freebuf(struct urb *urbp)
+ {
+-	usb_buffer_free(urbp->dev,
++	usb_free_coherent(urbp->dev,
+ 			urbp->transfer_buffer_length,
+ 			urbp->transfer_buffer,
+ 			urbp->transfer_dma);
+Index: r5u870_k2.6.27/usbcam/usbcam_buf.c
+===================================================================
+--- r5u870_k2.6.27.orig/usbcam/usbcam_buf.c
++++ r5u870_k2.6.27/usbcam/usbcam_buf.c
+@@ -187,7 +187,7 @@ int usbcam_curframe_get(struct usbcam_de
+ 
+ 	cf->uf_base = (u8 *) (framep->vmap_sof
+ 			      ? framep->vmap_sof
+-			      : dma->vmalloc);
++			      : dma->vaddr);
+ 	cf->uf_size = framep->vbb.size;
+ 	cf->uf_field = framep->vbb.field;
+ 	memset(&cf->uf_timestamp, 0, sizeof(cf->uf_timestamp));
+@@ -523,13 +523,13 @@ static int usbcam_videobuf_setup(struct
+ 	return 0;
+ }
+ 
+-static void usbcam_videobuf_free(struct videobuf_queue *vq,
++static void usbcam_videobuf_free(struct usbcam_dev *udp, struct videobuf_queue *vq,
+ 				 struct usbcam_frame *framep)
+ {
+ 	struct videobuf_dmabuf *dma = usbframe_get_dmabuf(&framep->vbb);
+ 	
+-	videobuf_waiton(&framep->vbb, 0, 0);
+-	videobuf_dma_unmap(vq, dma);
++	videobuf_waiton(vq, &framep->vbb, 0, 0);
++	videobuf_dma_unmap(&udp->ud_dev->dev, dma);
+ 	videobuf_dma_free(dma);
+ 	if (framep->vbb.state != STATE_NEEDS_INIT) {
+ 		if (framep->vmap_base) {
+@@ -579,7 +579,7 @@ static int usbcam_videobuf_prepare(struc
+ 			goto fail;
+ 
+ 		/* If there's no kernel mapping, we must create one */
+-		if (!dma->vmalloc) {
++		if (!dma->vaddr) {
+ 			framep->vmap_base = vmap(dma->pages,
+ 						 dma->nr_pages,
+ 						 VM_MAP,
+@@ -600,7 +600,7 @@ static int usbcam_videobuf_prepare(struc
+ 	return 0;
+ 
+ fail:
+-	usbcam_videobuf_free(vq, framep);
++	usbcam_videobuf_free(udp, vq, framep);
+ 	return res;
+ }
+ 
+@@ -689,7 +689,7 @@ static void usbcam_videobuf_release(stru
+ 	}
+ 
+ 	usbcam_unlock(udp);
+-	usbcam_videobuf_free(vq, framep);
++	usbcam_videobuf_free(udp, vq, framep);
+ }
+ 
+ struct videobuf_queue_ops usbcam_videobuf_qops = {
+Index: r5u870_k2.6.27/usbcam/usbcam_fops.c
+===================================================================
+--- r5u870_k2.6.27.orig/usbcam/usbcam_fops.c
++++ r5u870_k2.6.27/usbcam/usbcam_fops.c
+@@ -155,7 +155,7 @@ static int usbcam_v4l_open(struct file *
+ 			    &udp->slock,
+ 			    V4L2_BUF_TYPE_VIDEO_CAPTURE,
+ 			    V4L2_FIELD_INTERLACED,
+-			    sizeof(struct usbcam_frame), ufp);
++			    sizeof(struct usbcam_frame), ufp, NULL);
+ #endif
+ 
+ 	mutex_lock(&udp->ud_open_lock);

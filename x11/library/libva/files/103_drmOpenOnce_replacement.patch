@@ -1,0 +1,114 @@
+commit 1143bebc07c2ce8971d9fd43983f6e1813ab5fc6
+Author: Gwenole Beauchesne <gbeauchesne@splitted-desktop.com>
+Date:   Thu Sep 3 15:36:04 2009 +0000
+
+    Add drmOpenOnce() / drmCloseOnce() replacements for libdrm < 2.3.
+
+diff --git a/configure.ac b/configure.ac
+index 181cb9b..ef21577 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -101,6 +101,27 @@ PKG_CHECK_MODULES([XEXT],[xext])
+ PKG_CHECK_MODULES([XFIXES], [xfixes])
+ PKG_CHECK_MODULES([DRM], [libdrm])
+ 
++dnl Check for drmOpenOnce() (libdrm >= 2.3)
++AC_CACHE_CHECK([for dmOpenOnce], 
++    ac_cv_libdrm_drmOpenOnce, [
++    saved_CFLAGS="$CFLAGS"
++    saved_LIBS="$LIBS"
++    CFLAGS="$CFLAGS $DRM_CFLAGS"
++    LIBS="$LIBS $DRM_LIBS"
++    AC_TRY_LINK([
++        #include <xf86drm.h>
++    ], [
++        drmOpenOnce(0,0,0);
++    ],
++    [ac_cv_libdrm_drmOpenOnce="yes"],
++    [ac_cv_libdrm_drmOpenOnce="no"])
++    CFLAGS="$saved_CFLAGS"
++    LIBS="$saved_LIBS"
++])
++if test "$ac_cv_libdrm_drmOpenOnce" = "yes"; then
++    AC_DEFINE(HAVE_DRM_OPEN_ONCE, 1, [Defined to 1 if drmOpenOnce() is available])
++fi
++
+ PKG_CHECK_MODULES(GEN4ASM, [intel-gen4asm >= 1.1], [gen4asm=yes], [gen4asm=no])
+ AM_CONDITIONAL(HAVE_GEN4ASM, test x$gen4asm = xyes)
+ 
+diff --git a/va/x11/dri1_util.c b/va/x11/dri1_util.c
+index d9afca6..e2ad749 100644
+--- a/va/x11/dri1_util.c
++++ b/va/x11/dri1_util.c
+@@ -1,3 +1,4 @@
++#include "config.h"
+ #include <stdlib.h>
+ #include <fcntl.h>
+ #include <unistd.h>
+@@ -21,6 +22,66 @@ struct dri1_drawable
+     int height;
+ };
+ 
++#ifndef HAVE_DRM_OPEN_ONCE
++#include <stdio.h>
++#include <string.h>
++
++#define DRM_MAX_FDS 16
++static struct {
++    char *BusID;
++    int fd;
++    int refcount;
++} connection[DRM_MAX_FDS];
++
++static int nr_fds = 0;
++
++static int drmOpenOnce(void *unused, const char *BusID, int *newlyopened)
++{
++    int i;
++    int fd;
++
++    for (i = 0; i < nr_fds; i++)
++        if (strcmp(BusID, connection[i].BusID) == 0) {
++            connection[i].refcount++;
++            *newlyopened = 0;
++            return connection[i].fd;
++        }
++
++    fd = drmOpen(unused, BusID);
++    if (fd <= 0 || nr_fds == DRM_MAX_FDS)
++        return fd;
++
++    connection[nr_fds].BusID = strdup(BusID);
++    connection[nr_fds].fd = fd;
++    connection[nr_fds].refcount = 1;
++    *newlyopened = 1;
++
++    if (0)
++        fprintf(stderr, "saved connection %d for %s %d\n", 
++                nr_fds, connection[nr_fds].BusID, 
++                strcmp(BusID, connection[nr_fds].BusID));
++    nr_fds++;
++    return fd;
++}
++
++void drmCloseOnce(int fd)
++{
++    int i;
++
++    for (i = 0; i < nr_fds; i++) {
++        if (fd == connection[i].fd) {
++            if (--connection[i].refcount == 0) {
++                drmClose(connection[i].fd);
++                free(connection[i].BusID);
++                if (i < --nr_fds) 
++                    connection[i] = connection[nr_fds];
++                return;
++            }
++        }
++    }
++}
++#endif
++
+ static struct dri_drawable * 
+ dri1CreateDrawable(VADriverContextP ctx, XID x_drawable)
+ {

@@ -1,0 +1,191 @@
+diff -up vsftpd-2.1.1/standalone.c.daemonize_plus vsftpd-2.1.1/standalone.c
+--- vsftpd-2.1.1/standalone.c.daemonize_plus	2009-05-10 22:11:24.000000000 +0200
++++ vsftpd-2.1.1/standalone.c	2009-05-10 22:11:24.000000000 +0200
+@@ -26,6 +26,8 @@ static unsigned int s_ipaddr_size;
+ 
+ static void handle_sigchld(void*  duff);
+ static void handle_sighup(void*  duff);
++static void handle_sigusr1(int sig);
++static void handle_sigalrm(int sig);
+ static void prepare_child(int sockfd);
+ static unsigned int handle_ip_count(void* p_raw_addr);
+ static void drop_ip_count(void* p_raw_addr);
+@@ -46,11 +48,23 @@ vsf_standalone_main(void)
+   }
+   if (tunable_background)
+   {
++    vsf_sysutil_sigaction(kVSFSysUtilSigALRM, handle_sigalrm);
++    vsf_sysutil_sigaction(kVSFSysUtilSigUSR1, handle_sigusr1);
++
+     int forkret = vsf_sysutil_fork();
+     if (forkret > 0)
+     {
+       /* Parent, just exit */
+-      vsf_sysutil_exit(0);
++      vsf_sysutil_set_alarm(3);
++      vsf_sysutil_pause();
++
++      vsf_sysutil_exit(1);
++    }
++    else if (forkret == 0)
++    {
++      // Son, restore original signal handler
++      vsf_sysutil_sigaction(kVSFSysUtilSigALRM, 0L);
++      vsf_sysutil_sigaction(kVSFSysUtilSigUSR1, 0L);
+     }
+     /* Son, close standard FDs to avoid SSH hang-on-exit */
+     vsf_sysutil_reopen_standard_fds();
+@@ -98,6 +112,10 @@ vsf_standalone_main(void)
+     {
+       die("could not bind listening IPv4 socket");
+     }
++    if (tunable_background)
++    {
++      vsf_sysutil_kill(vsf_sysutil_getppid(), kVSFSysUtilSigUSR1);
++    }
+   }
+   else
+   {
+@@ -127,6 +145,10 @@ vsf_standalone_main(void)
+     {
+       die("could not bind listening IPv6 socket");
+     }
++    if (tunable_background)
++    {
++      vsf_sysutil_kill(vsf_sysutil_getppid(), kVSFSysUtilSigUSR1);
++    }
+   }
+   vsf_sysutil_close(0);
+   vsf_sysutil_close(1);
+@@ -252,6 +274,20 @@ handle_sighup(void* duff)
+   vsf_parseconf_load_file(0, 0);
+ }
+ 
++static void
++handle_sigalrm(int sig)
++{
++  (void)sig; // avoid unused parameter error
++  vsf_sysutil_exit(1);
++}
++
++static void
++handle_sigusr1(int sig)
++{
++  (void)sig; // avoid unused parameter error
++  vsf_sysutil_exit(0);
++}
++
+ static unsigned int
+ hash_ip(unsigned int buckets, void* p_key)
+ {
+diff -up vsftpd-2.1.1/sysutil.c.daemonize_plus vsftpd-2.1.1/sysutil.c
+--- vsftpd-2.1.1/sysutil.c.daemonize_plus	2009-05-10 22:11:24.000000000 +0200
++++ vsftpd-2.1.1/sysutil.c	2009-05-10 22:11:59.000000000 +0200
+@@ -202,6 +202,9 @@ vsf_sysutil_translate_sig(const enum EVS
+     case kVSFSysUtilSigHUP:
+       realsig = SIGHUP;
+       break;
++    case kVSFSysUtilSigUSR1:
++      realsig = SIGUSR1;
++      break;
+     default:
+       bug("unknown signal in vsf_sysutil_translate_sig");
+       break;
+@@ -539,6 +542,12 @@ vsf_sysutil_getpid(void)
+   return (unsigned int) s_current_pid;
+ }
+ 
++unsigned int
++vsf_sysutil_getppid(void)
++{
++  return (unsigned int)getppid();
++}
++
+ int
+ vsf_sysutil_fork(void)
+ {
+@@ -2807,3 +2816,53 @@ vsf_sysutil_set_no_fds()
+     s_sig_details[i].pending = 0;
+   }
+ }
++
++static struct sigaction sigalr, sigusr1;
++
++void
++vsf_sysutil_sigaction(const enum EVSFSysUtilSignal sig, void (*p_handlefunc)(int))
++{
++  int realsig = vsf_sysutil_translate_sig(sig);
++  int retval;
++  struct sigaction sigact, *origsigact=NULL;
++  if (realsig==SIGALRM)
++  {
++    origsigact = &sigalr;
++  }
++  else if (realsig==SIGUSR1)
++  {
++    origsigact = &sigusr1;
++  }
++  vsf_sysutil_memclr(&sigact, sizeof(sigact));
++  if (p_handlefunc != NULL)
++  {
++    sigact.sa_handler = p_handlefunc;
++    retval = sigfillset(&sigact.sa_mask);
++    if (retval != 0)
++    {
++      die("sigfillset");
++    }
++    retval = sigaction(realsig, &sigact, origsigact);
++  }
++  else
++  {
++    retval = sigaction(realsig, origsigact, NULL);
++  }
++  if (retval != 0)
++  {
++    die("sigaction");
++  }
++}
++
++int
++vsf_sysutil_kill(int pid, int sig)
++{
++  int realsig = vsf_sysutil_translate_sig(sig);
++  return kill(pid, realsig);
++}
++
++int
++vsf_sysutil_pause()
++{
++  return pause();
++}
+diff -up vsftpd-2.1.1/sysutil.h.daemonize_plus vsftpd-2.1.1/sysutil.h
+--- vsftpd-2.1.1/sysutil.h.daemonize_plus	2009-05-10 22:11:24.000000000 +0200
++++ vsftpd-2.1.1/sysutil.h	2009-05-10 22:11:24.000000000 +0200
+@@ -29,7 +29,8 @@ enum EVSFSysUtilSignal
+   kVSFSysUtilSigCHLD,
+   kVSFSysUtilSigPIPE,
+   kVSFSysUtilSigURG,
+-  kVSFSysUtilSigHUP
++  kVSFSysUtilSigHUP,
++  kVSFSysUtilSigUSR1
+ };
+ enum EVSFSysUtilInterruptContext
+ {
+@@ -165,6 +165,7 @@ void vsf_sysutil_free(void* p_ptr);
+ 
+ /* Process creation/exit/process handling */
+ unsigned int vsf_sysutil_getpid(void);
++unsigned int vsf_sysutil_getppid(void);
+ void vsf_sysutil_post_fork(void);
+ int vsf_sysutil_fork(void);
+ int vsf_sysutil_fork_failok(void);
+@@ -182,6 +184,9 @@ int vsf_sysutil_wait_exited_normally(
+   const struct vsf_sysutil_wait_retval* p_waitret);
+ int vsf_sysutil_wait_get_exitcode(
+   const struct vsf_sysutil_wait_retval* p_waitret);
++void vsf_sysutil_sigaction(const enum EVSFSysUtilSignal sig, void (*p_handlefunc)(int));
++int vsf_sysutil_kill(int pid, int sig);
++int vsf_sysutil_pause();
+ 
+ /* Various string functions */
+ unsigned int vsf_sysutil_strlen(const char* p_text);

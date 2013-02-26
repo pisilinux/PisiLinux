@@ -1,0 +1,74 @@
+From: Jean Delvare <jdelvare@suse.de>
+References: http://savannah.nongnu.org/bugs/index.php?25305
+
+"quilt revert" accidentally creates a hard link, it shouldn't do that.
+
+I think the reason is that apply_patch_temporarily() uses backup-files
+to create the temporary files, and by default backup-files uses hard
+links. For files which are modified by the patch, this isn't a problem
+because patch will unlink the file before modifying it. But for files
+which are not modified by the patch, the hard link is preserved.
+
+Then quilt revert also makes a hard link to restore the file, on the
+assumption that the temporary copy will be deleted right away. At
+this point, files not modified by the patch will have a link count
+of 3 (.pc/<patch>/<file>, d.*/<file> and <file>). When the temporary
+file is deleted, the link count is still 2 (.pc/<patch>/<file> and
+<file>).
+
+A simple way to fix this is to always use cp instead of ln when
+restoring the files. Performance is not as good, but at least it is
+always correct. We could optimize the code to use ln when possible
+and cp for the other cases, but honestly I don't think it is worth
+the extra complexity. The speed of "quilt revert" is hardly
+critical, given how infrequently this command is used.
+---
+ quilt/revert.in  |    1 -
+ test/nolink.test |   20 ++++++++++++++++++++
+ 2 files changed, 20 insertions(+), 1 deletion(-)
+
+--- quilt-git.orig/test/nolink.test	2009-06-11 08:41:42.000000000 +0200
++++ quilt-git/test/nolink.test	2009-06-11 09:46:24.000000000 +0200
+@@ -2,6 +2,7 @@
+ 	$ mkdir -p d/patches
+ 	$ cd d
+ 
++# quilt should preserve hard links and not create new ones
+ 	$ echo foo > foo
+ 	$ ln foo foo2
+ 	$ ls -l foo | awk '{ print $2 }'
+@@ -53,5 +54,24 @@
+ 	$ ls -l foo | awk '{ print $2 }'
+ 	> 2
+ 
++# quilt revert should not create hard links
++	$ echo bar > bar
++	$ quilt push -q
++	> Applying patch patches/test.diff
++	> Now at patch patches/test.diff
++
++	$ quilt add bar
++	> File bar added to patch patches/test.diff
++	$ echo "bar changed" > bar
++	$ quilt revert bar
++	> Changes to bar in patch patches/test.diff reverted
++
++	$ ls -l bar | awk '{ print $2 }'
++	> 1
++
++	$ quilt pop -q
++	> Removing patch patches/test.diff
++	> No patches applied
++
+ 	$ cd ..
+ 	$ rm -rf d
+--- quilt-git.orig/quilt/revert.in	2009-06-11 09:05:27.000000000 +0200
++++ quilt-git/quilt/revert.in	2009-06-11 09:05:44.000000000 +0200
+@@ -104,7 +104,6 @@ do
+ 		fi
+ 
+ 		mkdir -p "$(dirname "$file")"
+-		ln -f "$workdir/$file" "$file" 2>&1 ||
+ 		cp -p "$workdir/$file" "$file"
+ 	else
+ 		if [ ! -e "$file" ]

@@ -1,0 +1,620 @@
+From bf95dee1ab84e490e278c5d187506d9f4566dd41 Mon Sep 17 00:00:00 2001
+From: Michael Meeks <michael.meeks@novell.com>
+Date: Tue, 2 Nov 2010 16:08:22 +0000
+Subject: [PATCH 06/34] Turn the ParseState object into something we can pass about sanely
+ and rename to Trace - instead of having huge and error prone lists
+ of arguments and associated pain.
+
+---
+ pybootchartgui/batch.py   |    6 +-
+ pybootchartgui/draw.py    |   44 +++++-----
+ pybootchartgui/gui.py     |   32 ++++----
+ pybootchartgui/parsing.py |  212 ++++++++++++++++++++++----------------------
+ pybootchartgui/samples.py |   15 ++--
+ 5 files changed, 155 insertions(+), 154 deletions(-)
+
+diff --git a/pybootchartgui/batch.py b/pybootchartgui/batch.py
+index fcd282a..31eb70d 100644
+--- a/pybootchartgui/batch.py
++++ b/pybootchartgui/batch.py
+@@ -16,7 +16,7 @@
+ import cairo
+ import draw
+ 
+-def render(writer, res, options, filename):
++def render(writer, trace, options, filename):
+     handlers = {
+         "png": (lambda w, h: cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h), \
+                 lambda sfc: sfc.write_to_png(filename)),
+@@ -34,11 +34,11 @@ def render(writer, res, options, filename):
+         return 10
+ 
+     make_surface, write_surface = handlers[fmt]
+-    (w, h) = draw.extents (1.0, *res)
++    (w, h) = draw.extents (1.0, trace)
+     w = max (w, draw.MIN_IMG_W)
+     surface = make_surface (w, h)
+     ctx = cairo.Context (surface)
+-    draw.render (ctx, options, 1.0, *res)
++    draw.render (ctx, options, 1.0, trace)
+     write_surface (surface)
+     writer.status ("bootchart written to '%s'" % filename)
+ 
+diff --git a/pybootchartgui/draw.py b/pybootchartgui/draw.py
+index e7b7fe4..d42e14a 100644
+--- a/pybootchartgui/draw.py
++++ b/pybootchartgui/draw.py
+@@ -143,7 +143,7 @@ def draw_legend_box(ctx, label, fill_color, x, y, s):
+ 	draw_text(ctx, label, TEXT_COLOR, x + s + 5, y)
+ 
+ def draw_legend_line(ctx, label, fill_color, x, y, s):
+-	draw_fill_rect(ctx, fill_color, (x, y - s/2, s + 1, 3))    
++	draw_fill_rect(ctx, fill_color, (x, y - s/2, s + 1, 3))
+ 	ctx.arc(x + (s + 1)/2.0, y - (s - 3)/2.0, 2.5, 0, 2.0 * math.pi)
+ 	ctx.fill()
+ 	draw_text(ctx, label, TEXT_COLOR, x + s + 5, y)
+@@ -257,10 +257,10 @@ MIN_IMG_W = 800
+ CUML_HEIGHT = 1000
+ OPTIONS = None
+ 
+-def extents(xscale, headers, cpu_stats, disk_stats, mem_stats, proc_tree, times, filename):
+-	w = int (proc_tree.duration * sec_w_base * xscale / 100) + 2*off_x
+-	h = proc_h * proc_tree.num_proc + header_h + 2 * off_y
+-	if proc_tree.taskstats and WITH_CUMULATIVE_CHART:
++def extents(xscale, trace):
++	w = int (trace.proc_tree.duration * sec_w_base * xscale / 100) + 2*off_x
++	h = proc_h * trace.proc_tree.num_proc + header_h + 2 * off_y
++	if trace.proc_tree.taskstats and WITH_CUMULATIVE_CHART:
+ 		h += CUML_HEIGHT + 4 * off_y
+ 	return (w, h)
+ 
+@@ -270,17 +270,17 @@ def clip_visible(clip, rect):
+ 	xmin = min (clip[0] + clip[2], rect[0] + rect[2])
+ 	ymin = min (clip[1] + clip[3], rect[1] + rect[3])
+ 	return (xmin > xmax and ymin > ymax)
++
+ #
+ # Render the chart.
+ #
+-def render(ctx, options, xscale, headers, cpu_stats, \
+-	   disk_stats, mem_stats, proc_tree, times, filename):
+-	(w, h) = extents (xscale, headers, cpu_stats, \
+-			  disk_stats, mem_stats, proc_tree, times, filename)
+-
++def render(ctx, options, xscale, trace):
++	(w, h) = extents (xscale, trace)
+ 	global OPTIONS
+ 	OPTIONS = options
+ 
++	proc_tree = trace.proc_tree
++
+ 	# x, y, w, h
+ 	clip = ctx.clip_extents()
+ 
+@@ -294,7 +294,7 @@ def render(ctx, options, xscale, headers, cpu_stats, \
+ 	    duration = proc_tree.idle
+ 	else:
+ 	    duration = proc_tree.duration
+-	curr_y = draw_header (ctx, headers, duration)
++	curr_y = draw_header (ctx, trace.headers, duration)
+ 
+ 	# render bar legend
+ 	ctx.set_font_size(LEGEND_FONT_SIZE)
+@@ -306,13 +306,13 @@ def render(ctx, options, xscale, headers, cpu_stats, \
+         chart_rect = (off_x, curr_y+30, w, bar_h)
+ 	if clip_visible (clip, chart_rect):
+ 		draw_box_ticks (ctx, chart_rect, sec_w)
+-		draw_annotations (ctx, proc_tree, times, chart_rect)
++		draw_annotations (ctx, proc_tree, trace.times, chart_rect)
+ 		draw_chart (ctx, IO_COLOR, True, chart_rect, \
+-			    [(sample.time, sample.user + sample.sys + sample.io) for sample in cpu_stats], \
++			    [(sample.time, sample.user + sample.sys + sample.io) for sample in trace.cpu_stats], \
+ 			    proc_tree, None)
+ 		# render CPU load
+ 		draw_chart (ctx, CPU_COLOR, True, chart_rect, \
+-			    [(sample.time, sample.user + sample.sys) for sample in cpu_stats], \
++			    [(sample.time, sample.user + sample.sys) for sample in trace.cpu_stats], \
+ 			    proc_tree, None)
+ 
+ 	curr_y = curr_y + 30 + bar_h
+@@ -325,16 +325,16 @@ def render(ctx, options, xscale, headers, cpu_stats, \
+ 	chart_rect = (off_x, curr_y+30, w, bar_h)
+ 	if clip_visible (clip, chart_rect):
+ 		draw_box_ticks (ctx, chart_rect, sec_w)
+-		draw_annotations (ctx, proc_tree, times, chart_rect)
++		draw_annotations (ctx, proc_tree, trace.times, chart_rect)
+ 		draw_chart (ctx, IO_COLOR, True, chart_rect, \
+-			    [(sample.time, sample.util) for sample in disk_stats], \
++			    [(sample.time, sample.util) for sample in trace.disk_stats], \
+ 			    proc_tree, None)
+ 
+ 	# render disk throughput
+-	max_sample = max (disk_stats, key = lambda s: s.tput)
++	max_sample = max (trace.disk_stats, key = lambda s: s.tput)
+ 	if clip_visible (clip, chart_rect):
+ 		draw_chart (ctx, DISK_TPUT_COLOR, False, chart_rect, \
+-			    [(sample.time, sample.tput) for sample in disk_stats], \
++			    [(sample.time, sample.tput) for sample in trace.disk_stats], \
+ 			    proc_tree, None)
+ 
+ 	pos_x = off_x + ((max_sample.time - proc_tree.start_time) * w / proc_tree.duration)
+@@ -350,6 +350,7 @@ def render(ctx, options, xscale, headers, cpu_stats, \
+ 
+ 	# render mem usage
+ 	chart_rect = (off_x, curr_y+30, w, meminfo_bar_h)
++	mem_stats = trace.mem_stats
+ 	if mem_stats and clip_visible (clip, chart_rect):
+ 		mem_scale = max(sample.records['MemTotal'] - sample.records['MemFree'] for sample in mem_stats)
+ 		draw_legend_box(ctx, "Mem cached (scale: %u MiB)" % (float(mem_scale) / 1024), MEM_CACHED_COLOR, off_x, curr_y+20, leg_s)
+@@ -358,9 +359,9 @@ def render(ctx, options, xscale, headers, cpu_stats, \
+ 		draw_legend_line(ctx, "Swap (scale: %u MiB)" % max([(sample.records['SwapTotal'] - sample.records['SwapFree'])/1024 for sample in mem_stats]), \
+ 				 MEM_SWAP_COLOR, off_x + 480, curr_y+20, leg_s)
+ 		draw_box_ticks(ctx, chart_rect, sec_w)
+-		draw_annotations(ctx, proc_tree, times, chart_rect)
++		draw_annotations(ctx, proc_tree, trace.times, chart_rect)
+ 		draw_chart(ctx, MEM_BUFFERS_COLOR, True, chart_rect, \
+-			   [(sample.time, sample.records['MemTotal'] - sample.records['MemFree']) for sample in mem_stats], \
++			   [(sample.time, sample.records['MemTotal'] - sample.records['MemFree']) for sample in trace.mem_stats], \
+ 			   proc_tree, [0, mem_scale])
+ 		draw_chart(ctx, MEM_USED_COLOR, True, chart_rect, \
+ 			   [(sample.time, sample.records['MemTotal'] - sample.records['MemFree'] - sample.records['Buffers']) for sample in mem_stats], \
+@@ -379,7 +380,8 @@ def render(ctx, options, xscale, headers, cpu_stats, \
+ 	if proc_tree.taskstats and WITH_CUMULATIVE_CHART:
+ 		proc_height -= CUML_HEIGHT
+ 
+-	draw_process_bar_chart(ctx, clip, proc_tree, times, curr_y, w, proc_height, sec_w)
++	draw_process_bar_chart(ctx, clip, trace.proc_tree,
++			       trace.times, curr_y, w, proc_height, sec_w)
+ 
+ 	curr_y = proc_height
+ 	ctx.set_font_size(SIG_FONT_SIZE)
+diff --git a/pybootchartgui/gui.py b/pybootchartgui/gui.py
+index 16b820f..6bff47d 100644
+--- a/pybootchartgui/gui.py
++++ b/pybootchartgui/gui.py
+@@ -28,10 +28,10 @@ class PyBootchartWidget(gtk.DrawingArea):
+ 		'set-scroll-adjustments' : (gobject.SIGNAL_RUN_LAST, gobject.TYPE_NONE, (gtk.Adjustment, gtk.Adjustment))
+ 	}
+ 
+-	def __init__(self, res, options):
++	def __init__(self, trace, options):
+ 		gtk.DrawingArea.__init__(self)
+ 
+-		self.res = res
++		self.trace = trace
+ 		self.options = options
+ 
+ 		self.set_flags(gtk.CAN_FOCUS)
+@@ -52,7 +52,7 @@ class PyBootchartWidget(gtk.DrawingArea):
+ 		self.xscale = 1.0
+                 self.x, self.y = 0.0, 0.0
+ 
+-		self.chart_width, self.chart_height = draw.extents(self.xscale, *res)
++		self.chart_width, self.chart_height = draw.extents(self.xscale, self.trace)
+ 		self.hadj = None
+ 		self.vadj = None
+ 		self.hadj_changed_signal_id = None
+@@ -69,13 +69,13 @@ class PyBootchartWidget(gtk.DrawingArea):
+ 		cr.clip()
+ 		self.draw(cr, self.get_allocation())
+ 		return False
+-		
+-	def draw(self, cr, rect):	
++
++	def draw(self, cr, rect):
+ 		cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+ 		cr.paint()
+                 cr.scale(self.zoom_ratio, self.zoom_ratio)
+                 cr.translate(-self.x, -self.y)
+-		draw.render(cr, self.options, self.xscale, *self.res)
++		draw.render(cr, self.options, self.xscale, self.trace)
+ 
+ 	def position_changed(self):
+ 		self.emit("position-changed", self.x, self.y)
+@@ -96,7 +96,7 @@ class PyBootchartWidget(gtk.DrawingArea):
+ 	def set_xscale(self, xscale):
+ 	    old_mid_x = self.x + self.hadj.page_size / 2
+ 	    self.xscale = xscale
+-	    self.chart_width, self.chart_height = draw.extents(self.xscale, *self.res)
++	    self.chart_width, self.chart_height = draw.extents(self.xscale, self.trace)
+ 	    new_x = old_mid_x 
+ 	    self.zoom_image (self.zoom_ratio)
+ 
+@@ -112,7 +112,7 @@ class PyBootchartWidget(gtk.DrawingArea):
+ 	def on_zoom_out(self, action):
+             self.zoom_image(self.zoom_ratio / self.ZOOM_INCREMENT)
+ 
+-	def on_zoom_fit(self, action):		
++	def on_zoom_fit(self, action):
+             self.zoom_to_rect(self.get_allocation())
+ 
+ 	def on_zoom_100(self, action):
+@@ -135,7 +135,7 @@ class PyBootchartWidget(gtk.DrawingArea):
+                 elif event.keyval == gtk.keysyms.Down:
+                         self.y += self.POS_INCREMENT/self.zoom_ratio
+                 else:
+-                        return False                
++                        return False
+                 self.queue_draw()
+ 		self.position_changed()
+                 return True
+@@ -212,7 +212,7 @@ class PyBootchartWidget(gtk.DrawingArea):
+ 			hadj = gtk.Adjustment(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+ 		if vadj == None:
+ 			vadj = gtk.Adjustment(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+-			
++
+ 		if self.hadj_changed_signal_id != None and \
+ 		   self.hadj != None and hadj != self.hadj:
+ 			self.hadj.disconnect (self.hadj_changed_signal_id)
+@@ -257,20 +257,20 @@ class PyBootchartWindow(gtk.Window):
+ 	</ui>
+ 	'''
+ 
+-	def __init__(self, res, options):
++	def __init__(self, trace, options):
+ 		gtk.Window.__init__(self)
+ 
+ 		window = self
+-		window.set_title("Bootchart %s" % res[5])
++		window.set_title("Bootchart %s" % trace.filename)
+ 		window.set_default_size(750, 550)
+ 		vbox = gtk.VBox()
+ 		window.add(vbox)
+ 
+-		self.widget = PyBootchartWidget(res, options)
++		self.widget = PyBootchartWidget(trace, options)
+ 
+ 		# Create a UIManager instance
+ 		uimanager = self.uimanager = gtk.UIManager()
+-		
++
+ 		# Add the accelerator group to the toplevel window
+ 		accelgroup = uimanager.get_accel_group()
+ 		window.add_accel_group(accelgroup)
+@@ -318,7 +318,7 @@ class PyBootchartWindow(gtk.Window):
+ 
+ 		self.show_all()
+ 
+-def show(res, options):
+-	win = PyBootchartWindow(res, options)
++def show(trace, options):
++	win = PyBootchartWindow(trace, options)
+ 	win.connect('destroy', gtk.main_quit)
+ 	gtk.main()
+diff --git a/pybootchartgui/parsing.py b/pybootchartgui/parsing.py
+index 9fb50f5..c7603c3 100644
+--- a/pybootchartgui/parsing.py
++++ b/pybootchartgui/parsing.py
+@@ -26,6 +26,104 @@ from collections import defaultdict
+ from samples import *
+ from process_tree import ProcessTree
+ 
++# Parsing produces as its end result a 'Trace'
++
++class Trace:
++    def __init__(self, writer, paths, options):
++        self.headers = None
++	self.disk_stats = None
++	self.ps_stats = None
++	self.taskstats = None
++	self.cpu_stats = None
++	self.cmdline = None
++	self.kernel = None
++	self.filename = None
++	self.parent_map = None
++	self.mem_stats = None
++
++	parse_paths (writer, self, paths)
++	if not self.valid():
++		raise ParseError("empty state: '%s' does not contain a valid bootchart" % ", ".join(paths))
++
++	# Turn that parsed information into something more useful
++	# link processes into a tree of pointers, calculate statistics
++	self.compile(writer)
++
++	# Crop the chart to the end of the first idle period after the given
++	# process
++	if options.crop_after:
++            idle = crop(writer, options.crop_after, state)
++	else:
++            idle = None
++
++	# Annotate other times as the first start point of given process lists
++	self.times = [ idle ]
++	if options.annotate:
++            for procnames in options.annotate:
++                names = [x[:15] for x in procnames.split(",")]
++                for proc in state.ps_stats.process_list:
++                    if proc.cmd in names:
++		        times.append(proc.start_time)
++			break
++		    else:
++                        times.append(None)
++
++        self.proc_tree = ProcessTree(writer, self.kernel, self.ps_stats,
++				     self.headers.get("profile.process"),
++				     options.prune, idle, self.taskstats)
++#       return (state.headers, state.cpu_stats, state.disk_stats, state.mem_stats, proc_tree, times, state.filename)
++
++    def valid(self):
++        return self.headers != None and self.disk_stats != None and \
++	       self.ps_stats != None and self.cpu_stats != None
++
++
++    def compile(self, writer):
++
++	def find_parent_id_for(pid):
++		if pid is 0:
++			return 0
++		ppid = self.parent_map.get(pid)
++		if ppid:
++			# many of these double forks are so short lived
++			# that we have no samples, or process info for them
++			# so climb the parent hierarcy to find one
++			if int (ppid * 1000) not in self.ps_stats.process_map:
++#				print "Pid '%d' short lived with no process" % ppid
++				ppid = find_parent_id_for (ppid)
++#			else:
++#				print "Pid '%d' has an entry" % ppid
++		else:
++#			print "Pid '%d' missing from pid map" % pid
++			return 0
++		return ppid
++
++	# merge in the cmdline data
++	if self.cmdline is not None:
++		for proc in self.ps_stats.process_map.values():
++			rpid = int (proc.pid / 1000)
++			if rpid in self.cmdline:
++				cmd = self.cmdline[rpid]
++				proc.exe = cmd['exe']
++				proc.args = cmd['args']
++#			else:
++#				print "proc %d '%s' not in cmdline" % (rpid, proc.exe)
++
++	# re-parent any stray orphans if we can
++        if self.parent_map is not None:
++		for process in self.ps_stats.process_map.values():
++			ppid = find_parent_id_for (int(process.pid / 1000))
++			if ppid:
++				process.ppid = ppid * 1000
++
++	# stitch the tree together with pointers
++	for process in self.ps_stats.process_map.values():
++		process.set_parent (self.ps_stats.process_map)
++
++	# count on fingers variously
++	for process in self.ps_stats.process_map.values():
++		process.calc_stats (self.ps_stats.sample_period)
++
+ class ParseError(Exception):
+ 	"""Represents errors during parse of the bootchart."""
+ 	def __init__(self, value):
+@@ -74,7 +172,7 @@ def _parse_proc_ps_log(writer, file):
+ 			if line is '': continue
+ 			tokens = line.split(' ')
+ 
+-			offset = [index for index, token in enumerate(tokens[1:]) if token[-1] == ')'][0]		
++			offset = [index for index, token in enumerate(tokens[1:]) if token[-1] == ')'][0]
+ 			pid, cmd, state, ppid = int(tokens[0]), ' '.join(tokens[1:2+offset]), tokens[2+offset], int(tokens[3+offset])
+ 			userCpu, sysCpu, stime = int(tokens[13+offset]), int(tokens[14+offset]), int(tokens[21+offset])
+ 
+@@ -87,12 +185,12 @@ def _parse_proc_ps_log(writer, file):
+ 			else:
+ 				process = Process(writer, pid, cmd.strip('()'), ppid, min(time, stime))
+ 				processMap[pid] = process
+-			
++
+ 			if process.last_user_cpu_time is not None and process.last_sys_cpu_time is not None and ltime is not None:
+ 				userCpuLoad, sysCpuLoad = process.calc_load(userCpu, sysCpu, time - ltime)
+ 				cpuSample = CPUSample('null', userCpuLoad, sysCpuLoad, 0.0)
+ 				process.samples.append(ProcessSample(time, state, cpuSample))
+-			
++
+ 			process.last_user_cpu_time = userCpu
+ 			process.last_sys_cpu_time = sysCpu
+ 		ltime = time
+@@ -102,7 +200,7 @@ def _parse_proc_ps_log(writer, file):
+ 
+ 	startTime = timed_blocks[0][0]
+ 	avgSampleLength = (ltime - startTime)/(len (timed_blocks) - 1)
+-		
++
+ 	return ProcessStats (writer, processMap, len (timed_blocks), avgSampleLength, startTime, ltime)
+ 
+ def _parse_taskstats_log(writer, file):
+@@ -175,7 +273,7 @@ def _parse_taskstats_log(writer, file):
+ 						      delta_blkio_delay_ns,
+ 						      delta_swapin_delay_ns)
+ 				process.samples.append(ProcessSample(time, state, cpuSample))
+-			
++
+ 			process.last_cpu_ns = cpu_ns
+ 			process.last_blkio_delay_ns = blkio_delay_ns
+ 			process.last_swapin_delay_ns = swapin_delay_ns
+@@ -185,10 +283,10 @@ def _parse_taskstats_log(writer, file):
+ 		return None
+ 
+ 	startTime = timed_blocks[0][0]
+-	avgSampleLength = (ltime - startTime)/(len(timed_blocks)-1)	
+-		
++	avgSampleLength = (ltime - startTime)/(len(timed_blocks)-1)
++
+ 	return ProcessStats (writer, processMap, len (timed_blocks), avgSampleLength, startTime, ltime)
+-	
++
+ def _parse_proc_stat_log(file):
+ 	samples = []
+ 	ltimes = None
+@@ -421,72 +519,6 @@ def get_num_cpus(headers):
+         return 1
+     return max (int(mat.group(1)), 1)
+ 
+-class ParserState:
+-    def __init__(self):
+-        self.headers = None
+-	self.disk_stats = None
+-	self.ps_stats = None
+-	self.taskstats = None
+-	self.cpu_stats = None
+-	self.cmdline = None
+-	self.kernel = None
+-	self.filename = None
+-	self.parent_map = None
+-	self.mem_stats = None
+-
+-    def valid(self):
+-        return self.headers != None and self.disk_stats != None and \
+-	       self.ps_stats != None and self.cpu_stats != None
+-
+-
+-    def compile(self, writer):
+-
+-	def find_parent_id_for(pid):
+-		if pid is 0:
+-			return 0
+-		ppid = self.parent_map.get(pid)
+-		if ppid:
+-			# many of these double forks are so short lived
+-			# that we have no samples, or process info for them
+-			# so climb the parent hierarcy to find one
+-			if int (ppid * 1000) not in self.ps_stats.process_map:
+-#				print "Pid '%d' short lived with no process" % ppid
+-				ppid = find_parent_id_for (ppid)
+-#			else:
+-#				print "Pid '%d' has an entry" % ppid
+-		else:
+-#			print "Pid '%d' missing from pid map" % pid
+-			return 0
+-		return ppid
+-
+-	# merge in the cmdline data
+-	if self.cmdline is not None:
+-		for proc in self.ps_stats.process_map.values():
+-			rpid = int (proc.pid / 1000)
+-			if rpid in self.cmdline:
+-				cmd = self.cmdline[rpid]
+-				proc.exe = cmd['exe']
+-				proc.args = cmd['args']
+-#			else:
+-#				print "proc %d '%s' not in cmdline" % (rpid, proc.exe)
+-
+-	# re-parent any stray orphans if we can
+-        if self.parent_map is not None:
+-		for process in self.ps_stats.process_map.values():
+-			ppid = find_parent_id_for (int(process.pid / 1000))
+-			if ppid:
+-				process.ppid = ppid * 1000
+-
+-	# stitch the tree together with pointers
+-	for process in self.ps_stats.process_map.values():
+-		process.set_parent (self.ps_stats.process_map)
+-
+-	# count on fingers variously
+-	for process in self.ps_stats.process_map.values():
+-		process.calc_stats (self.ps_stats.sample_period)
+-	
+-
+-
+ def _do_parse(writer, state, name, file):
+     writer.status("parsing '%s'" % name)
+     t1 = clock()
+@@ -621,35 +653,3 @@ def crop(writer, crop_after, state):
+             proc.samples.pop()
+ 
+     return idle
+-
+-
+-def parse(writer, paths, prune, crop_after, annotate):
+-    state = parse_paths (writer, ParserState(), paths)
+-    if not state.valid():
+-        raise ParseError("empty state: '%s' does not contain a valid bootchart" % ", ".join(paths))
+-
+-    # Turn that parsed information into something more useful
+-    # link processes into a tree of pointers, calculate statistics
+-    state.compile(writer)
+-
+-    # Crop the chart to the end of the first idle period after the given
+-    # process
+-    if crop_after:
+-        idle = crop(writer, crop_after, state)
+-    else:
+-        idle = None
+-    # Annotate other times as the first start point of given process lists
+-    times = [ idle ]
+-    if annotate:
+-        for procnames in annotate:
+-            names = [x[:15] for x in procnames.split(",")]
+-            for proc in state.ps_stats.process_list:
+-                if proc.cmd in names:
+-		            times.append(proc.start_time)
+-		            break
+-	    else:
+-                times.append(None)
+-
+-    monitored_app = state.headers.get("profile.process")
+-    proc_tree = ProcessTree(writer, state.kernel, state.ps_stats, monitored_app, prune, idle, state.taskstats)
+-    return (state.headers, state.cpu_stats, state.disk_stats, state.mem_stats, proc_tree, times, state.filename)
+diff --git a/pybootchartgui/samples.py b/pybootchartgui/samples.py
+index 9a4bb3b..3fd24e1 100644
+--- a/pybootchartgui/samples.py
++++ b/pybootchartgui/samples.py
+@@ -46,7 +46,7 @@ class ProcessSample:
+ 		self.time = time
+ 		self.state = state
+ 		self.cpu_sample = cpu_sample
+-		
++
+ 	def __str__(self):
+ 		return str(self.time) + "\t" + str(self.state) + "\t" + str(self.cpu_sample)
+ 
+@@ -60,7 +60,7 @@ class ProcessStats:
+ 		writer.info ("%d samples, avg. sample length %f" % (self.sample_count, self.sample_period))
+ 		writer.info ("process list size: %d" % len (self.process_map.values()))
+ 
+-class Process:	
++class Process:
+ 	def __init__(self, writer, pid, cmd, ppid, start_time):
+ 		self.writer = writer
+ 		self.pid = pid
+@@ -91,23 +91,22 @@ class Process:
+ 		split.last_swapin_delay_ns = self.last_swapin_delay_ns
+ 
+ 		return split
+-	
++
+ 	def __str__(self):
+ 		return " ".join([str(self.pid), self.cmd, str(self.ppid), '[ ' + str(len(self.samples)) + ' samples ]' ])
+-	
++
+ 	def calc_stats(self, samplePeriod):
+ 		if self.samples:
+ 			firstSample = self.samples[0]
+ 			lastSample = self.samples[-1]
+ 			self.start_time = min(firstSample.time, self.start_time)
+ 			self.duration = lastSample.time - self.start_time + samplePeriod
+-			
++
+ 		activeCount = sum( [1 for sample in self.samples if sample.cpu_sample and sample.cpu_sample.sys + sample.cpu_sample.user + sample.cpu_sample.io > 0.0] )
+ 		activeCount = activeCount + sum( [1 for sample in self.samples if sample.state == 'D'] )
+ 		self.active = (activeCount>2)
+-		
++
+ 	def calc_load(self, userCpu, sysCpu, interval):
+-		
+ 		userCpuLoad = float(userCpu - self.last_user_cpu_time) / interval
+ 		sysCpuLoad = float(sysCpu - self.last_sys_cpu_time) / interval
+ 		cpuLoad = userCpuLoad + sysCpuLoad
+@@ -116,7 +115,7 @@ class Process:
+ 			userCpuLoad = userCpuLoad / cpuLoad
+ 			sysCpuLoad = sysCpuLoad / cpuLoad
+ 		return (userCpuLoad, sysCpuLoad)
+-	
++
+ 	def set_parent(self, processMap):
+ 		if self.ppid != None:
+ 			self.parent = processMap.get (self.ppid)
+-- 
+1.7.3.1
+

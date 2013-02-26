@@ -1,0 +1,244 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.306
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.306
+Problem:    When closing a window there is a chance that deleting a scrollbar
+	    triggers a GUI resize, which uses the window while it is not in a
+	    valid state.
+Solution:   Set the buffer pointer to NULL to be able to detect the invalid
+	    situation.  Fix a few places that used the buffer pointer
+	    incorrectly.
+Files:	    src/buffer.c, src/ex_cmds.c, src/term.c, src/window.c
+
+
+*** ../vim-7.3.305/src/buffer.c	2011-05-19 13:40:47.000000000 +0200
+--- src/buffer.c	2011-09-10 13:46:59.000000000 +0200
+***************
+*** 416,421 ****
+--- 416,423 ----
+  #endif
+  
+      buf_freeall(buf, (del_buf ? BFA_DEL : 0) + (wipe_buf ? BFA_WIPE : 0));
++     if (win_valid(win) && win->w_buffer == buf)
++ 	win->w_buffer = NULL;  /* make sure we don't use the buffer now */
+  
+  #ifdef FEAT_AUTOCMD
+      /* Autocommands may have deleted the buffer. */
+***************
+*** 560,565 ****
+--- 562,571 ----
+  #ifdef FEAT_DIFF
+      diff_buf_delete(buf);	    /* Can't use 'diff' for unloaded buffer. */
+  #endif
++ #ifdef FEAT_SYN_HL
++     if (curwin->w_buffer == buf)
++ 	reset_synblock(curwin);	    /* remove any ownsyntax */
++ #endif
+  
+  #ifdef FEAT_FOLDING
+      /* No folds in an empty buffer. */
+***************
+*** 1346,1351 ****
+--- 1352,1361 ----
+  # endif
+  #endif
+      {
++ #ifdef FEAT_SYN_HL
++ 	if (prevbuf == curwin->w_buffer)
++ 	    reset_synblock(curwin);
++ #endif
+  #ifdef FEAT_WINDOWS
+  	if (unload)
+  	    close_windows(prevbuf, FALSE);
+***************
+*** 1395,1404 ****
+      foldUpdateAll(curwin);	/* update folds (later). */
+  #endif
+  
+- #ifdef FEAT_SYN_HL
+-     reset_synblock(curwin);
+-     curwin->w_s = &(buf->b_s);
+- #endif
+      /* Get the buffer in the current window. */
+      curwin->w_buffer = buf;
+      curbuf = buf;
+--- 1405,1410 ----
+***************
+*** 1409,1414 ****
+--- 1415,1424 ----
+  	diff_buf_add(curbuf);
+  #endif
+  
++ #ifdef FEAT_SYN_HL
++     curwin->w_s = &(buf->b_s);
++ #endif
++ 
+      /* Cursor on first line by default. */
+      curwin->w_cursor.lnum = 1;
+      curwin->w_cursor.col = 0;
+*** ../vim-7.3.305/src/ex_cmds.c	2011-07-07 16:20:45.000000000 +0200
+--- src/ex_cmds.c	2011-09-10 13:39:13.000000000 +0200
+***************
+*** 3619,3628 ****
+       */
+      check_arg_idx(curwin);
+  
+- #ifdef FEAT_SYN_HL
+-     reset_synblock(curwin);	    /* remove any ownsyntax */
+- #endif
+- 
+  #ifdef FEAT_AUTOCMD
+      if (!auto_buf)
+  #endif
+--- 3619,3624 ----
+*** ../vim-7.3.305/src/term.c	2011-05-10 16:41:13.000000000 +0200
+--- src/term.c	2011-09-14 14:39:39.000000000 +0200
+***************
+*** 3017,3028 ****
+      if (width < 0 || height < 0)    /* just checking... */
+  	return;
+  
+!     if (State == HITRETURN || State == SETWSIZE) /* postpone the resizing */
+      {
+  	State = SETWSIZE;
+  	return;
+      }
+  
+      ++busy;
+  
+  #ifdef AMIGA
+--- 3017,3036 ----
+      if (width < 0 || height < 0)    /* just checking... */
+  	return;
+  
+!     if (State == HITRETURN || State == SETWSIZE)
+      {
++ 	/* postpone the resizing */
+  	State = SETWSIZE;
+  	return;
+      }
+  
++     /* curwin->w_buffer can be NULL when we are closing a window and the
++      * buffer has already been closed and removing a scrollbar causes a resize
++      * event. Don't resize then, it will happen after entering another buffer.
++      */
++     if (curwin->w_buffer == NULL)
++ 	return;
++ 
+      ++busy;
+  
+  #ifdef AMIGA
+*** ../vim-7.3.305/src/window.c	2011-01-08 14:45:57.000000000 +0100
+--- src/window.c	2011-09-10 14:04:56.000000000 +0200
+***************
+*** 1226,1240 ****
+      }
+      newp->w_tagstackidx = oldp->w_tagstackidx;
+      newp->w_tagstacklen = oldp->w_tagstacklen;
+! # ifdef FEAT_FOLDING
+      copyFoldingState(oldp, newp);
+! # endif
+  
+      win_init_some(newp, oldp);
+  
+! # ifdef FEAT_SYN_HL
+      check_colorcolumn(newp);
+! # endif
+  }
+  
+  /*
+--- 1226,1240 ----
+      }
+      newp->w_tagstackidx = oldp->w_tagstackidx;
+      newp->w_tagstacklen = oldp->w_tagstacklen;
+! #ifdef FEAT_FOLDING
+      copyFoldingState(oldp, newp);
+! #endif
+  
+      win_init_some(newp, oldp);
+  
+! #ifdef FEAT_SYN_HL
+      check_colorcolumn(newp);
+! #endif
+  }
+  
+  /*
+***************
+*** 2212,2217 ****
+--- 2212,2222 ----
+  	out_flush();
+  #endif
+  
++ #ifdef FEAT_SYN_HL
++     /* Free independent synblock before the buffer is freed. */
++     reset_synblock(win);
++ #endif
++ 
+      /*
+       * Close the link to the buffer.
+       */
+***************
+*** 2222,2228 ****
+      if (!win_valid(win) || last_window() || curtab != prev_curtab)
+  	return;
+  
+!     /* Free the memory used for the window. */
+      wp = win_free_mem(win, &dir, NULL);
+  
+      /* Make sure curwin isn't invalid.  It can cause severe trouble when
+--- 2227,2234 ----
+      if (!win_valid(win) || last_window() || curtab != prev_curtab)
+  	return;
+  
+!     /* Free the memory used for the window and get the window that received
+!      * the screen space. */
+      wp = win_free_mem(win, &dir, NULL);
+  
+      /* Make sure curwin isn't invalid.  It can cause severe trouble when
+***************
+*** 3247,3252 ****
+--- 3253,3261 ----
+      else
+  	wp->w_farsi = W_CONV;
+  #endif
++ #ifdef FEAT_SYN_HL
++     wp->w_s = &wp->w_buffer->b_s;
++ #endif
+  }
+  
+  /*
+***************
+*** 4437,4443 ****
+  #endif /* FEAT_GUI */
+  
+  #ifdef FEAT_SYN_HL
+-     reset_synblock(wp);  /* free independent synblock */
+      vim_free(wp->w_p_cc_cols);
+  #endif
+  
+--- 4446,4451 ----
+*** ../vim-7.3.305/src/version.c	2011-09-14 14:33:47.000000000 +0200
+--- src/version.c	2011-09-14 14:35:30.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     306,
+  /**/
+
+-- 
+A consultant is a person who takes your money and annoys your employees while
+tirelessly searching for the best way to extend the consulting contract.
+				(Scott Adams - The Dilbert principle)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,263 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.216
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.216
+Problem:    When recovering a file a range of lines is missing. (Charles Jie)
+Solution:   Reset the index when advancing to the next pointer block.  Add a
+            test to verify recovery works.
+Files:      src/memline.c, src/testdir/test78.in, src/testdir/test78.ok,
+            src/testdir/Makefile, src/testdir/Make_amiga.mak,
+            src/testdir/Make_dos.mak, src/testdir/Make_ming.mak,
+            src/testdir/Make_os2.mak, src/testdir/Make_vms.mms
+
+
+*** ../mercurial/vim73/src/memline.c	2011-05-10 16:41:13.000000000 +0200
+--- src/memline.c	2011-06-13 00:56:09.000000000 +0200
+***************
+*** 1507,1512 ****
+--- 1507,1513 ----
+  		    bnum = pp->pb_pointer[idx].pe_bnum;
+  		    line_count = pp->pb_pointer[idx].pe_line_count;
+  		    page_count = pp->pb_pointer[idx].pe_page_count;
++ 		    idx = 0;
+  		    continue;
+  		}
+  	    }
+*** ../mercurial/vim73/src/testdir/test78.in	2011-06-13 01:05:54.000000000 +0200
+--- src/testdir/test78.in	2011-06-13 00:54:48.000000000 +0200
+***************
+*** 0 ****
+--- 1,46 ----
++ Inserts 10000 lines with text to fill the swap file with two levels of pointer
++ blocks.  Then recovers from the swap file and checks all text is restored.
++ 
++ We need about 10000 lines of 100 characters to get two levels of pointer
++ blocks.
++ 
++ STARTTEST
++ :so small.vim
++ :set nocp fileformat=unix undolevels=-1
++ :e! Xtest
++ ggdG
++ :let text = "\tabcdefghijklmnoparstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnoparstuvwxyz0123456789"
++ :let i = 1
++ :let linecount = 10000
++ :while i <= linecount | call append(i - 1, i . text) | let i += 1 | endwhile
++ :preserve
++ :" get the name of the swap file
++ :redir => swapname
++ :swapname
++ :redir END
++ :let swapname = substitute(swapname, '[[:blank:][:cntrl:]]*\(.\{-}\)[[:blank:][:cntrl:]]*$', '\1', '')
++ :" make a copy of the swap file in Xswap
++ :set bin
++ :exe 'sp ' . swapname
++ :w! Xswap
++ :echo swapname
++ :set nobin
++ :new
++ :only!
++ :bwipe! Xtest
++ :call rename('Xswap', swapname)
++ :recover Xtest
++ :call delete(swapname)
++ :new
++ :call append(0, 'recovery start')
++ :wincmd w
++ :let linedollar = line('$')
++ :if linedollar < linecount | exe 'wincmd w' | call append(line('$'), "expected " . linecount . " lines but found only " . linedollar) | exe 'wincmd w' | let linecount = linedollar | endif
++ :let i = 1
++ :while i <= linecount | if getline(i) != i . text | exe 'wincmd w' | call append(line('$'), i . ' differs') | exe 'wincmd w' | endif | let i += 1 | endwhile
++ :q!
++ :call append(line('$'), 'recovery end')
++ :w! test.out
++ :qa!
++ ENDTEST
++ 
+*** ../mercurial/vim73/src/testdir/test78.ok	2011-06-13 01:05:54.000000000 +0200
+--- src/testdir/test78.ok	2011-06-13 00:25:05.000000000 +0200
+***************
+*** 0 ****
+--- 1,3 ----
++ recovery start
++ 
++ recovery end
+*** ../mercurial/vim73/src/testdir/Makefile	2011-03-22 18:10:34.000000000 +0100
+--- src/testdir/Makefile	2011-06-13 00:35:46.000000000 +0200
+***************
+*** 25,31 ****
+  		test59.out test60.out test61.out test62.out test63.out \
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 25,31 ----
+  		test59.out test60.out test61.out test62.out test63.out \
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out test78.out
+  
+  SCRIPTS_GUI = test16.out
+  
+***************
+*** 71,77 ****
+  		  fi \
+  		else echo $* NO OUTPUT >>test.log; \
+  		fi"
+! #	-rm -rf X* test.ok viminfo
+  
+  test49.out: test49.vim
+  
+--- 71,77 ----
+  		  fi \
+  		else echo $* NO OUTPUT >>test.log; \
+  		fi"
+! 	-rm -rf X* test.ok viminfo
+  
+  test49.out: test49.vim
+  
+*** ../mercurial/vim73/src/testdir/Make_amiga.mak	2011-03-22 18:10:34.000000000 +0100
+--- src/testdir/Make_amiga.mak	2011-06-13 01:00:42.000000000 +0200
+***************
+*** 28,34 ****
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out
+  
+  .SUFFIXES: .in .out
+  
+--- 28,34 ----
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out test78.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 125,127 ****
+--- 125,128 ----
+  test75.out: test75.in
+  test76.out: test76.in
+  test77.out: test77.in
++ test78.out: test78.in
+*** ../mercurial/vim73/src/testdir/Make_dos.mak	2011-03-22 18:10:34.000000000 +0100
+--- src/testdir/Make_dos.mak	2011-06-13 01:00:55.000000000 +0200
+***************
+*** 28,34 ****
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 28,34 ----
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out test78.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../mercurial/vim73/src/testdir/Make_ming.mak	2011-03-22 18:10:34.000000000 +0100
+--- src/testdir/Make_ming.mak	2011-06-13 01:01:02.000000000 +0200
+***************
+*** 48,54 ****
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 48,54 ----
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out test78.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../mercurial/vim73/src/testdir/Make_os2.mak	2011-03-22 18:10:34.000000000 +0100
+--- src/testdir/Make_os2.mak	2011-06-13 01:01:08.000000000 +0200
+***************
+*** 28,34 ****
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out
+  
+  .SUFFIXES: .in .out
+  
+--- 28,34 ----
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out test78.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../mercurial/vim73/src/testdir/Make_vms.mms	2011-04-28 19:05:01.000000000 +0200
+--- src/testdir/Make_vms.mms	2011-06-13 01:01:29.000000000 +0200
+***************
+*** 4,10 ****
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2011 Mar 03
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+--- 4,10 ----
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2011 Jun 13
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+***************
+*** 75,81 ****
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+! 	 test77.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+--- 75,81 ----
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+! 	 test77.out test78.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+*** ../vim-7.3.215/src/version.c	2011-06-12 22:13:37.000000000 +0200
+--- src/version.c	2011-06-13 00:59:02.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     216,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+172. You join listservers just for the extra e-mail.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

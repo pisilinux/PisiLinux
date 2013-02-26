@@ -1,0 +1,224 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.196
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.196
+Problem:    Can't intercept a character that is going to be inserted.
+Solution:   Add the InsertCharPre autocommand event. (Jakson A. Aquino)
+Files:	    runtime/doc/autocmd.txt, runtime/doc/eval.txt,
+	    runtime/doc/map.txt, src/edit.c, src/eval.c, src/fileio.c,
+	    src/vim.h
+
+
+*** ../mercurial/vim73/runtime/doc/autocmd.txt	2011-04-28 19:01:26.000000000 +0200
+--- runtime/doc/autocmd.txt	2011-05-19 17:12:17.000000000 +0200
+***************
+*** 299,304 ****
+--- 299,306 ----
+  |InsertEnter|		starting Insert mode
+  |InsertChange|		when typing <Insert> while in Insert or Replace mode
+  |InsertLeave|		when leaving Insert mode
++ |InsertCharPre|		when a character was typed in Insert mode, before
++ 			inserting it
+  
+  |ColorScheme|		after loading a color scheme
+  
+***************
+*** 657,662 ****
+--- 659,675 ----
+  				indicates the new mode.
+  				Be careful not to move the cursor or do
+  				anything else that the user does not expect.
++ 							*InsertCharPre*
++ InsertCharPre			When a character is typed in Insert mode,
++ 				before inserting the char.
++ 				The |v:char| variable indicates the char typed
++ 				and can be changed during the event to insert
++ 				a different character.  When |v:char| is set
++ 				to more than one character this text is
++ 				inserted literally.
++ 				It is not allowed to change the text |textlock|.
++ 				The event is not triggered when 'paste' is
++ 				set.
+  							*InsertEnter*
+  InsertEnter			Just before starting Insert mode.  Also for
+  				Replace mode and Virtual Replace mode.  The
+*** ../mercurial/vim73/runtime/doc/eval.txt	2011-05-19 12:22:41.000000000 +0200
+--- runtime/doc/eval.txt	2011-05-19 16:55:58.000000000 +0200
+***************
+*** 1293,1298 ****
+--- 1293,1299 ----
+  					*v:char* *char-variable*
+  v:char		Argument for evaluating 'formatexpr' and used for the typed
+  		character when using <expr> in an abbreviation |:map-<expr>|.
++ 		It is also used by the |InsertPreChar| event.
+  
+  			*v:charconvert_from* *charconvert_from-variable*
+  v:charconvert_from
+*** ../mercurial/vim73/runtime/doc/map.txt	2011-05-10 17:17:38.000000000 +0200
+--- runtime/doc/map.txt	2011-05-19 16:40:34.000000000 +0200
+***************
+*** 226,232 ****
+  
+  For abbreviations |v:char| is set to the character that was typed to trigger
+  the abbreviation.  You can use this to decide how to expand the {lhs}.  You
+! can't change v:char and you should not insert it.
+  
+  Be very careful about side effects!  The expression is evaluated while
+  obtaining characters, you may very well make the command dysfunctional.
+--- 226,232 ----
+  
+  For abbreviations |v:char| is set to the character that was typed to trigger
+  the abbreviation.  You can use this to decide how to expand the {lhs}.  You
+! you should not either insert or change the v:char.
+  
+  Be very careful about side effects!  The expression is evaluated while
+  obtaining characters, you may very well make the command dysfunctional.
+*** ../mercurial/vim73/src/edit.c	2011-05-10 14:22:10.000000000 +0200
+--- src/edit.c	2011-05-19 17:20:53.000000000 +0200
+***************
+*** 1381,1390 ****
+  		goto do_intr;
+  #endif
+  
+  	    /*
+  	     * Insert a nomal character.
+  	     */
+! normalchar:
+  #ifdef FEAT_SMARTINDENT
+  	    /* Try to perform smart-indenting. */
+  	    ins_try_si(c);
+--- 1381,1425 ----
+  		goto do_intr;
+  #endif
+  
++ normalchar:
+  	    /*
+  	     * Insert a nomal character.
+  	     */
+! #ifdef FEAT_AUTOCMD
+! 	    if (!p_paste)
+! 	    {
+! 		/* Trigger the InsertCharPre event.  Lock the text to avoid
+! 		 * weird things from happening. */
+! 		set_vim_var_char(c);
+! 		++textlock;
+! 		if (apply_autocmds(EVENT_INSERTCHARPRE, NULL, NULL,
+! 							       FALSE, curbuf))
+! 		{
+! 		    /* Get the new value of v:char.  If it is more than one
+! 		     * character insert it literally. */
+! 		    char_u *s = get_vim_var_str(VV_CHAR);
+! 		    if (MB_CHARLEN(s) > 1)
+! 		    {
+! 			if (stop_arrow() != FAIL)
+! 			{
+! 			    ins_str(s);
+! 			    AppendToRedobuffLit(s, -1);
+! 			}
+! 			c = NUL;
+! 		    }
+! 		    else
+! 			c = PTR2CHAR(s);
+! 		}
+! 
+! 		set_vim_var_string(VV_CHAR, NULL, -1);
+! 		--textlock;
+! 
+! 		/* If the new value is an empty string then don't insert a
+! 		 * char. */
+! 		if (c == NUL)
+! 		    break;
+! 	    }
+! #endif
+  #ifdef FEAT_SMARTINDENT
+  	    /* Try to perform smart-indenting. */
+  	    ins_try_si(c);
+***************
+*** 3491,3501 ****
+  	    return;
+      }
+      p += len;
+! #ifdef FEAT_MBYTE
+!     c = mb_ptr2char(p);
+! #else
+!     c = *p;
+! #endif
+      ins_compl_addleader(c);
+  }
+  
+--- 3526,3532 ----
+  	    return;
+      }
+      p += len;
+!     c = PTR2CHAR(p);
+      ins_compl_addleader(c);
+  }
+  
+*** ../mercurial/vim73/src/eval.c	2011-05-19 14:59:07.000000000 +0200
+--- src/eval.c	2011-05-19 16:40:39.000000000 +0200
+***************
+*** 352,358 ****
+      {VV_NAME("swapname",	 VAR_STRING), VV_RO},
+      {VV_NAME("swapchoice",	 VAR_STRING), 0},
+      {VV_NAME("swapcommand",	 VAR_STRING), VV_RO},
+!     {VV_NAME("char",		 VAR_STRING), VV_RO},
+      {VV_NAME("mouse_win",	 VAR_NUMBER), 0},
+      {VV_NAME("mouse_lnum",	 VAR_NUMBER), 0},
+      {VV_NAME("mouse_col",	 VAR_NUMBER), 0},
+--- 352,358 ----
+      {VV_NAME("swapname",	 VAR_STRING), VV_RO},
+      {VV_NAME("swapchoice",	 VAR_STRING), 0},
+      {VV_NAME("swapcommand",	 VAR_STRING), VV_RO},
+!     {VV_NAME("char",		 VAR_STRING), 0},
+      {VV_NAME("mouse_win",	 VAR_NUMBER), 0},
+      {VV_NAME("mouse_lnum",	 VAR_NUMBER), 0},
+      {VV_NAME("mouse_col",	 VAR_NUMBER), 0},
+*** ../mercurial/vim73/src/fileio.c	2011-05-10 16:41:13.000000000 +0200
+--- src/fileio.c	2011-05-19 16:40:39.000000000 +0200
+***************
+*** 7662,7667 ****
+--- 7662,7668 ----
+      {"InsertChange",	EVENT_INSERTCHANGE},
+      {"InsertEnter",	EVENT_INSERTENTER},
+      {"InsertLeave",	EVENT_INSERTLEAVE},
++     {"InsertCharPre",	EVENT_INSERTCHARPRE},
+      {"MenuPopup",	EVENT_MENUPOPUP},
+      {"QuickFixCmdPost",	EVENT_QUICKFIXCMDPOST},
+      {"QuickFixCmdPre",	EVENT_QUICKFIXCMDPRE},
+*** ../mercurial/vim73/src/vim.h	2011-05-10 16:41:13.000000000 +0200
+--- src/vim.h	2011-05-19 16:40:39.000000000 +0200
+***************
+*** 1274,1279 ****
+--- 1274,1280 ----
+      EVENT_WINENTER,		/* after entering a window */
+      EVENT_WINLEAVE,		/* before leaving a window */
+      EVENT_ENCODINGCHANGED,	/* after changing the 'encoding' option */
++     EVENT_INSERTCHARPRE,	/* before inserting a char */
+      EVENT_CURSORHOLD,		/* cursor in same position for a while */
+      EVENT_CURSORHOLDI,		/* idem, in Insert mode */
+      EVENT_FUNCUNDEFINED,	/* if calling a function which doesn't exist */
+*** ../vim-7.3.195/src/version.c	2011-05-19 16:35:05.000000000 +0200
+--- src/version.c	2011-05-19 17:15:41.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     196,
+  /**/
+
+-- 
+I AM THANKFUL...
+...for the mess to clean after a party because it means I have
+been surrounded by friends.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,61 @@
+#!/bin/sh
+# If we are running dhclient, shutdown running instances cleanly and
+# bring them back up on resume.
+
+. "${PM_FUNCTIONS}"
+
+PM_DHCLIENT_RUNDIR="${PM_UTILS_RUNDIR}/network"
+PM_DHCLIENT_SUSPEND="${PM_DHCLIENT_RUNDIR}/dhclient.suspend"
+
+suspend_dhclient() {
+    [ ! -d /etc/sysconfig/network-scripts ] && return
+    [ ! -x /sbin/ifdown ] && return
+
+    [ ! -d ${PM_DHCLIENT_RUNDIR} ] && /bin/mkdir -p ${PM_DHCLIENT_RUNDIR}
+    [ -f ${PM_DHCLIENT_SUSPEND} ] && /bin/rm -f ${PM_DHCLIENT_SUSPEND}
+
+    cd /etc/sysconfig/network-scripts
+    for ifcfg in ifcfg-* ; do
+        # Clear relevant parameters set by previous interface
+        # (lo doesn't set them)
+        NM_CONTROLLED=
+        BOOTPROTO=
+
+        . ./${ifcfg}
+
+        if [ "${NM_CONTROLLED}" = "no" ] || [ "${NM_CONTROLLED}" = "n" ] || [ "${NM_CONTROLLED}" = "false" ]; then
+            if [ "${BOOTPROTO}" = "bootp" ] || [ "${BOOTPROTO}" = "dhcp" ] || [ -z "${BOOTPROTO}" ]; then
+                # device is not NetworkManager controlled and uses dhcp,
+                # now see if it's actually up at the moment
+                /sbin/ip link show ${DEVICE} | /bin/grep -qE "state (UP|UNKNOWN)" >/dev/null 2>&1
+                if [ $? -eq 0 ]; then
+                    echo "${DEVICE}" >> ${PM_DHCLIENT_SUSPEND}
+                    /sbin/ifdown ${DEVICE}
+                fi
+            fi
+        fi
+    done
+}
+
+resume_dhclient() {
+    [ ! -f ${PM_DHCLIENT_SUSPEND} ] && return
+    [ ! -x /sbin/ifup ] && return
+
+    cd /etc/sysconfig/network-scripts
+    while read device ; do
+        /sbin/ifup ${device}
+    done < ${PM_DHCLIENT_SUSPEND}
+
+    /bin/rm -f ${PM_DHCLIENT_SUSPEND}
+}
+
+case "$1" in
+    hibernate|suspend)
+        suspend_dhclient
+        ;;
+    thaw|resume)
+        resume_dhclient
+        ;;
+    *) exit $NA
+        ;;
+esac

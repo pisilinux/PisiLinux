@@ -1,0 +1,255 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.576
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.576
+Problem:    Formatting of lists inside comments is not right yet.
+Solution:   Use another solution and add a test. (Tor Perkins)
+Files:	    src/edit.c, src/misc1.c, src/testdir/test68.in,
+	    src/testdir/test69.ok
+
+
+*** ../vim-7.3.575/src/edit.c	2012-06-20 22:55:56.000000000 +0200
+--- src/edit.c	2012-06-29 14:10:36.000000000 +0200
+***************
+*** 6320,6333 ****
+  	    if (!(flags & INSCHAR_COM_LIST))
+  	    {
+  		/*
+! 		 * This section is for numeric lists w/o comments.  If comment
+! 		 * indents are needed with numeric lists (formatoptions=nq),
+! 		 * then the INSCHAR_COM_LIST flag will cause the corresponding
+! 		 * OPENLINE_COM_LIST flag to be passed through to open_line()
+! 		 * (as seen above)...
+  		 */
+  		if (second_indent < 0 && has_format_option(FO_Q_NUMBER))
+! 		    second_indent = get_number_indent(curwin->w_cursor.lnum -1);
+  		if (second_indent >= 0)
+  		{
+  #ifdef FEAT_VREPLACE
+--- 6320,6334 ----
+  	    if (!(flags & INSCHAR_COM_LIST))
+  	    {
+  		/*
+! 		 * This section is for auto-wrap of numeric lists.  When not
+! 		 * in insert mode (i.e. format_lines()), the INSCHAR_COM_LIST
+! 		 * flag will be set and open_line() will handle it (as seen
+! 		 * above).  The code here (and in get_number_indent()) will
+! 		 * recognize comments if needed...
+  		 */
+  		if (second_indent < 0 && has_format_option(FO_Q_NUMBER))
+! 		    second_indent =
+! 				 get_number_indent(curwin->w_cursor.lnum - 1);
+  		if (second_indent >= 0)
+  		{
+  #ifdef FEAT_VREPLACE
+***************
+*** 6336,6342 ****
+--- 6337,6367 ----
+  							    FALSE, NUL, TRUE);
+  		    else
+  #endif
++ #ifdef FEAT_COMMENTS
++ 			if (leader_len > 0 && second_indent - leader_len > 0)
++ 		    {
++ 			int i;
++ 			int padding = second_indent - leader_len;
++ 
++ 			/* We started at the first_line of a numbered list
++ 			 * that has a comment.  the open_line() function has
++ 			 * inserted the proper comment leader and positioned
++ 			 * the cursor at the end of the split line.  Now we
++ 			 * add the additional whitespace needed after the
++ 			 * comment leader for the numbered list.  */
++ 			for (i = 0; i < padding; i++)
++ 			{
++ 			    ins_str((char_u *)" ");
++ 			    changed_bytes(curwin->w_cursor.lnum, leader_len);
++ 			}
++ 		    }
++ 		    else
++ 		    {
++ #endif
+  			(void)set_indent(second_indent, SIN_CHANGED);
++ #ifdef FEAT_COMMENTS
++ 		    }
++ #endif
+  		}
+  	    }
+  	    first_line = FALSE;
+*** ../vim-7.3.575/src/misc1.c	2012-06-20 17:56:06.000000000 +0200
+--- src/misc1.c	2012-06-29 14:10:12.000000000 +0200
+***************
+*** 424,491 ****
+      colnr_T	col;
+      pos_T	pos;
+  
+      if (lnum > curbuf->b_ml.ml_line_count)
+  	return -1;
+      pos.lnum = 0;
+  
+  #ifdef FEAT_COMMENTS
+!     if (has_format_option(FO_Q_COMS) && has_format_option(FO_Q_NUMBER))
+!     {
+! 	regmatch_T  regmatch;
+! 	int	    lead_len;	      /* length of comment leader */
+! 
+  	lead_len = get_leader_len(ml_get(lnum), NULL, FALSE, TRUE);
+- 	regmatch.regprog = vim_regcomp(curbuf->b_p_flp, RE_MAGIC);
+- 	if (regmatch.regprog != NULL)
+- 	{
+- 	    regmatch.rm_ic = FALSE;
+- 
+- 	    /* vim_regexec() expects a pointer to a line.  This lets us
+- 	     * start matching for the flp beyond any comment leader...  */
+- 	    if (vim_regexec(&regmatch, ml_get(lnum) + lead_len, (colnr_T)0))
+- 	    {
+- 		pos.lnum = lnum;
+- 		pos.col = (colnr_T)(*regmatch.endp - ml_get(lnum));
+- #ifdef FEAT_VIRTUALEDIT
+- 		pos.coladd = 0;
+  #endif
+! 	    }
+! 	}
+! 	vim_free(regmatch.regprog);
+!     }
+!     else
+      {
+! 	/*
+! 	 * What follows is the orig code that is not "comment aware"...
+! 	 *
+! 	 * I'm not sure if regmmatch_T (multi-match) is needed in this case.
+! 	 * It may be true that this section would work properly using the
+! 	 * regmatch_T code above, in which case, these two separate sections
+! 	 * should be consolidated w/ FEAT_COMMENTS making lead_len > 0...
+! 	 */
+! #endif
+! 	regmmatch_T  regmatch;
+  
+! 	regmatch.regprog = vim_regcomp(curbuf->b_p_flp, RE_MAGIC);
+! 
+! 	if (regmatch.regprog != NULL)
+  	{
+! 	    regmatch.rmm_ic = FALSE;
+! 	    regmatch.rmm_maxcol = 0;
+! 	    if (vim_regexec_multi(&regmatch, curwin, curbuf,
+! 						      lnum, (colnr_T)0, NULL))
+! 	    {
+! 		pos.lnum = regmatch.endpos[0].lnum + lnum;
+! 		pos.col = regmatch.endpos[0].col;
+  #ifdef FEAT_VIRTUALEDIT
+! 		pos.coladd = 0;
+  #endif
+- 	    }
+- 	    vim_free(regmatch.regprog);
+  	}
+- #ifdef FEAT_COMMENTS
+      }
+! #endif
+  
+      if (pos.lnum == 0 || *ml_get_pos(&pos) == NUL)
+  	return -1;
+--- 424,458 ----
+      colnr_T	col;
+      pos_T	pos;
+  
++     regmatch_T	regmatch;
++     int		lead_len = 0;	/* length of comment leader */
++ 
+      if (lnum > curbuf->b_ml.ml_line_count)
+  	return -1;
+      pos.lnum = 0;
+  
+  #ifdef FEAT_COMMENTS
+!     /* In format_lines() (i.e. not insert mode), fo+=q is needed too...  */
+!     if ((State & INSERT) || has_format_option(FO_Q_COMS))
+  	lead_len = get_leader_len(ml_get(lnum), NULL, FALSE, TRUE);
+  #endif
+!     regmatch.regprog = vim_regcomp(curbuf->b_p_flp, RE_MAGIC);
+!     if (regmatch.regprog != NULL)
+      {
+! 	regmatch.rm_ic = FALSE;
+  
+! 	/* vim_regexec() expects a pointer to a line.  This lets us
+! 	 * start matching for the flp beyond any comment leader...  */
+! 	if (vim_regexec(&regmatch, ml_get(lnum) + lead_len, (colnr_T)0))
+  	{
+! 	    pos.lnum = lnum;
+! 	    pos.col = (colnr_T)(*regmatch.endp - ml_get(lnum));
+  #ifdef FEAT_VIRTUALEDIT
+! 	    pos.coladd = 0;
+  #endif
+  	}
+      }
+!     vim_free(regmatch.regprog);
+  
+      if (pos.lnum == 0 || *ml_get_pos(&pos) == NUL)
+  	return -1;
+*** ../vim-7.3.575/src/testdir/test68.in	2012-06-13 17:28:51.000000000 +0200
+--- src/testdir/test68.in	2012-06-29 14:27:27.000000000 +0200
+***************
+*** 52,57 ****
+--- 52,68 ----
+  
+  STARTTEST
+  /^{/+1
++ :set tw=5 fo=tcn comments=:#
++ A bjA b
++ ENDTEST
++ 
++ {
++   1 a
++ # 1 a
++ }
++ 
++ STARTTEST
++ /^{/+1
+  :set tw=5 fo=qn comments=:#
+  gwap
+  ENDTEST
+***************
+*** 83,88 ****
+--- 94,107 ----
+  }
+  
+  STARTTEST
++ /^#/
++ :setl tw=12 fo=tqnc comments=:#
++ A foobar
++ ENDTEST
++ 
++ # 1 xxxxx
++ 
++ STARTTEST
+  :g/^STARTTEST/.,/^ENDTEST/d
+  :1;/^Results/,$wq! test.out
+  ENDTEST
+*** ../vim-7.3.575/src/version.c	2012-06-29 13:56:01.000000000 +0200
+--- src/version.c	2012-06-29 15:03:10.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     576,
+  /**/
+
+-- 
+Proof techniques #2: Proof by Oddity.
+	SAMPLE: To prove that horses have an infinite number of legs.
+(1) Horses have an even number of legs.
+(2) They have two legs in back and fore legs in front.
+(3) This makes a total of six legs, which certainly is an odd number of
+    legs for a horse.
+(4) But the only number that is both odd and even is infinity.
+(5) Therefore, horses must have an infinite number of legs.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,173 @@
+Test various forms of threads tracking across exec(2).
+
+diff -up -u -X /root/jkratoch/.diffi.list -rup gdb-6.8/gdb/testsuite/gdb.threads/threaded-exec.c gdb-6.8-patched/gdb/testsuite/gdb.threads/threaded-exec.c
+--- gdb-6.8/gdb/testsuite/gdb.threads/threaded-exec.c	2008-04-16 17:05:19.000000000 -0400
++++ gdb-6.8-patched/gdb/testsuite/gdb.threads/threaded-exec.c	2008-04-16 14:43:50.000000000 -0400
+@@ -18,21 +18,95 @@
+    Boston, MA 02111-1307, USA.  */
+ 
+ #include <stddef.h>
+-#include <pthread.h>
+ #include <assert.h>
+ #include <stdlib.h>
+ #include <unistd.h>
++#include <stdio.h>
+ 
++#ifdef THREADS
++
++# include <pthread.h>
+ 
+ static void *
+ threader (void *arg)
+ {
+-	return NULL;
++  return NULL;
+ }
+ 
++#endif
++
+ int
+-main (void)
++main (int argc, char **argv)
+ {
++  char *exec_nothreads, *exec_threads, *cmd;
++  int phase;
++  char phase_s[8];
++
++  setbuf (stdout, NULL);
++
++  if (argc != 4)
++    {
++      fprintf (stderr, "%s <non-threaded> <threaded> <phase>\n", argv[0]);
++      return 1;
++    }
++
++#ifdef THREADS
++  puts ("THREADS: Y");
++#else
++  puts ("THREADS: N");
++#endif
++  exec_nothreads = argv[1];
++  printf ("exec_nothreads: %s\n", exec_nothreads);
++  exec_threads = argv[2];
++  printf ("exec_threads: %s\n", exec_threads);
++  phase = atoi (argv[3]);
++  printf ("phase: %d\n", phase);
++
++  /* Phases: threading
++     0: N -> N
++     1: N -> Y
++     2: Y -> Y
++     3: Y -> N
++     4: N -> exit  */
++
++  cmd = NULL;
++
++#ifndef THREADS
++  switch (phase)
++    {
++    case 0:
++      cmd = exec_nothreads;
++      break;
++    case 1:
++      cmd = exec_threads;
++      break;
++    case 2:
++      fprintf (stderr, "%s: We should have threads for phase %d!\n", argv[0],
++	       phase);
++      return 1;
++    case 3:
++      fprintf (stderr, "%s: We should have threads for phase %d!\n", argv[0],
++	       phase);
++      return 1;
++    case 4:
++      return 0;
++    default:
++      assert (0);
++    }
++#else	/* THREADS */
++  switch (phase)
++    {
++    case 0:
++      fprintf (stderr, "%s: We should not have threads for phase %d!\n",
++	       argv[0], phase);
++      return 1;
++    case 1:
++      fprintf (stderr, "%s: We should not have threads for phase %d!\n",
++	       argv[0], phase);
++      return 1;
++    case 2:
++      cmd = exec_threads;
++      {
+ 	pthread_t t1;
+ 	int i;
+ 
+@@ -40,7 +114,34 @@ main (void)
+ 	assert (i == 0);
+ 	i = pthread_join (t1, NULL);
+ 	assert (i == 0);
++      }
++      break;
++    case 3:
++      cmd = exec_nothreads;
++      {
++	pthread_t t1;
++	int i;
++
++	i = pthread_create (&t1, NULL, threader, (void *) NULL);
++	assert (i == 0);
++	i = pthread_join (t1, NULL);
++	assert (i == 0);
++      }
++      break;
++    case 4:
++      fprintf (stderr, "%s: We should not have threads for phase %d!\n",
++	       argv[0], phase);
++      return 1;
++    default:
++      assert (0);
++    }
++#endif	/* THREADS */
++
++  assert (cmd != NULL);
++
++  phase++;
++  snprintf (phase_s, sizeof phase_s, "%d", phase);
+ 
+-	execl ("/bin/true", "/bin/true", NULL);
+-	abort ();
++  execl (cmd, cmd, exec_nothreads, exec_threads, phase_s, NULL);
++  assert (0);
+ }
+diff -up -u -X /root/jkratoch/.diffi.list -rup gdb-6.8/gdb/testsuite/gdb.threads/threaded-exec.exp gdb-6.8-patched/gdb/testsuite/gdb.threads/threaded-exec.exp
+--- gdb-6.8/gdb/testsuite/gdb.threads/threaded-exec.exp	2008-04-16 17:05:19.000000000 -0400
++++ gdb-6.8-patched/gdb/testsuite/gdb.threads/threaded-exec.exp	2008-04-16 14:42:49.000000000 -0400
+@@ -20,9 +20,14 @@
+ 
+ set testfile threaded-exec
+ set srcfile ${testfile}.c
+-set binfile ${objdir}/${subdir}/${testfile}
++set binfile_nothreads ${objdir}/${subdir}/${testfile}N
++set binfile_threads ${objdir}/${subdir}/${testfile}Y
+ 
+-if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable []] != "" } {
++if {[gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile_nothreads}" executable {additional_flags=-UTHREADS}] != "" } {
++    return -1
++}
++
++if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile_threads}" executable {additional_flags=-DTHREADS}] != "" } {
+     return -1
+ }
+ 
+@@ -30,9 +35,9 @@ gdb_exit
+ gdb_start
+ gdb_reinitialize_dir $srcdir/$subdir
+ 
+-gdb_load ${binfile}
++gdb_load ${binfile_nothreads}
+ 
+-gdb_run_cmd
++gdb_run_cmd ${binfile_nothreads} ${binfile_threads} 0
+ 
+ gdb_test_multiple {} "Program exited" {
+    -re "\r\nProgram exited normally.\r\n$gdb_prompt $" {

@@ -1,0 +1,468 @@
+diff -Nur mplayer-old/configure mplayer/configure
+--- mplayer-old/configure	2010-11-03 11:39:21.454478338 +0200
++++ mplayer/configure	2010-11-03 11:38:07.863676388 +0200
+@@ -424,6 +424,7 @@
+   --enable-dxr3            enable DXR3/H+ video output [autodetect]
+   --enable-ivtv            enable IVTV TV-Out video output [autodetect]
+   --enable-v4l2            enable V4L2 Decoder audio/video output [autodetect]
++  --enable-v4lw            enable video4linux write video output [disable]
+   --enable-dvb             enable DVB video output [autodetect]
+   --enable-mga             enable mga_vid video output [autodetect]
+   --enable-xmga            enable mga_vid X11 video output [autodetect]
+@@ -644,6 +645,7 @@
+ _dxr3=auto
+ _ivtv=auto
+ _v4l2=auto
++_v4lw=no
+ _iconv=auto
+ _langinfo=auto
+ _rtc=auto
+@@ -1019,6 +1021,8 @@
+   --disable-ivtv)       _ivtv=no        ;;
+   --enable-v4l2)        _v4l2=yes       ;;
+   --disable-v4l2)       _v4l2=no        ;;
++  --enable-v4lw)        _v4lw=yes       ;;
++  --disable-v4lw)       _v4lw=no        ;;
+   --enable-iconv)       _iconv=yes      ;;
+   --disable-iconv)      _iconv=no       ;;
+   --enable-langinfo)    _langinfo=yes   ;;
+@@ -5122,6 +5126,18 @@
+ fi
+ echores "$_vesa"
+ 
++
++echocheck "v4lw vloopback support"
++if test "$_v4lw" = yes ; then
++  def_v4lw='#define CONFIG_V4LW 1'
++  vomodules="v4lw $vomodules"
++else
++  def_v4lw='#undef CONFIG_V4LW'
++  novomodules="v4lw $novomodules"
++fi
++echores "$_v4lw"
++
++
+ #################
+ # VIDEO + AUDIO #
+ #################
+@@ -8334,6 +8350,7 @@
+ TWOLAME=$_twolame
+ UNRAR_EXEC = $_unrar_exec
+ V4L2 = $_v4l2
++V4LW = $_v4lw
+ VAAPI = $_vaapi
+ VCD = $_vcd
+ VDPAU = $_vdpau
+@@ -8809,6 +8826,7 @@
+ $def_tdfxvid
+ $def_tga
+ $def_v4l2
++$def_v4lw
+ $def_vaapi
+ $def_vaapi_old
+ $def_vaapi_glx
+diff -Nur mplayer-old/DOCS/man/en/mplayer.1 mplayer/DOCS/man/en/mplayer.1
+--- mplayer-old/DOCS/man/en/mplayer.1	2010-11-03 11:39:21.456506945 +0200
++++ mplayer/DOCS/man/en/mplayer.1	2010-11-03 11:38:07.867571573 +0200
+@@ -4423,6 +4423,16 @@
+ .PD 1
+ .
+ .TP
++.B v4lw (Linux only)
++Video output driver for V4L vloopback devices.
++.PD 0
++.RSs
++.IPs <device>
++Explicitly choose the vloopback device name to use (default: /dev/video1).
++.RE
++.PD 1
++.
++.TP
+ .B mpegpes (DVB only)
+ Video output driver for DVB cards that writes the output to an MPEG-PES file
+ if no DVB card is installed.
+diff -Nur mplayer-old/libvo/video_out.c mplayer/libvo/video_out.c
+--- mplayer-old/libvo/video_out.c	2010-11-03 11:39:21.457505858 +0200
++++ mplayer/libvo/video_out.c	2010-11-03 11:38:07.867571573 +0200
+@@ -129,6 +129,7 @@
+ extern const vo_functions_t video_out_dxr3;
+ extern const vo_functions_t video_out_ivtv;
+ extern const vo_functions_t video_out_v4l2;
++extern vo_functions_t video_out_v4lw;
+ extern const vo_functions_t video_out_jpeg;
+ extern const vo_functions_t video_out_gif89a;
+ extern const vo_functions_t video_out_directfb;
+@@ -246,6 +247,9 @@
+ #ifdef CONFIG_V4L2_DECODER
+         &video_out_v4l2,
+ #endif
++#ifdef CONFIG_V4LW
++	&video_out_v4lw,
++#endif
+ #ifdef CONFIG_ZR
+         &video_out_zr,
+         &video_out_zr2,
+diff -Nur mplayer-old/libvo/vo_v4lw.c mplayer/libvo/vo_v4lw.c
+--- mplayer-old/libvo/vo_v4lw.c	1970-01-01 02:00:00.000000000 +0200
++++ mplayer/libvo/vo_v4lw.c	2010-11-03 11:38:43.811527792 +0200
+@@ -0,0 +1,349 @@
++/*
++ *  vo_v4lw.c
++ *
++ *	Copyright (C) Tilmann Bitterberg - Nov 2001
++ *
++ *  This file is part of MPlayer.
++ *
++ *  MPlayer is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  MPlayer is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with MPlayer; if not, write to the Free Software Foundation, Inc.,
++ *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ *
++ */
++
++/*
++ *  Apr 2008 - Updated by kirin, got the original patch from here:
++ *  http://www.tibit.org/video/
++ *
++ *  Usage:
++ *  mplayer -vo v4lw:/dev/videoX
++ *
++ *  More info about vloopback at http://motion.sourceforge.net/vloopback/
++ *
++ */
++
++#include <unistd.h>
++#include <stdlib.h>
++#include <stdio.h>
++#include <fcntl.h>
++#include <string.h>
++#include <errno.h>
++#include <sys/ioctl.h>
++#include <linux/videodev.h>
++
++#include "config.h"
++#include "video_out.h"
++#include "video_out_internal.h"
++
++#include "sub/sub.h"
++#include "sub/eosd.h"
++#include "fastmemcpy.h"
++#include "mp_msg.h"
++
++static int dev_fd;
++static const char default_dev[] = "/dev/video1";
++static void (*draw_alpha_func)();
++
++static uint8_t *image = NULL;
++static uint32_t image_width, image_height;
++static unsigned int image_format;
++static unsigned int image_size;
++static unsigned int nr_planes;
++
++static struct {
++	uint8_t *dst;
++	unsigned int size;
++	unsigned int hfact;
++	unsigned int vfact;
++	unsigned int pixel_bytes;
++	unsigned int stride;
++} p[3];
++
++static const vo_info_t info =
++{
++	"video4linux write output",
++	"v4lw",
++	"Tilmann Bitterberg <god@tibit.org>",
++	"experimental"
++};
++
++LIBVO_EXTERN(v4lw)
++
++
++static int check_pipe(const char *dev_name)
++{
++	dev_fd = open(dev_name, O_RDWR);
++	if (dev_fd >= 0) {
++		mp_msg(MSGT_VO, MSGL_INFO, "v4lw: using '%s'\n", dev_name);
++	} else {
++		mp_msg(MSGT_VO, MSGL_ERR,
++			"v4lw: error opening '%s': %s\n",
++			dev_name, strerror(errno));
++		mp_msg(MSGT_VO, MSGL_ERR,
++			"v4lw: failed to open vloopback pipe for writing\n");
++		return 1;
++	}
++
++	return 0;
++}
++
++static int start_pipe(int dev, int width, int height)
++{
++	struct video_capability vid_cap;
++	struct video_window vid_win;
++	struct video_picture vid_pic;
++
++	if (ioctl(dev, VIDIOCGCAP, &vid_cap) == -1) {
++		mp_msg(MSGT_VO, MSGL_ERR, "v4lw: ioctl VIDIOCGCAP: %s\n",
++			strerror(errno));
++		return 1;
++	}
++
++	mp_msg(MSGT_VO, MSGL_INFO, "v4lw: device '%s', min size %dx%d\n",
++		vid_cap.name, vid_cap.minwidth, vid_cap.minheight);
++
++	if (ioctl(dev, VIDIOCGPICT, &vid_pic)== -1) {
++		mp_msg(MSGT_VO, MSGL_ERR, "v4lw: ioctl VIDIOCGPICT: %s\n",
++			strerror(errno));
++		return 1;
++	}
++
++	vid_pic.palette = image_format;
++
++	if (ioctl(dev, VIDIOCSPICT, &vid_pic) == -1) {
++		mp_msg(MSGT_VO, MSGL_ERR, "v4lw: ioctl VIDIOCSPICT: %s\n",
++			strerror(errno));
++		return 1;
++	}
++
++	if (ioctl(dev, VIDIOCGWIN, &vid_win)== -1) {
++		mp_msg(MSGT_VO, MSGL_ERR, "v4lw: ioctl VIDIOCGWIN: %s\n",
++			strerror(errno));
++		return 1;
++	}
++
++	vid_win.width = width;
++	vid_win.height = height;
++
++	if (ioctl(dev, VIDIOCSWIN, &vid_win) == -1) {
++		mp_msg(MSGT_VO, MSGL_ERR, "v4lw: ioctl VIDIOCSWIN: %s\n",
++			strerror(errno));
++		return 1;
++	}
++
++	return 0;
++}
++
++static int draw_slice(uint8_t *src[], int stride[], int w, int h, int x, int y)
++{
++	uint8_t *s, *d;
++	unsigned int i, j, w_tmp, h_tmp, x_tmp, y_tmp;
++
++	for (i = 0; i < nr_planes; i++) {
++		w_tmp = (w >> p[i].hfact) * p[i].pixel_bytes;
++		h_tmp = h >> p[i].vfact;
++		x_tmp = x >> p[i].hfact;
++		y_tmp = y >> p[i].vfact;
++
++		s = src[i];
++		d = p[i].dst + y_tmp * p[i].stride + x_tmp * p[i].pixel_bytes;
++
++		for (j = 0; j < h_tmp; j++) {
++			fast_memcpy(d, s, w_tmp);
++			s += stride[i];
++			d += p[i].stride;
++		}
++	}
++
++	return 0;
++}
++
++static int draw_frame(uint8_t *src[])
++{
++	unsigned int i;
++
++	for (i = 0; i < nr_planes; i++) {
++		fast_memcpy(p[i].dst, src[i], p[i].size);
++	}
++
++	return 0;
++}
++
++static void draw_alpha(int x0, int y0, int w, int h, unsigned char *src,
++                       unsigned char *srca, int stride)
++{
++	unsigned char *d = p[0].dst + y0 * p[0].stride + x0 * p[0].pixel_bytes;
++
++	if (draw_alpha_func)
++		draw_alpha_func(w, h, src, srca, stride, d, p[0].stride);
++}
++
++static void draw_osd(void)
++{
++	vo_draw_text(image_width, image_height, draw_alpha);
++}
++
++static void put_image(void)
++{
++	if (write(dev_fd, image, image_size) != image_size) {
++		mp_msg(MSGT_VO, MSGL_ERR,
++			"v4lw: error writing image to pipe: %s\n",
++			strerror(errno));
++	}
++}
++
++static void flip_page(void)
++{
++	put_image();
++}
++
++static int query_format(uint32_t format)
++{
++	int flags = VFCAP_CSP_SUPPORTED | VFCAP_OSD | VFCAP_ACCEPT_STRIDE;
++
++	switch (format) {
++		// case IMGFMT_RGB32:
++		// case IMGFMT_RGB24:
++		case IMGFMT_BGR32:
++		case IMGFMT_BGR24:
++		case IMGFMT_YUY2:
++		case IMGFMT_UYVY:
++		case IMGFMT_422P:
++		case IMGFMT_I420:
++		case IMGFMT_IYUV:
++		case IMGFMT_YV12:
++			return flags;
++	}
++
++	return 0;
++}
++
++static int config(uint32_t width, uint32_t height, uint32_t d_width,
++		uint32_t d_height, uint32_t fullscreen, char *title,
++		uint32_t format)
++{
++	unsigned int i, bpp;
++	unsigned int pixel_bytes = 1;
++	unsigned int vfact = 0,	hfact = 0;
++
++	draw_alpha_func = NULL;
++	nr_planes = 1;
++
++	switch (format) {
++		case IMGFMT_RGB32:
++		case IMGFMT_BGR32:
++			image_format = VIDEO_PALETTE_RGB32;
++			draw_alpha_func = vo_draw_alpha_rgb32;
++			bpp = 32; pixel_bytes = bpp >> 3;
++			break;
++		case IMGFMT_RGB24:
++		case IMGFMT_BGR24:
++			image_format = VIDEO_PALETTE_RGB24;
++			draw_alpha_func = vo_draw_alpha_rgb24;
++			bpp = 24; pixel_bytes = bpp >> 3;
++			break;
++		case IMGFMT_YUY2:
++			image_format = VIDEO_PALETTE_YUV422;
++			draw_alpha_func = vo_draw_alpha_yuy2;
++			bpp = 16; pixel_bytes = bpp >> 3;
++			break;
++		case IMGFMT_UYVY:
++			image_format = VIDEO_PALETTE_UYVY;
++			draw_alpha_func = vo_draw_alpha_uyvy;
++			bpp = 16; pixel_bytes = bpp >> 3;
++			break;
++		case IMGFMT_422P:
++			image_format = VIDEO_PALETTE_YUV422P;
++			draw_alpha_func = vo_draw_alpha_yv12;
++			bpp = 16; nr_planes = 3; hfact = 1;
++			break;
++		case IMGFMT_I420:
++		case IMGFMT_IYUV:
++		case IMGFMT_YV12:
++			image_format = VIDEO_PALETTE_YUV420P;
++			draw_alpha_func = vo_draw_alpha_yv12;
++			bpp = 12; nr_planes = 3; hfact = 1; vfact = 1;
++			break;
++		default: /* unsupported */
++			return 1;
++	}
++
++	if (start_pipe(dev_fd, width, height) != 0)
++		return 1;
++
++	image_width  = width;
++	image_height = height;
++	image_size = (image_width * image_height * bpp) >> 3;
++
++	mp_msg(MSGT_VO, MSGL_INFO, "v4lw: %dx%d, format 0x%08x\n",
++		image_width, image_height, image_format);
++
++	if (image && (vo_config_count > 0))
++		free(image);
++	image = (uint8_t *) malloc(image_size);
++	if (!image)
++		return 1;
++
++	memset(image, 0x80, image_size); /* grey */
++
++	p[0].pixel_bytes = pixel_bytes;
++	p[0].hfact = 0;
++	p[0].vfact = 0;
++	p[0].stride = (image_width >> p[0].hfact) * p[0].pixel_bytes;
++	p[0].size = p[0].stride * image_height >> p[0].vfact;
++	p[0].dst = image;
++
++	for (i = 1; i < nr_planes; i++) {
++		p[i].pixel_bytes = pixel_bytes;
++		p[i].hfact = hfact;
++		p[i].vfact = vfact;
++		p[i].stride = (image_width >> p[i].hfact) * p[i].pixel_bytes;
++		p[i].size = p[i].stride * image_height >> p[i].vfact;
++		p[i].dst = p[i - 1].dst + p[i - 1].size;
++	}
++
++	return 0;
++}
++
++static int preinit(const char *arg)
++{
++	if (check_pipe(arg ? arg : default_dev) != 0)
++		return 1;
++
++	return 0;
++}
++
++static void uninit(void)
++{
++	if (image) {
++		free(image);
++		image = NULL;
++	}
++
++	close(dev_fd);
++}
++
++static void check_events(void)
++{
++}
++
++static int control(uint32_t request, void *data, ...)
++{
++	switch (request) {
++		case VOCTRL_QUERY_FORMAT:
++			return query_format(*((uint32_t *) data));
++	}
++
++	return VO_NOTIMPL;
++}
++
+diff -Nur mplayer-old/Makefile mplayer/Makefile
+--- mplayer-old/Makefile	2010-11-03 11:39:21.457505858 +0200
++++ mplayer/Makefile	2010-11-03 11:38:07.868524832 +0200
+@@ -629,6 +629,7 @@
+ SRCS_MPLAYER-$(TGA)           += libvo/vo_tga.c
+ SRCS_MPLAYER-$(V4L2)          += libvo/vo_v4l2.c
+ SRCS_MPLAYER-$(V4L2)          += libao2/ao_v4l2.c
++SRCS_MPLAYER-$(V4LW)          += libvo/vo_v4lw.c
+ SRCS_MPLAYER-$(VAAPI)         += libvo/vo_vaapi.c
+ SRCS_MPLAYER-$(VDPAU)         += libvo/vo_vdpau.c
+ SRCS_MPLAYER-$(VESA)          += libvo/gtf.c libvo/vo_vesa.c libvo/vesa_lvo.c

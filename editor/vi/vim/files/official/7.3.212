@@ -1,0 +1,243 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.212
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.212
+Problem:    With Python 3.2 ":py3" fails.
+Solution:   Move PyEval_InitThreads() to after Py_Initialize(). (Roland
+            Puntaier)  Check abiflags in configure. (Andreas Behr)
+Files:      src/if_python3.c, src/auto/configure, src/configure.in
+
+
+*** ../mercurial/vim73/src/if_python3.c	2011-02-25 15:18:46.000000000 +0100
+--- src/if_python3.c	2011-06-11 04:24:49.000000000 +0200
+***************
+*** 547,560 ****
+  	Py_SetPythonHome(PYTHON3_HOME);
+  #endif
+  
+- 	/* initialise threads */
+- 	PyEval_InitThreads();
+- 
+  #if !defined(MACOS) || defined(MACOS_X_UNIX)
+  	Py_Initialize();
+  #else
+  	PyMac_Initialize();
+  #endif
+  
+  #ifdef DYNAMIC_PYTHON3
+  	get_py3_exceptions();
+--- 547,559 ----
+  	Py_SetPythonHome(PYTHON3_HOME);
+  #endif
+  
+  #if !defined(MACOS) || defined(MACOS_X_UNIX)
+  	Py_Initialize();
+  #else
+  	PyMac_Initialize();
+  #endif
++ 	/* initialise threads, must be after Py_Initialize() */
++ 	PyEval_InitThreads();
+  
+  #ifdef DYNAMIC_PYTHON3
+  	get_py3_exceptions();
+*** ../mercurial/vim73/src/auto/configure	2011-05-10 15:41:59.000000000 +0200
+--- src/auto/configure	2011-06-12 21:33:16.000000000 +0200
+***************
+*** 5505,5510 ****
+--- 5505,5527 ----
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $vi_cv_var_python3_version" >&5
+  $as_echo "$vi_cv_var_python3_version" >&6; }
+  
++         { $as_echo "$as_me:${as_lineno-$LINENO}: checking Python's abiflags" >&5
++ $as_echo_n "checking Python's abiflags... " >&6; }
++ if test "${vi_cv_var_python3_abiflags+set}" = set; then :
++   $as_echo_n "(cached) " >&6
++ else
++ 
++      vi_cv_var_python3_abiflags=
++      if ${vi_cv_path_python3} -c \
++          "import sys; sys.exit(${vi_cv_var_python3_version} < 3.2)"
++      then
++        vi_cv_var_python3_abiflags=`${vi_cv_path_python3} -c \
++          "import sys; print(sys.abiflags)"`
++      fi
++ fi
++ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $vi_cv_var_python3_abiflags" >&5
++ $as_echo "$vi_cv_var_python3_abiflags" >&6; }
++ 
+          { $as_echo "$as_me:${as_lineno-$LINENO}: checking Python's install prefix" >&5
+  $as_echo_n "checking Python's install prefix... " >&6; }
+  if test "${vi_cv_path_python3_pfx+set}" = set; then :
+***************
+*** 5555,5563 ****
+  else
+  
+       vi_cv_path_python3_conf=
+       for path in "${vi_cv_path_python3_pfx}" "${vi_cv_path_python3_epfx}"; do
+         for subdir in lib64 lib share; do
+!          d="${path}/${subdir}/python${vi_cv_var_python3_version}/config"
+           if test -d "$d" && test -f "$d/config.c"; then
+             vi_cv_path_python3_conf="$d"
+           fi
+--- 5572,5584 ----
+  else
+  
+       vi_cv_path_python3_conf=
++      config_dir="config"
++      if test "${vi_cv_var_python3_abiflags}" != ""; then
++        config_dir="${config_dir}-${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
++      fi
+       for path in "${vi_cv_path_python3_pfx}" "${vi_cv_path_python3_epfx}"; do
+         for subdir in lib64 lib share; do
+!          d="${path}/${subdir}/python${vi_cv_var_python3_version}/${config_dir}"
+           if test -d "$d" && test -f "$d/config.c"; then
+             vi_cv_path_python3_conf="$d"
+           fi
+***************
+*** 5592,5598 ****
+                      eval "`cd ${PYTHON3_CONFDIR} && make -f "${tmp_mkf}" __ | sed '/ directory /d'`"
+            rm -f -- "${tmp_mkf}"
+            vi_cv_path_python3_plibs="-L${PYTHON3_CONFDIR} -lpython${vi_cv_var_python3_version}"
+!           vi_cv_path_python3_plibs="${vi_cv_path_python3_plibs} ${python3_BASEMODLIBS} ${python3_LIBS} ${python3_SYSLIBS} ${python3_LINKFORSHARED}"
+                      vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-ltermcap//`
+            vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-lffi//`
+  
+--- 5613,5619 ----
+                      eval "`cd ${PYTHON3_CONFDIR} && make -f "${tmp_mkf}" __ | sed '/ directory /d'`"
+            rm -f -- "${tmp_mkf}"
+            vi_cv_path_python3_plibs="-L${PYTHON3_CONFDIR} -lpython${vi_cv_var_python3_version}"
+!           vi_cv_path_python3_plibs="${vi_cv_path_python3_plibs} ${python3_BASEMODLIBS} ${python3_LIBS} ${python3_SYSLIBS}"
+                      vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-ltermcap//`
+            vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-lffi//`
+  
+***************
+*** 5601,5609 ****
+  
+        PYTHON3_LIBS="${vi_cv_path_python3_plibs}"
+        if test "${vi_cv_path_python3_pfx}" = "${vi_cv_path_python3_epfx}"; then
+!         PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        else
+!         PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version} -I${vi_cv_path_python3_epfx}/include/python${vi_cv_var_python3_version} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        fi
+        PYTHON3_SRC="if_python3.c"
+              if test "x$MACOSX" = "xyes"; then
+--- 5622,5630 ----
+  
+        PYTHON3_LIBS="${vi_cv_path_python3_plibs}"
+        if test "${vi_cv_path_python3_pfx}" = "${vi_cv_path_python3_epfx}"; then
+!         PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        else
+!         PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags} -I${vi_cv_path_python3_epfx}/include/python${vi_cv_var_python3_version} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        fi
+        PYTHON3_SRC="if_python3.c"
+              if test "x$MACOSX" = "xyes"; then
+*** ../mercurial/vim73/src/configure.in	2011-05-10 15:41:59.000000000 +0200
+--- src/configure.in	2011-06-12 21:31:18.000000000 +0200
+***************
+*** 992,997 ****
+--- 992,1008 ----
+            ${vi_cv_path_python3} -c 'import sys; print(sys.version[:3])'`
+      ]])
+  
++     dnl -- get abiflags for python 3.2 or higher (PEP 3149)
++     AC_CACHE_CHECK(Python's abiflags,vi_cv_var_python3_abiflags,
++     [
++      vi_cv_var_python3_abiflags=
++      if ${vi_cv_path_python3} -c \
++          "import sys; sys.exit(${vi_cv_var_python3_version} < 3.2)"
++      then
++        vi_cv_var_python3_abiflags=`${vi_cv_path_python3} -c \    
++          "import sys; print(sys.abiflags)"`
++      fi ])
++ 
+      dnl -- find where python3 thinks it was installed
+      AC_CACHE_CHECK(Python's install prefix,vi_cv_path_python3_pfx,
+      [ vi_cv_path_python3_pfx=`
+***************
+*** 1021,1029 ****
+      AC_CACHE_CHECK(Python's configuration directory,vi_cv_path_python3_conf,
+      [
+       vi_cv_path_python3_conf=
+       for path in "${vi_cv_path_python3_pfx}" "${vi_cv_path_python3_epfx}"; do
+         for subdir in lib64 lib share; do
+!          d="${path}/${subdir}/python${vi_cv_var_python3_version}/config"
+           if test -d "$d" && test -f "$d/config.c"; then
+             vi_cv_path_python3_conf="$d"
+           fi
+--- 1032,1044 ----
+      AC_CACHE_CHECK(Python's configuration directory,vi_cv_path_python3_conf,
+      [
+       vi_cv_path_python3_conf=
++      config_dir="config"
++      if test "${vi_cv_var_python3_abiflags}" != ""; then
++        config_dir="${config_dir}-${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags}"
++      fi
+       for path in "${vi_cv_path_python3_pfx}" "${vi_cv_path_python3_epfx}"; do
+         for subdir in lib64 lib share; do
+!          d="${path}/${subdir}/python${vi_cv_var_python3_version}/${config_dir}"
+           if test -d "$d" && test -f "$d/config.c"; then
+             vi_cv_path_python3_conf="$d"
+           fi
+***************
+*** 1055,1061 ****
+            eval "`cd ${PYTHON3_CONFDIR} && make -f "${tmp_mkf}" __ | sed '/ directory /d'`"
+            rm -f -- "${tmp_mkf}"
+            vi_cv_path_python3_plibs="-L${PYTHON3_CONFDIR} -lpython${vi_cv_var_python3_version}"
+!           vi_cv_path_python3_plibs="${vi_cv_path_python3_plibs} ${python3_BASEMODLIBS} ${python3_LIBS} ${python3_SYSLIBS} ${python3_LINKFORSHARED}"
+            dnl remove -ltermcap, it can conflict with an earlier -lncurses
+            vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-ltermcap//`
+            vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-lffi//`
+--- 1070,1076 ----
+            eval "`cd ${PYTHON3_CONFDIR} && make -f "${tmp_mkf}" __ | sed '/ directory /d'`"
+            rm -f -- "${tmp_mkf}"
+            vi_cv_path_python3_plibs="-L${PYTHON3_CONFDIR} -lpython${vi_cv_var_python3_version}"
+!           vi_cv_path_python3_plibs="${vi_cv_path_python3_plibs} ${python3_BASEMODLIBS} ${python3_LIBS} ${python3_SYSLIBS}"
+            dnl remove -ltermcap, it can conflict with an earlier -lncurses
+            vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-ltermcap//`
+            vi_cv_path_python3_plibs=`echo $vi_cv_path_python3_plibs | sed s/-lffi//`
+***************
+*** 1063,1071 ****
+  
+        PYTHON3_LIBS="${vi_cv_path_python3_plibs}"
+        if test "${vi_cv_path_python3_pfx}" = "${vi_cv_path_python3_epfx}"; then
+!         PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        else
+!         PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version} -I${vi_cv_path_python3_epfx}/include/python${vi_cv_var_python3_version} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        fi
+        PYTHON3_SRC="if_python3.c"
+        dnl For Mac OSX 10.2 config.o is included in the Python library.
+--- 1078,1086 ----
+  
+        PYTHON3_LIBS="${vi_cv_path_python3_plibs}"
+        if test "${vi_cv_path_python3_pfx}" = "${vi_cv_path_python3_epfx}"; then
+!         PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        else
+!         PYTHON3_CFLAGS="-I${vi_cv_path_python3_pfx}/include/python${vi_cv_var_python3_version}${vi_cv_var_python3_abiflags} -I${vi_cv_path_python3_epfx}/include/python${vi_cv_var_python3_version} -DPYTHON3_HOME=L\\\"${vi_cv_path_python3_pfx}\\\""
+        fi
+        PYTHON3_SRC="if_python3.c"
+        dnl For Mac OSX 10.2 config.o is included in the Python library.
+*** ../vim-7.3.211/src/version.c	2011-06-12 21:24:56.000000000 +0200
+--- src/version.c	2011-06-12 21:35:31.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     212,
+  /**/
+
+-- 
+In Joseph Heller's novel "Catch-22", the main character tries to get out of a
+war by proving he is crazy.  But the mere fact he wants to get out of the war
+only shows he isn't crazy -- creating the original "Catch-22".
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

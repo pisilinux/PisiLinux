@@ -1,0 +1,235 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.074
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.074
+Problem:    Can't use the "+ register like "* for yank and put.
+Solution:   Add "unnamedplus" to the 'clipboard' option. (Ivan Krasilnikov)
+Files:	    runtime/doc/options.txt, src/eval.c, src/globals.h, src/ops.c,
+	    src/option.c
+
+
+*** ../vim-7.3.073/runtime/doc/options.txt	2010-12-02 16:01:23.000000000 +0100
+--- runtime/doc/options.txt	2010-12-02 21:22:48.000000000 +0100
+***************
+*** 1434,1439 ****
+--- 1434,1448 ----
+  			explicitly accessed using the "* notation.  Also see
+  			|gui-clipboard|.
+  
++ 	unnamedplus	A variant of "unnamed" flag which uses the clipboard
++ 			register '+' (|quoteplus|) instead of register '*' for
++ 			all operations except yank.  Yank shall copy the text
++ 			into register '+' and also into '*' when "unnamed" is
++ 			included.
++ 			Only available with the |+x11| feature.
++ 			Availability can be checked with: >
++ 				if has('unnamedplus')
++ <
+  	autoselect	Works like the 'a' flag in 'guioptions': If present,
+  			then whenever Visual mode is started, or the Visual
+  			area extended, Vim tries to become the owner of the
+*** ../vim-7.3.073/src/eval.c	2010-12-02 14:47:56.000000000 +0100
+--- src/eval.c	2010-12-02 17:30:23.000000000 +0100
+***************
+*** 12135,12140 ****
+--- 12139,12147 ----
+  #ifdef FEAT_TOOLBAR
+  	"toolbar",
+  #endif
++ #if defined(FEAT_CLIPBOARD) && defined(FEAT_X11)
++ 	"unnamedplus",
++ #endif
+  #ifdef FEAT_USR_CMDS
+  	"user-commands",    /* was accidentally included in 5.4 */
+  	"user_commands",
+*** ../vim-7.3.073/src/globals.h	2010-11-24 14:28:53.000000000 +0100
+--- src/globals.h	2010-12-02 20:07:42.000000000 +0100
+***************
+*** 512,518 ****
+  #  define clip_plus clip_star	/* there is only one clipboard */
+  #  define ONE_CLIPBOARD
+  # endif
+! EXTERN int	clip_unnamed INIT(= FALSE);
+  EXTERN int	clip_autoselect INIT(= FALSE);
+  EXTERN int	clip_autoselectml INIT(= FALSE);
+  EXTERN int	clip_html INIT(= FALSE);
+--- 512,522 ----
+  #  define clip_plus clip_star	/* there is only one clipboard */
+  #  define ONE_CLIPBOARD
+  # endif
+! 
+! #define CLIP_UNNAMED      1
+! #define CLIP_UNNAMED_PLUS 2
+! EXTERN int	clip_unnamed INIT(= 0); /* above two values or'ed */
+! 
+  EXTERN int	clip_autoselect INIT(= FALSE);
+  EXTERN int	clip_autoselectml INIT(= FALSE);
+  EXTERN int	clip_html INIT(= FALSE);
+*** ../vim-7.3.073/src/ops.c	2010-11-24 14:28:53.000000000 +0100
+--- src/ops.c	2010-12-02 21:33:04.000000000 +0100
+***************
+*** 1584,1592 ****
+  adjust_clip_reg(rp)
+      int		*rp;
+  {
+!     /* If no reg. specified, and "unnamed" is in 'clipboard', use '*' reg. */
+!     if (*rp == 0 && clip_unnamed)
+! 	*rp = '*';
+      if (!clip_star.available && *rp == '*')
+  	*rp = 0;
+      if (!clip_plus.available && *rp == '+')
+--- 1584,1594 ----
+  adjust_clip_reg(rp)
+      int		*rp;
+  {
+!     /* If no reg. specified, and "unnamed" or "unnamedplus" is in 'clipboard',
+!      * use '*' or '+' reg, respectively. "unnamedplus" prevails. */
+!     if (*rp == 0 && clip_unnamed != 0)
+! 	*rp = ((clip_unnamed & CLIP_UNNAMED_PLUS) && clip_plus.available)
+! 								  ? '+' : '*';
+      if (!clip_star.available && *rp == '*')
+  	*rp = 0;
+      if (!clip_plus.available && *rp == '+')
+***************
+*** 2842,2847 ****
+--- 2844,2850 ----
+      char_u		*p;
+      char_u		*pnew;
+      struct block_def	bd;
++     int			did_star = FALSE;
+  
+  				    /* check for read-only register */
+      if (oap->regname != 0 && !valid_yank_reg(oap->regname, TRUE))
+***************
+*** 3115,3121 ****
+       */
+      if (clip_star.available
+  	    && (curr == &(y_regs[STAR_REGISTER])
+! 		|| (!deleting && oap->regname == 0 && clip_unnamed)))
+      {
+  	if (curr != &(y_regs[STAR_REGISTER]))
+  	    /* Copy the text from register 0 to the clipboard register. */
+--- 3118,3125 ----
+       */
+      if (clip_star.available
+  	    && (curr == &(y_regs[STAR_REGISTER])
+! 		|| (!deleting && oap->regname == 0
+! 					   && (clip_unnamed & CLIP_UNNAMED))))
+      {
+  	if (curr != &(y_regs[STAR_REGISTER]))
+  	    /* Copy the text from register 0 to the clipboard register. */
+***************
+*** 3123,3128 ****
+--- 3127,3133 ----
+  
+  	clip_own_selection(&clip_star);
+  	clip_gen_set_selection(&clip_star);
++ 	did_star = TRUE;
+      }
+  
+  # ifdef FEAT_X11
+***************
+*** 3130,3141 ****
+       * If we were yanking to the '+' register, send result to selection.
+       * Also copy to the '*' register, in case auto-select is off.
+       */
+!     else if (clip_plus.available && curr == &(y_regs[PLUS_REGISTER]))
+      {
+  	/* No need to copy to * register upon 'unnamed' now - see below */
+  	clip_own_selection(&clip_plus);
+  	clip_gen_set_selection(&clip_plus);
+! 	if (!clip_isautosel())
+  	{
+  	    copy_yank_reg(&(y_regs[STAR_REGISTER]));
+  	    clip_own_selection(&clip_star);
+--- 3135,3153 ----
+       * If we were yanking to the '+' register, send result to selection.
+       * Also copy to the '*' register, in case auto-select is off.
+       */
+!     if (clip_plus.available
+! 	    && (curr == &(y_regs[PLUS_REGISTER])
+! 		|| (!deleting && oap->regname == 0
+! 				      && (clip_unnamed & CLIP_UNNAMED_PLUS))))
+      {
++ 	if (curr != &(y_regs[PLUS_REGISTER]))
++ 	    /* Copy the text from register 0 to the clipboard register. */
++ 	    copy_yank_reg(&(y_regs[PLUS_REGISTER]));
++ 
+  	/* No need to copy to * register upon 'unnamed' now - see below */
+  	clip_own_selection(&clip_plus);
+  	clip_gen_set_selection(&clip_plus);
+! 	if (!clip_isautosel() && !did_star)
+  	{
+  	    copy_yank_reg(&(y_regs[STAR_REGISTER]));
+  	    clip_own_selection(&clip_star);
+*** ../vim-7.3.073/src/option.c	2010-12-02 16:01:23.000000000 +0100
+--- src/option.c	2010-12-02 21:41:32.000000000 +0100
+***************
+*** 7307,7313 ****
+      static char_u *
+  check_clipboard_option()
+  {
+!     int		new_unnamed = FALSE;
+      int		new_autoselect = FALSE;
+      int		new_autoselectml = FALSE;
+      int		new_html = FALSE;
+--- 7307,7313 ----
+      static char_u *
+  check_clipboard_option()
+  {
+!     int		new_unnamed = 0;
+      int		new_autoselect = FALSE;
+      int		new_autoselectml = FALSE;
+      int		new_html = FALSE;
+***************
+*** 7319,7327 ****
+      {
+  	if (STRNCMP(p, "unnamed", 7) == 0 && (p[7] == ',' || p[7] == NUL))
+  	{
+! 	    new_unnamed = TRUE;
+  	    p += 7;
+  	}
+  	else if (STRNCMP(p, "autoselect", 10) == 0
+  					&& (p[10] == ',' || p[10] == NUL))
+  	{
+--- 7319,7333 ----
+      {
+  	if (STRNCMP(p, "unnamed", 7) == 0 && (p[7] == ',' || p[7] == NUL))
+  	{
+! 	    new_unnamed |= CLIP_UNNAMED;
+  	    p += 7;
+  	}
++         else if (STRNCMP(p, "unnamedplus", 11) == 0
++ 					    && (p[11] == ',' || p[11] == NUL))
++ 	{
++ 	    new_unnamed |= CLIP_UNNAMED_PLUS;
++ 	    p += 11;
++ 	}
+  	else if (STRNCMP(p, "autoselect", 10) == 0
+  					&& (p[10] == ',' || p[10] == NUL))
+  	{
+*** ../vim-7.3.073/src/version.c	2010-12-02 17:09:48.000000000 +0100
+--- src/version.c	2010-12-02 21:34:40.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     74,
+  /**/
+
+-- 
+The budget process was invented by an alien race of sadistic beings who
+resemble large cats.
+				(Scott Adams - The Dilbert principle)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

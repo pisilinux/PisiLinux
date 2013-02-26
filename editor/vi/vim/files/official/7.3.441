@@ -1,0 +1,341 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.441
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.441
+Problem:    Newer versions of MzScheme (Racket) require earlier (trampolined)
+            initialisation.
+Solution:   Call mzscheme_main() early in main(). (Sergey Khorev)
+Files:      src/Make_mvc.mak, src/if_mzsch.c, src/main.c,
+            src/proto/if_mzsch.pro
+    
+
+*** ../vim-7.3.440/src/Make_mvc.mak	2011-09-14 19:01:38.000000000 +0200
+--- src/Make_mvc.mak	2012-02-12 01:46:05.000000000 +0100
+***************
+*** 740,745 ****
+--- 740,747 ----
+  !endif
+  !endif
+  MZSCHEME_OBJ = $(OUTDIR)\if_mzsch.obj
++ # increase stack size
++ MZSCHEME_LIB = $(MZSCHEME_LIB) /STACK:8388608
+  !endif
+  
+  # Perl interface
+*** ../vim-7.3.440/src/if_mzsch.c	2010-11-03 21:59:23.000000000 +0100
+--- src/if_mzsch.c	2012-02-12 01:47:31.000000000 +0100
+***************
+*** 31,38 ****
+   * depend". */
+  #if defined(FEAT_MZSCHEME) || defined(PROTO)
+  
+- #include <assert.h>
+- 
+  /* Base data structures */
+  #define SCHEME_VIMBUFFERP(obj)  SAME_TYPE(SCHEME_TYPE(obj), mz_buffer_type)
+  #define SCHEME_VIMWINDOWP(obj)  SAME_TYPE(SCHEME_TYPE(obj), mz_window_type)
+--- 31,36 ----
+***************
+*** 559,575 ****
+      hMzSch = vimLoadLib(sch_dll);
+      hMzGC = vimLoadLib(gc_dll);
+  
+!     if (!hMzSch)
+      {
+  	if (verbose)
+! 	    EMSG2(_(e_loadlib), sch_dll);
+  	return FAIL;
+      }
+  
+!     if (!hMzGC)
+      {
+  	if (verbose)
+! 	    EMSG2(_(e_loadlib), gc_dll);
+  	return FAIL;
+      }
+  
+--- 557,573 ----
+      hMzSch = vimLoadLib(sch_dll);
+      hMzGC = vimLoadLib(gc_dll);
+  
+!     if (!hMzGC)
+      {
+  	if (verbose)
+! 	    EMSG2(_(e_loadlib), gc_dll);
+  	return FAIL;
+      }
+  
+!     if (!hMzSch)
+      {
+  	if (verbose)
+! 	    EMSG2(_(e_loadlib), sch_dll);
+  	return FAIL;
+      }
+  
+***************
+*** 798,862 ****
+  static __declspec(thread) void *tls_space;
+  #endif
+  
+!     void
+! mzscheme_main(void)
+  {
+  #if MZSCHEME_VERSION_MAJOR >= 500 && defined(WIN32) && defined(USE_THREAD_LOCAL)
+      scheme_register_tls_space(&tls_space, 0);
+  #endif
+! #if defined(MZ_PRECISE_GC) && MZSCHEME_VERSION_MAJOR >= 400
+!     /* use trampoline for precise GC in MzScheme >= 4.x */
+!     scheme_main_setup(TRUE, mzscheme_env_main, 0, NULL);
+  #else
+!     mzscheme_env_main(NULL, 0, NULL);
+  #endif
+  }
+  
+      static int
+! mzscheme_env_main(Scheme_Env *env, int argc UNUSED, char **argv UNUSED)
+  {
+!     /* neither argument nor return values are used */
+! #ifdef MZ_PRECISE_GC
+! # if MZSCHEME_VERSION_MAJOR < 400
+!     /*
+!      * Starting from version 4.x, embedding applications must use
+!      * scheme_main_setup/scheme_main_stack_setup trampolines
+!      * rather than setting stack base directly with scheme_set_stack_base
+!      */
+      Scheme_Object   *dummy = NULL;
+      MZ_GC_DECL_REG(1);
+      MZ_GC_VAR_IN_REG(0, dummy);
+  
+      stack_base = &__gc_var_stack__;
+  # else
+-     /* environment has been created by us by Scheme */
+-     environment = env;
+- # endif
+-     /*
+-      * In 4.x, all activities must be performed inside trampoline
+-      * so we are forced to initialise GC immediately
+-      * This can be postponed in 3.x but I see no point in implementing
+-      * a feature which will work in older versions only.
+-      * One would better use conservative GC if he needs dynamic MzScheme
+-      */
+-     mzscheme_init();
+- #else
+      int dummy = 0;
+      stack_base = (void *)&dummy;
+  #endif
+!     main_loop(FALSE, FALSE);
+! #if defined(MZ_PRECISE_GC) && MZSCHEME_VERSION_MAJOR < 400
+      /* releasing dummy */
+      MZ_GC_REG();
+      MZ_GC_UNREG();
+  #endif
+!     return 0;
+  }
+  
+      static void
+  startup_mzscheme(void)
+  {
+! #if !defined(MZ_PRECISE_GC) || MZSCHEME_VERSION_MAJOR < 400
+      scheme_set_stack_base(stack_base, 1);
+  #endif
+  
+--- 796,863 ----
+  static __declspec(thread) void *tls_space;
+  #endif
+  
+! /*
+!  * Since version 4.x precise GC requires trampolined startup.
+!  * Futures and places in version 5.x need it too.
+!  */
+! #if defined(MZ_PRECISE_GC) && MZSCHEME_VERSION_MAJOR >= 400 \
+!     || MZSCHEME_VERSION_MAJOR >= 500 && (defined(MZ_USE_FUTURES) || defined(MZ_USE_PLACES))
+! # ifdef DYNAMIC_MZSCHEME
+! #  error Precise GC v.4+ or Racket with futures/places do not support dynamic MzScheme
+! # endif
+! # define TRAMPOLINED_MZVIM_STARTUP
+! #endif
+! 
+!     int
+! mzscheme_main(int argc, char** argv)
+  {
+  #if MZSCHEME_VERSION_MAJOR >= 500 && defined(WIN32) && defined(USE_THREAD_LOCAL)
+      scheme_register_tls_space(&tls_space, 0);
+  #endif
+! #ifdef TRAMPOLINED_MZVIM_STARTUP
+!     return scheme_main_setup(TRUE, mzscheme_env_main, argc, argv);
+  #else
+!     return mzscheme_env_main(NULL, argc, argv);
+  #endif
+  }
+  
+      static int
+! mzscheme_env_main(Scheme_Env *env, int argc, char **argv)
+  {
+!     int vim_main_result;
+! #ifdef TRAMPOLINED_MZVIM_STARTUP
+!     /* Scheme has created the environment for us */
+!     environment = env;
+! #else
+! # ifdef MZ_PRECISE_GC
+      Scheme_Object   *dummy = NULL;
+      MZ_GC_DECL_REG(1);
+      MZ_GC_VAR_IN_REG(0, dummy);
+  
+      stack_base = &__gc_var_stack__;
+  # else
+      int dummy = 0;
+      stack_base = (void *)&dummy;
++ # endif
+  #endif
+! 
+!     /* mzscheme_main is called as a trampoline from main.
+!      * We trampoline into vim_main2
+!      * Passing argc, argv through from mzscheme_main
+!      */
+!     vim_main_result = vim_main2(argc, argv);
+! #if !defined(TRAMPOLINED_MZVIM_STARTUP) && defined(MZ_PRECISE_GC)
+      /* releasing dummy */
+      MZ_GC_REG();
+      MZ_GC_UNREG();
+  #endif
+!     return vim_main_result;
+  }
+  
+      static void
+  startup_mzscheme(void)
+  {
+! #ifndef TRAMPOLINED_MZVIM_STARTUP
+      scheme_set_stack_base(stack_base, 1);
+  #endif
+  
+***************
+*** 868,874 ****
+      MZ_REGISTER_STATIC(exn_message);
+      MZ_REGISTER_STATIC(vim_exn);
+  
+! #if !defined(MZ_PRECISE_GC) || MZSCHEME_VERSION_MAJOR < 400
+      /* in newer versions of precise GC the initial env has been created */
+      environment = scheme_basic_env();
+  #endif
+--- 869,875 ----
+      MZ_REGISTER_STATIC(exn_message);
+      MZ_REGISTER_STATIC(vim_exn);
+  
+! #ifndef TRAMPOLINED_MZVIM_STARTUP
+      /* in newer versions of precise GC the initial env has been created */
+      environment = scheme_basic_env();
+  #endif
+***************
+*** 3013,3019 ****
+  	MZ_GC_REG();
+  
+  	tmp = scheme_make_struct_names(exn_name, scheme_null, 0, &nc);
+- 	assert(nc <= 5);
+  	mch_memmove(exn_names, tmp, nc * sizeof(Scheme_Object *));
+  	MZ_GC_CHECK();
+  
+--- 3014,3019 ----
+*** ../vim-7.3.440/src/main.c	2011-12-08 15:57:54.000000000 +0100
+--- src/main.c	2012-02-12 01:49:50.000000000 +0100
+***************
+*** 554,559 ****
+--- 554,584 ----
+      debug_break_level = params.use_debug_break_level;
+  #endif
+  
++ #ifdef FEAT_MZSCHEME
++     /*
++      * Newer version of MzScheme (Racket) require earlier (trampolined)
++      * initialisation via scheme_main_setup.
++      * Implement this by initialising it as early as possible
++      * and splitting off remaining Vim main into vim_main2
++      */
++     {
++ 	/* Pack up preprocessed command line arguments.
++ 	 * It is safe because Scheme does not access argc/argv. */
++ 	char *args[2];
++ 	args[0] = (char *)fname;
++ 	args[1] = (char *)&params;
++ 	return mzscheme_main(2, args);
++     }
++ }
++ 
++ int vim_main2(int argc, char **argv)
++ {
++     char_u	*fname = (char_u *)argv[0];
++     mparm_T	params;
++ 
++     memcpy(&params, argv[1], sizeof(params));
++ #endif
++ 
+      /* Execute --cmd arguments. */
+      exe_pre_commands(&params);
+  
+***************
+*** 957,970 ****
+  
+      /*
+       * Call the main command loop.  This never returns.
+!      * For embedded MzScheme the main_loop will be called by Scheme
+!      * for proper stack tracking
+!      */
+! #ifndef FEAT_MZSCHEME
+      main_loop(FALSE, FALSE);
+- #else
+-     mzscheme_main();
+- #endif
+  
+      return 0;
+  }
+--- 982,989 ----
+  
+      /*
+       * Call the main command loop.  This never returns.
+!     */
+      main_loop(FALSE, FALSE);
+  
+      return 0;
+  }
+*** ../vim-7.3.440/src/proto/if_mzsch.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/if_mzsch.pro	2012-02-12 01:50:57.000000000 +0100
+***************
+*** 14,19 ****
+  void mzvim_reset_timer __ARGS((void));
+  void *mzvim_eval_string __ARGS((char_u *str));
+  int mzthreads_allowed __ARGS((void));
+! void mzscheme_main __ARGS((void));
+  void do_mzeval __ARGS((char_u *str, typval_T *rettv));
+  /* vim: set ft=c : */
+--- 14,20 ----
+  void mzvim_reset_timer __ARGS((void));
+  void *mzvim_eval_string __ARGS((char_u *str));
+  int mzthreads_allowed __ARGS((void));
+! int mzscheme_main __ARGS((int argc, char **argv));
+  void do_mzeval __ARGS((char_u *str, typval_T *rettv));
++ int vim_main2 __ARGS((int argc, char **argv));
+  /* vim: set ft=c : */
+*** ../vim-7.3.440/src/version.c	2012-02-12 01:35:06.000000000 +0100
+--- src/version.c	2012-02-12 01:54:14.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     441,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+43. You tell the kids they can't use the computer because "Daddy's got work to
+    do" and you don't even have a job.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

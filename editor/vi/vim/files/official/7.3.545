@@ -1,0 +1,359 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.545
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.545
+Problem:    When closing a window or buffer autocommands may close it too,
+	    causing problems for where the autocommand was invoked from.
+Solution:   Add the w_closing and b_closing flags.  When set disallow ":q" and
+	    ":close" to prevent recursive closing.
+Files:	    src/structs.h, src/buffer.c, src/ex_docmd.c, src/window.c
+
+
+*** ../vim-7.3.544/src/structs.h	2012-02-04 21:57:44.000000000 +0100
+--- src/structs.h	2012-06-06 16:43:34.000000000 +0200
+***************
+*** 1201,1206 ****
+--- 1201,1210 ----
+  typedef struct qf_info_S qf_info_T;
+  #endif
+  
++ /*
++  * These are items normally related to a buffer.  But when using ":ownsyntax"
++  * a window may have its own instance.
++  */
+  typedef struct {
+  #ifdef FEAT_SYN_HL
+      hashtab_T	b_keywtab;		/* syntax keywords hash table */
+***************
+*** 1290,1295 ****
+--- 1294,1303 ----
+      int		b_nwindows;	/* nr of windows open on this buffer */
+  
+      int		b_flags;	/* various BF_ flags */
++ #ifdef FEAT_AUTOCMD
++     int		b_closing;	/* buffer is being closed, don't let
++ 				   autocommands close it too. */
++ #endif
+  
+      /*
+       * b_ffname has the full path of the file (NULL for no name).
+***************
+*** 1853,1858 ****
+--- 1861,1870 ----
+      win_T	*w_prev;	    /* link to previous window */
+      win_T	*w_next;	    /* link to next window */
+  #endif
++ #ifdef FEAT_AUTOCMD
++     int		w_closing;	    /* window is being closed, don't let
++ 				       autocommands close it too. */
++ #endif
+  
+      frame_T	*w_frame;	    /* frame containing this window */
+  
+*** ../vim-7.3.544/src/buffer.c	2012-03-16 14:32:10.000000000 +0100
+--- src/buffer.c	2012-06-06 18:57:27.000000000 +0200
+***************
+*** 377,404 ****
+      /* When the buffer is no longer in a window, trigger BufWinLeave */
+      if (buf->b_nwindows == 1)
+      {
+  	apply_autocmds(EVENT_BUFWINLEAVE, buf->b_fname, buf->b_fname,
+  								  FALSE, buf);
+! 	/* Return if autocommands deleted the buffer or made it the only one. */
+! 	if (!buf_valid(buf) || (abort_if_last && one_window()))
+  	{
+  	    EMSG(_(e_auabort));
+  	    return;
+  	}
+  
+  	/* When the buffer becomes hidden, but is not unloaded, trigger
+  	 * BufHidden */
+  	if (!unload_buf)
+  	{
+  	    apply_autocmds(EVENT_BUFHIDDEN, buf->b_fname, buf->b_fname,
+  								  FALSE, buf);
+! 	    /* Return if autocommands deleted the buffer or made it the only
+! 	     * one. */
+! 	    if (!buf_valid(buf) || (abort_if_last && one_window()))
+! 	    {
+! 		EMSG(_(e_auabort));
+! 		return;
+! 	    }
+  	}
+  # ifdef FEAT_EVAL
+  	if (aborting())	    /* autocmds may abort script processing */
+--- 377,411 ----
+      /* When the buffer is no longer in a window, trigger BufWinLeave */
+      if (buf->b_nwindows == 1)
+      {
++ 	buf->b_closing = TRUE;
+  	apply_autocmds(EVENT_BUFWINLEAVE, buf->b_fname, buf->b_fname,
+  								  FALSE, buf);
+! 	if (!buf_valid(buf))
+  	{
++ 	    /* Autocommands deleted the buffer. */
++ aucmd_abort:
+  	    EMSG(_(e_auabort));
+  	    return;
+  	}
++ 	buf->b_closing = FALSE;
++ 	if (abort_if_last && one_window())
++ 	    /* Autocommands made this the only window. */
++ 	    goto aucmd_abort;
+  
+  	/* When the buffer becomes hidden, but is not unloaded, trigger
+  	 * BufHidden */
+  	if (!unload_buf)
+  	{
++ 	    buf->b_closing = TRUE;
+  	    apply_autocmds(EVENT_BUFHIDDEN, buf->b_fname, buf->b_fname,
+  								  FALSE, buf);
+! 	    if (!buf_valid(buf))
+! 		/* Autocommands deleted the buffer. */
+! 		goto aucmd_abort;
+! 	    buf->b_closing = FALSE;
+! 	    if (abort_if_last && one_window())
+! 		/* Autocommands made this the only window. */
+! 		goto aucmd_abort;
+  	}
+  # ifdef FEAT_EVAL
+  	if (aborting())	    /* autocmds may abort script processing */
+***************
+*** 552,557 ****
+--- 559,565 ----
+  #ifdef FEAT_AUTOCMD
+      int		is_curbuf = (buf == curbuf);
+  
++     buf->b_closing = TRUE;
+      apply_autocmds(EVENT_BUFUNLOAD, buf->b_fname, buf->b_fname, FALSE, buf);
+      if (!buf_valid(buf))	    /* autocommands may delete the buffer */
+  	return;
+***************
+*** 568,573 ****
+--- 576,582 ----
+  	if (!buf_valid(buf))	    /* autocommands may delete the buffer */
+  	    return;
+      }
++     buf->b_closing = FALSE;
+  # ifdef FEAT_EVAL
+      if (aborting())	    /* autocmds may abort script processing */
+  	return;
+***************
+*** 1150,1155 ****
+--- 1159,1167 ----
+  	 * a window with this buffer.
+  	 */
+  	while (buf == curbuf
++ # ifdef FEAT_AUTOCMD
++ 		   && !(curwin->w_closing || curwin->w_buffer->b_closing)
++ # endif
+  		   && (firstwin != lastwin || first_tabpage->tp_next != NULL))
+  	    win_close(curwin, FALSE);
+  #endif
+***************
+*** 4750,4756 ****
+  #ifdef FEAT_WINDOWS
+  		    || (had_tab > 0 && wp != firstwin)
+  #endif
+! 		    ) && firstwin != lastwin)
+  	    {
+  		win_close(wp, FALSE);
+  #ifdef FEAT_AUTOCMD
+--- 4762,4772 ----
+  #ifdef FEAT_WINDOWS
+  		    || (had_tab > 0 && wp != firstwin)
+  #endif
+! 		    ) && firstwin != lastwin
+! #ifdef FEAT_AUTOCMD
+! 		    && !(wp->w_closing || wp->w_buffer->b_closing)
+! #endif
+! 		    )
+  	    {
+  		win_close(wp, FALSE);
+  #ifdef FEAT_AUTOCMD
+*** ../vim-7.3.544/src/ex_docmd.c	2012-06-06 18:03:01.000000000 +0200
+--- src/ex_docmd.c	2012-06-06 18:06:46.000000000 +0200
+***************
+*** 6459,6465 ****
+      }
+  #ifdef FEAT_AUTOCMD
+      apply_autocmds(EVENT_QUITPRE, NULL, NULL, FALSE, curbuf);
+!     if (curbuf_locked())
+  	return;
+  #endif
+  
+--- 6459,6467 ----
+      }
+  #ifdef FEAT_AUTOCMD
+      apply_autocmds(EVENT_QUITPRE, NULL, NULL, FALSE, curbuf);
+!     /* Refuse to quick when locked or when the buffer in the last window is
+!      * being closed (can only happen in autocommands). */
+!     if (curbuf_locked() || (curbuf->b_nwindows == 1 && curbuf->b_closing))
+  	return;
+  #endif
+  
+*** ../vim-7.3.544/src/window.c	2012-05-25 12:38:57.000000000 +0200
+--- src/window.c	2012-06-06 18:47:19.000000000 +0200
+***************
+*** 2034,2040 ****
+  
+      for (wp = firstwin; wp != NULL && lastwin != firstwin; )
+      {
+! 	if (wp->w_buffer == buf && (!keep_curwin || wp != curwin))
+  	{
+  	    win_close(wp, FALSE);
+  
+--- 2034,2044 ----
+  
+      for (wp = firstwin; wp != NULL && lastwin != firstwin; )
+      {
+! 	if (wp->w_buffer == buf && (!keep_curwin || wp != curwin)
+! #ifdef FEAT_AUTOCMD
+! 		&& !(wp->w_closing || wp->w_buffer->b_closing)
+! #endif
+! 		)
+  	{
+  	    win_close(wp, FALSE);
+  
+***************
+*** 2051,2057 ****
+  	nexttp = tp->tp_next;
+  	if (tp != curtab)
+  	    for (wp = tp->tp_firstwin; wp != NULL; wp = wp->w_next)
+! 		if (wp->w_buffer == buf)
+  		{
+  		    win_close_othertab(wp, FALSE, tp);
+  
+--- 2055,2065 ----
+  	nexttp = tp->tp_next;
+  	if (tp != curtab)
+  	    for (wp = tp->tp_firstwin; wp != NULL; wp = wp->w_next)
+! 		if (wp->w_buffer == buf
+! #ifdef FEAT_AUTOCMD
+! 		    && !(wp->w_closing || wp->w_buffer->b_closing)
+! #endif
+! 		    )
+  		{
+  		    win_close_othertab(wp, FALSE, tp);
+  
+***************
+*** 2168,2173 ****
+--- 2176,2183 ----
+      }
+  
+  #ifdef FEAT_AUTOCMD
++     if (win->w_closing || win->w_buffer->b_closing)
++ 	return; /* window is already being closed */
+      if (win == aucmd_win)
+      {
+  	EMSG(_("E813: Cannot close autocmd window"));
+***************
+*** 2203,2219 ****
+  	wp = frame2win(win_altframe(win, NULL));
+  
+  	/*
+! 	 * Be careful: If autocommands delete the window, return now.
+  	 */
+  	if (wp->w_buffer != curbuf)
+  	{
+  	    other_buffer = TRUE;
+  	    apply_autocmds(EVENT_BUFLEAVE, NULL, NULL, FALSE, curbuf);
+! 	    if (!win_valid(win) || last_window())
+  		return;
+  	}
+  	apply_autocmds(EVENT_WINLEAVE, NULL, NULL, FALSE, curbuf);
+! 	if (!win_valid(win) || last_window())
+  	    return;
+  # ifdef FEAT_EVAL
+  	/* autocmds may abort script processing */
+--- 2213,2238 ----
+  	wp = frame2win(win_altframe(win, NULL));
+  
+  	/*
+! 	 * Be careful: If autocommands delete the window or cause this window
+! 	 * to be the last one left, return now.
+  	 */
+  	if (wp->w_buffer != curbuf)
+  	{
+  	    other_buffer = TRUE;
++ 	    win->w_closing = TRUE;
+  	    apply_autocmds(EVENT_BUFLEAVE, NULL, NULL, FALSE, curbuf);
+! 	    if (!win_valid(win))
+! 		return;
+! 	    win->w_closing = FALSE;
+! 	    if (last_window())
+  		return;
+  	}
++ 	win->w_closing = TRUE;
+  	apply_autocmds(EVENT_WINLEAVE, NULL, NULL, FALSE, curbuf);
+! 	if (!win_valid(win))
+! 	    return;
+! 	win->w_closing = FALSE;
+! 	if (last_window())
+  	    return;
+  # ifdef FEAT_EVAL
+  	/* autocmds may abort script processing */
+***************
+*** 2240,2246 ****
+       * Close the link to the buffer.
+       */
+      if (win->w_buffer != NULL)
+! 	close_buffer(win, win->w_buffer, free_buf ? DOBUF_UNLOAD : 0, TRUE);
+  
+      /* Autocommands may have closed the window already, or closed the only
+       * other window or moved to another tab page. */
+--- 2259,2274 ----
+       * Close the link to the buffer.
+       */
+      if (win->w_buffer != NULL)
+!     {
+! #ifdef FEAT_AUTOCMD
+! 	win->w_closing = TRUE;
+! #endif
+! 	close_buffer(win, win->w_buffer, free_buf ? DOBUF_UNLOAD : 0, FALSE);
+! #ifdef FEAT_AUTOCMD
+! 	if (win_valid(win))
+! 	    win->w_closing = FALSE;
+! #endif
+!     }
+  
+      /* Autocommands may have closed the window already, or closed the only
+       * other window or moved to another tab page. */
+***************
+*** 2346,2351 ****
+--- 2374,2384 ----
+      tabpage_T   *ptp = NULL;
+      int		free_tp = FALSE;
+  
++ #ifdef FEAT_AUTOCMD
++     if (win->w_closing || win->w_buffer->b_closing)
++ 	return; /* window is already being closed */
++ #endif
++ 
+      /* Close the link to the buffer. */
+      close_buffer(win, win->w_buffer, free_buf ? DOBUF_UNLOAD : 0, FALSE);
+  
+*** ../vim-7.3.544/src/version.c	2012-06-06 18:03:01.000000000 +0200
+--- src/version.c	2012-06-06 18:53:06.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     545,
+  /**/
+
+-- 
+How To Keep A Healthy Level Of Insanity:
+4. Put your garbage can on your desk and label it "in".
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,107 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.756
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.756
+Problem:    A location list can get a wrong count in :lvimgrep.
+Solution:   Check if the list was changed by autocommands. (mostly by
+	    Christian Brabandt)
+Files:	    src/quickfic.c
+
+
+*** ../vim-7.3.755/src/quickfix.c	2012-12-05 15:16:42.000000000 +0100
+--- src/quickfix.c	2012-12-12 15:50:08.000000000 +0100
+***************
+*** 3109,3114 ****
+--- 3109,3117 ----
+      char_u	*p;
+      int		fi;
+      qf_info_T	*qi = &ql_info;
++ #ifdef FEAT_AUTOCMD
++     qfline_T	*cur_qf_start;
++ #endif
+      qfline_T	*prevp = NULL;
+      long	lnum;
+      buf_T	*buf;
+***************
+*** 3218,3223 ****
+--- 3221,3232 ----
+       * ":lcd %:p:h" changes the meaning of short path names. */
+      mch_dirname(dirname_start, MAXPATHL);
+  
++ #ifdef FEAT_AUTOCMD
++      /* Remeber the value of qf_start, so that we can check for autocommands
++       * changing the current quickfix list. */
++     cur_qf_start = qi->qf_lists[qi->qf_curlist].qf_start;
++ #endif
++ 
+      seconds = (time_t)0;
+      for (fi = 0; fi < fcount && !got_int && tomatch > 0; ++fi)
+      {
+***************
+*** 3273,3278 ****
+--- 3282,3309 ----
+  	    /* Use existing, loaded buffer. */
+  	    using_dummy = FALSE;
+  
++ #ifdef FEAT_AUTOCMD
++ 	if (cur_qf_start != qi->qf_lists[qi->qf_curlist].qf_start)
++ 	{
++ 	    int idx;
++ 
++ 	    /* Autocommands changed the quickfix list.  Find the one we were
++ 	     * using and restore it. */
++ 	    for (idx = 0; idx < LISTCOUNT; ++idx)
++ 		if (cur_qf_start == qi->qf_lists[idx].qf_start)
++ 		{
++ 		    qi->qf_curlist = idx;
++ 		    break;
++ 		}
++ 	    if (idx == LISTCOUNT)
++ 	    {
++ 		/* List cannot be found, create a new one. */
++ 		qf_new_list(qi, *eap->cmdlinep);
++ 		cur_qf_start = qi->qf_lists[qi->qf_curlist].qf_start;
++ 	    }
++ 	}
++ #endif
++ 
+  	if (buf == NULL)
+  	{
+  	    if (!got_int)
+***************
+*** 3324,3329 ****
+--- 3355,3363 ----
+  		if (got_int)
+  		    break;
+  	    }
++ #ifdef FEAT_AUTOCMD
++ 	    cur_qf_start = qi->qf_lists[qi->qf_curlist].qf_start;
++ #endif
+  
+  	    if (using_dummy)
+  	    {
+*** ../vim-7.3.755/src/version.c	2012-12-12 14:25:01.000000000 +0100
+--- src/version.c	2012-12-12 15:35:58.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     756,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+146. You experience ACTUAL physical withdrawal symptoms when away
+     from your 'puter and the net.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

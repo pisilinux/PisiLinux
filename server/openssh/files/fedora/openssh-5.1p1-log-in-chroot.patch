@@ -1,0 +1,116 @@
+diff -up openssh-5.1p1/sshd.c.log-chroot openssh-5.1p1/sshd.c
+--- openssh-5.1p1/sshd.c.log-chroot	2008-07-23 15:18:52.000000000 +0200
++++ openssh-5.1p1/sshd.c	2008-07-23 15:18:52.000000000 +0200
+@@ -591,6 +591,10 @@ privsep_preauth_child(void)
+ 	/* Demote the private keys to public keys. */
+ 	demote_sensitive_data();
+ 
++	/* Open the syslog permanently so the chrooted process still
++	   can write to syslog. */
++	open_log();
++	
+ 	/* Change our root directory */
+ 	if (chroot(_PATH_PRIVSEP_CHROOT_DIR) == -1)
+ 		fatal("chroot(\"%s\"): %s", _PATH_PRIVSEP_CHROOT_DIR,
+diff -up openssh-5.1p1/log.c.log-chroot openssh-5.1p1/log.c
+--- openssh-5.1p1/log.c.log-chroot	2008-06-10 15:01:51.000000000 +0200
++++ openssh-5.1p1/log.c	2008-07-23 15:18:52.000000000 +0200
+@@ -45,6 +45,7 @@
+ #include <syslog.h>
+ #include <unistd.h>
+ #include <errno.h>
++#include <fcntl.h>
+ #if defined(HAVE_STRNVIS) && defined(HAVE_VIS_H)
+ # include <vis.h>
+ #endif
+@@ -56,6 +57,7 @@
+ static int log_on_stderr = 1;
+ static int log_facility = LOG_AUTH;
+ static char *argv0;
++int log_fd_keep = 0;
+ 
+ extern char *__progname;
+ 
+@@ -310,6 +312,8 @@
+ 		exit(1);
+ 	}
+ 
++	if (log_fd_keep != 0)
++		return;
+ 	/*
+ 	 * If an external library (eg libwrap) attempts to use syslog
+ 	 * immediately after reexec, syslog may be pointing to the wrong
+@@ -392,10 +396,33 @@
+ 		syslog_r(pri, &sdata, "%.500s", fmtbuf);
+ 		closelog_r(&sdata);
+ #else
++	    if (!log_fd_keep) {
+ 		openlog(argv0 ? argv0 : __progname, LOG_PID, log_facility);
++	    }
+ 		syslog(pri, "%.500s", fmtbuf);
++	    if (!log_fd_keep) {
+ 		closelog();
++	    }
+ #endif
+ 	}
+ 	errno = saved_errno;
+ }
++
++void
++open_log(void)
++{
++	int temp1, temp2;
++
++	temp1 = open("/dev/null", O_RDONLY);
++	openlog(argv0 ? argv0 : __progname, LOG_PID|LOG_NDELAY, log_facility);
++	temp2 = open("/dev/null", O_RDONLY);
++	if (temp1 + 2 ==  temp2)
++		log_fd_keep = temp1 + 1;
++	else 
++		log_fd_keep = -1;
++
++	if (temp1 != -1)
++		close(temp1);
++	if (temp2 != -1)
++		close(temp2);
++}
+diff -up openssh-5.1p1/log.h.log-chroot openssh-5.1p1/log.h
+--- openssh-5.1p1/log.h.log-chroot	2008-06-13 02:22:54.000000000 +0200
++++ openssh-5.1p1/log.h	2008-07-23 15:20:11.000000000 +0200
+@@ -46,6 +46,9 @@
+ 	SYSLOG_LEVEL_NOT_SET = -1
+ }       LogLevel;
+ 
++
++extern int log_fd_keep;
++
+ void     log_init(char *, LogLevel, SyslogFacility, int);
+ 
+ SyslogFacility	log_facility_number(char *);
+@@ -66,4 +69,6 @@
+ 
+ void	 do_log(LogLevel, const char *, va_list);
+ void	 cleanup_exit(int) __attribute__((noreturn));
++
++void     open_log(void);
+ #endif
+--- openssh-5.2p1/session.c.	2009-03-20 18:32:01.004151364 +0100
++++ openssh-5.2p1/session.c	2009-03-20 19:00:28.328742384 +0100
+@@ -1445,6 +1456,7 @@
+ 	if (chdir(path) == -1)
+ 		fatal("Unable to chdir to chroot path \"%s\": "
+ 		    "%s", path, strerror(errno));
++	open_log ();
+ 	if (chroot(path) == -1)
+ 		fatal("chroot(\"%s\"): %s", path, strerror(errno));
+ 	if (chdir("/") == -1)
+@@ -1632,7 +1644,8 @@
+ 	 * descriptors open.
+ 	 */
+ 	for (i = 3; i < 64; i++)
+-		close(i);
++		if (i != log_fd_keep)
++			close(i);
+ }
+ 
+ /*

@@ -1,0 +1,539 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.253
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.253
+Problem:    "echo 'abc' > ''" returns 0 or 1, depending on 'ignorecase'.
+	    Checks in mb_strnicmp() for illegal and truncated bytes are
+	    wrong.  Should not assume that byte length is equal before case
+	    folding.
+Solution:   Add utf_safe_read_char_adv() and utf_strnicmp(). Add a test for
+	    this. (Ivan Krasilnikov)
+Files:	    src/mbyte.c src/testdir/test82.in, src/testdir/test82.ok,
+	    src/testdir/Makefile, src/testdir/Make_amiga.mak,
+	    src/testdir/Make_dos.mak, src/testdir/Make_ming.mak,
+	    src/testdir/Make_os2.mak, src/testdir/Make_vms.mms
+
+
+*** ../vim-7.3.252/src/mbyte.c	2011-07-07 15:08:53.000000000 +0200
+--- src/mbyte.c	2011-07-15 20:13:52.000000000 +0200
+***************
+*** 132,137 ****
+--- 132,138 ----
+  static int dbcs_char2cells __ARGS((int c));
+  static int dbcs_ptr2cells_len __ARGS((char_u *p, int size));
+  static int dbcs_ptr2char __ARGS((char_u *p));
++ static int utf_safe_read_char_adv __ARGS((char_u **s, size_t *n));
+  
+  /*
+   * Lookup table to quickly get the length in bytes of a UTF-8 character from
+***************
+*** 1701,1706 ****
+--- 1702,1767 ----
+  }
+  
+  /*
++  * Convert a UTF-8 byte sequence to a wide character.
++  * String is assumed to be terminated by NUL or after "n" bytes, whichever
++  * comes first.
++  * The function is safe in the sense that it never accesses memory beyond the
++  * first "n" bytes of "s".
++  *
++  * On success, returns decoded codepoint, advances "s" to the beginning of
++  * next character and decreases "n" accordingly.
++  *
++  * If end of string was reached, returns 0 and, if "n" > 0, advances "s" past
++  * NUL byte.
++  *
++  * If byte sequence is illegal or incomplete, returns -1 and does not advance
++  * "s".
++  */
++     static int
++ utf_safe_read_char_adv(s, n)
++     char_u      **s;
++     size_t      *n;
++ {
++     int		c, k;
++ 
++     if (*n == 0) /* end of buffer */
++ 	return 0;
++ 
++     k = utf8len_tab_zero[**s];
++ 
++     if (k == 1)
++     {
++ 	/* ASCII character or NUL */
++ 	(*n)--;
++ 	return *(*s)++;
++     }
++ 
++     if ((size_t)k <= *n)
++     {
++ 	/* We have a multibyte sequence and it isn't truncated by buffer
++ 	 * limits so utf_ptr2char() is safe to use. Or the first byte is
++ 	 * illegal (k=0), and it's also safe to use utf_ptr2char(). */
++ 	c = utf_ptr2char(*s);
++ 
++ 	/* On failure, utf_ptr2char() returns the first byte, so here we
++ 	 * check equality with the first byte. The only non-ASCII character
++ 	 * which equals the first byte of its own UTF-8 representation is
++ 	 * U+00C3 (UTF-8: 0xC3 0x83), so need to check that special case too.
++ 	 * It's safe even if n=1, else we would have k=2 > n. */
++ 	if (c != (int)(**s) || (c == 0xC3 && (*s)[1] == 0x83))
++ 	{
++ 	    /* byte sequence was successfully decoded */
++ 	    *s += k;
++ 	    *n -= k;
++ 	    return c;
++ 	}
++     }
++ 
++     /* byte sequence is incomplete or illegal */
++     return -1;
++ }
++ 
++ /*
+   * Get character at **pp and advance *pp to the next character.
+   * Note: composing characters are skipped!
+   */
+***************
+*** 2667,2673 ****
+  	{0x10400,0x10427,1,40}
+  };
+  
+! static int utf_convert(int a, convertStruct table[], int tableSize);
+  
+  /*
+   * Generic conversion function for case operations.
+--- 2728,2735 ----
+  	{0x10400,0x10427,1,40}
+  };
+  
+! static int utf_convert __ARGS((int a, convertStruct table[], int tableSize));
+! static int utf_strnicmp __ARGS((char_u *s1, char_u *s2, size_t n1, size_t n2));
+  
+  /*
+   * Generic conversion function for case operations.
+***************
+*** 3079,3084 ****
+--- 3141,3220 ----
+      return (utf_tolower(a) != a);
+  }
+  
++     static int
++ utf_strnicmp(s1, s2, n1, n2)
++     char_u      *s1, *s2;
++     size_t      n1, n2;
++ {
++     int		c1, c2, cdiff;
++     char_u	buffer[6];
++ 
++     for (;;)
++     {
++ 	c1 = utf_safe_read_char_adv(&s1, &n1);
++ 	c2 = utf_safe_read_char_adv(&s2, &n2);
++ 
++ 	if (c1 <= 0 || c2 <= 0)
++ 	    break;
++ 
++ 	if (c1 == c2)
++ 	    continue;
++ 
++ 	cdiff = utf_fold(c1) - utf_fold(c2);
++ 	if (cdiff != 0)
++ 	    return cdiff;
++     }
++ 
++     /* some string ended or has an incomplete/illegal character sequence */
++ 
++     if (c1 == 0 || c2 == 0)
++     {
++ 	/* some string ended. shorter string is smaller */
++ 	if (c1 == 0 && c2 == 0)
++ 	    return 0;
++ 	return c1 == 0 ? -1 : 1;
++     }
++ 
++     /* Continue with bytewise comparison to produce some result that
++      * would make comparison operations involving this function transitive.
++      *
++      * If only one string had an error, comparison should be made with
++      * folded version of the other string. In this case it is enough
++      * to fold just one character to determine the result of comparison. */
++ 
++     if (c1 != -1 && c2 == -1)
++     {
++ 	n1 = utf_char2bytes(utf_fold(c1), buffer);
++ 	s1 = buffer;
++     }
++     else if (c2 != -1 && c1 == -1)
++     {
++ 	n2 = utf_char2bytes(utf_fold(c2), buffer);
++ 	s2 = buffer;
++     }
++ 
++     while (n1 > 0 && n2 > 0 && *s1 != NUL && *s2 != NUL)
++     {
++ 	cdiff = (int)(*s1) - (int)(*s2);
++ 	if (cdiff != 0)
++ 	    return cdiff;
++ 
++ 	s1++;
++ 	s2++;
++ 	n1--;
++ 	n2--;
++     }
++ 
++     if (n1 > 0 && *s1 == NUL)
++ 	n1 = 0;
++     if (n2 > 0 && *s2 == NUL)
++ 	n2 = 0;
++ 
++     if (n1 == 0 && n2 == 0)
++ 	return 0;
++     return n1 == 0 ? -1 : 1;
++ }
++ 
+  /*
+   * Version of strnicmp() that handles multi-byte characters.
+   * Needed for Big5, Sjift-JIS and UTF-8 encoding.  Other DBCS encodings can
+***************
+*** 3092,3140 ****
+      char_u	*s1, *s2;
+      size_t	nn;
+  {
+!     int		i, j, l;
+      int		cdiff;
+-     int		incomplete = FALSE;
+      int		n = (int)nn;
+  
+!     for (i = 0; i < n; i += l)
+      {
+! 	if (s1[i] == NUL && s2[i] == NUL)   /* both strings end */
+! 	    return 0;
+! 	if (enc_utf8)
+! 	{
+! 	    l = utf_byte2len(s1[i]);
+! 	    if (l > n - i)
+! 	    {
+! 		l = n - i;		    /* incomplete character */
+! 		incomplete = TRUE;
+! 	    }
+! 	    /* Check directly first, it's faster. */
+! 	    for (j = 0; j < l; ++j)
+! 	    {
+! 		if (s1[i + j] != s2[i + j])
+! 		    break;
+! 		if (s1[i + j] == 0)
+! 		    /* Both stings have the same bytes but are incomplete or
+! 		     * have illegal bytes, accept them as equal. */
+! 		    l = j;
+! 	    }
+! 	    if (j < l)
+! 	    {
+! 		/* If one of the two characters is incomplete return -1. */
+! 		if (incomplete || i + utf_byte2len(s2[i]) > n)
+! 		    return -1;
+! 		/* Don't case-fold illegal bytes or truncated characters. */
+! 		if (utf_ptr2len(s1 + i) < l || utf_ptr2len(s2 + i) < l)
+! 		    return -1;
+! 		cdiff = utf_fold(utf_ptr2char(s1 + i))
+! 					     - utf_fold(utf_ptr2char(s2 + i));
+! 		if (cdiff != 0)
+! 		    return cdiff;
+! 	    }
+! 	}
+! 	else
+  	{
+  	    l = (*mb_ptr2len)(s1 + i);
+  	    if (l <= 1)
+  	    {
+--- 3228,3248 ----
+      char_u	*s1, *s2;
+      size_t	nn;
+  {
+!     int		i, l;
+      int		cdiff;
+      int		n = (int)nn;
+  
+!     if (enc_utf8)
+      {
+! 	return utf_strnicmp(s1, s2, nn, nn);
+!     }
+!     else
+!     {
+! 	for (i = 0; i < n; i += l)
+  	{
++ 	    if (s1[i] == NUL && s2[i] == NUL)	/* both strings end */
++ 		return 0;
++ 
+  	    l = (*mb_ptr2len)(s1 + i);
+  	    if (l <= 1)
+  	    {
+*** ../vim-7.3.252/src/testdir/test82.in	2011-07-15 21:16:03.000000000 +0200
+--- src/testdir/test82.in	2011-07-15 18:22:46.000000000 +0200
+***************
+*** 0 ****
+--- 1,93 ----
++ Tests for case-insensitive UTF-8 comparisons (utf_strnicmp() in mbyte.c)
++ 
++ STARTTEST
++ :so small.vim
++ :if !has("multi_byte")
++ : e! test.ok
++ : w! test.out
++ : qa!
++ :endif
++ :set enc=utf8
++ ggdG
++ :
++ :function! Ch(a, op, b, expected)
++ :  if eval(printf('"%s" %s "%s"', a:a, a:op, a:b)) != a:expected
++ :    call append(line('$'), printf('"%s" %s "%s" should return %d', a:a, a:op, a:b, a:expected))
++ :  else
++ :    let b:passed += 1
++ :  endif
++ :endfunction
++ :
++ :function! Chk(a, b, result)
++ :  if a:result == 0
++ :    call Ch(a:a, '==?', a:b, 1)
++ :    call Ch(a:a, '!=?', a:b, 0)
++ :    call Ch(a:a, '<=?', a:b, 1)
++ :    call Ch(a:a, '>=?', a:b, 1)
++ :    call Ch(a:a, '<?', a:b, 0)
++ :    call Ch(a:a, '>?', a:b, 0)
++ :  elseif a:result > 0
++ :    call Ch(a:a, '==?', a:b, 0)
++ :    call Ch(a:a, '!=?', a:b, 1)
++ :    call Ch(a:a, '<=?', a:b, 0)
++ :    call Ch(a:a, '>=?', a:b, 1)
++ :    call Ch(a:a, '<?', a:b, 0)
++ :    call Ch(a:a, '>?', a:b, 1)
++ :  else
++ :    call Ch(a:a, '==?', a:b, 0)
++ :    call Ch(a:a, '!=?', a:b, 1)
++ :    call Ch(a:a, '<=?', a:b, 1)
++ :    call Ch(a:a, '>=?', a:b, 0)
++ :    call Ch(a:a, '<?', a:b, 1)
++ :    call Ch(a:a, '>?', a:b, 0)
++ :  endif
++ :endfunction
++ :
++ :function! Check(a, b, result)
++ :  call Chk(a:a, a:b, a:result)
++ :  call Chk(a:b, a:a, -a:result)
++ :endfunction
++ :
++ :function! LT(a, b)
++ :  call Check(a:a, a:b, -1)
++ :endfunction
++ :
++ :function! GT(a, b)
++ :  call Check(a:a, a:b, 1)
++ :endfunction
++ :
++ :function! EQ(a, b)
++ :  call Check(a:a, a:b, 0)
++ :endfunction
++ :
++ :let b:passed=0
++ :call EQ('', '')
++ :call LT('', 'a')
++ :call EQ('abc', 'abc')
++ :call EQ('Abc', 'abC')
++ :call LT('ab', 'abc')
++ :call LT('AB', 'abc')
++ :call LT('ab', 'aBc')
++ :call EQ('\xd0\xb9\xd1\x86\xd1\x83\xd0\xba\xd0\xb5\xd0\xbd', '\xd0\xb9\xd0\xa6\xd0\xa3\xd0\xba\xd0\x95\xd0\xbd')
++ :call LT('\xd0\xb9\xd1\x86\xd1\x83\xd0\xba\xd0\xb5\xd0\xbd', '\xd0\xaf\xd1\x86\xd1\x83\xd0\xba\xd0\xb5\xd0\xbd')
++ :call EQ('\xe2\x84\xaa', 'k')
++ :call LT('\xe2\x84\xaa', 'kkkkkk')
++ :call EQ('\xe2\x84\xaa\xe2\x84\xaa\xe2\x84\xaa', 'kkk')
++ :call LT('kk', '\xe2\x84\xaa\xe2\x84\xaa\xe2\x84\xaa')
++ :call EQ('\xe2\x84\xaa\xe2\x84\xa6k\xe2\x84\xaak\xcf\x89', 'k\xcf\x89\xe2\x84\xaakk\xe2\x84\xa6')
++ :call EQ('Abc\x80', 'AbC\x80')
++ :call LT('Abc\x80', 'AbC\x81')
++ :call LT('Abc', 'AbC\x80')
++ :call LT('abc\x80DEF', 'abc\x80def')  " case folding stops at the first bad character
++ :call LT('\xc3XYZ', '\xc3xyz')
++ :call EQ('\xef\xbc\xba', '\xef\xbd\x9a')  " FF3A (upper), FF5A (lower)
++ :call GT('\xef\xbc\xba', '\xef\xbc\xff')  " first string is ok and equals \xef\xbd\x9a after folding, second string is illegal and was left unchanged, then the strings were bytewise compared
++ :call LT('\xc3', '\xc3\x83')
++ :call EQ('\xc3\xa3xYz', '\xc3\x83XyZ')
++ :for n in range(0x60, 0xFF) | call LT(printf('xYz\x%.2X', n-1), printf('XyZ\x%.2X', n)) | endfor
++ :for n in range(0x80, 0xBF) | call EQ(printf('xYz\xc2\x%.2XUvW', n), printf('XyZ\xc2\x%.2XuVw', n)) | endfor
++ :for n in range(0xC0, 0xFF) | call LT(printf('xYz\xc2\x%.2XUvW', n), printf('XyZ\xc2\x%.2XuVw', n)) | endfor
++ :call append(0, printf('%d checks passed', b:passed))
++ :wq! test.out
++ ENDTEST
++ 
+*** ../vim-7.3.252/src/testdir/test82.ok	2011-07-15 21:16:03.000000000 +0200
+--- src/testdir/test82.ok	2011-07-15 18:37:33.000000000 +0200
+***************
+*** 0 ****
+--- 1,2 ----
++ 3732 checks passed
++ 
+*** ../vim-7.3.252/src/testdir/Makefile	2011-06-26 05:36:07.000000000 +0200
+--- src/testdir/Makefile	2011-07-15 18:30:08.000000000 +0200
+***************
+*** 26,32 ****
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 26,32 ----
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out
+  
+  SCRIPTS_GUI = test16.out
+  
+*** ../vim-7.3.252/src/testdir/Make_amiga.mak	2011-06-26 05:36:07.000000000 +0200
+--- src/testdir/Make_amiga.mak	2011-07-15 18:29:50.000000000 +0200
+***************
+*** 29,35 ****
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out
+  
+  .SUFFIXES: .in .out
+  
+--- 29,35 ----
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 130,132 ****
+--- 130,133 ----
+  test79.out: test79.in
+  test80.out: test80.in
+  test81.out: test81.in
++ test82.out: test82.in
+*** ../vim-7.3.252/src/testdir/Make_dos.mak	2011-06-26 05:36:07.000000000 +0200
+--- src/testdir/Make_dos.mak	2011-07-15 18:30:02.000000000 +0200
+***************
+*** 29,35 ****
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 29,35 ----
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.252/src/testdir/Make_ming.mak	2011-06-26 05:36:07.000000000 +0200
+--- src/testdir/Make_ming.mak	2011-07-15 18:30:15.000000000 +0200
+***************
+*** 49,55 ****
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 49,55 ----
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+  		test74.out test75.out test76.out test77.out test78.out \
+! 		test79.out test80.out test81.out test82.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.252/src/testdir/Make_os2.mak	2011-06-26 05:36:07.000000000 +0200
+--- src/testdir/Make_os2.mak	2011-07-15 18:30:25.000000000 +0200
+***************
+*** 29,35 ****
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out
+  
+  .SUFFIXES: .in .out
+  
+--- 29,35 ----
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+! 		test81.out test82.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../vim-7.3.252/src/testdir/Make_vms.mms	2011-06-26 05:36:07.000000000 +0200
+--- src/testdir/Make_vms.mms	2011-07-15 18:30:33.000000000 +0200
+***************
+*** 4,10 ****
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2011 Jun 26
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+--- 4,10 ----
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2011 Jul 15
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+***************
+*** 75,81 ****
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+! 	 test77.out test78.out test79.out test80.out test81.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+--- 75,82 ----
+  	 test61.out test62.out test63.out test64.out test65.out \
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+! 	 test77.out test78.out test79.out test80.out test81.out \
+! 	 test82.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+*** ../vim-7.3.252/src/version.c	2011-07-15 17:56:11.000000000 +0200
+--- src/version.c	2011-07-15 21:12:26.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     253,
+  /**/
+
+-- 
+"Intelligence has much less practical application than you'd think."
+		  -- Scott Adams, Dilbert.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

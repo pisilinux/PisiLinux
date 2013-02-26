@@ -1,0 +1,500 @@
+Index: kcontrol/randr/randrconfig.h
+===================================================================
+--- kcontrol/randr/randrconfig.h	(revision 1170314)
++++ kcontrol/randr/randrconfig.h	(revision 1170315)
+@@ -57,6 +57,8 @@
+ 	void slotAdjustOutput(OutputGraphicsItem *o);
+ 	void identifyOutputs();
+ 	void clearIndicators();
++	void saveStartup();
++	void disableStartup();
+ 
+ signals:
+ 	void changed(bool change);
+Index: kcontrol/randr/randrscreen.h
+===================================================================
+--- kcontrol/randr/randrscreen.h	(revision 1170314)
++++ kcontrol/randr/randrscreen.h	(revision 1170315)
+@@ -91,6 +91,7 @@
+ 
+ 	void load(KConfig &config);
+ 	void save(KConfig &config);
++	QStringList startupCommands() const;
+ 
+ public slots:
+ 	void slotUnifyOutputs(bool unify);
+Index: kcontrol/randr/randrconfigbase.ui
+===================================================================
+--- kcontrol/randr/randrconfigbase.ui	(revision 1170314)
++++ kcontrol/randr/randrconfigbase.ui	(revision 1170315)
+@@ -51,7 +51,7 @@
+            <height>25</height>
+           </size>
+          </property>
+-         <widget class="QWidget" name="">
++         <widget class="QWidget" name="layoutWidget">
+           <property name="geometry">
+            <rect>
+             <x>0</x>
+@@ -88,6 +88,13 @@
+          </property>
+         </widget>
+        </item>
++       <item>
++        <widget class="QPushButton" name="saveAsDefaultButton">
++         <property name="text">
++          <string>Save as Default</string>
++         </property>
++        </widget>
++       </item>
+       </layout>
+      </widget>
+      <widget class="QGraphicsView" name="screenView"/>
+Index: kcontrol/randr/randroutput.cpp
+===================================================================
+--- kcontrol/randr/randroutput.cpp	(revision 1170314)
++++ kcontrol/randr/randroutput.cpp	(revision 1170315)
+@@ -24,6 +24,7 @@
+ 
+ #include <KConfig>
+ #include <KConfigGroup>
++#include <KShell>
+ #include <QX11Info>
+ #include <QAction>
+ 
+@@ -424,6 +425,36 @@
+ 	cg.writeEntry("RefreshRate", (double)m_crtc->refreshRate());
+ }
+ 
++QStringList RandROutput::startupCommands() const
++{
++	if (!m_connected)
++		return QStringList();
++	if (m_crtc->id() == None)
++	     return QStringList();	
++	QString command = QString( "xrandr --output \"%1\"" ).arg( KShell::quoteArg( m_name ));
++	// if the outputs are unified, do not save size and rotation
++	// this allow us to set back the size and rotation being used
++	// when the outputs are not unified.
++	if (!m_screen->outputsUnified() || m_screen->connectedCount() <=1)
++	{
++		command += QString( " --pos %1x%2 --mode %3x%4" ).arg( m_crtc->rect().x())
++		    .arg( m_crtc->rect().y()).arg( m_crtc->rect().width()).arg( m_crtc->rect().height());
++		switch( m_crtc->rotation()) {
++			case RandR::Rotate90:
++				command += " --rotate right";
++				break;
++			case RandR::Rotate180:
++				command += " --rotate inverted";
++				break;
++			case RandR::Rotate270:
++				command += " --rotate left";
++				break;
++		}
++	}
++	command += QString(" --refresh %1").arg( m_crtc->refreshRate());
++	return QStringList() << command;
++}
++
+ void RandROutput::proposeRefreshRate(float rate)
+ {
+ 	if (!m_crtc->isValid())
+Index: kcontrol/randr/randrconfig.cpp
+===================================================================
+--- kcontrol/randr/randrconfig.cpp	(revision 1170314)
++++ kcontrol/randr/randrconfig.cpp	(revision 1170315)
+@@ -31,6 +31,8 @@
+ #include <kglobalsettings.h>
+ #include <kmessagebox.h>
+ #include <kprocess.h>
++#include <kshell.h>
++#include <qmenu.h>
+ 
+ RandRConfig::RandRConfig(QWidget *parent, RandRDisplay *display)
+ 	: QWidget(parent), Ui::RandRConfigBase()
+@@ -54,6 +56,12 @@
+ 	identifyTimer.setSingleShot( true );
+ 	compressUpdateViewTimer.setSingleShot( true );
+ 
++	connect( saveAsDefaultButton, SIGNAL( clicked()), SLOT( saveStartup()));
++	QMenu* saveMenu = new QMenu(saveAsDefaultButton);
++	saveMenu->addAction(i18n("Save as Default"),this, SLOT(saveStartup()));
++	saveMenu->addAction(i18n("Reset"),this, SLOT(disableStartup()));
++	saveAsDefaultButton->setMenu(saveMenu);
++
+ 	// create the container for the settings widget
+ 	QHBoxLayout *layout = new QHBoxLayout(outputList);
+ 	layout->setSpacing(0);
+@@ -235,6 +243,7 @@
+ 		}
+ 	}
+ #ifdef HAS_RANDR_1_3
++	if (RandR::has_1_3)
+ 	{
+ 		int primaryOutputIndex = primaryDisplayBox->currentIndex();
+ 		RandRScreen *screen = m_display->currentScreen();
+@@ -267,6 +276,43 @@
+ 	emit changed(false);
+ }
+ 
++void RandRConfig::saveStartup()
++{
++	if (!m_display->isValid())
++		return;
++	KConfig config("krandrrc");
++	m_display->saveStartup(config);
++#ifdef HAS_RANDR_1_3
++	if (RandR::has_1_3)
++	{
++		// Add setting the primary screen to the list of commands
++		KConfigGroup group = config.group("Display");
++		QStringList commands = group.readEntry("StartupCommands").split("\n");
++		int primaryOutputIndex = primaryDisplayBox->currentIndex();
++		if (primaryOutputIndex > 0)
++		{
++			QString primaryOutput = primaryDisplayBox->itemText(primaryOutputIndex);
++			commands += QString("xrandr --output %1 --primary")
++			    .arg( KShell::quoteArg( primaryOutput ));
++		}
++		else
++			commands += "xrandr --noprimary";
++		group.writeEntry("StartupCommands",commands.join("\n"));
++	}
++#endif //HAS_RANDR_1_3
++	KMessageBox::information( window(), i18n( "Configuration has been set as the desktop default." ));
++}
++
++void RandRConfig::disableStartup()
++{
++	if (!m_display->isValid())
++		return;
++	KConfig config("krandrrc");
++	m_display->disableStartup(config);
++	KMessageBox::information( window(), i18n( "Default desktop setup has been reset." ));
++}
++
++
+ bool RandRConfig::eventFilter(QObject *obj, QEvent *event)
+ {
+ 	if ( obj == screenView && event->type() == QEvent::Resize ) {
+Index: kcontrol/randr/CMakeLists.txt
+===================================================================
+--- kcontrol/randr/CMakeLists.txt	(revision 1170314)
++++ kcontrol/randr/CMakeLists.txt	(revision 1170315)
+@@ -59,6 +59,11 @@
+ install(TARGETS krandrtray ${INSTALL_TARGETS_DEFAULT_ARGS})
+ 
+ 
++########### next target ###############
++
++install(PROGRAMS krandrstartup DESTINATION ${BIN_INSTALL_DIR})
++
++
+ ########### install files ###############
+ 
+ install( FILES krandrtray.desktop  DESTINATION  ${XDG_APPS_INSTALL_DIR} )
+Index: kcontrol/randr/legacyrandrscreen.h
+===================================================================
+--- kcontrol/randr/legacyrandrscreen.h	(revision 1170314)
++++ kcontrol/randr/legacyrandrscreen.h	(revision 1170315)
+@@ -130,6 +130,7 @@
+ 	 */
+ 	void load(KConfig& config);
+ 	void save(KConfig& config) const;
++	QStringList startupCommands() const;
+ 
+ private:
+ 	XRRScreenConfiguration*	m_config;
+Index: kcontrol/randr/randrdisplay.h
+===================================================================
+--- kcontrol/randr/randrdisplay.h	(revision 1170314)
++++ kcontrol/randr/randrdisplay.h	(revision 1170315)
+@@ -63,7 +63,9 @@
+ 	 * @retuns true if the settings should be applied on KDE startup.
+ 	 */
+ 	bool loadDisplay(KConfig& config, bool loadScreens = true);
+-	void saveDisplay(KConfig& config, bool applyOnStartup, bool syncTrayApp);
++	void saveDisplay(KConfig& config, bool syncTrayApp);
++	void saveStartup(KConfig& config);
++	void disableStartup(KConfig& config);
+ 
+ 	static bool applyOnStartup(KConfig& config);
+ 	static bool syncTrayApp(KConfig& config);
+Index: kcontrol/randr/randrscreen.cpp
+===================================================================
+--- kcontrol/randr/randrscreen.cpp	(revision 1170314)
++++ kcontrol/randr/randrscreen.cpp	(revision 1170315)
+@@ -455,6 +455,17 @@
+ 	save(cfg);
+ }
+ 
++QStringList RandRScreen::startupCommands() const
++{
++	QStringList commands;
++	foreach(RandROutput *output, m_outputs)
++	{
++		if (output->isConnected())
++			commands += output->startupCommands();
++	}
++	return commands;
++}
++
+ void RandRScreen::load()
+ {
+ 	KConfig cfg("krandrrc");
+Index: kcontrol/randr/legacyrandrconfig.cpp
+===================================================================
+--- kcontrol/randr/legacyrandrconfig.cpp	(revision 1170314)
++++ kcontrol/randr/legacyrandrconfig.cpp	(revision 1170315)
+@@ -92,7 +92,11 @@
+ 	m_oldApply = applyOnStartup->isChecked();
+ 	m_oldSyncTrayApp = syncTrayApp->isChecked();
+ 	KConfig config("krandrrc");
+-	m_display->saveDisplay(config, m_oldApply, m_oldSyncTrayApp);
++	m_display->saveDisplay(config, m_oldSyncTrayApp);
++	if(m_oldApply)
++		m_display->saveStartup(config);
++	else
++		m_display->disableStartup(config);
+ 
+ 	setChanged();
+ }
+Index: kcontrol/randr/krandrstartup
+===================================================================
+--- kcontrol/randr/krandrstartup	(revision 0)
++++ kcontrol/randr/krandrstartup	(revision 1170315)
+@@ -0,0 +1,57 @@
++#!/bin/sh
++#
++# A script that is called from startkde. Does early setup of a configuration
++# saved by krandr.
++
++if test "$krandrrc_display_applyonstartup" = "true"; then
++    if test -n "$krandrrc_display_startupcommands"; then
++        # new way of simply storing the commands
++        echo -e "$krandrrc_display_startupcommands" | \
++        while read command; do
++            eval "$command"
++        done
++    else
++        # backwards compatibility
++        # 4 screens is hopefully enough
++        for scrn in 0 1 2 3; do
++            args=
++            width="\$krandrrc_screen${scrn}_width" ; eval "width=$width"
++            height="\$krandrrc_screen${scrn}_height" ; eval "height=$height"
++            if test -n "${width}" -a -n "${height}"; then
++                args="$args -s ${width}x${height}"
++            fi
++            refresh="\$krandrrc_screen${scrn}_refresh" ; eval "refresh=$refresh"
++            if test -n "${refresh}"; then
++                args="$args -r ${refresh}"
++            fi
++            rotation="\$krandrrc_screen${scrn}_rotation" ; eval "rotation=$rotation"
++            if test -n "${rotation}"; then
++                case "${rotation}" in
++                    0)
++                        args="$args -o 0"
++                        ;;
++                    90)
++                        args="$args -o 1"
++                        ;;
++                    180)
++                        args="$args -o 2"
++                        ;;
++                    270)
++                        args="$args -o 3"
++                        ;;
++                esac
++            fi
++            reflectx="\$krandrrc_screen${scrn}_reflectx" ; eval "reflectx=$reflectx"
++            if test "${refrectx}" = "true"; then
++                args="$args -x"
++            fi
++            reflecty="\$krandrrc_screen${scrn}_reflecty" ; eval "reflecty=$reflecty"
++            if test "${refrecty}" = "true"; then
++                args="$args -y"
++            fi
++            if test -n "$args"; then
++                xrandr $args
++            fi
++        done
++    fi
++fi
+
+Property changes on: kcontrol/randr/krandrstartup
+___________________________________________________________________
+Added: svn:executable
+   + *
+
+Index: kcontrol/randr/legacyrandrscreen.cpp
+===================================================================
+--- kcontrol/randr/legacyrandrscreen.cpp	(revision 1170314)
++++ kcontrol/randr/legacyrandrscreen.cpp	(revision 1170315)
+@@ -388,6 +388,28 @@
+ 	group.writeEntry("reflectY", (bool)(rotation() & RandR::ReflectMask) == RandR::ReflectY);
+ }
+ 
++QStringList LegacyRandRScreen::startupCommands() const
++{
++	QString command = QString("xrandr -s %1x%2 -r %3 ").arg( currentPixelSize().width(),
++	    currentPixelSize().height(), refreshRateIndexToHz(size(), refreshRate()));
++	switch( rotation()) {
++		case RR_Rotate_90:
++			command += " -o 1 ";
++			break;
++		case RR_Rotate_180:
++			command += " -o 2 ";
++			break;
++		case RR_Rotate_270:
++			command += " -o 3 ";
++			break;
++	}
++	if((rotation() & RandR::ReflectMask) == RandR::ReflectX)
++		command += " -x ";
++	if((bool)(rotation() & RandR::ReflectMask) == RandR::ReflectY)
++		command += " -y ";
++	return QStringList() << command;
++}
++
+ int LegacyRandRScreen::pixelCount( int index ) const
+ {
+ 	QSize sz = pixelSize(index);
+Index: kcontrol/randr/randrdisplay.cpp
+===================================================================
+--- kcontrol/randr/randrdisplay.cpp	(revision 1170314)
++++ kcontrol/randr/randrdisplay.cpp	(revision 1170315)
+@@ -293,10 +293,9 @@
+ 	return config.group("Display").readEntry("SyncTrayApp", false);
+ }
+ 
+-void RandRDisplay::saveDisplay(KConfig& config, bool applyOnStartup, bool syncTrayApp)
++void RandRDisplay::saveDisplay(KConfig& config, bool syncTrayApp)
+ {
+ 	KConfigGroup group = config.group("Display");
+-	group.writeEntry("ApplyOnStartup", applyOnStartup);
+ 	group.writeEntry("SyncTrayApp", syncTrayApp);
+ 
+ #ifdef HAS_RANDR_1_2
+@@ -313,6 +312,36 @@
+ 	}
+ }
+ 
++// to be used during desktop startup, make all screens provide the shell commands
++// (using xrandr cli tool), save them here and a script will perform these commands
++// early during desktop startup
++void RandRDisplay::saveStartup(KConfig& config)
++{
++	KConfigGroup group = config.group("Display");
++	group.writeEntry("ApplyOnStartup", true);
++	QStringList commands;
++#ifdef HAS_RANDR_1_2
++	if (RandR::has_1_2)
++	{
++		foreach(RandRScreen *s, m_screens)
++			commands += s->startupCommands();
++	}
++	else
++#endif
++	{
++		foreach(LegacyRandRScreen *s, m_legacyScreens)
++			commands += s->startupCommands();
++	}
++	group.writeEntry( "StartupCommands", commands.join( "\n" ));
++}
++
++void RandRDisplay::disableStartup(KConfig& config)
++{
++	KConfigGroup group = config.group("Display");
++	group.writeEntry("ApplyOnStartup", false);
++	group.deleteEntry( "StartupCommands" );
++}
++
+ void RandRDisplay::applyProposed(bool confirm)
+ {
+ 
+Index: kcontrol/randr/randroutput.h
+===================================================================
+--- kcontrol/randr/randroutput.h	(revision 1170314)
++++ kcontrol/randr/randroutput.h	(revision 1170315)
+@@ -118,6 +118,7 @@
+ 
+ 	void load(KConfig &config);
+ 	void save(KConfig &config);
++	QStringList startupCommands() const;
+ 
+ public slots:
+ 	void slotChangeSize(QAction *action);
+Index: startkde.cmake
+===================================================================
+--- startkde.cmake	(revision 1170314)
++++ startkde.cmake	(revision 1170315)
+@@ -93,11 +93,12 @@
+ kcminputrc Mouse cursorSize ''
+ ksplashrc KSplash Theme Default
+ ksplashrc KSplash Engine KSplashX
+-kcmrandrrc Display ApplyOnStartup false
+-kcmrandrrc [Screen0]
+-kcmrandrrc [Screen1]
+-kcmrandrrc [Screen2]
+-kcmrandrrc [Screen3]
++krandrrc Display ApplyOnStartup false
++krandrrc Display StartupCommands ''
++krandrrc [Screen0]
++krandrrc [Screen1]
++krandrrc [Screen2]
++krandrrc [Screen3]
+ kcmfonts General forceFontDPI 0
+ kdeglobals Locale Language '' # trigger requesting languages from KLocale
+ EOF
+@@ -127,49 +128,7 @@
+     fi
+ fi
+ 
+-if test "$kcmrandrrc_display_applyonstartup" = "true"; then
+-    # 4 screens is hopefully enough
+-    for scrn in 0 1 2 3; do
+-        args=
+-        width="\$kcmrandrrc_screen${scrn}_width" ; eval "width=$width"
+-        height="\$kcmrandrrc_screen${scrn}_height" ; eval "height=$height"
+-        if test -n "${width}" -a -n "${height}"; then
+-            args="$args -s ${width}x${height}"
+-        fi
+-        refresh="\$kcmrandrrc_screen${scrn}_refresh" ; eval "refresh=$refresh"
+-        if test -n "${refresh}"; then
+-            args="$args -r ${refresh}"
+-        fi
+-        rotation="\$kcmrandrrc_screen${scrn}_rotation" ; eval "rotation=$rotation"
+-        if test -n "${rotation}"; then
+-            case "${rotation}" in
+-                0)
+-                    args="$args -o 0"
+-                    ;;
+-                90)
+-                    args="$args -o 1"
+-                    ;;
+-                180)
+-                    args="$args -o 2"
+-                    ;;
+-                270)
+-                    args="$args -o 3"
+-                    ;;
+-            esac
+-        fi
+-        reflectx="\$kcmrandrrc_screen${scrn}_reflectx" ; eval "reflectx=$reflectx"
+-        if test "${refrectx}" = "true"; then
+-            args="$args -x"
+-        fi
+-        reflecty="\$kcmrandrrc_screen${scrn}_reflecty" ; eval "reflecty=$reflecty"
+-        if test "${refrecty}" = "true"; then
+-            args="$args -y"
+-        fi
+-        if test -n "$args"; then
+-            xrandr $args
+-        fi
+-    done
+-fi
++. krandrstartup 2>/dev/null
+ 
+ if test "$kcmfonts_general_forcefontdpi" -eq 120; then
+     xrdb -quiet -merge -nocpp <<EOF

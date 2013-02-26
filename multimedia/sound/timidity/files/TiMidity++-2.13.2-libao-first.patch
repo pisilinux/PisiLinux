@@ -1,0 +1,77 @@
+diff -up TiMidity++-2.13.2/timidity/ao_a.c.libao-first TiMidity++-2.13.2/timidity/ao_a.c
+--- TiMidity++-2.13.2/timidity/ao_a.c.libao-first	2004-04-12 19:44:03.000000000 +0200
++++ TiMidity++-2.13.2/timidity/ao_a.c	2011-07-27 15:19:56.417477616 +0200
+@@ -42,6 +42,7 @@ static int open_output(void); /* 0=succe
+ static void close_output(void);
+ static int output_data(char *buf, int32 nbytes);
+ static int acntl(int request, void *arg);
++static int detect(void);
+ 
+ /* export the playback mode */
+ 
+@@ -56,7 +57,8 @@ PlayMode dpm = {
+   open_output,
+   close_output,
+   output_data,
+-  acntl
++  acntl,
++  detect
+ };
+ 
+ static ao_device *ao_device_ctx;
+@@ -167,3 +169,30 @@ static int acntl(int request, void *arg)
+   }
+   return -1;
+ }
++
++static int detect(void)
++{
++  int driver_id, result = 0;
++  ao_sample_format ao_sample_format_ctx;
++  ao_device *ao_device_ctx;
++
++  ao_initialize();
++
++  /* Only succeed in autodetect mode when pulseaudio is available! */
++  driver_id = ao_driver_id("pulse");
++
++  ao_sample_format_ctx.rate = 44100;
++  ao_sample_format_ctx.bits = 16;
++  ao_sample_format_ctx.channels = 2;
++  ao_sample_format_ctx.byte_format = AO_FMT_NATIVE;
++  ao_sample_format_ctx.matrix = NULL;
++
++  if ((ao_device_ctx = ao_open_live(driver_id, &ao_sample_format_ctx, NULL))) {
++    result = 1;
++    ao_close(ao_device_ctx);
++  }
++
++  ao_shutdown();
++
++  return result;
++}
+diff -up TiMidity++-2.13.2/timidity/output.c.libao-first TiMidity++-2.13.2/timidity/output.c
+--- TiMidity++-2.13.2/timidity/output.c.libao-first	2011-07-27 15:19:40.445447885 +0200
++++ TiMidity++-2.13.2/timidity/output.c	2011-07-27 15:19:40.468447928 +0200
+@@ -133,6 +133,10 @@ extern PlayMode gogo_play_mode;
+ extern PlayMode modmidi_play_mode;
+ 
+ PlayMode *play_mode_list[] = {
++#if defined(AU_AO) /* Try libao first as that will give us pulseaudio */
++  &ao_play_mode,
++#endif /* AU_AO */
++
+ #if defined(AU_ARTS)
+   &arts_play_mode,
+ #endif /* AU_ARTS */
+@@ -171,10 +175,6 @@ PlayMode *play_mode_list[] = {
+   &nas_play_mode,
+ #endif /* AU_NAS */
+ 
+-#if defined(AU_AO)
+-  &ao_play_mode,
+-#endif /* AU_PORTAUDIO */
+-
+ #ifndef __MACOS__
+   &wave_play_mode,
+   &raw_play_mode,

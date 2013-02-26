@@ -1,0 +1,163 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.178
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.178
+Problem:    C-indent doesn't handle code right after { correctly.
+Solution:   Fix detecting unterminated line. (Lech Lorens)
+Files:      src/misc1.c, src/testdir/test3.in, src/testdir/test3.ok
+    
+
+*** ../vim-7.3.177/src/misc1.c	2011-04-28 17:48:39.000000000 +0200
+--- src/misc1.c	2011-05-10 11:35:09.000000000 +0200
+***************
+*** 4983,4989 ****
+  }
+  
+  /*
+!  * Return TRUE if there there is no code at *s.  White space and comments are
+   * not considered code.
+   */
+      static int
+--- 4983,4989 ----
+  }
+  
+  /*
+!  * Return TRUE if there is no code at *s.  White space and comments are
+   * not considered code.
+   */
+      static int
+***************
+*** 5458,5465 ****
+  }
+  
+  /*
+!  * Recognize a line that starts with '{' or '}', or ends with ';', '{' or '}'.
+   * Don't consider "} else" a terminated line.
+   * Return the character terminating the line (ending char's have precedence if
+   * both apply in order to determine initializations).
+   */
+--- 5458,5468 ----
+  }
+  
+  /*
+!  * Recognize a line that starts with '{' or '}', or ends with ';', ',', '{' or
+!  * '}'.
+   * Don't consider "} else" a terminated line.
++  * Don't consider a line where there are unmatched opening braces before '}',
++  * ';' or ',' a terminated line.
+   * Return the character terminating the line (ending char's have precedence if
+   * both apply in order to determine initializations).
+   */
+***************
+*** 5470,5475 ****
+--- 5473,5479 ----
+      int		incl_comma;	/* recognize a trailing comma */
+  {
+      char_u found_start = 0;
++     unsigned n_open = 0;
+  
+      s = cin_skipcomment(s);
+  
+***************
+*** 5480,5489 ****
+      {
+  	/* skip over comments, "" strings and 'c'haracters */
+  	s = skip_string(cin_skipcomment(s));
+! 	if ((*s == ';' || (incl_open && *s == '{') || *s == '}'
+! 						 || (incl_comma && *s == ','))
+  		&& cin_nocode(s + 1))
+  	    return *s;
+  
+  	if (*s)
+  	    s++;
+--- 5484,5502 ----
+      {
+  	/* skip over comments, "" strings and 'c'haracters */
+  	s = skip_string(cin_skipcomment(s));
+! 	if (*s == '}' && n_open > 0)
+! 	    --n_open;
+! 	if (n_open == 0
+! 		&& (*s == ';' || *s == '}' || (incl_comma && *s == ','))
+  		&& cin_nocode(s + 1))
+  	    return *s;
++ 	else if (*s == '{')
++ 	{
++ 	    if (incl_open && cin_nocode(s + 1))
++ 		return *s;
++ 	    else
++ 		++n_open;
++ 	}
+  
+  	if (*s)
+  	    s++;
+*** ../vim-7.3.177/src/testdir/test3.in	2011-04-28 13:01:59.000000000 +0200
+--- src/testdir/test3.in	2011-05-10 11:34:13.000000000 +0200
+***************
+*** 1344,1349 ****
+--- 1344,1365 ----
+  }
+  
+  STARTTEST
++ :set cino&
++ 2kdd=][
++ ENDTEST
++ 
++ void func(void)
++ {
++ 	if(x==y)
++ 		if(y==z)
++ 			foo=1;
++ 		else { bar=1;
++ 			baz=2;
++ 		}
++ 	printf("Foo!\n");
++ }
++ 
++ STARTTEST
+  :g/^STARTTEST/.,/^ENDTEST/d
+  :1;/start of AUTO/,$wq! test.out
+  ENDTEST
+*** ../vim-7.3.177/src/testdir/test3.ok	2011-04-28 13:01:59.000000000 +0200
+--- src/testdir/test3.ok	2011-05-10 11:34:13.000000000 +0200
+***************
+*** 1204,1206 ****
+--- 1204,1218 ----
+  {
+  }
+  
++ 
++ void func(void)
++ {
++ 	if(x==y)
++ 		if(y==z)
++ 			foo=1;
++ 		else { bar=1;
++ 			baz=2;
++ 		}
++ 	printf("Foo!\n");
++ }
++ 
+*** ../vim-7.3.177/src/version.c	2011-05-05 18:31:54.000000000 +0200
+--- src/version.c	2011-05-10 11:37:43.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     178,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+69. Yahoo welcomes you with your own start page
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

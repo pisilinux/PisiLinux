@@ -1,0 +1,286 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.155
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.155
+Problem:    Crash when using map(), filter() and remove() on v:. (ZyX)
+            Also for extend(). (Yukihiro Nakadaira)
+Solution:   Mark v: as locked.  Also correct locking error messages.
+Files:	    src/eval.c
+
+
+*** ../vim-7.3.154/src/eval.c	2011-04-01 16:07:41.000000000 +0200
+--- src/eval.c	2011-04-11 13:28:34.000000000 +0200
+***************
+*** 853,858 ****
+--- 853,859 ----
+  
+      init_var_dict(&globvardict, &globvars_var);
+      init_var_dict(&vimvardict, &vimvars_var);
++     vimvardict.dv_lock = VAR_FIXED;
+      hash_init(&compat_hashtab);
+      hash_init(&func_hashtab);
+  
+***************
+*** 8545,8551 ****
+      if (argvars[0].v_type == VAR_LIST)
+      {
+  	if ((l = argvars[0].vval.v_list) != NULL
+! 		&& !tv_check_lock(l->lv_lock, (char_u *)"add()")
+  		&& list_append_tv(l, &argvars[1]) == OK)
+  	    copy_tv(&argvars[0], rettv);
+      }
+--- 8546,8552 ----
+      if (argvars[0].v_type == VAR_LIST)
+      {
+  	if ((l = argvars[0].vval.v_list) != NULL
+! 		&& !tv_check_lock(l->lv_lock, (char_u *)_("add() argument"))
+  		&& list_append_tv(l, &argvars[1]) == OK)
+  	    copy_tv(&argvars[0], rettv);
+      }
+***************
+*** 9946,9951 ****
+--- 9947,9954 ----
+      typval_T	*argvars;
+      typval_T	*rettv;
+  {
++     char      *arg_errmsg = N_("extend() argument");
++ 
+      if (argvars[0].v_type == VAR_LIST && argvars[1].v_type == VAR_LIST)
+      {
+  	list_T		*l1, *l2;
+***************
+*** 9955,9961 ****
+  
+  	l1 = argvars[0].vval.v_list;
+  	l2 = argvars[1].vval.v_list;
+! 	if (l1 != NULL && !tv_check_lock(l1->lv_lock, (char_u *)"extend()")
+  		&& l2 != NULL)
+  	{
+  	    if (argvars[2].v_type != VAR_UNKNOWN)
+--- 9958,9964 ----
+  
+  	l1 = argvars[0].vval.v_list;
+  	l2 = argvars[1].vval.v_list;
+! 	if (l1 != NULL && !tv_check_lock(l1->lv_lock, (char_u *)_(arg_errmsg))
+  		&& l2 != NULL)
+  	{
+  	    if (argvars[2].v_type != VAR_UNKNOWN)
+***************
+*** 9994,10000 ****
+  
+  	d1 = argvars[0].vval.v_dict;
+  	d2 = argvars[1].vval.v_dict;
+! 	if (d1 != NULL && !tv_check_lock(d1->dv_lock, (char_u *)"extend()")
+  		&& d2 != NULL)
+  	{
+  	    /* Check the third argument. */
+--- 9997,10003 ----
+  
+  	d1 = argvars[0].vval.v_dict;
+  	d2 = argvars[1].vval.v_dict;
+! 	if (d1 != NULL && !tv_check_lock(d1->dv_lock, (char_u *)_(arg_errmsg))
+  		&& d2 != NULL)
+  	{
+  	    /* Check the third argument. */
+***************
+*** 10236,10255 ****
+      typval_T	save_key;
+      int		rem;
+      int		todo;
+!     char_u	*ermsg = map ? (char_u *)"map()" : (char_u *)"filter()";
+      int		save_did_emsg;
+      int		idx = 0;
+  
+      if (argvars[0].v_type == VAR_LIST)
+      {
+  	if ((l = argvars[0].vval.v_list) == NULL
+! 		|| (map && tv_check_lock(l->lv_lock, ermsg)))
+  	    return;
+      }
+      else if (argvars[0].v_type == VAR_DICT)
+      {
+  	if ((d = argvars[0].vval.v_dict) == NULL
+! 		|| (map && tv_check_lock(d->dv_lock, ermsg)))
+  	    return;
+      }
+      else
+--- 10239,10260 ----
+      typval_T	save_key;
+      int		rem;
+      int		todo;
+!     char_u	*ermsg = (char_u *)(map ? "map()" : "filter()");
+!     char	*arg_errmsg = (map ? N_("map() argument")
+! 				   : N_("filter() argument"));
+      int		save_did_emsg;
+      int		idx = 0;
+  
+      if (argvars[0].v_type == VAR_LIST)
+      {
+  	if ((l = argvars[0].vval.v_list) == NULL
+! 		|| tv_check_lock(l->lv_lock, (char_u *)_(arg_errmsg)))
+  	    return;
+      }
+      else if (argvars[0].v_type == VAR_DICT)
+      {
+  	if ((d = argvars[0].vval.v_dict) == NULL
+! 		|| tv_check_lock(d->dv_lock, (char_u *)_(arg_errmsg)))
+  	    return;
+      }
+      else
+***************
+*** 10286,10292 ****
+  		{
+  		    --todo;
+  		    di = HI2DI(hi);
+! 		    if (tv_check_lock(di->di_tv.v_lock, ermsg))
+  			break;
+  		    vimvars[VV_KEY].vv_str = vim_strsave(di->di_key);
+  		    if (filter_map_one(&di->di_tv, expr, map, &rem) == FAIL
+--- 10291,10298 ----
+  		{
+  		    --todo;
+  		    di = HI2DI(hi);
+! 		    if (tv_check_lock(di->di_tv.v_lock,
+! 						     (char_u *)_(arg_errmsg)))
+  			break;
+  		    vimvars[VV_KEY].vv_str = vim_strsave(di->di_key);
+  		    if (filter_map_one(&di->di_tv, expr, map, &rem) == FAIL
+***************
+*** 10305,10311 ****
+  
+  	    for (li = l->lv_first; li != NULL; li = nli)
+  	    {
+! 		if (tv_check_lock(li->li_tv.v_lock, ermsg))
+  		    break;
+  		nli = li->li_next;
+  		vimvars[VV_KEY].vv_nr = idx;
+--- 10311,10317 ----
+  
+  	    for (li = l->lv_first; li != NULL; li = nli)
+  	    {
+! 		if (tv_check_lock(li->li_tv.v_lock, (char_u *)_(arg_errmsg)))
+  		    break;
+  		nli = li->li_next;
+  		vimvars[VV_KEY].vv_nr = idx;
+***************
+*** 12910,12916 ****
+      if (argvars[0].v_type != VAR_LIST)
+  	EMSG2(_(e_listarg), "insert()");
+      else if ((l = argvars[0].vval.v_list) != NULL
+! 	    && !tv_check_lock(l->lv_lock, (char_u *)"insert()"))
+      {
+  	if (argvars[2].v_type != VAR_UNKNOWN)
+  	    before = get_tv_number_chk(&argvars[2], &error);
+--- 12916,12922 ----
+      if (argvars[0].v_type != VAR_LIST)
+  	EMSG2(_(e_listarg), "insert()");
+      else if ((l = argvars[0].vval.v_list) != NULL
+! 	    && !tv_check_lock(l->lv_lock, (char_u *)_("insert() argument")))
+      {
+  	if (argvars[2].v_type != VAR_UNKNOWN)
+  	    before = get_tv_number_chk(&argvars[2], &error);
+***************
+*** 14775,14787 ****
+      char_u	*key;
+      dict_T	*d;
+      dictitem_T	*di;
+  
+      if (argvars[0].v_type == VAR_DICT)
+      {
+  	if (argvars[2].v_type != VAR_UNKNOWN)
+  	    EMSG2(_(e_toomanyarg), "remove()");
+  	else if ((d = argvars[0].vval.v_dict) != NULL
+! 		&& !tv_check_lock(d->dv_lock, (char_u *)"remove() argument"))
+  	{
+  	    key = get_tv_string_chk(&argvars[1]);
+  	    if (key != NULL)
+--- 14781,14794 ----
+      char_u	*key;
+      dict_T	*d;
+      dictitem_T	*di;
++     char	*arg_errmsg = N_("remove() argument");
+  
+      if (argvars[0].v_type == VAR_DICT)
+      {
+  	if (argvars[2].v_type != VAR_UNKNOWN)
+  	    EMSG2(_(e_toomanyarg), "remove()");
+  	else if ((d = argvars[0].vval.v_dict) != NULL
+! 		&& !tv_check_lock(d->dv_lock, (char_u *)_(arg_errmsg)))
+  	{
+  	    key = get_tv_string_chk(&argvars[1]);
+  	    if (key != NULL)
+***************
+*** 14801,14807 ****
+      else if (argvars[0].v_type != VAR_LIST)
+  	EMSG2(_(e_listdictarg), "remove()");
+      else if ((l = argvars[0].vval.v_list) != NULL
+! 	    && !tv_check_lock(l->lv_lock, (char_u *)"remove() argument"))
+      {
+  	int	    error = FALSE;
+  
+--- 14808,14814 ----
+      else if (argvars[0].v_type != VAR_LIST)
+  	EMSG2(_(e_listdictarg), "remove()");
+      else if ((l = argvars[0].vval.v_list) != NULL
+! 	    && !tv_check_lock(l->lv_lock, (char_u *)_(arg_errmsg)))
+      {
+  	int	    error = FALSE;
+  
+***************
+*** 15135,15141 ****
+      if (argvars[0].v_type != VAR_LIST)
+  	EMSG2(_(e_listarg), "reverse()");
+      else if ((l = argvars[0].vval.v_list) != NULL
+! 	    && !tv_check_lock(l->lv_lock, (char_u *)"reverse()"))
+      {
+  	li = l->lv_last;
+  	l->lv_first = l->lv_last = NULL;
+--- 15142,15148 ----
+      if (argvars[0].v_type != VAR_LIST)
+  	EMSG2(_(e_listarg), "reverse()");
+      else if ((l = argvars[0].vval.v_list) != NULL
+! 	    && !tv_check_lock(l->lv_lock, (char_u *)_("reverse() argument")))
+      {
+  	li = l->lv_last;
+  	l->lv_first = l->lv_last = NULL;
+***************
+*** 16432,16438 ****
+      else
+      {
+  	l = argvars[0].vval.v_list;
+! 	if (l == NULL || tv_check_lock(l->lv_lock, (char_u *)"sort()"))
+  	    return;
+  	rettv->vval.v_list = l;
+  	rettv->v_type = VAR_LIST;
+--- 16439,16446 ----
+      else
+      {
+  	l = argvars[0].vval.v_list;
+! 	if (l == NULL || tv_check_lock(l->lv_lock,
+! 					     (char_u *)_("sort() argument")))
+  	    return;
+  	rettv->vval.v_list = l;
+  	rettv->v_type = VAR_LIST;
+*** ../vim-7.3.154/src/version.c	2011-04-02 15:12:45.000000000 +0200
+--- src/version.c	2011-04-11 13:13:38.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     155,
+  /**/
+
+-- 
+I used to be indecisive, now I'm not sure.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

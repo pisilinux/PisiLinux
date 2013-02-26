@@ -1,0 +1,102 @@
+--- libada/Makefile.in.jj	2009-01-14 12:07:35.000000000 +0100
++++ libada/Makefile.in	2009-01-15 14:25:33.000000000 +0100
+@@ -66,18 +66,40 @@ libsubdir := $(libdir)/gcc/$(target_nonc
+ ADA_RTS_DIR=$(GCC_DIR)/ada/rts$(subst /,_,$(MULTISUBDIR))
+ ADA_RTS_SUBDIR=./rts$(subst /,_,$(MULTISUBDIR))
+ 
++DEFAULTMULTIFLAGS :=
++ifeq ($(MULTISUBDIR),)
++targ:=$(subst -, ,$(target))
++arch:=$(word 1,$(targ))
++ifeq ($(words $(targ)),2)
++osys:=$(word 2,$(targ))
++else
++osys:=$(word 3,$(targ))
++endif
++ifeq ($(strip $(filter-out i%86 x86_64 powerpc% ppc% s390% sparc% linux%, $(arch) $(osys))),)
++ifeq ($(shell $(CC) $(CFLAGS) -print-multi-os-directory),../lib64)
++DEFAULTMULTIFLAGS := -m64
++else
++ifeq ($(strip $(filter-out s390%, $(arch))),)
++DEFAULTMULTIFLAGS := -m31
++else
++DEFAULTMULTIFLAGS := -m32
++endif
++endif
++endif
++endif
++
+ # exeext should not be used because it's the *host* exeext.  We're building
+ # a *target* library, aren't we?!?  Likewise for CC.  Still, provide bogus
+ # definitions just in case something slips through the safety net provided
+ # by recursive make invocations in gcc/ada/Makefile.in
+ LIBADA_FLAGS_TO_PASS = \
+         "MAKEOVERRIDES=" \
+-        "LDFLAGS=$(LDFLAGS)" \
++        "LDFLAGS=$(LDFLAGS) $(DEFAULTMULTIFLAGS)" \
+         "LN_S=$(LN_S)" \
+         "SHELL=$(SHELL)" \
+-        "GNATLIBFLAGS=$(GNATLIBFLAGS) $(MULTIFLAGS)" \
+-        "GNATLIBCFLAGS=$(GNATLIBCFLAGS) $(MULTIFLAGS)" \
+-        "GNATLIBCFLAGS_FOR_C=$(GNATLIBCFLAGS_FOR_C) $(MULTIFLAGS)" \
++        "GNATLIBFLAGS=$(GNATLIBFLAGS) $(MULTIFLAGS) $(DEFAULTMULTIFLAGS)" \
++        "GNATLIBCFLAGS=$(GNATLIBCFLAGS) $(MULTIFLAGS) $(DEFAULTMULTIFLAGS)" \
++        "GNATLIBCFLAGS_FOR_C=$(GNATLIBCFLAGS_FOR_C) $(MULTIFLAGS) $(DEFAULTMULTIFLAGS)" \
+         "PICFLAG_FOR_TARGET=$(PICFLAG)" \
+         "THREAD_KIND=$(THREAD_KIND)" \
+         "TRACE=$(TRACE)" \
+@@ -88,7 +110,7 @@ LIBADA_FLAGS_TO_PASS = \
+         "exeext=.exeext.should.not.be.used " \
+ 	'CC=the.host.compiler.should.not.be.needed' \
+ 	"GCC_FOR_TARGET=$(CC)" \
+-        "CFLAGS=$(CFLAGS)"
++        "CFLAGS=$(CFLAGS) $(DEFAULTMULTIFLAGS)"
+ 
+ # Rules to build gnatlib.
+ .PHONY: gnatlib gnatlib-plain gnatlib-sjlj gnatlib-zcx gnatlib-shared osconstool
+--- gcc/ada/sem_util.adb	(revision 161677)
++++ gcc/ada/sem_util.adb	(working copy)
+@@ -5487,7 +5487,7 @@ package body Sem_Util is
+             Exp           : Node_Id;
+             Assn          : Node_Id;
+             Choice        : Node_Id;
+-            Comp_Type     : Entity_Id;
++            Comp_Type     : Entity_Id := Empty;
+             Is_Array_Aggr : Boolean;
+ 
+          begin
+--- config-ml.in.jj	2010-06-30 09:50:44.000000000 +0200
++++ config-ml.in	2010-07-02 21:24:17.994211151 +0200
+@@ -516,6 +516,8 @@ multi-do:
+ 				ADAFLAGS="$(ADAFLAGS) $${flags}" \
+ 				prefix="$(prefix)" \
+ 				exec_prefix="$(exec_prefix)" \
++				mandir="$(mandir)" \
++				infodir="$(infodir)" \
+ 				GCJFLAGS="$(GCJFLAGS) $${flags}" \
+ 				GOCFLAGS="$(GOCFLAGS) $${flags}" \
+ 				CXXFLAGS="$(CXXFLAGS) $${flags}" \
+--- libjava/Makefile.am.jj	2010-07-09 11:17:33.729604090 +0200
++++ libjava/Makefile.am	2010-07-09 13:16:41.894375641 +0200
+@@ -710,7 +710,8 @@ if USE_LIBGCJ_BC
+ ## later.
+ 	@echo Installing dummy lib libgcj_bc.so.1.0.0; \
+ 	rm $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so; \
+-	mv $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so.1.0.0 $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so; \
++	$(INSTALL) $(INSTALL_STRIP_FLAG) $(here)/.libs/libgcj_bc.so $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so; \
++	rm $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so.1.0.0; \
+ 	$(libgcj_bc_dummy_LINK) -xc /dev/null -Wl,-soname,libgcj_bc.so.1 \
+ 	-o $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so.1.0.0 -lgcj || exit; \
+ 	rm $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so.1; \
+--- libjava/Makefile.in.jj	2010-07-09 11:17:34.000000000 +0200
++++ libjava/Makefile.in	2010-07-09 13:18:07.542572270 +0200
+@@ -12665,7 +12665,8 @@ install-exec-hook: install-binPROGRAMS i
+ 	install-libexecsubPROGRAMS
+ @USE_LIBGCJ_BC_TRUE@	@echo Installing dummy lib libgcj_bc.so.1.0.0; \
+ @USE_LIBGCJ_BC_TRUE@	rm $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so; \
+-@USE_LIBGCJ_BC_TRUE@	mv $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so.1.0.0 $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so; \
++@USE_LIBGCJ_BC_TRUE@	$(INSTALL) $(INSTALL_STRIP_FLAG) $(here)/.libs/libgcj_bc.so $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so; \
++@USE_LIBGCJ_BC_TRUE@	rm $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so.1.0.0; \
+ @USE_LIBGCJ_BC_TRUE@	$(libgcj_bc_dummy_LINK) -xc /dev/null -Wl,-soname,libgcj_bc.so.1 \
+ @USE_LIBGCJ_BC_TRUE@	-o $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so.1.0.0 -lgcj || exit; \
+ @USE_LIBGCJ_BC_TRUE@	rm $(DESTDIR)$(toolexeclibdir)/libgcj_bc.so.1; \

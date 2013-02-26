@@ -1,0 +1,236 @@
+2008-07-10  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* breakpoint.c (fetch_watchpoint_value): New comment on unreachable
+	values.
+	(watch_command_1): New variable VAL_CHAIN.  Refuse constant watchpoints.
+	* gdbtypes.h (TYPE_CODE_FUNC): New comment regarding pointers to it.
+
+2008-07-10  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.texinfo (Set Watchpoints): Document constant value watchpoints.
+
+2008-07-10  Jan Kratochvil  <jan.kratochvil@redhat.com>
+
+	* gdb.base/watchpoint.exp: Call TEST_CONSTANT_WATCHPOINT.
+	(test_constant_watchpoint): New function.
+	(test_inaccessible_watchpoint): Cleanup (delete) the watchpoint.
+	Test also a double-indirection watchpoint.
+	gdb.base/watchpoint.c (global_ptr_ptr): New variable.
+	(func4): New testing code for GLOBAL_PTR_PTR.
+
+Index: gdb-7.0.50.20100115/gdb/breakpoint.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/breakpoint.c	2010-01-15 11:46:29.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/breakpoint.c	2010-01-15 11:49:49.000000000 +0100
+@@ -947,7 +947,15 @@ is_hardware_watchpoint (struct breakpoin
+    If VAL_CHAIN is non-NULL, *VAL_CHAIN will be released from the
+    value chain.  The caller must free the values individually.  If
+    VAL_CHAIN is NULL, all generated values will be left on the value
+-   chain.  */
++   chain.
++   
++   Inferior unreachable values return:
++   Inferior `int *intp = NULL;' with `watch *intp':
++     *VALP is NULL, *RESULTP contains lazy LVAL_MEMORY address 0, *VAL_CHAIN
++     contains the *RESULTP element and also INTP as LVAL_MEMORY.
++   Inferior `int **intpp = NULL;' with `watch **intpp':
++     *VALP is NULL, *RESULTP is NULL, *VAL_CHAIN contains lazy LVAL_MEMORY
++     address 0 and also INTPP as LVAL_MEMORY.  */
+ 
+ static void
+ fetch_watchpoint_value (struct expression *exp, struct value **valp,
+@@ -7264,7 +7272,7 @@ watch_command_1 (char *arg, int accessfl
+   struct breakpoint *b, *scope_breakpoint = NULL;
+   struct expression *exp;
+   struct block *exp_valid_block;
+-  struct value *val, *mark;
++  struct value *val, *mark, *val_chain;
+   struct frame_info *frame;
+   char *exp_start = NULL;
+   char *exp_end = NULL;
+@@ -7352,6 +7360,27 @@ watch_command_1 (char *arg, int accessfl
+   exp_valid_block = innermost_block;
+   mark = value_mark ();
+   fetch_watchpoint_value (exp, &val, NULL, NULL);
++
++  /* VALUE_MARK gets us the same value as FETCH_WATCHPOINT_VALUE's VAL_CHAIN
++     parameter.  Just this way we do not have to VALUE_FREE the chained VALUEs
++     ourselves.  */
++  for (val_chain = value_mark ();
++       val_chain != mark;
++       val_chain = value_next (val_chain))
++    if ((VALUE_LVAL (val_chain) == lval_memory
++	 && TYPE_CODE (value_type (val_chain)) != TYPE_CODE_FUNC)
++	|| VALUE_LVAL (val_chain) == lval_register)
++      break;
++  if (val_chain == mark)
++    {
++      int len;
++      
++      len = exp_end - exp_start;
++      while (len > 0 && isspace (exp_start[len - 1]))
++	len--;
++      error (_("Cannot watch constant value %.*s."), len, exp_start);
++    }
++  /* Break the values chain only after its check above.  */
+   if (val != NULL)
+     release_value (val);
+ 
+Index: gdb-7.0.50.20100115/gdb/gdbtypes.h
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/gdbtypes.h	2010-01-15 03:22:31.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/gdbtypes.h	2010-01-15 11:49:26.000000000 +0100
+@@ -72,7 +72,22 @@ enum type_code
+     TYPE_CODE_UNION,		/* C union or Pascal variant part */
+     TYPE_CODE_ENUM,		/* Enumeration type */
+     TYPE_CODE_FLAGS,		/* Bit flags type */
+-    TYPE_CODE_FUNC,		/* Function type */
++
++    /* Function type.  It is not a pointer to a function.  Function reference
++       by its name (such as `printf') has this type.  C automatically converts
++       this function type to a pointer to function for any operation except
++       `sizeof (function_type)' or `&function_type' (unary &).
++       `sizeof (function_type)' is undefined in C.  But GCC provides extension
++       (info '(gcc)Pointer Arith') defining its size as 1 byte.  DWARF does not
++       define its size but GDB defines the size the GCC compatible way - GDB
++       function MAKE_FUNCTION_TYPE.  The address itself is not modifiable.
++       As the function type has size 1 but its real value has `sizeof
++       (CORE_ADDR)' we cannot use NOT_LVAL category because the address would
++       not fit in the VALUE_CONTENTS_RAW container of its VALUE.  We use
++       LVAL_MEMORY (and its VALUE_ADDRESS field) for it but we must be careful
++       it is not lvalue, it is the only non-modifiable LVAL_MEMORY.  */
++    TYPE_CODE_FUNC,
++
+     TYPE_CODE_INT,		/* Integer type */
+ 
+     /* Floating type.  This is *NOT* a complex type.  Beware, there are parts
+Index: gdb-7.0.50.20100115/gdb/doc/gdb.texinfo
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/doc/gdb.texinfo	2010-01-15 11:12:33.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/doc/gdb.texinfo	2010-01-15 11:49:26.000000000 +0100
+@@ -3723,6 +3723,18 @@ This command prints a list of watchpoint
+ it is the same as @code{info break} (@pxref{Set Breaks}).
+ @end table
+ 
++If you watch for a change in a numerically entered address you need to
++dereference it as the address itself is just a constant number which will never
++change.  @value{GDBN} refuses to create a watchpoint that watches
++a never-changing value:
++
++@smallexample
++(@value{GDBP}) watch 0x600850
++Cannot watch constant value 0x600850.
++(@value{GDBP}) watch *(int *) 0x600850
++Watchpoint 1: *(int *) 6293584
++@end smallexample
++
+ @value{GDBN} sets a @dfn{hardware watchpoint} if possible.  Hardware
+ watchpoints execute very quickly, and the debugger reports a change in
+ value at the exact instruction where the change occurs.  If @value{GDBN}
+Index: gdb-7.0.50.20100115/gdb/testsuite/gdb.base/watchpoint.c
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/testsuite/gdb.base/watchpoint.c	2009-12-30 18:33:35.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/testsuite/gdb.base/watchpoint.c	2010-01-15 11:49:26.000000000 +0100
+@@ -40,6 +40,7 @@ struct foo struct1, struct2, *ptr1, *ptr
+ int doread = 0;
+ 
+ char *global_ptr;
++char **global_ptr_ptr;
+ 
+ void marker1 ()
+ {
+@@ -119,6 +120,10 @@ func4 ()
+   buf[0] = 3;
+   global_ptr = buf;
+   buf[0] = 7;
++  buf[1] = 5;
++  global_ptr_ptr = &global_ptr;
++  buf[0] = 9;
++  global_ptr++;
+ }
+ 
+ int main ()
+Index: gdb-7.0.50.20100115/gdb/testsuite/gdb.base/watchpoint.exp
+===================================================================
+--- gdb-7.0.50.20100115.orig/gdb/testsuite/gdb.base/watchpoint.exp	2010-01-01 08:32:01.000000000 +0100
++++ gdb-7.0.50.20100115/gdb/testsuite/gdb.base/watchpoint.exp	2010-01-15 11:50:21.000000000 +0100
+@@ -641,7 +641,21 @@ proc test_watchpoint_and_breakpoint {} {
+ 	}
+     }
+ }
+-    
++
++proc test_constant_watchpoint {} {
++    global gdb_prompt
++
++	gdb_test "watch 5" "Cannot watch constant value 5." "number is constant"
++	gdb_test "watch marker1" "Cannot watch constant value marker1." \
++		 "marker1 is constant"
++	gdb_test "watch count + 6" ".*atchpoint \[0-9\]+: count \\+ 6"
++	gdb_test "set \$expr_breakpoint_number = \$bpnum" ""
++	gdb_test "delete \$expr_breakpoint_number" ""
++	gdb_test "watch 7 + count" ".*atchpoint \[0-9\]+: 7 \\+ count"
++	gdb_test "set \$expr_breakpoint_number = \$bpnum" ""
++	gdb_test "delete \$expr_breakpoint_number" ""
++}
++
+ proc test_inaccessible_watchpoint {} {
+     global gdb_prompt
+ 
+@@ -662,7 +676,8 @@ proc test_inaccessible_watchpoint {} {
+ 	}
+ 
+ 	gdb_test "watch *global_ptr" ".*atchpoint \[0-9\]+: \\*global_ptr"
+-	gdb_test "next" ".*global_ptr = buf.*"
++	gdb_test "set \$global_ptr_breakpoint_number = \$bpnum" ""
++	gdb_test "next" ".*global_ptr = buf.*" "global_ptr next"
+ 	gdb_test_multiple "next" "next over ptr init" {
+ 	    -re ".*atchpoint \[0-9\]+: \\*global_ptr\r\n\r\nOld value = .*\r\nNew value = 3 .*\r\n.*$gdb_prompt $" {
+ 		# We can not test for <unknown> here because NULL may be readable.
+@@ -675,6 +690,28 @@ proc test_inaccessible_watchpoint {} {
+ 		pass "next over buffer set"
+ 	    }
+ 	}
++	gdb_test "delete \$global_ptr_breakpoint_number" ""
++	gdb_test "watch **global_ptr_ptr" ".*atchpoint \[0-9\]+: \\*\\*global_ptr_ptr"
++	gdb_test "set \$global_ptr_ptr_breakpoint_number = \$bpnum" ""
++	gdb_test "next" ".*global_ptr_ptr = &global_ptr.*" "gloabl_ptr_ptr next"
++	gdb_test_multiple "next" "next over global_ptr_ptr init" {
++	    -re ".*atchpoint \[0-9\]+: \\*\\*global_ptr_ptr\r\n\r\nOld value = .*\r\nNew value = 7 .*\r\n.*$gdb_prompt $" {
++		# We can not test for <unknown> here because NULL may be readable.
++		# This test does rely on *NULL != 7.
++		pass "next over global_ptr_ptr init"
++	    }
++	}
++	gdb_test_multiple "next" "next over global_ptr_ptr buffer set" {
++	    -re ".*atchpoint \[0-9\]+: \\*\\*global_ptr_ptr\r\n\r\nOld value = 7 .*\r\nNew value = 9 .*\r\n.*$gdb_prompt $" {
++		pass "next over global_ptr_ptr buffer set"
++	    }
++	}
++	gdb_test_multiple "next" "next over global_ptr_ptr pointer advance" {
++	    -re ".*atchpoint \[0-9\]+: \\*\\*global_ptr_ptr\r\n\r\nOld value = 9 .*\r\nNew value = 5 .*\r\n.*$gdb_prompt $" {
++		pass "next over global_ptr_ptr pointer advance"
++	    }
++	}
++	gdb_test "delete \$global_ptr_ptr_breakpoint_number" ""
+     }
+ }
+     
+@@ -851,6 +888,17 @@ if [initialize] then {
+     test_watchpoint_and_breakpoint
+ 
+     test_watchpoint_in_big_blob
++
++    # See above.
++    if [istarget "mips-idt-*"] then {
++	gdb_exit
++	gdb_start
++	gdb_reinitialize_dir $srcdir/$subdir
++	gdb_load $binfile
++	initialize
++    }
++
++    test_constant_watchpoint
+ }
+ 
+ # Restore old timeout

@@ -1,0 +1,201 @@
+diff -up Mesa-8.0.1/src/gallium/include/state_tracker/drm_driver.h.jx Mesa-8.0.1/src/gallium/include/state_tracker/drm_driver.h
+--- Mesa-8.0.1/src/gallium/include/state_tracker/drm_driver.h.jx	2012-02-14 18:44:00.000000000 -0500
++++ Mesa-8.0.1/src/gallium/include/state_tracker/drm_driver.h	2012-03-23 13:11:40.785842579 -0400
+@@ -43,6 +43,7 @@ struct winsys_handle
+ enum drm_conf {
+    /* How many frames to allow before throttling. Or -1 to indicate any number */
+    DRM_CONF_THROTTLE, /* DRM_CONF_INT. */
++   DRM_CONF_NOTFP,
+    DRM_CONF_MAX
+ };
+ 
+diff -up Mesa-8.0.1/src/gallium/state_trackers/dri/drm/dri2.c.jx Mesa-8.0.1/src/gallium/state_trackers/dri/drm/dri2.c
+--- Mesa-8.0.1/src/gallium/state_trackers/dri/drm/dri2.c.jx	2012-02-14 18:44:00.000000000 -0500
++++ Mesa-8.0.1/src/gallium/state_trackers/dri/drm/dri2.c	2012-03-23 13:11:40.785842579 -0400
+@@ -642,6 +642,13 @@ static struct __DRIimageExtensionRec dri
+  * Backend function init_screen.
+  */
+ 
++static const __DRIextension *dri_screen_extensions_no_tfp[] = {
++   &dri2FlushExtension.base,
++   &dri2ImageExtension.base,
++   &dri2ConfigQueryExtension.base,
++   NULL
++};
++
+ static const __DRIextension *dri_screen_extensions[] = {
+    &driTexBufferExtension.base,
+    &dri2FlushExtension.base,
+@@ -671,6 +678,7 @@ dri2_init_screen(__DRIscreen * sPriv)
+    struct dri_screen *screen;
+    struct pipe_screen *pscreen;
+    const struct drm_conf_ret *throttle_ret = NULL;
++   const struct drm_conf_ret *notfp_ret = NULL;
+ 
+    screen = CALLOC_STRUCT(dri_screen);
+    if (!screen)
+@@ -682,12 +690,16 @@ dri2_init_screen(__DRIscreen * sPriv)
+    sPriv->driverPrivate = (void *)screen;
+ 
+    pscreen = driver_descriptor.create_screen(screen->fd);
+-   if (driver_descriptor.configuration)
++   if (driver_descriptor.configuration) {
+       throttle_ret = driver_descriptor.configuration(DRM_CONF_THROTTLE);
++      throttle_ret = driver_descriptor.configuration(DRM_CONF_NOTFP);
++   }
+ 
+    if (throttle_ret && throttle_ret->val.val_int != -1) {
+       sPriv->extensions = dri_screen_extensions_throttle;
+       screen->default_throttle_frames = throttle_ret->val.val_int;
++   } else if (notfp_ret && notfp_ret->val.val_bool == 1) {
++      sPriv->extensions = dri_screen_extensions_no_tfp;
+    } else
+       sPriv->extensions = dri_screen_extensions;
+ 
+diff -up Mesa-8.0.1/src/gallium/targets/dri-nouveau/target.c.jx Mesa-8.0.1/src/gallium/targets/dri-nouveau/target.c
+--- Mesa-8.0.1/src/gallium/targets/dri-nouveau/target.c.jx	2012-02-14 18:44:00.000000000 -0500
++++ Mesa-8.0.1/src/gallium/targets/dri-nouveau/target.c	2012-03-23 13:14:37.824416888 -0400
+@@ -3,6 +3,12 @@
+ #include "state_tracker/drm_driver.h"
+ #include "nouveau/drm/nouveau_drm_public.h"
+ 
++#include <xf86drm.h>
++#include <nouveau_drm.h>
++
++/* yes this is an ugly hack */
++static int nvfd = -1;
++
+ static struct pipe_screen *
+ create_screen(int fd)
+ {
+@@ -12,9 +18,52 @@ create_screen(int fd)
+    if (!screen)
+       return NULL;
+ 
++   nvfd = fd;
++
+    screen = debug_screen_wrap(screen);
+ 
+    return screen;
+ }
+ 
+-DRM_DRIVER_DESCRIPTOR("nouveau", "nouveau", create_screen, NULL)
++static const struct drm_conf_ret notfp_ret = {
++   .type = DRM_CONF_BOOL,
++   .val.val_bool = 1,
++};
++
++static const struct drm_conf_ret *drm_configuration(enum drm_conf conf)
++{
++   switch (conf) {
++   case DRM_CONF_NOTFP:
++   {
++      /* have to open-code to reuse the fd */
++      struct drm_nouveau_getparam g;
++      int vram;
++
++      g.param = NOUVEAU_GETPARAM_CHIPSET_ID;
++      if (drmCommandWriteRead(nvfd, DRM_NOUVEAU_GETPARAM, &g, sizeof(g)))
++         return &notfp_ret; /* error?  paranoia */
++
++      if (g.value < 0x50)
++	 return NULL; /* nv50+ okay */
++
++      if (g.value & 0xf0 == 0x30)
++	  return &notfp_ret; /* nv30 definitely horked */
++
++      g.param = NOUVEAU_GETPARAM_FB_SIZE;
++      if (drmCommandWriteRead(nvfd, DRM_NOUVEAU_GETPARAM, &g, sizeof(g)))
++         return &notfp_ret; /* error?  paranoia */
++
++      vram = g.value;
++      if ((vram >> 20) <= 64)
++	 return &notfp_ret; /* let's say <64M is too little */
++
++      return NULL;
++   }
++
++   default:
++      break;
++   }
++   return NULL;
++}
++
++DRM_DRIVER_DESCRIPTOR("nouveau", "nouveau", create_screen, drm_configuration)
+diff -up Mesa-8.0.1/src/mesa/drivers/dri/nouveau/nouveau_screen.c.jx Mesa-8.0.1/src/mesa/drivers/dri/nouveau/nouveau_screen.c
+--- Mesa-8.0.1/src/mesa/drivers/dri/nouveau/nouveau_screen.c.jx	2012-02-14 18:44:00.000000000 -0500
++++ Mesa-8.0.1/src/mesa/drivers/dri/nouveau/nouveau_screen.c	2012-03-23 13:38:34.477024222 -0400
+@@ -37,7 +37,11 @@
+ #include "main/renderbuffer.h"
+ #include "swrast/s_renderbuffer.h"
+ 
++#include <xf86drm.h>
++#include <nouveau_drm.h>
++
+ static const __DRIextension *nouveau_screen_extensions[];
++static const __DRIextension *nouveau_screen_extensions_notfp[];
+ 
+ static void
+ nouveau_destroy_screen(__DRIscreen *dri_screen);
+@@ -86,6 +90,28 @@ nouveau_get_configs(void)
+ 	return (const __DRIconfig **)configs;
+ }
+ 
++static int
++shouldnt_tfp(int nvfd)
++{
++    /* have to open-code to reuse the fd */
++    struct drm_nouveau_getparam g;
++    int vram;
++
++    g.param = NOUVEAU_GETPARAM_CHIPSET_ID;
++    if (drmCommandWriteRead(nvfd, DRM_NOUVEAU_GETPARAM, &g, sizeof(g)))
++	return 1; /* error?  paranoia */
++
++    g.param = NOUVEAU_GETPARAM_FB_SIZE;
++    if (drmCommandWriteRead(nvfd, DRM_NOUVEAU_GETPARAM, &g, sizeof(g)))
++	return 1; /* error?  paranoia */
++
++    vram = g.value;
++    if ((vram >> 20) <= 64)
++	return 1; /* let's say 64M is too little */
++
++    return 0;
++}
++
+ static const __DRIconfig **
+ nouveau_init_screen2(__DRIscreen *dri_screen)
+ {
+@@ -99,7 +125,6 @@ nouveau_init_screen2(__DRIscreen *dri_sc
+ 		return NULL;
+ 
+ 	dri_screen->driverPrivate = screen;
+-	dri_screen->extensions = nouveau_screen_extensions;
+ 	screen->dri_screen = dri_screen;
+ 
+ 	/* Open the DRM device. */
+@@ -110,6 +135,11 @@ nouveau_init_screen2(__DRIscreen *dri_sc
+ 		goto fail;
+ 	}
+ 
++	if (shouldnt_tfp(dri_screen->fd))
++	    dri_screen->extensions = nouveau_screen_extensions_notfp;
++	else
++	    dri_screen->extensions = nouveau_screen_extensions;
++
+ 	/* Choose the card specific function pointers. */
+ 	switch (screen->device->chipset & 0xf0) {
+ 	case 0x00:
+@@ -240,6 +270,12 @@ static const __DRIextension *nouveau_scr
+     &dri2ConfigQueryExtension.base,
+     NULL
+ };
++
++static const __DRIextension *nouveau_screen_extensions_notfp[] = {
++    &nouveau_flush_extension.base,
++    &dri2ConfigQueryExtension.base,
++    NULL
++};
+ 
+ const struct __DriverAPIRec driDriverAPI = {
+ 	.InitScreen      = nouveau_init_screen2,

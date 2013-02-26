@@ -1,0 +1,108 @@
+--- a/gdb/config/i386/linux64.mh
++++ b/gdb/config/i386/linux64.mh
+@@ -2,7 +2,7 @@
+ NATDEPFILES= inf-ptrace.o fork-child.o \
+ 	i386-nat.o amd64-nat.o amd64-linux-nat.o linux-nat.o \
+ 	proc-service.o linux-thread-db.o linux-fork.o
+-NAT_FILE= config/nm-linux.h
++NAT_FILE= nm-linux64.h
+ 
+ # The dynamically loaded libthread_db needs access to symbols in the
+ # gdb executable.
+--- a/gdb/config/i386/nm-linux.h
++++ b/gdb/config/i386/nm-linux.h
+@@ -29,4 +29,7 @@
+ #define FILL_FPXREGSET
+ #endif
+ 
++/* Red Hat backward compatibility with gdb-6.8.  */
++#define target_can_use_hardware_watchpoint(type, cnt, ot) 1
++
+ #endif /* nm-linux.h */
+--- /dev/null
++++ b/gdb/config/i386/nm-linux64.h
+@@ -0,0 +1,28 @@
++/* Native support for GNU/Linux amd64.
++
++   Copyright 2010 Free Software Foundation, Inc.
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#ifndef NM_LINUX64_H
++#define NM_LINUX64_H
++
++#include "config/nm-linux.h"
++
++/* Red Hat backward compatibility with gdb-6.8.  */
++#define target_can_use_hardware_watchpoint(type, cnt, ot) 1
++
++#endif /* NM_LINUX64_H */
+--- a/gdb/target.h
++++ b/gdb/target.h
+@@ -1257,8 +1257,10 @@ extern char *normal_pid_to_str (ptid_t ptid);
+    bp_hardware_breakpoint.  CNT is the number of such watchpoints used so far
+    (including this one?).  OTHERTYPE is who knows what...  */
+ 
++#ifndef target_can_use_hardware_watchpoint
+ #define target_can_use_hardware_watchpoint(TYPE,CNT,OTHERTYPE) \
+  (*current_target.to_can_use_hw_breakpoint) (TYPE, CNT, OTHERTYPE);
++#endif
+ 
+ #define target_region_ok_for_hw_watchpoint(addr, len) \
+     (*current_target.to_region_ok_for_hw_watchpoint) (addr, len)
+--- /dev/null
++++ b/gdb/testsuite/gdb.base/watchpoint-hw-before-run.exp
+@@ -0,0 +1,40 @@
++# Copyright 2009, 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# Arch not supporting hw watchpoints does not imply no_hardware_watchpoints set.
++if {(![istarget "i?86-*-*"] && ![istarget "x86_64-*-*"]
++     && ![istarget "ia64-*-*"])
++    || [target_info exists gdb,no_hardware_watchpoints]} then {
++    verbose "Skipping watchpoint-hw-before-run test."
++    return
++}
++
++set test watchpoint-hw-before-run
++set srcfile watchpoint-hw-hit-once.c
++if { [prepare_for_testing ${test}.exp ${test} ${srcfile}] } {
++    return -1
++}
++
++gdb_test "rwatch watchee" "ardware read watchpoint 1: watchee"
++
++# `runto_main' or `runto main' would delete the watchpoint created above.
++
++if { [gdb_start_cmd] < 0 } {
++    untested start
++    return -1
++}
++gdb_test "" "main .* at .*" "start"
++
++gdb_test "continue" "Continuing.\r\nHardware read watchpoint \[0-9\]+: watchee\r\n\r\nValue = 0\r\n.*"

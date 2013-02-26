@@ -1,0 +1,317 @@
+Subject: Fix broken KDM layout with fingerprint support
+From: Lubos Lunak
+Patch-upstream: not yet
+Bug: bnc#533189
+Relates: kdm-fix-labelcolors.diff, same-pam-generic-classic.diff
+
+Index: kdebase-workspace-4.6.0/kdm/kfrontend/kgreeter.cpp
+===================================================================
+--- kdebase-workspace-4.6.0.orig/kdm/kfrontend/kgreeter.cpp
++++ kdebase-workspace-4.6.0/kdm/kfrontend/kgreeter.cpp
+@@ -976,8 +976,6 @@ KThemedGreeter::KThemedGreeter(KdmThemer
+     timed_label = themer->findNode("timed-label");
+ 
+     KdmItem *itm;
+-    if ((itm = themer->findNode("pam-message"))) // done via msgboxes
+-        itm->setVisible(false);
+     if ((itm = themer->findNode("language_button"))) // not implemented yet
+         itm->setVisible(false);
+ 
+Index: kdebase-workspace-4.6.0/kdm/kfrontend/themes/greeter.dtd
+===================================================================
+--- kdebase-workspace-4.6.0.orig/kdm/kfrontend/themes/greeter.dtd
++++ kdebase-workspace-4.6.0/kdm/kfrontend/themes/greeter.dtd
+@@ -19,9 +19,9 @@ Items with these IDs get special treatme
+ 	caps-lock-warning | xauth-warning | pam-error | timed-label |
+ 	login_button | session_button | system_button
+ Items with these IDs might get special treatment by conversation plugins:
+-	talker | domain-entry | user-entry | pw-entry
++	talker | domain-entry | user-entry | pw-entry | pam-message | pam-prompt | user-pw-entry
+ Items with these IDs are always hidden:
+-	pam-message | language_button
++	language_button
+ -->
+ 
+ <!ATTLIST item
+Index: kdebase-workspace-4.6.0/libs/kdm/kgreet_generic.cpp
+===================================================================
+--- kdebase-workspace-4.6.0.orig/libs/kdm/kgreet_generic.cpp
++++ kdebase-workspace-4.6.0/libs/kdm/kgreet_generic.cpp
+@@ -41,24 +41,14 @@ extern KDE_EXPORT KGreeterPluginInfo kgr
+ 
+ static int echoMode;
+ 
+-class KDMPasswordEdit : public KLineEdit {
+-public:
+-    KDMPasswordEdit(QWidget *parent = 0) : KLineEdit(parent)
+-    {
+-        if (::echoMode == -1)
+-            setPasswordMode(true);
+-        else
+-            setEchoMode(::echoMode ? Password : NoEcho);
+-        setContextMenuPolicy(Qt::NoContextMenu);
+-    }
+-};
+-
+ KGenericGreeter::KGenericGreeter(KGreeterPluginHandler *_handler,
+                                  QWidget *parent,
+                                  const QString &_fixedEntity,
+                                  Function _func, Context _ctx) :
+     QObject(),
+     KGreeterPlugin(_handler),
++    m_label( 0 ),
++    m_messageLabel( 0 ),
+     m_lineEdit(0),
+     fixedUser(_fixedEntity),
+     func(_func),
+@@ -66,22 +56,56 @@ KGenericGreeter::KGenericGreeter(KGreete
+     exp(-1),
+     running(false)
+ {
+-    m_parentWidget = new QWidget(parent);
+-    m_parentWidget->setObjectName("talker");
+-    // XXX set some minimal size
+-    widgetList << m_parentWidget;
+-    m_grid = new QGridLayout(m_parentWidget);
+-    m_grid->setMargin(0);
++    QGridLayout *grid = 0;
++    if (!_handler->gplugHasNode( "pam-prompt" ) ||
++            !_handler->gplugHasNode( "user-pw-entry" ) ||
++            !_handler->gplugHasNode( "pam-message" )) {
++        parent = new QWidget( parent );
++        parent->setObjectName( "talker" );
++        widgetList << parent;
++        grid = new QGridLayout( parent );
++        grid->setMargin( 0 );
++    }
+ 
+     if (ctx == ExUnlock || ctx == ExChangeTok)
+         fixedUser = KUser().loginName();
++
++    m_label = new QLabel( parent );
++    if( grid ) {
++        m_label->setMinimumWidth(
++                m_label->fontMetrics().width( "A username" ) );
++        grid->addWidget( m_label, 0, 0 );
++    } else {
++        m_label->setObjectName( "pam-prompt" );
++        widgetList << m_label;
++
++        m_lineEdit = new KLineEdit( parent );
++        m_label->setBuddy( m_lineEdit );
++        if( grid ) {
++            m_lineEdit->setMinimumWidth(
++                    m_lineEdit->fontMetrics().width( "This is a long password" ) );
++            grid->addWidget( m_lineEdit, 0, 1 );
++        } else {
++            m_lineEdit->setObjectName( "user-pw-entry" );
++            widgetList << m_lineEdit;
++        }
++        m_messageLabel = new QLabel( parent );
++        if( grid ) {
++            m_messageLabel->setMinimumWidth(
++                    m_messageLabel->fontMetrics().width( "Information text" ) );
++            grid->addWidget( m_messageLabel, 1, 0 );
++        } else {
++            m_messageLabel->setObjectName( "pam-message" );
++            widgetList << m_messageLabel;
++        }
++    }
+ }
+ 
+ // virtual
+ KGenericGreeter::~KGenericGreeter()
+ {
+     abort();
+-    delete m_parentWidget;
++    qDeleteAll( widgetList );
+ }
+ 
+ void // virtual
+@@ -127,8 +151,7 @@ KGenericGreeter::setEnabled(bool enable)
+ {
+     // assert(func == Authenticate && ctx == Shutdown);
+     // XXX this is likely to bear some bogosity
+-    foreach (QWidget *w, m_children)
+-        w->setEnabled(enable);
++    m_lineEdit->setEnabled( enable );
+     if (enable && m_lineEdit)
+         m_lineEdit->setFocus();
+ }
+@@ -143,9 +166,7 @@ KGenericGreeter::textMessage(const char
+         revive();
+     QString qtext = QString::fromUtf8(text);
+     m_infoMsgs.append(qtext);
+-    QLabel *label = new QLabel(qtext, m_parentWidget);
+-    m_grid->addWidget(label, m_line++, 0, 1, 2);
+-    m_children.append(label);
++    m_messageLabel->setText( m_infoMsgs.join( "\n" ));
+ 
+     return true;
+ }
+@@ -169,15 +190,20 @@ KGenericGreeter::textPrompt(const char *
+         revive();
+     else
+         m_infoMsgs.clear();
+-
+-    QLabel *label = new QLabel(QString::fromUtf8(prompt).trimmed());
+-    m_grid->addWidget(label, m_line, 0);
+-    m_children.append(label);
++    m_children.append(m_label);
+     m_echo = echo;
++
++    m_label->setText( QString::fromUtf8( prompt ).trimmed());
++    m_lineEdit->setContextMenuPolicy( Qt::NoContextMenu );
++    m_lineEdit->setCompletionObject( 0 );
++    m_lineEdit->disconnect( this );
++    m_lineEdit->clear();
++    m_lineEdit->setPasswordMode( false );
++    m_lineEdit->setEchoMode( QLineEdit::Normal );
+     if (echo) {
+-        m_lineEdit = new KLineEdit;
+-        m_lineEdit->setContextMenuPolicy(Qt::NoContextMenu);
+         if (!exp) {
++            if (m_label->text().isEmpty())
++                m_label->setText( i18n("&Username:"));
+             if (!m_users.isEmpty()) {
+                 KCompletion *userNamesCompletion = new KCompletion;
+                 userNamesCompletion->setItems(m_users);
+@@ -188,20 +214,18 @@ KGenericGreeter::textPrompt(const char *
+             if (!curUser.isEmpty()) {
+                 m_lineEdit->setText(curUser);
+                 m_lineEdit->selectAll();
+-                connect(m_lineEdit, SIGNAL(selectionChanged()), SLOT(slotChanged()));
+             }
+             connect(m_lineEdit, SIGNAL(editingFinished()), SLOT(slotLoginLostFocus()));
+         }
+         connect(m_lineEdit, SIGNAL(editingFinished()), SLOT(slotChanged()));
+         connect(m_lineEdit, SIGNAL(textChanged(const QString &)), SLOT(slotChanged()));
+     } else {
+-        m_lineEdit = new KDMPasswordEdit;
++        if (::echoMode == -1)
++            m_lineEdit->setPasswordMode( true );
++        else
++            m_lineEdit->setEchoMode( ::echoMode ? QLineEdit::Password : QLineEdit::NoEcho );
++        connect( m_lineEdit, SIGNAL(editingFinished()), SLOT(slotChanged()) );
+     }
+-    m_lineEdit->setMinimumWidth(
+-        m_lineEdit->fontMetrics().width("This is a long password"));
+-    m_grid->addWidget(m_lineEdit, m_line, 1);
+-    m_children.append(m_lineEdit);
+-    m_lineEdit->show();
+     m_lineEdit->setFocus();
+ }
+ 
+@@ -236,7 +260,6 @@ KGenericGreeter::next()
+     if (m_lineEdit) {
+         m_lineEdit->setEnabled(false);
+         QString text = m_lineEdit->text();
+-        m_lineEdit = 0;
+         handler->gplugReturnText(text.toLocal8Bit(),
+                                  !m_echo ?
+                                      KGreeterPluginHandler::IsSecret :
+@@ -273,8 +296,7 @@ KGenericGreeter::failed()
+         revive();
+         handler->gplugMsgBox(QMessageBox::Information, text);
+     } else {
+-        foreach (QWidget *w, m_children)
+-            w->setEnabled(false);
++        m_lineEdit->setEnabled( false );
+     }
+     exp = -1;
+     running = false;
+@@ -284,12 +306,9 @@ void // virtual
+ KGenericGreeter::revive()
+ {
+     // assert(!running);
+-    foreach (QWidget *w, m_children)
+-        w->deleteLater();
+-    m_children.clear();
+     m_infoMsgs.clear();
+-    m_lineEdit = 0;
+-    m_line = 0;
++    m_lineEdit->clear();
++    m_lineEdit->setEnabled( true );
+ }
+ 
+ void // virtual
+Index: kdebase-workspace-4.6.0/libs/kdm/kgreet_generic.h
+===================================================================
+--- kdebase-workspace-4.6.0.orig/libs/kdm/kgreet_generic.h
++++ kdebase-workspace-4.6.0/libs/kdm/kgreet_generic.h
+@@ -33,7 +33,6 @@ Foundation, Inc., 51 Franklin Street, Fi
+ 
+ #include <QObject>
+ 
+-class QGridLayout;
+ class QWidget;
+ class KLineEdit;
+ 
+@@ -68,11 +67,11 @@ class KGenericGreeter : public QObject,
+     void slotChanged();
+ 
+   private:
+-    QGridLayout *m_grid;
+     QList<QWidget *> m_children;
++    QLabel *m_label;
++    QLabel *m_messageLabel;
+     KLineEdit *m_lineEdit;
+-    QWidget *m_parentWidget;
+-    QList<QString> m_infoMsgs;
++    QStringList m_infoMsgs;
+     QString fixedUser, curUser;
+     QStringList m_users;
+     Function func;
+Index: kdebase-workspace-4.6.0/kdm/kfrontend/themes/oxygen-air/oxygen-air.xml
+===================================================================
+--- kdebase-workspace-4.6.0.orig/kdm/kfrontend/themes/oxygen-air/oxygen-air.xml
++++ kdebase-workspace-4.6.0/kdm/kfrontend/themes/oxygen-air/oxygen-air.xml
+@@ -26,7 +26,7 @@
+ 				<stock type="welcome-label"/>
+ 			</item>
+ 
+-			<item type="rect" id="user-field">
++			<item type="rect" id="talker">
+ 				<pos anchor="c" x="50%" y="43%" width="400" height="144"/>
+ 				<box orientation="vertical" spacing="0" homogeneous="true">
+ 
+@@ -34,6 +34,7 @@
+ 						<pos anchor="c" x="50%" y="60%" height="box" width="box"/>
+ 						<box orientation="horizontal" spacing="10">
+ 							<item type="pixmap">
++							  <show type="!plugin-specific-generic"/>
+ 								<normal file="user-entry.png"/>
+ 							</item>
+ 							<item type="entry" id="user-entry">
+@@ -47,12 +48,31 @@
+ 						<pos anchor="c" x="50%" y="40%" height="box" width="box"/>
+ 						<box orientation="horizontal" spacing="10">
+ 							<item type="pixmap">
++								<show type="!plugin-specific-generic"/>
+ 								<normal file="pw-entry.png"/>
+ 							</item>
+ 							<item type="entry" id="pw-entry">
++								<show type="!plugin-specific-generic"/>
+ 								<pos width="157" height="30"/>
+ 								<style frame="true"/>
+ 							</item>
++							<!-- these need repositioning for KDE 4.6 -->
++							<item type="label" id="pam-message">
++								<show type="plugin-specific-generic"/>
++								<pos anchor="n" x="50%" y="60%" width="90%" height="30%"/>
++								<text> </text>
++							</item>
++
++							<item type="label" id="pam-prompt">
++								<show type="plugin-specific-generic"/>
++								<pos anchor="n" x="50%" y="30%" width="90%" height="22"/>
++								<text> </text>
++							</item>
++
++							<item type="entry" id="user-pw-entry">
++								<show type="plugin-specific-generic"/>
++								<pos anchor="c" x="50%" y="30%" width="90%" height="22"/>
++							</item>
+ 						</box>
+ 					</item>
+ 

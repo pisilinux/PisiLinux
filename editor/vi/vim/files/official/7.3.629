@@ -1,0 +1,437 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.629
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.629
+Problem:    There is no way to make 'shiftwidth' follow 'tabstop'.
+Solution:   When 'shiftwidth' is zero use the value of 'tabstop'. (Christian
+	    Brabandt)
+Files:	    src/edit.c, src/ex_getln.c, src/fold.c, src/misc1.c, src/ops.c,
+	    src/option.c, src/proto/option.pro
+
+
+*** ../vim-7.3.628/src/edit.c	2012-07-25 16:46:59.000000000 +0200
+--- src/edit.c	2012-08-08 17:55:37.000000000 +0200
+***************
+*** 8899,8907 ****
+  
+  	    *inserted_space_p = FALSE;
+  	    if (p_sta && in_indent)
+! 		ts = curbuf->b_p_sw;
+  	    else
+! 		ts = curbuf->b_p_sts;
+  	    /* Compute the virtual column where we want to be.  Since
+  	     * 'showbreak' may get in the way, need to get the last column of
+  	     * the previous character. */
+--- 8899,8907 ----
+  
+  	    *inserted_space_p = FALSE;
+  	    if (p_sta && in_indent)
+! 		ts = (int)get_sw_value();
+  	    else
+! 		ts = (int)curbuf->b_p_sts;
+  	    /* Compute the virtual column where we want to be.  Since
+  	     * 'showbreak' may get in the way, need to get the last column of
+  	     * the previous character. */
+***************
+*** 9589,9595 ****
+       * When nothing special, insert TAB like a normal character
+       */
+      if (!curbuf->b_p_et
+! 	    && !(p_sta && ind && curbuf->b_p_ts != curbuf->b_p_sw)
+  	    && curbuf->b_p_sts == 0)
+  	return TRUE;
+  
+--- 9589,9595 ----
+       * When nothing special, insert TAB like a normal character
+       */
+      if (!curbuf->b_p_et
+! 	    && !(p_sta && ind && curbuf->b_p_ts != get_sw_value())
+  	    && curbuf->b_p_sts == 0)
+  	return TRUE;
+  
+***************
+*** 9605,9611 ****
+      AppendToRedobuff((char_u *)"\t");
+  
+      if (p_sta && ind)		/* insert tab in indent, use 'shiftwidth' */
+! 	temp = (int)curbuf->b_p_sw;
+      else if (curbuf->b_p_sts > 0) /* use 'softtabstop' when set */
+  	temp = (int)curbuf->b_p_sts;
+      else			/* otherwise use 'tabstop' */
+--- 9605,9611 ----
+      AppendToRedobuff((char_u *)"\t");
+  
+      if (p_sta && ind)		/* insert tab in indent, use 'shiftwidth' */
+! 	temp = (int)get_sw_value();
+      else if (curbuf->b_p_sts > 0) /* use 'softtabstop' when set */
+  	temp = (int)curbuf->b_p_sts;
+      else			/* otherwise use 'tabstop' */
+*** ../vim-7.3.628/src/ex_getln.c	2012-06-29 13:44:37.000000000 +0200
+--- src/ex_getln.c	2012-08-08 17:39:40.000000000 +0200
+***************
+*** 2268,2277 ****
+  
+  	    if (c1 == Ctrl_T)
+  	    {
+  		p = (char_u *)line_ga.ga_data;
+  		p[line_ga.ga_len] = NUL;
+  		indent = get_indent_str(p, 8);
+! 		indent += curbuf->b_p_sw - indent % curbuf->b_p_sw;
+  add_indent:
+  		while (get_indent_str(p, 8) < indent)
+  		{
+--- 2268,2279 ----
+  
+  	    if (c1 == Ctrl_T)
+  	    {
++ 		long        sw = get_sw_value();
++ 
+  		p = (char_u *)line_ga.ga_data;
+  		p[line_ga.ga_len] = NUL;
+  		indent = get_indent_str(p, 8);
+! 		indent += sw - indent % sw;
+  add_indent:
+  		while (get_indent_str(p, 8) < indent)
+  		{
+***************
+*** 2323,2329 ****
+  		    p[line_ga.ga_len] = NUL;
+  		    indent = get_indent_str(p, 8);
+  		    --indent;
+! 		    indent -= indent % curbuf->b_p_sw;
+  		}
+  		while (get_indent_str(p, 8) > indent)
+  		{
+--- 2325,2331 ----
+  		    p[line_ga.ga_len] = NUL;
+  		    indent = get_indent_str(p, 8);
+  		    --indent;
+! 		    indent -= indent % get_sw_value();
+  		}
+  		while (get_indent_str(p, 8) > indent)
+  		{
+*** ../vim-7.3.628/src/fold.c	2012-02-29 19:19:57.000000000 +0100
+--- src/fold.c	2012-08-08 17:40:11.000000000 +0200
+***************
+*** 3025,3031 ****
+  	    flp->lvl = -1;
+      }
+      else
+! 	flp->lvl = get_indent_buf(buf, lnum) / buf->b_p_sw;
+      if (flp->lvl > flp->wp->w_p_fdn)
+      {
+  	flp->lvl = flp->wp->w_p_fdn;
+--- 3025,3031 ----
+  	    flp->lvl = -1;
+      }
+      else
+! 	flp->lvl = get_indent_buf(buf, lnum) / get_sw_value();
+      if (flp->lvl > flp->wp->w_p_fdn)
+      {
+  	flp->lvl = flp->wp->w_p_fdn;
+*** ../vim-7.3.628/src/misc1.c	2012-07-25 16:09:59.000000000 +0200
+--- src/misc1.c	2012-08-08 17:43:07.000000000 +0200
+***************
+*** 1389,1397 ****
+  #ifdef FEAT_SMARTINDENT
+  	if (did_si)
+  	{
+  	    if (p_sr)
+! 		newindent -= newindent % (int)curbuf->b_p_sw;
+! 	    newindent += (int)curbuf->b_p_sw;
+  	}
+  #endif
+  	/* Copy the indent */
+--- 1389,1399 ----
+  #ifdef FEAT_SMARTINDENT
+  	if (did_si)
+  	{
++ 	    int        sw = (int)get_sw_value();
++ 
+  	    if (p_sr)
+! 		newindent -= newindent % sw;
+! 	    newindent += sw;
+  	}
+  #endif
+  	/* Copy the indent */
+***************
+*** 6461,6471 ****
+      int
+  get_c_indent()
+  {
+      /*
+       * spaces from a block's opening brace the prevailing indent for that
+       * block should be
+       */
+!     int ind_level = curbuf->b_p_sw;
+  
+      /*
+       * spaces from the edge of the line an open brace that's at the end of a
+--- 6463,6476 ----
+      int
+  get_c_indent()
+  {
++     int sw = (int)get_sw_value();
++ 
+      /*
+       * spaces from a block's opening brace the prevailing indent for that
+       * block should be
+       */
+! 
+!     int ind_level = sw;
+  
+      /*
+       * spaces from the edge of the line an open brace that's at the end of a
+***************
+*** 6512,6523 ****
+      /*
+       * spaces from the switch() indent a "case xx" label should be located
+       */
+!     int ind_case = curbuf->b_p_sw;
+  
+      /*
+       * spaces from the "case xx:" code after a switch() should be located
+       */
+!     int ind_case_code = curbuf->b_p_sw;
+  
+      /*
+       * lineup break at end of case in switch() with case label
+--- 6517,6528 ----
+      /*
+       * spaces from the switch() indent a "case xx" label should be located
+       */
+!     int ind_case = sw;
+  
+      /*
+       * spaces from the "case xx:" code after a switch() should be located
+       */
+!     int ind_case_code = sw;
+  
+      /*
+       * lineup break at end of case in switch() with case label
+***************
+*** 6528,6572 ****
+       * spaces from the class declaration indent a scope declaration label
+       * should be located
+       */
+!     int ind_scopedecl = curbuf->b_p_sw;
+  
+      /*
+       * spaces from the scope declaration label code should be located
+       */
+!     int ind_scopedecl_code = curbuf->b_p_sw;
+  
+      /*
+       * amount K&R-style parameters should be indented
+       */
+!     int ind_param = curbuf->b_p_sw;
+  
+      /*
+       * amount a function type spec should be indented
+       */
+!     int ind_func_type = curbuf->b_p_sw;
+  
+      /*
+       * amount a cpp base class declaration or constructor initialization
+       * should be indented
+       */
+!     int ind_cpp_baseclass = curbuf->b_p_sw;
+  
+      /*
+       * additional spaces beyond the prevailing indent a continuation line
+       * should be located
+       */
+!     int ind_continuation = curbuf->b_p_sw;
+  
+      /*
+       * spaces from the indent of the line with an unclosed parentheses
+       */
+!     int ind_unclosed = curbuf->b_p_sw * 2;
+  
+      /*
+       * spaces from the indent of the line with an unclosed parentheses, which
+       * itself is also unclosed
+       */
+!     int ind_unclosed2 = curbuf->b_p_sw;
+  
+      /*
+       * suppress ignoring spaces from the indent of a line starting with an
+--- 6533,6577 ----
+       * spaces from the class declaration indent a scope declaration label
+       * should be located
+       */
+!     int ind_scopedecl = sw;
+  
+      /*
+       * spaces from the scope declaration label code should be located
+       */
+!     int ind_scopedecl_code = sw;
+  
+      /*
+       * amount K&R-style parameters should be indented
+       */
+!     int ind_param = sw;
+  
+      /*
+       * amount a function type spec should be indented
+       */
+!     int ind_func_type = sw;
+  
+      /*
+       * amount a cpp base class declaration or constructor initialization
+       * should be indented
+       */
+!     int ind_cpp_baseclass = sw;
+  
+      /*
+       * additional spaces beyond the prevailing indent a continuation line
+       * should be located
+       */
+!     int ind_continuation = sw;
+  
+      /*
+       * spaces from the indent of the line with an unclosed parentheses
+       */
+!     int ind_unclosed = sw * 2;
+  
+      /*
+       * spaces from the indent of the line with an unclosed parentheses, which
+       * itself is also unclosed
+       */
+!     int ind_unclosed2 = sw;
+  
+      /*
+       * suppress ignoring spaces from the indent of a line starting with an
+***************
+*** 6719,6730 ****
+  	if (*options == 's')	    /* "2s" means two times 'shiftwidth' */
+  	{
+  	    if (options == digits)
+! 		n = curbuf->b_p_sw;	/* just "s" is one 'shiftwidth' */
+  	    else
+  	    {
+! 		n *= curbuf->b_p_sw;
+  		if (divider)
+! 		    n += (curbuf->b_p_sw * fraction + divider / 2) / divider;
+  	    }
+  	    ++options;
+  	}
+--- 6724,6735 ----
+  	if (*options == 's')	    /* "2s" means two times 'shiftwidth' */
+  	{
+  	    if (options == digits)
+! 		n = sw;	/* just "s" is one 'shiftwidth' */
+  	    else
+  	    {
+! 		n *= sw;
+  		if (divider)
+! 		    n += (sw * fraction + divider / 2) / divider;
+  	    }
+  	    ++options;
+  	}
+*** ../vim-7.3.628/src/ops.c	2012-07-10 16:49:08.000000000 +0200
+--- src/ops.c	2012-08-08 17:34:28.000000000 +0200
+***************
+*** 332,338 ****
+  {
+      int		count;
+      int		i, j;
+!     int		p_sw = (int)curbuf->b_p_sw;
+  
+      count = get_indent();	/* get current indent */
+  
+--- 332,338 ----
+  {
+      int		count;
+      int		i, j;
+!     int		p_sw = (int)get_sw_value();
+  
+      count = get_indent();	/* get current indent */
+  
+***************
+*** 388,394 ****
+      int			total;
+      char_u		*newp, *oldp;
+      int			oldcol = curwin->w_cursor.col;
+!     int			p_sw = (int)curbuf->b_p_sw;
+      int			p_ts = (int)curbuf->b_p_ts;
+      struct block_def	bd;
+      int			incr;
+--- 388,394 ----
+      int			total;
+      char_u		*newp, *oldp;
+      int			oldcol = curwin->w_cursor.col;
+!     int			p_sw = (int)get_sw_value();
+      int			p_ts = (int)curbuf->b_p_ts;
+      struct block_def	bd;
+      int			incr;
+*** ../vim-7.3.628/src/option.c	2012-07-10 18:31:49.000000000 +0200
+--- src/option.c	2012-08-08 17:45:01.000000000 +0200
+***************
+*** 8125,8131 ****
+      need_mouse_correct = TRUE;
+  #endif
+  
+!     if (curbuf->b_p_sw <= 0)
+      {
+  	errmsg = e_positive;
+  	curbuf->b_p_sw = curbuf->b_p_ts;
+--- 8125,8131 ----
+      need_mouse_correct = TRUE;
+  #endif
+  
+!     if (curbuf->b_p_sw < 0)
+      {
+  	errmsg = e_positive;
+  	curbuf->b_p_sw = curbuf->b_p_ts;
+***************
+*** 11419,11421 ****
+--- 11419,11431 ----
+  {
+      return check_opt_strings(p, p_ff_values, FALSE);
+  }
++ 
++ /*
++  * Return the effective shiftwidth value for current buffer, using the
++  * 'tabstop' value when 'shiftwidth' is zero.
++  */
++     long
++ get_sw_value()
++ {
++     return curbuf->b_p_sw ? curbuf->b_p_sw : curbuf->b_p_ts;
++ }
+*** ../vim-7.3.628/src/proto/option.pro	2011-01-22 00:11:42.000000000 +0100
+--- src/proto/option.pro	2012-08-08 17:34:33.000000000 +0200
+***************
+*** 56,59 ****
+--- 56,60 ----
+  void save_file_ff __ARGS((buf_T *buf));
+  int file_ff_differs __ARGS((buf_T *buf, int ignore_empty));
+  int check_ff_value __ARGS((char_u *p));
++ long get_sw_value __ARGS((void));
+  /* vim: set ft=c : */
+*** ../vim-7.3.628/src/version.c	2012-08-08 17:31:36.000000000 +0200
+--- src/version.c	2012-08-08 17:57:48.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     629,
+  /**/
+
+-- 
+hundred-and-one symptoms of being an internet addict:
+228. You spend Saturday night making the counter on your home page
+     pass that 2000 mark.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

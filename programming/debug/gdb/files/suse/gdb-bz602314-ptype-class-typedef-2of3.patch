@@ -1,0 +1,308 @@
+commit 758a1f7149cb7469c7e6bb30cb572715ee90a6e8
+Author: Jan Kratochvil <jan.kratochvil@redhat.com>
+Date:   Mon Jun 28 20:39:27 2010 +0000
+
+    gdb/
+    	* c-typeprint.c (c_type_print_base): For no fields check include also
+    	TYPE_TYPEDEF_FIELD_COUNT.  Print new typedefs section.
+    	* dwarf2read.c (struct typedef_field_list)
+    	(struct field_info) <typedef_field_list, typedef_field_list_count>: New.
+    	(dwarf2_add_typedef): New.
+    	(read_structure_type): Call dwarf2_add_typedef for DW_TAG_typedef.
+    	Copy also FI.TYPEDEF_FIELD_LIST.
+    	* gdbtypes.h (struct typedef_field)
+    	(struct cplus_struct_type) <typedef_field, typedef_field_count>
+    	(TYPE_TYPEDEF_FIELD_ARRAY, TYPE_TYPEDEF_FIELD, TYPE_TYPEDEF_FIELD_NAME)
+    	(TYPE_TYPEDEF_FIELD_TYPE, TYPE_TYPEDEF_FIELD_COUNT): New.
+    
+    gdb/testsuite/
+    	* gdb.cp/namespace.exp (ptype OtherFileClass typedefs)
+    	(ptype ::C::OtherFileClass typedefs): New.
+    	* gdb.cp/namespace1.cc (C::OtherFileClass::cOtherFileClassType2)
+    	(C::OtherFileClass::cOtherFileClassVar2): New.
+    	(C::OtherFileClass::cOtherFileClassVar_use): Use also
+    	cOtherFileClassVar2.
+    	(C::cOtherFileType2, C::cOtherFileVar2): New.
+    	(C::cOtherFileVar_use): use also cOtherFileVar2.
+    	* gdb.cp/userdef.exp (ptype &*c): Permit arbitrary trailing text.
+
+### a/gdb/ChangeLog
+### b/gdb/ChangeLog
+## -1,5 +1,19 @@
+ 2010-06-28  Jan Kratochvil  <jan.kratochvil@redhat.com>
+ 
++	* c-typeprint.c (c_type_print_base): For no fields check include also
++	TYPE_TYPEDEF_FIELD_COUNT.  Print new typedefs section.
++	* dwarf2read.c (struct typedef_field_list)
++	(struct field_info) <typedef_field_list, typedef_field_list_count>: New.
++	(dwarf2_add_typedef): New.
++	(read_structure_type): Call dwarf2_add_typedef for DW_TAG_typedef.
++	Copy also FI.TYPEDEF_FIELD_LIST.
++	* gdbtypes.h (struct typedef_field)
++	(struct cplus_struct_type) <typedef_field, typedef_field_count>
++	(TYPE_TYPEDEF_FIELD_ARRAY, TYPE_TYPEDEF_FIELD, TYPE_TYPEDEF_FIELD_NAME)
++	(TYPE_TYPEDEF_FIELD_TYPE, TYPE_TYPEDEF_FIELD_COUNT): New.
++
++2010-06-28  Jan Kratochvil  <jan.kratochvil@redhat.com>
++
+ 	* cp-namespace.c (cp_lookup_nested_type): New variable
+ 	concatenated_name.  Turn the current return condition into a reverse
+ 	one.  Call also lookup_static_symbol_aux on the constructed qualified
+Index: gdb-7.1/gdb/c-typeprint.c
+===================================================================
+--- gdb-7.1.orig/gdb/c-typeprint.c	2010-06-29 17:54:09.000000000 +0200
++++ gdb-7.1/gdb/c-typeprint.c	2010-06-29 18:17:48.000000000 +0200
+@@ -774,7 +774,8 @@ c_type_print_base (struct type *type, st
+ 	  cp_type_print_derivation_info (stream, type);
+ 
+ 	  fprintf_filtered (stream, "{\n");
+-	  if ((TYPE_NFIELDS (type) == 0) && (TYPE_NFN_FIELDS (type) == 0))
++	  if (TYPE_NFIELDS (type) == 0 && TYPE_NFN_FIELDS (type) == 0
++	      && TYPE_TYPEDEF_FIELD_COUNT (type) == 0)
+ 	    {
+ 	      if (TYPE_STUB (type))
+ 		fprintfi_filtered (level + 4, stream, _("<incomplete type>\n"));
+@@ -1060,6 +1061,29 @@ c_type_print_base (struct type *type, st
+ 		}
+ 	    }
+ 
++	  /* Print typedefs defined in this class.  */
++
++	  if (TYPE_TYPEDEF_FIELD_COUNT (type) != 0)
++	    {
++	      if (TYPE_NFIELDS (type) != 0 || TYPE_NFN_FIELDS (type) != 0)
++		fprintf_filtered (stream, "\n");
++
++	      for (i = 0; i < TYPE_TYPEDEF_FIELD_COUNT (type); i++)
++		{
++		  struct type *target = TYPE_TYPEDEF_FIELD_TYPE (type, i);
++
++		  /* Dereference the typedef declaration itself.  */
++		  gdb_assert (TYPE_CODE (target) == TYPE_CODE_TYPEDEF);
++		  target = TYPE_TARGET_TYPE (target);
++
++		  print_spaces_filtered (level + 4, stream);
++		  fprintf_filtered (stream, "typedef ");
++		  c_print_type (target, (char *) TYPE_TYPEDEF_FIELD_NAME (type, i),
++				stream, show - 1, level + 4);
++		  fprintf_filtered (stream, ";\n");
++		}
++	    }
++
+ 	  fprintfi_filtered (level, stream, "}");
+ 
+ 	  if (TYPE_LOCALTYPE_PTR (type) && show >= 0)
+Index: gdb-7.1/gdb/dwarf2read.c
+===================================================================
+--- gdb-7.1.orig/gdb/dwarf2read.c	2010-06-29 17:54:28.000000000 +0200
++++ gdb-7.1/gdb/dwarf2read.c	2010-06-29 18:17:48.000000000 +0200
+@@ -722,6 +722,16 @@ struct field_info
+ 
+     /* Number of entries in the fnfieldlists array.  */
+     int nfnfields;
++
++    /* typedefs defined inside this class.  TYPEDEF_FIELD_LIST contains head of
++       a NULL terminated list of TYPEDEF_FIELD_LIST_COUNT elements.  */
++    struct typedef_field_list
++      {
++	struct typedef_field field;
++	struct typedef_field_list *next;
++      }
++    *typedef_field_list;
++    unsigned typedef_field_list_count;
+   };
+ 
+ /* One item on the queue of compilation units to read in full symbols
+@@ -5075,6 +5085,39 @@ dwarf2_add_field (struct field_info *fip
+     }
+ }
+ 
++/* Add a typedef defined in the scope of the FIP's class.  */
++
++static void
++dwarf2_add_typedef (struct field_info *fip, struct die_info *die,
++		    struct dwarf2_cu *cu)
++{ 
++  struct objfile *objfile = cu->objfile;
++  struct gdbarch *gdbarch = get_objfile_arch (objfile);
++  struct typedef_field_list *new_field;
++  struct attribute *attr;
++  struct typedef_field *fp;
++  char *fieldname = "";
++
++  /* Allocate a new field list entry and link it in.  */
++  new_field = xzalloc (sizeof (*new_field));
++  make_cleanup (xfree, new_field);
++
++  gdb_assert (die->tag == DW_TAG_typedef);
++
++  fp = &new_field->field;
++
++  /* Get name of field.  */
++  fp->name = dwarf2_name (die, cu);
++  if (fp->name == NULL)
++    return;
++
++  fp->type = read_type_die (die, cu);
++
++  new_field->next = fip->typedef_field_list;
++  fip->typedef_field_list = new_field;
++  fip->typedef_field_list_count++;
++}
++
+ /* Create the vector of fields, and attach it to the type.  */
+ 
+ static void
+@@ -5600,6 +5643,8 @@ read_structure_type (struct die_info *di
+ 	      /* C++ base class field.  */
+ 	      dwarf2_add_field (&fi, child_die, cu);
+ 	    }
++	  else if (child_die->tag == DW_TAG_typedef)
++	    dwarf2_add_typedef (&fi, child_die, cu);
+ 	  child_die = sibling_die (child_die);
+ 	}
+ 
+@@ -5673,6 +5718,28 @@ read_structure_type (struct die_info *di
+ 		}
+ 	    }
+ 	}
++
++      /* Copy fi.typedef_field_list linked list elements content into the
++	 allocated array TYPE_TYPEDEF_FIELD_ARRAY (type).  */
++      if (fi.typedef_field_list)
++	{
++	  int i = fi.typedef_field_list_count;
++
++	  TYPE_TYPEDEF_FIELD_ARRAY (type)
++	    = TYPE_ALLOC (type, sizeof (TYPE_TYPEDEF_FIELD (type, 0)) * i);
++	  TYPE_TYPEDEF_FIELD_COUNT (type) = i;
++
++	  /* Reverse the list order to keep the debug info elements order.  */
++	  while (--i >= 0)
++	    {
++	      struct typedef_field *dest, *src;
++	      
++	      dest = &TYPE_TYPEDEF_FIELD (type, i);
++	      src = &fi.typedef_field_list->field;
++	      fi.typedef_field_list = fi.typedef_field_list->next;
++	      *dest = *src;
++	    }
++	}
+     }
+ 
+   quirk_gcc_member_function_pointer (type, cu->objfile);
+Index: gdb-7.1/gdb/gdbtypes.h
+===================================================================
+--- gdb-7.1.orig/gdb/gdbtypes.h	2010-06-29 17:54:17.000000000 +0200
++++ gdb-7.1/gdb/gdbtypes.h	2010-06-29 18:18:29.000000000 +0200
+@@ -948,6 +948,19 @@ struct cplus_struct_type
+        member functions or virtual base classes.  Minus one if not
+        dynamic.  Zero if not yet computed.  */
+     int is_dynamic : 2;
++
++    /* typedefs defined inside this class.  TYPEDEF_FIELD points to an array of
++       TYPEDEF_FIELD_COUNT elements.  */
++    struct typedef_field
++      {
++	/* Unqualified name to be prefixed by owning class qualified name.  */
++	const char *name;
++
++	/* Type this typedef named NAME represents.  */
++	struct type *type;
++      }
++    *typedef_field;
++    unsigned typedef_field_count;
+   };
+ 
+ /* Struct used for ranking a function for overload resolution */
+@@ -1182,6 +1195,17 @@ extern void allocate_gnat_aux_type (stru
+ #define TYPE_LOCALTYPE_FILE(thistype) (TYPE_CPLUS_SPECIFIC(thistype)->localtype_ptr->file)
+ #define TYPE_LOCALTYPE_LINE(thistype) (TYPE_CPLUS_SPECIFIC(thistype)->localtype_ptr->line)
+ 
++#define TYPE_TYPEDEF_FIELD_ARRAY(thistype) \
++  TYPE_CPLUS_SPECIFIC (thistype)->typedef_field
++#define TYPE_TYPEDEF_FIELD(thistype, n) \
++  TYPE_CPLUS_SPECIFIC (thistype)->typedef_field[n]
++#define TYPE_TYPEDEF_FIELD_NAME(thistype, n) \
++  TYPE_TYPEDEF_FIELD (thistype, n).name
++#define TYPE_TYPEDEF_FIELD_TYPE(thistype, n) \
++  TYPE_TYPEDEF_FIELD (thistype, n).type
++#define TYPE_TYPEDEF_FIELD_COUNT(thistype) \
++  TYPE_CPLUS_SPECIFIC (thistype)->typedef_field_count
++
+ #define TYPE_IS_OPAQUE(thistype) (((TYPE_CODE (thistype) == TYPE_CODE_STRUCT) ||        \
+                                    (TYPE_CODE (thistype) == TYPE_CODE_UNION))        && \
+                                   (TYPE_NFIELDS (thistype) == 0)                     && \
+Index: gdb-7.1/gdb/testsuite/gdb.cp/namespace.exp
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.cp/namespace.exp	2010-06-29 18:17:17.000000000 +0200
++++ gdb-7.1/gdb/testsuite/gdb.cp/namespace.exp	2010-06-29 18:18:58.000000000 +0200
+@@ -332,6 +332,21 @@ cp_test_ptype_class \
+ 	}
+ gdb_test "ptype C::OtherFileClass" "No symbol \"OtherFileClass\" in namespace \"C::C\"."
+ 
++# Test class typedefs printing.
++set expect "type = class C::OtherFileClass \{\r\n.*\r\n *typedef short cOtherFileClassType;\r\n *typedef long cOtherFileClassType2;\r\n\}"
++if {[test_compiler_info {gcc-[0-3]-*}]
++    || [test_compiler_info {gcc-4-[0-4]-*}]} {
++    # The type in class is missing in older GCCs.
++    setup_xfail *-*-* 
++}
++gdb_test "ptype OtherFileClass" $expect "ptype OtherFileClass typedefs"
++if {[test_compiler_info {gcc-[0-3]-*}]
++    || [test_compiler_info {gcc-4-[0-4]-*}]} {
++    # The type in class is missing in older GCCs.
++    setup_xfail *-*-* 
++}
++gdb_test "ptype ::C::OtherFileClass" $expect "ptype ::C::OtherFileClass typedefs"
++
+ # Some anonymous namespace tests.
+ 
+ gdb_test "print cX" "\\$\[0-9\].* = 6"
+Index: gdb-7.1/gdb/testsuite/gdb.cp/namespace1.cc
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.cp/namespace1.cc	2010-06-29 17:56:42.000000000 +0200
++++ gdb-7.1/gdb/testsuite/gdb.cp/namespace1.cc	2010-06-29 18:17:48.000000000 +0200
+@@ -23,12 +23,14 @@ namespace C
+     int z;
+ 
+     typedef short cOtherFileClassType;
++    typedef long cOtherFileClassType2;
+     static const cOtherFileClassType cOtherFileClassVar = 318;
++    static const cOtherFileClassType2 cOtherFileClassVar2 = 320;
+     cOtherFileClassType cOtherFileClassVar_use ();
+   };
+   OtherFileClass::cOtherFileClassType OtherFileClass::cOtherFileClassVar_use ()
+   {
+-    return cOtherFileClassVar;
++    return cOtherFileClassVar + cOtherFileClassVar2;
+   }
+ 
+   namespace {
+@@ -45,10 +47,12 @@ namespace C
+   }
+ 
+   typedef short cOtherFileType;
++  typedef long cOtherFileType2;
+   static const cOtherFileType cOtherFileVar = 319;
++  static const cOtherFileType2 cOtherFileVar2 = 321;
+   cOtherFileType cOtherFileVar_use ()
+   {
+-    return cOtherFileVar;
++    return cOtherFileVar + cOtherFileVar2;
+   }
+ }
+ 
+Index: gdb-7.1/gdb/testsuite/gdb.cp/userdef.exp
+===================================================================
+--- gdb-7.1.orig/gdb/testsuite/gdb.cp/userdef.exp	2010-06-29 17:54:11.000000000 +0200
++++ gdb-7.1/gdb/testsuite/gdb.cp/userdef.exp	2010-06-29 18:17:48.000000000 +0200
+@@ -154,7 +154,7 @@ gdb_test "break A2::'operator +'" ".*Bre
+ gdb_test "print c" "\\\$\[0-9\]* = {m = {z = .*}}"
+ gdb_test "print *c" "\\\$\[0-9\]* = \\(Member &\\) @$hex: {z = .*}"
+ gdb_test "print &*c" "\\\$\[0-9\]* = \\(Member \\*\\) $hex"
+-gdb_test "ptype &*c" "type = (struct|class) Member {(\[\r\n \]+public:)?\[\r\n \]+int z;\[\r\n\]+} &\\*"
++gdb_test "ptype &*c" "type = (struct|class) Member {(\[\r\n \]+public:)?\[\r\n \]+int z;\[\r\n\].*} &\\*"
+ 
+ gdb_test "print operator== (mem1, mem2)" " = false"
+ gdb_test "print operator== (mem1, mem1)" " = true"

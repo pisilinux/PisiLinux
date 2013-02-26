@@ -1,0 +1,430 @@
+diff -up openssh-5.6p1/configure.ac.mls openssh-5.6p1/configure.ac
+--- openssh-5.6p1/configure.ac.mls	2010-08-23 12:11:36.000000000 +0200
++++ openssh-5.6p1/configure.ac	2010-08-23 12:11:36.000000000 +0200
+@@ -3390,6 +3390,7 @@ AC_ARG_WITH(selinux,
+ 		SSHDLIBS="$SSHDLIBS $LIBSELINUX"
+ 		LIBS="$LIBS $LIBSELINUX"
+ 		AC_CHECK_FUNCS(getseuserbyname get_default_context_with_level)
++		AC_CHECK_FUNCS(setkeycreatecon)
+ 		LIBS="$save_LIBS"
+ 	fi ]
+ )
+diff -up openssh-5.6p1/misc.c.mls openssh-5.6p1/misc.c
+--- openssh-5.6p1/misc.c.mls	2010-08-03 08:05:05.000000000 +0200
++++ openssh-5.6p1/misc.c	2010-08-23 12:14:16.000000000 +0200
+@@ -424,6 +424,7 @@ char *
+ colon(char *cp)
+ {
+ 	int flag = 0;
++	int start = 1;
+ 
+ 	if (*cp == ':')		/* Leading colon is part of file name. */
+ 		return NULL;
+@@ -439,6 +440,13 @@ colon(char *cp)
+ 			return (cp);
+ 		if (*cp == '/')
+ 			return NULL;
++		if (start) {
++		/* Slash on beginning or after dots only denotes file name. */
++			if (*cp == '/')
++				return (0);
++			if (*cp != '.')
++				start = 0;
++		}
+ 	}
+ 	return NULL;
+ }
+diff -up openssh-5.6p1/openbsd-compat/port-linux.c.mls openssh-5.6p1/openbsd-compat/port-linux.c
+--- openssh-5.6p1/openbsd-compat/port-linux.c.mls	2010-08-23 12:11:36.000000000 +0200
++++ openssh-5.6p1/openbsd-compat/port-linux.c	2010-08-23 12:11:37.000000000 +0200
+@@ -35,13 +35,24 @@
+ #include "key.h"
+ #include "hostfile.h"
+ #include "auth.h"
++#include "xmalloc.h"
+ 
+ #ifdef WITH_SELINUX
+ #include <selinux/selinux.h>
+ #include <selinux/flask.h>
++#include <selinux/context.h>
+ #include <selinux/get_context_list.h>
++#include <selinux/get_default_type.h>
++#include <selinux/av_permissions.h>
++
++#ifdef HAVE_LINUX_AUDIT
++#include <libaudit.h>
++#include <unistd.h>
++#endif
+ 
+ extern Authctxt *the_authctxt;
++extern int inetd_flag;
++extern int rexeced_flag;
+ 
+ /* Wrapper around is_selinux_enabled() to log its return value once only */
+ int
+@@ -57,17 +68,173 @@ ssh_selinux_enabled(void)
+ 	return (enabled);
+ }
+ 
++/* Send audit message */
++static int
++send_audit_message(int success, security_context_t default_context,
++		       security_context_t selected_context)
++{
++	int rc=0;
++#ifdef HAVE_LINUX_AUDIT
++	char *msg = NULL;
++	int audit_fd = audit_open();
++	security_context_t default_raw=NULL;
++	security_context_t selected_raw=NULL;
++	rc = -1;
++	if (audit_fd < 0) {
++		if (errno == EINVAL || errno == EPROTONOSUPPORT ||
++                                        errno == EAFNOSUPPORT)
++                        return 0; /* No audit support in kernel */
++		error("Error connecting to audit system.");
++		return rc;
++	}
++	if (selinux_trans_to_raw_context(default_context, &default_raw) < 0) {
++		error("Error translating default context.");
++		default_raw = NULL;
++	}
++	if (selinux_trans_to_raw_context(selected_context, &selected_raw) < 0) {
++		error("Error translating selected context.");
++		selected_raw = NULL;
++	}
++	if (asprintf(&msg, "sshd: default-context=%s selected-context=%s",
++		     default_raw ? default_raw : (default_context ? default_context: "?"),
++		     selected_context ? selected_raw : (selected_context ? selected_context :"?")) < 0) {
++		error("Error allocating memory.");
++		goto out;
++	}
++	if (audit_log_user_message(audit_fd, AUDIT_USER_ROLE_CHANGE,
++				   msg, NULL, NULL, NULL, success) <= 0) {
++		error("Error sending audit message.");
++		goto out;
++	}
++	rc = 0;
++      out:
++	free(msg);
++	freecon(default_raw);
++	freecon(selected_raw);
++	close(audit_fd);
++#endif
++	return rc;
++}
++
++static int
++mls_range_allowed(security_context_t src, security_context_t dst)
++{
++	struct av_decision avd;
++	int retval;
++	unsigned int bit = CONTEXT__CONTAINS;
++
++	debug("%s: src:%s dst:%s", __func__, src, dst);
++	retval = security_compute_av(src, dst, SECCLASS_CONTEXT, bit, &avd);
++	if (retval || ((bit & avd.allowed) != bit))
++		return 0;
++
++	return 1;
++}
++
++static int
++get_user_context(const char *sename, const char *role, const char *lvl,
++	security_context_t *sc) {
++#ifdef HAVE_GET_DEFAULT_CONTEXT_WITH_LEVEL
++	if (lvl == NULL || lvl[0] == '\0' || get_default_context_with_level(sename, lvl, NULL, sc) != 0) {
++	        /* User may have requested a level completely outside of his 
++	           allowed range. We get a context just for auditing as the
++	           range check below will certainly fail for default context. */
++#endif
++		if (get_default_context(sename, NULL, sc) != 0) {
++			*sc = NULL;
++			return -1;
++		}
++#ifdef HAVE_GET_DEFAULT_CONTEXT_WITH_LEVEL
++	}
++#endif
++	if (role != NULL && role[0]) {
++		context_t con;
++		char *type=NULL;
++		if (get_default_type(role, &type) != 0) {
++			error("get_default_type: failed to get default type for '%s'",
++				role);
++			goto out;
++		}
++		con = context_new(*sc);
++		if (!con) {
++			goto out;
++		}
++		context_role_set(con, role);
++		context_type_set(con, type);
++		freecon(*sc);
++		*sc = strdup(context_str(con));
++		context_free(con);
++		if (!*sc) 
++			return -1;
++	}
++#ifdef HAVE_GET_DEFAULT_CONTEXT_WITH_LEVEL
++	if (lvl != NULL && lvl[0]) {
++		/* verify that the requested range is obtained */
++		context_t con;
++		security_context_t obtained_raw;
++		security_context_t requested_raw;
++		con = context_new(*sc);
++		if (!con) {
++			goto out;
++		}
++		context_range_set(con, lvl);
++		if (selinux_trans_to_raw_context(*sc, &obtained_raw) < 0) {
++			context_free(con);
++			goto out;
++		}
++		if (selinux_trans_to_raw_context(context_str(con), &requested_raw) < 0) {
++			freecon(obtained_raw);
++			context_free(con);
++			goto out;
++		}
++
++		debug("get_user_context: obtained context '%s' requested context '%s'",
++			obtained_raw, requested_raw);
++		if (strcmp(obtained_raw, requested_raw)) {
++			/* set the context to the real requested one but fail */
++			freecon(requested_raw);
++			freecon(obtained_raw);
++			freecon(*sc);
++			*sc = strdup(context_str(con));
++			context_free(con);
++			return -1;
++		}
++		freecon(requested_raw);
++		freecon(obtained_raw);
++		context_free(con);
++	}
++#endif
++	return 0;
++      out:
++        freecon(*sc);
++        *sc = NULL;
++        return -1;
++}
++
+ /* Return the default security context for the given username */
+-static security_context_t
+-ssh_selinux_getctxbyname(char *pwname)
++static int
++ssh_selinux_getctxbyname(char *pwname,
++	security_context_t *default_sc, security_context_t *user_sc)
+ {
+-	security_context_t sc = NULL;
+ 	char *sename, *lvl;
++	const char *reqlvl = NULL;
+ 	char *role = NULL;
+-	int r = 0;
++	int r = -1;
++	context_t con = NULL;
++
++	*default_sc = NULL;
++	*user_sc = NULL;
++	if (the_authctxt) {
++		if (the_authctxt->role != NULL) {
++			char *slash;
++			role = xstrdup(the_authctxt->role);
++			if ((slash = strchr(role, '/')) != NULL) {
++				*slash = '\0';
++				reqlvl = slash + 1;
++			}
++		}
++	}
+ 
+-	if (the_authctxt) 
+-		role=the_authctxt->role;
+ #ifdef HAVE_GETSEUSERBYNAME
+ 	if ((r=getseuserbyname(pwname, &sename, &lvl)) != 0) {
+ 		sename = NULL;
+@@ -75,38 +242,63 @@ ssh_selinux_getctxbyname(char *pwname)
+ 	}
+ #else
+ 	sename = pwname;
+-	lvl = NULL;
++	lvl = "";
+ #endif
+ 
+ 	if (r == 0) {
+ #ifdef HAVE_GET_DEFAULT_CONTEXT_WITH_LEVEL
+-		if (role != NULL && role[0])
+-			r = get_default_context_with_rolelevel(sename, role, lvl, NULL, &sc);
+-		else
+-			r = get_default_context_with_level(sename, lvl, NULL, &sc);
++		r = get_default_context_with_level(sename, lvl, NULL, default_sc);
+ #else
+-		if (role != NULL && role[0])
+-			r = get_default_context_with_role(sename, role, NULL, &sc);
+-		else
+-			r = get_default_context(sename, NULL, &sc);
++		r = get_default_context(sename, NULL, default_sc);
+ #endif
+ 	}
+ 
+-	if (r != 0) {
+-		switch (security_getenforce()) {
+-		case -1:
+-			fatal("%s: ssh_selinux_getctxbyname: "
+-			    "security_getenforce() failed", __func__);
+-		case 0:
+-			error("%s: Failed to get default SELinux security "
+-			    "context for %s", __func__, pwname);
+-			break;
+-		default:
+-			fatal("%s: Failed to get default SELinux security "
+-			    "context for %s (in enforcing mode)",
+-			    __func__, pwname);
++	if (r == 0) {
++		/* If launched from xinetd, we must use current level */
++		if (inetd_flag && !rexeced_flag) {
++			security_context_t sshdsc=NULL;
++
++			if (getcon_raw(&sshdsc) < 0)
++				fatal("failed to allocate security context");
++
++			if ((con=context_new(sshdsc)) == NULL)
++				fatal("failed to allocate selinux context");
++			reqlvl = context_range_get(con);
++			freecon(sshdsc);
++			if (reqlvl !=NULL && lvl != NULL && strcmp(reqlvl, lvl) == 0)
++			    /* we actually don't change level */
++			    reqlvl = "";
++
++			debug("%s: current connection level '%s'", __func__, reqlvl);
++		}
++		
++		if ((reqlvl != NULL && reqlvl[0]) || (role != NULL && role[0])) {
++			r = get_user_context(sename, role, reqlvl, user_sc);
++		
++			if (r == 0 && reqlvl != NULL && reqlvl[0]) {
++				security_context_t default_level_sc = *default_sc;
++				if (role != NULL && role[0]) {
++					if (get_user_context(sename, role, lvl, &default_level_sc) < 0)
++						default_level_sc = *default_sc;
++				}
++				/* verify that the requested range is contained in the user range */
++				if (mls_range_allowed(default_level_sc, *user_sc)) {
++					logit("permit MLS level %s (user range %s)", reqlvl, lvl);
++				} else {
++					r = -1;
++					error("deny MLS level %s (user range %s)", reqlvl, lvl);
++				}
++				if (default_level_sc != *default_sc)
++					freecon(default_level_sc);
++			}
++		} else {
++			*user_sc = *default_sc;
+ 		}
+ 	}
++	if (r != 0) {
++		error("%s: Failed to get default SELinux security "
++		    "context for %s", __func__, pwname);
++	}
+ 
+ #ifdef HAVE_GETSEUSERBYNAME
+ 	if (sename != NULL)
+@@ -114,14 +306,20 @@ ssh_selinux_getctxbyname(char *pwname)
+ 	if (lvl != NULL)
+ 		xfree(lvl);
+ #endif
++	if (role != NULL)
++		xfree(role);
++	if (con)
++		context_free(con);
+ 
+-	return (sc);
++	return (r);
+ }
+ 
+ /* Set the execution context to the default for the specified user */
+ void
+ ssh_selinux_setup_exec_context(char *pwname)
+ {
++	int r = 0;
++	security_context_t default_ctx = NULL;
+ 	security_context_t user_ctx = NULL;
+ 
+ 	if (!ssh_selinux_enabled())
+@@ -129,22 +327,45 @@ ssh_selinux_setup_exec_context(char *pwn
+ 
+ 	debug3("%s: setting execution context", __func__);
+ 
+-	user_ctx = ssh_selinux_getctxbyname(pwname);
+-	if (setexeccon(user_ctx) != 0) {
++	r = ssh_selinux_getctxbyname(pwname, &default_ctx, &user_ctx);
++	if (r >= 0) {
++		r = setexeccon(user_ctx);
++		if (r < 0) {
++			error("%s: Failed to set SELinux execution context %s for %s",
++			    __func__, user_ctx, pwname);
++		} 
++#ifdef HAVE_SETKEYCREATECON
++		else if (setkeycreatecon(user_ctx) < 0) {
++			error("%s: Failed to set SELinux keyring creation context %s for %s",
++			    __func__, user_ctx, pwname);
++		}
++#endif
++	}
++	if (user_ctx == NULL) {
++		user_ctx = default_ctx;
++	}
++	if (r < 0 || user_ctx != default_ctx) {
++		/* audit just the case when user changed a role or there was
++		   a failure */
++		send_audit_message(r >= 0, default_ctx, user_ctx);
++	}
++	if (r < 0) {
+ 		switch (security_getenforce()) {
+ 		case -1:
+ 			fatal("%s: security_getenforce() failed", __func__);
+ 		case 0:
+-			error("%s: Failed to set SELinux execution "
+-			    "context for %s", __func__, pwname);
++			error("%s: SELinux failure. Continuing in permissive mode.",
++			    __func__);
+ 			break;
+ 		default:
+-			fatal("%s: Failed to set SELinux execution context "
+-			    "for %s (in enforcing mode)", __func__, pwname);
++			fatal("%s: SELinux failure. Aborting connection.",
++			    __func__);
+ 		}
+ 	}
+-	if (user_ctx != NULL)
++	if (user_ctx != NULL && user_ctx != default_ctx)
+ 		freecon(user_ctx);
++	if (default_ctx != NULL)
++		freecon(default_ctx);
+ 
+ 	debug3("%s: done", __func__);
+ }
+@@ -162,7 +383,10 @@ ssh_selinux_setup_pty(char *pwname, cons
+ 
+ 	debug3("%s: setting TTY context on %s", __func__, tty);
+ 
+-	user_ctx = ssh_selinux_getctxbyname(pwname);
++	if (getexeccon(&user_ctx) < 0) {
++		error("%s: getexeccon: %s", __func__, strerror(errno));
++		goto out;
++	}
+ 
+ 	/* XXX: should these calls fatal() upon failure in enforcing mode? */
+ 
+diff -up openssh-5.6p1/sshd.c.mls openssh-5.6p1/sshd.c
+--- openssh-5.6p1/sshd.c.mls	2010-08-23 12:11:36.000000000 +0200
++++ openssh-5.6p1/sshd.c	2010-08-23 12:11:37.000000000 +0200
+@@ -1997,6 +1997,9 @@ main(int ac, char **av)
+ 		restore_uid();
+ 	}
+ #endif
++#ifdef WITH_SELINUX
++	ssh_selinux_setup_exec_context(authctxt->pw->pw_name);
++#endif
+ #ifdef USE_PAM
+ 	if (options.use_pam) {
+ 		do_pam_setcred(1);

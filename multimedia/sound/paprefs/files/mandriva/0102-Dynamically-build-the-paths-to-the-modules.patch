@@ -1,0 +1,188 @@
+From 048f943234c630e088c6589828306becf63e10c5 Mon Sep 17 00:00:00 2001
+From: Sjoerd Simons <sjoerd.simons@collabora.co.uk>
+Date: Wed, 18 Nov 2009 23:08:50 +0000
+Subject: [PATCH 102/102] Dynamically build the paths to the modules
+
+---
+ configure.ac    |    4 +-
+ src/Makefile.am |    6 ++--
+ src/paprefs.cc  |   84 +++++++++++++++++++++++++++++++++++++++++++-----------
+ 3 files changed, 72 insertions(+), 22 deletions(-)
+
+diff --git a/configure.ac b/configure.ac
+index aa0e4bd..4c7c880 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -43,8 +43,8 @@ AC_SUBST(GUILIBS_CFLAGS)
+ AC_SUBST(GUILIBS_LIBS)
+ 
+ PKG_CHECK_MODULES(LIBPULSE, libpulse)
+-LIBPULSE_MODLIBEXECDIR=`pkg-config libpulse --variable modlibexecdir`
+-AC_SUBST(LIBPULSE_MODLIBEXECDIR)
++LIBPULSE_MODLIBDIR=`pkg-config libpulse --variable libdir`
++AC_SUBST(LIBPULSE_MODLIBDIR)
+ 
+ # If using GCC specifiy some additional parameters
+ if test "x$GCC" = "xyes" ; then
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 1bd3826..bacfb1a 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -29,9 +29,9 @@ desktop_DATA=$(desktop_in_files:.desktop.in=.desktop)
+ 
+ paprefs_SOURCES=paprefs.cc
+ 
+-paprefs_LDADD=$(AM_LDADD) $(GUILIBS_LIBS)
+-paprefs_CXXFLAGS=$(AM_CXXFLAGS) $(GUILIBS_CFLAGS)
+-paprefs_CXXFLAGS+=-DGLADE_FILE=\"$(gladedir)/paprefs.glade\" -DLOCALEDIR=\"$(localedir)\" -DMODULESDIR=\""$(LIBPULSE_MODLIBEXECDIR)/"\" -DSHREXT=\"$(SHREXT)\"
++paprefs_LDADD=$(AM_LDADD) $(GUILIBS_LIBS) $(LIBPULSE_LIBS)
++paprefs_CXXFLAGS=$(AM_CXXFLAGS) $(GUILIBS_CFLAGS) $(LIBPULSE_CFLAGS)
++paprefs_CXXFLAGS+=-DGLADE_FILE=\"$(gladedir)/paprefs.glade\" -DLOCALEDIR=\"$(localedir)\" -DMODLIBDIR=\""$(LIBPULSE_MODLIBDIR)/"\" -DSHREXT=\"$(SHREXT)\"
+ 
+ EXTRA_DIST = $(glade_DATA) $(desktop_in_files)
+ 
+diff --git a/src/paprefs.cc b/src/paprefs.cc
+index a45092c..3da4be0 100644
+--- a/src/paprefs.cc
++++ b/src/paprefs.cc
+@@ -31,6 +31,8 @@
+ #include <dbus/dbus.h>
+ #include <gdk/gdkx.h>
+ 
++#include <pulse/version.h>
++
+ #define PA_GCONF_ROOT "/system/pulseaudio"
+ #define PA_GCONF_PATH_MODULES PA_GCONF_ROOT"/modules"
+ 
+@@ -108,6 +110,10 @@ public:
+ 
+     void showInstallButton(Gtk::Button *button, bool available);
+     void installFiles(const char *a, const char *b);
++    void installModules(const char *a, const char *b);
++
++    bool moduleExists(const gchar *name);
++    gchar *modulePath(const gchar *name);
+ 
+     bool
+         packageKitAvailable,
+@@ -331,33 +337,49 @@ void MainWindow::installFiles(const char *a, const char *b = NULL) {
+     updateSensitive();
+ }
+ 
++void MainWindow::installModules(const char *a, const char *b = NULL) {
++  gchar *ma, *mb = NULL;
++
++  ma = modulePath (a);
++  if (b != NULL)
++    mb = modulePath (b);
++
++  installFiles (ma, mb);
++
++  g_free (ma);
++  g_free (mb);
++}
++
+ void MainWindow::onZeroconfDiscoverInstallButtonClicked() {
+-    installFiles(MODULESDIR "module-zeroconf-discover" SHREXT);
++    installModules("module-zeroconf-discover" SHREXT);
+ }
+ 
+ void MainWindow::onZeroconfRaopDiscoverInstallButtonClicked() {
+-    installFiles(MODULESDIR "module-raop-discover" SHREXT);
++    installModules("module-raop-discover" SHREXT);
+ }
+ 
+ void MainWindow::onRemoteInstallButtonClicked() {
+-    installFiles(MODULESDIR "module-esound-protocol-tcp" SHREXT,
+-                 MODULESDIR "module-native-protocol-tcp" SHREXT);
++    installModules("module-esound-protocol-tcp" SHREXT,
++        "module-native-protocol-tcp" SHREXT);
+ }
+ 
+ void MainWindow::onZeroconfPublishInstallButtonClicked() {
+-    installFiles(MODULESDIR "module-zeroconf-publish" SHREXT);
++    installModules("module-zeroconf-publish" SHREXT);
+ }
+ 
+ void MainWindow::upnpInstallButtonClicked() {
+-    installFiles("/usr/bin/rygel", MODULESDIR "module-rygel-media-server" SHREXT);
++    gchar *mpath = modulePath ("module-rygel-media-server" SHREXT);
++
++    installFiles("/usr/bin/rygel", mpath);
++    g_free (mpath);
+ }
+ 
+ void MainWindow::rtpRecvInstallButtonClicked() {
+-    installFiles(MODULESDIR "module-rtp-recv" SHREXT);
++    installModules("module-rtp-recv" SHREXT);
+ }
+ 
+ void MainWindow::rtpSendInstallButtonClicked() {
+-    installFiles(MODULESDIR "module-rtp-send" SHREXT);
++    installModules("module-rtp-send" SHREXT);
+ }
+ 
+ void MainWindow::writeToGConfCombine() {
+@@ -614,22 +636,50 @@ void MainWindow::readFromGConf() {
+     updateSensitive();
+ }
+ 
++gchar * MainWindow::modulePath(const gchar *name) {
++  gchar *path, *pulsedir, *c;
++
++  pulsedir = g_strdup_printf ("pulse-%s", pa_get_library_version ());
++
++  for (c = pulsedir + strlen ("pulse-"); *c != '\0'; c++) {
++    if (*c == '-') {
++      *c = '\0';
++      break;
++    }
++  }
++
++  path = g_build_filename (MODLIBDIR, pulsedir, "modules", name, NULL);
++  g_free (pulsedir);
++
++  return path;
++}
++
++bool MainWindow::moduleExists(const gchar *name) {
++  gchar *path = modulePath (name);
++  bool ret;
++
++  ret = g_file_test (path, G_FILE_TEST_EXISTS);
++
++  g_free (path);
++
++  return ret;
++}
++
+ void MainWindow::checkForModules() {
+ 
+     remoteAvailable =
+-        access(MODULESDIR "module-esound-protocol-tcp" SHREXT, F_OK) == 0 ||
+-        access(MODULESDIR "module-native-protocol-tcp" SHREXT, F_OK) == 0;
++        moduleExists("module-esound-protocol-tcp" SHREXT) ||
++        moduleExists("module-native-protocol-tcp" SHREXT);
+ 
+-    zeroconfPublishAvailable = access(MODULESDIR "module-zeroconf-publish" SHREXT, F_OK) == 0;
+-    zeroconfDiscoverAvailable = access(MODULESDIR "module-zeroconf-discover" SHREXT, F_OK) == 0;
++    zeroconfPublishAvailable = moduleExists("module-zeroconf-publish" SHREXT);
++    zeroconfDiscoverAvailable = moduleExists("module-zeroconf-discover" SHREXT);
+ 
+-    zeroconfRaopDiscoverAvailable = access(MODULESDIR "module-raop-discover" SHREXT, F_OK) == 0;
++    zeroconfRaopDiscoverAvailable = moduleExists("module-raop-discover" SHREXT);
+ 
+-    rtpRecvAvailable = access(MODULESDIR "module-rtp-recv" SHREXT, F_OK) == 0;
+-    rtpSendAvailable = access(MODULESDIR "module-rtp-send" SHREXT, F_OK) == 0;
++    rtpRecvAvailable = moduleExists("module-rtp-recv" SHREXT);
++    rtpSendAvailable = moduleExists("module-rtp-send" SHREXT);
+ 
+-    upnpAvailable =
+-        access(MODULESDIR "module-rygel-media-server" SHREXT, F_OK) == 0 &&
++    upnpAvailable = moduleExists("module-rygel-media-server" SHREXT) &&
+         g_find_program_in_path("rygel");
+ }
+ 
+-- 
+1.6.5.3
+

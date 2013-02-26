@@ -1,0 +1,159 @@
+diff --git a/aclocal.in b/aclocal.in
+index b51c09d..29be10e 100644
+--- a/aclocal.in
++++ b/aclocal.in
+@@ -165,6 +165,11 @@ my @ac_config_macro_dirs;
+ # If set, names a temporary file that must be erased on abnormal exit.
+ my $erase_me;
+ 
++# constants for scan_m4_dirs($ERR_LEVEL) parameter
++use constant SCAN_M4_DIRS_SILENT => 0;
++use constant SCAN_M4_DIRS_WARN => 1;
++use constant SCAN_M4_DIRS_ERROR => 2;
++
+ ################################################################
+ 
+ # Prototypes for all subroutines.
+@@ -355,21 +360,29 @@ sub list_compare (\@\@)
+ 
+ ################################################################
+ 
+-# scan_m4_dirs($TYPE, $ERR_ON_NONEXISTING, @DIRS)
++# scan_m4_dirs($TYPE, $ERR_LEVEL, @DIRS)
+ # -----------------------------------------------
+ # Scan all M4 files installed in @DIRS for new macro definitions.
+ # Register each file as of type $TYPE (one of the FT_* constants).
++# Fail without discussion on non-existing include directory when the
++# $ERR_LEVEL parameter equals to SCAN_M4_DIRS_ERROR, just print warning
++# when it equals to SCAN_M4_DIRS_WARN and don't complain at all when
++# it is set to SCAN_M4_DIRS_SILENT.
+ sub scan_m4_dirs ($$@)
+ {
+-  my ($type, $err_on_nonexisting, @dirlist) = @_;
++  my ($type, $err_level, @dirlist) = @_;
+ 
+   foreach my $m4dir (@dirlist)
+     {
+       if (! opendir (DIR, $m4dir))
+ 	{
+ 	  # TODO: maybe avoid complaining only if errno == ENONENT?
+-	  next unless $err_on_nonexisting;
+-	  fatal "couldn't open directory '$m4dir': $!";
++	  my $message = "couldn't open directory '$m4dir': $!";
++
++	  fatal $message if $err_level == SCAN_M4_DIRS_ERROR;
++	  msg ('unsupported', $message) if $err_level == SCAN_M4_DIRS_WARN;
++	  # don't complain if $err_level == SCAN_M4_DIRS_SILENT
++	  next
+ 	}
+ 
+       # We reverse the directory contents so that foo2.m4 gets
+@@ -406,13 +419,25 @@ sub scan_m4_files ()
+ 
+   if (@user_includes)
+     {
++      # Don't explore the same directory multiple times.  This is here not
++      # only for speedup purposes.  We need this when the user has e.g.
++      # specified 'ACLOCAL_AMFLAGS = -I m4' and has also set
++      # AC_CONFIG_MACRO_DIR[S]([m4]) in configure.ac.  This makes the 'm4'
++      # directory to occur twice here and fail on the second call to
++      # scan_m4_dirs([m4]) when the 'm4' directory doesn't exist.
++      # TODO: Shouldn't there be rather a check in scan_m4_dirs for
++      #       @user_includes[0]?
++      @user_includes = uniq @user_includes;
++
+       # Don't complain if the first user directory doesn't exist, in case
+       # we need to create it later (can happen if '--install' was given).
+-      scan_m4_dirs (FT_USER, !$install, $user_includes[0]);
+-      scan_m4_dirs (FT_USER, 1, @user_includes[1..$#user_includes]);
++      my $first_dir_lvl = $install ? SCAN_M4_DIRS_SILENT : SCAN_M4_DIRS_WARN;
++      scan_m4_dirs (FT_USER, $first_dir_lvl, $user_includes[0]);
++      scan_m4_dirs (FT_USER, SCAN_M4_DIRS_ERROR,
++		    @user_includes[1..$#user_includes]);
+     }
+-  scan_m4_dirs (FT_AUTOMAKE, 1, @automake_includes);
+-  scan_m4_dirs (FT_SYSTEM,   1, @system_includes);
++  scan_m4_dirs (FT_AUTOMAKE, SCAN_M4_DIRS_ERROR, @automake_includes);
++  scan_m4_dirs (FT_SYSTEM, SCAN_M4_DIRS_ERROR, @system_includes);
+ 
+   # Construct a new function that does the searching.  We use a
+   # function (instead of just evaluating $search in the loop) so that
+diff --git a/t/aclocal-macrodir.tap b/t/aclocal-macrodir.tap
+index 3c66e53..bdeb30d 100755
+--- a/t/aclocal-macrodir.tap
++++ b/t/aclocal-macrodir.tap
+@@ -20,7 +20,7 @@
+ am_create_testdir=empty
+ . test-init.sh
+ 
+-plan_ 6
++plan_ 7
+ 
+ ocwd=$(pwd) || fatal_ "getting current working directory"
+ ACLOCAL_PATH=; unset ACLOCAL_PATH
+@@ -105,7 +105,9 @@ mkdir sys-dir the-dir
+ echo 'AC_DEFUN([THE_MACRO], [:])' > sys-dir/my.m4
+ 
+ test ! -r the-dir/my.m4 \
+-  && $ACLOCAL --install --system-acdir ./sys-dir \
++  && $ACLOCAL --install --system-acdir ./sys-dir 2>stderr \
++  && cat stderr >&2 \
++  && not grep "couldn't open directory" stderr \
+   && diff sys-dir/my.m4 the-dir/my.m4 \
+   || r='not ok'
+ 
+@@ -149,7 +151,9 @@ mkdir acdir
+ echo 'AC_DEFUN([MY_MACRO], [:])' > acdir/bar.m4
+ 
+ test ! -d foo \
+-  && $ACLOCAL --install --system-acdir ./acdir \
++  && $ACLOCAL --install --system-acdir ./acdir 2>stderr \
++  && cat stderr >&2 \
++  && not grep "couldn't open directory" stderr \
+   && diff acdir/bar.m4 foo/bar.m4 \
+   || r='not ok'
+ 
+@@ -157,14 +161,14 @@ test_end
+ 
+ #---------------------------------------------------------------------------
+ 
+-test_begin "AC_CONFIG_MACRO_DIR([non-existent]) errors out (1)"
++test_begin "AC_CONFIG_MACRO_DIR([non-existent]) warns but succeeds"
+ 
+ cat > configure.ac << 'END'
+ AC_INIT([oops], [1.0])
+ AC_CONFIG_MACRO_DIR([non-existent])
+ END
+ 
+-not $ACLOCAL -Wnone 2>stderr \
++$ACLOCAL -Wno-error 2>stderr \
+   && cat stderr >&2 \
+   && grep "couldn't open directory 'non-existent'" stderr \
+   || r='not ok'
+@@ -173,6 +177,26 @@ test_end
+ 
+ #---------------------------------------------------------------------------
+ 
++test_begin "AC_CONFIG_MACRO_DIR([not-exist]) and ACLOCAL_AMFLAGS = -I not-exist"
++
++cat > configure.ac << 'END'
++AC_INIT([oops], [1.0])
++AC_CONFIG_MACRO_DIR([not-exist])
++END
++
++cat > Makefile.am << 'END'
++ACLOCAL_AMFLAGS = -I not-exist
++END
++
++$ACLOCAL -Wno-error 2>stderr \
++  && cat stderr >&2 \
++  && grep "couldn't open directory 'not-exist'" stderr \
++  || r='not ok'
++
++test_end
++
++#---------------------------------------------------------------------------
++
+ # Avoid spurious failures with pre-2.70 autoconf.
+ # FIXME: remove this in automake 1.14, once we require Autoconf 2.70.
+ if echo 'AC_INIT AC_CONFIG_MACRO_DIRS' | $AUTOCONF -o/dev/null -; then

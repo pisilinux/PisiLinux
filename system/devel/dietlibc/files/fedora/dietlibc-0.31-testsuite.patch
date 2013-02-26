@@ -1,0 +1,457 @@
+From 02a0efbc861696460826282e5d0c1e706644991a Mon Sep 17 00:00:00 2001
+From: Enrico Scholz <enrico.scholz@informatik.tu-chemnitz.de>
+Date: Sat, 19 Apr 2008 17:41:23 +0200
+Subject: [PATCH] Several testsuite fixes/enhancments
+
+* test/getmntent.c: I removed the checks which called endmntent()
+  multiple times resp. with a NULL pointer.  Behavior in first
+  case is undefined and latter causes a segfault (I could not
+  find documentation that this is allowed).  Hence, it does not
+  make sense to test this.
+
+* test/stdlib/tst-malloc.c: test 'malloc(0)' only, when
+  WANT_MALLOC_ZERO is set
+
+* test/time/tst-strftime.c: the '%Zu' printf format specifier is
+  bogus (from libc5 ages). I replaced it with the '%zu' one.
+
+  Please note, that this test still fails because it uses glibc
+  specific features.
+
+* test/time/tst-strptime.c: removed tests which set a non-C
+  locale. Broken usage of 'strptime()' result was fixed too.
+  This test should succeed now.
+
+* test/math.c: this test was added while working on the '%F/%G'
+  patch and verifies the isinf() + isnan() functions.
+
+* fixes lot of broken printf() format specifiers
+
+* fixes tests using isinf(); the math.c test checks the dietlibc
+  implementation of isinf() (which differs between positive and
+  negative inf). All other tests use boolean retval only and test
+  for the signess of the values
+---
+ test/Makefile            |    2 +-
+ test/asprintf.c          |    2 +-
+ test/bsearch.c           |    2 +-
+ test/byteswap.c          |    8 ++++----
+ test/cycles.c            |    2 +-
+ test/getmntent.c         |    6 +-----
+ test/math.c              |   29 +++++++++++++++++++++++++++++
+ test/mktime.c            |    6 +++---
+ test/printftest.c        |    6 +++---
+ test/rand48.c            |   12 ++++++------
+ test/runtests.sh         |    2 +-
+ test/speed.c             |    4 ++--
+ test/stdio/tstscanf.c    |    4 ++--
+ test/stdlib/tst-malloc.c |    6 +++++-
+ test/stdlib/tst-strtod.c |    4 ++--
+ test/sysenter.c          |    6 +++---
+ test/time/tst-strftime.c |    6 +++---
+ test/time/tst-strptime.c |   23 ++++++++++++++++++++---
+ 18 files changed, 88 insertions(+), 42 deletions(-)
+ create mode 100644 test/math.c
+
+Index: dietlibc-0.32/test/Makefile
+===================================================================
+--- dietlibc-0.32.orig/test/Makefile
++++ dietlibc-0.32/test/Makefile
+@@ -10,7 +10,7 @@ LCOMPAT=-lcompat
+ TESTPROGRAMS=adjtime argv asprintf atexit bsearch byteswap calloc confstr cycles empty flush fnmatch \
+ fputc ftw fwrite getaddrinfo getenv getgrnam gethostbyaddr gethostbyname \
+ gethostbyname_r getmntent getopt getpass getpwnam getservbyname getservbyport getusershell \
+-glob grent hasmntopt hello iconv if_nameindex ltostr malloc-debugger md5_testharness \
++glob grent hasmntopt hello iconv if_nameindex ltostr malloc-debugger math md5_testharness \
+ memccpy memchr memcmp memrchr memusage mktime mmap_test pipe printf printftest \
+ protoent prototypes putenv pwent rand48 read1 readdir regex select sendfile servent siglist \
+ speed spent sprintf sscanf stdarg strcasecmp strcmp strncat strncpy strptime strrchr \
+Index: dietlibc-0.32/test/asprintf.c
+===================================================================
+--- dietlibc-0.32.orig/test/asprintf.c
++++ dietlibc-0.32/test/asprintf.c
+@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
+  assert(strlen(path) == asprintlen);
+ 	     
+  printf("%s\n", path);
+- asprintlen=asprintf(&path, "/proc" "/%d/stat", strlen(argv[1]));
++ asprintlen=asprintf(&path, "/proc" "/%zu/stat", strlen(argv[1]));
+  assert(strlen(path) == asprintlen);
+  printf("%s\n", path);
+ 
+Index: dietlibc-0.32/test/bsearch.c
+===================================================================
+--- dietlibc-0.32.orig/test/bsearch.c
++++ dietlibc-0.32/test/bsearch.c
+@@ -35,7 +35,7 @@ int main() {
+ 	die("bsearch returned NULL\n");
+       }
+       if (k != array+i) die("bsearch found wrong element\n");
+-//      printf("%d\n",k-array);
++//      printf("%ld\n",k-array);
+     }
+   }
+   return 0;
+Index: dietlibc-0.32/test/byteswap.c
+===================================================================
+--- dietlibc-0.32.orig/test/byteswap.c
++++ dietlibc-0.32/test/byteswap.c
+@@ -9,12 +9,12 @@ int main() {
+   snprintf(buf,100,"%x %x", bswap_16(0x1234), bswap_16(0x5678));
+   assert(strcmp(buf, "3412 7856") == 0);
+   
+-  printf("%lx\n",bswap_32(0x12345678));
+-  snprintf(buf,100,"%lx", bswap_32(0x12345678));
++  printf("%x\n",(unsigned int)bswap_32(0x12345678));
++  snprintf(buf,100,"%x", (unsigned int)bswap_32(0x12345678));
+   assert(strcmp(buf, "78563412") == 0);
+ 
+-  printf("%qx\n",bswap_64(0x123456789ABCDEFull));
+-  snprintf(buf,100,"%qx", bswap_64(0x123456789ABCDEFull));
++  printf("%llx\n",(unsigned long long)bswap_64(0x123456789ABCDEFull));
++  snprintf(buf,100,"%llx", (unsigned long long)bswap_64(0x123456789ABCDEFull));
+   assert(strcmp(buf, "efcdab8967452301") == 0);
+   return 0; 
+ }
+Index: dietlibc-0.32/test/cycles.c
+===================================================================
+--- dietlibc-0.32.orig/test/cycles.c
++++ dietlibc-0.32/test/cycles.c
+@@ -38,7 +38,7 @@ int main(int argc,char* argv[]) {
+   if (!fork()) { execve(argv[1],argv+1,environ); exit(1); }
+   wait(0);
+   RDTSC(b);
+-  printf("%llu cycles\n",b-a);
++  printf("%llu cycles\n",(unsigned long long)(b-a));
+ 
+   return 0;
+ }
+Index: dietlibc-0.32/test/getmntent.c
+===================================================================
+--- dietlibc-0.32.orig/test/getmntent.c
++++ dietlibc-0.32/test/getmntent.c
+@@ -33,10 +33,6 @@ while ((e = getmntent(fstab))) {
+ 
+  printf("closing /etc/fstab\n");
+  assert ( 1 == endmntent(fstab));
+- printf("closing /etc/fstab again\n");
+- assert ( 1 == endmntent(fstab)); /* endmntent must always return 1 */
+- printf("entmntent(0)\n");
+- assert ( 1 == endmntent(0)); /* causes a segfault with diet libc */
++
+  return 0;
+ }
+-
+Index: dietlibc-0.32/test/math.c
+===================================================================
+--- /dev/null
++++ dietlibc-0.32/test/math.c
+@@ -0,0 +1,29 @@
++#include <math.h>
++#include <float.h>
++#include <assert.h>
++
++int main()
++{
++  extern int __isinf(double d);
++  extern int __isnan(double d);
++
++#if (__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 3))
++  assert(__isinf(__builtin_inff())  == +1);
++  assert(__isinf(-__builtin_inff()) == -1);
++
++  assert(__isinf(__builtin_inf())   == +1);
++  assert(__isinf(-__builtin_inf())  == -1);
++
++  assert(__isnan(__builtin_nan("")));
++#endif
++
++  assert(__isinf((DBL_MAX * DBL_MAX))  == +1);
++  assert(__isinf(-(DBL_MAX * DBL_MAX)) == -1);
++
++  assert(isinf((DBL_MAX * DBL_MAX)));
++  assert(isinf(-(DBL_MAX * DBL_MAX)));
++
++  //assert(isnan(nan("")));
++
++  return 0;
++}
+Index: dietlibc-0.32/test/mktime.c
+===================================================================
+--- dietlibc-0.32.orig/test/mktime.c
++++ dietlibc-0.32/test/mktime.c
+@@ -9,15 +9,15 @@ int main() {
+   t.tm_mday=29;
+   t.tm_mon=2;
+   t.tm_year=100;
+-  printf("%d\n",mktime(&t));
++  printf("%ld\n",(long)mktime(&t));
+   t.tm_mday=1;
+   t.tm_mon=3;
+   t.tm_year=102;
+-  printf("%d\n",mktime(&t));
++  printf("%ld\n",(long)mktime(&t));
+   t.tm_mday=1;
+   t.tm_mon=6;
+   t.tm_year=102;
+-  printf("%d\n",mktime(&t));
++  printf("%ld\n",(long)mktime(&t));
+   return 0;
+ }
+ 
+Index: dietlibc-0.32/test/printftest.c
+===================================================================
+--- dietlibc-0.32.orig/test/printftest.c
++++ dietlibc-0.32/test/printftest.c
+@@ -101,8 +101,8 @@ int main()
+   printf("#%i#\n",18);
+   printf("#%d#\n",18);
+   printf("#%u#\n",18);
+-  printf("#%lu#\n",18);
+-  printf("#%li#\n",18);
++  printf("#%lu#\n",18l);
++  printf("#%li#\n",18l);
+   printf("#%-+#06d#\n", -123);
+   printf("#%-+#6d#\n", -123);
+   printf("#%+#06d#\n", -123);
+@@ -142,7 +142,7 @@ int main()
+ 	    buf);
+     memset(buf2,0,sizeof(buf));
+     i=snprintf(buf2, 256, "%.9999u", 10);
+-    printf("%i %i\n",i,strlen(buf2));
++    printf("%i %li\n",i,strlen(buf2));
+     
+     printf ("snprintf (\"%%.999999u\", 10) == %d\n",
+     	    snprintf(buf2, sizeof(buf2), "%.999999u", 10));
+Index: dietlibc-0.32/test/rand48.c
+===================================================================
+--- dietlibc-0.32.orig/test/rand48.c
++++ dietlibc-0.32/test/rand48.c
+@@ -6,16 +6,16 @@ main (void)
+ {
+   static unsigned short  data[7] = { 1, 2, 3, 4, 5, 6, 7 };
+ 
+-  printf ("one   %X\n", mrand48 ());
+-  printf ("two   %X\n", mrand48 ());
+-  printf ("three %X\n", mrand48 ());
++  printf ("one   %lX\n", mrand48 ());
++  printf ("two   %lX\n", mrand48 ());
++  printf ("three %lX\n", mrand48 ());
+ 
+   lcong48 (data);
+   printf ("after lcong48:\n");
+ 
+-  printf ("one   %X\n", mrand48 ());
+-  printf ("two   %X\n", mrand48 ());
+-  printf ("three %X\n", mrand48 ());
++  printf ("one   %lX\n", mrand48 ());
++  printf ("two   %lX\n", mrand48 ());
++  printf ("three %lX\n", mrand48 ());
+ 
+   return 0;
+ }
+Index: dietlibc-0.32/test/runtests.sh
+===================================================================
+--- dietlibc-0.32.orig/test/runtests.sh
++++ dietlibc-0.32/test/runtests.sh
+@@ -1,6 +1,6 @@
+ SUBDIRS="dirent inet stdio string stdlib time"
+ 
+-TESTPROGRAMS="adjtime argv atexit bsearch byteswap calloc confstr empty flush fputc ffs fnmatch ftw fwrite getaddrinfo getenv getdelim getgrnam gethostbyaddr gethostbyname gethostbyname_r getmntent getopt getpwnam getservbyname getservbyport getusershell glob grent hasmntopt hello iconv if_nameindex ltostr malloc-debugger md5_testharness memccpy memchr memcmp memrchr memusage mktime mmap_test pipe printf printftest protoent prototypes putenv pwent rand48 readdir regex select sendfile servent siglist speed spent sprintf sscanf stdarg strcasecmp strcmp strncat strncpy strptime strrchr strstr strtol sysconf sysenter ungetc waitpid"
++TESTPROGRAMS="adjtime argv atexit bsearch byteswap calloc confstr empty flush fputc ffs fnmatch ftw fwrite getaddrinfo getenv getdelim getgrnam gethostbyaddr gethostbyname gethostbyname_r getmntent getopt getpwnam getservbyname getservbyport getusershell glob grent hasmntopt hello iconv if_nameindex ltostr malloc-debugger math md5_testharness memccpy memchr memcmp memrchr memusage mktime mmap_test pipe printf printftest protoent prototypes putenv pwent rand48 readdir regex select sendfile servent siglist speed spent sprintf sscanf stdarg strcasecmp strcmp strncat strncpy strptime strrchr strstr strtol sysconf sysenter ungetc waitpid"
+ 
+ STDIN="read1"
+ PASS="getpass" 
+Index: dietlibc-0.32/test/speed.c
+===================================================================
+--- dietlibc-0.32.orig/test/speed.c
++++ dietlibc-0.32/test/speed.c
+@@ -7,10 +7,10 @@ int main() {
+   int i;
+   time_t t;
+   
+-  printf("%d\n", time(0));
++  printf("%ld\n", (long)time(0));
+   for (i=0; i<10000000; ++i)
+     t=time(0);
+ 
+- printf("%d\n", time(0));
++  printf("%ld\n", (long)time(0));
+  return 0;   
+ }
+Index: dietlibc-0.32/test/stdio/tstscanf.c
+===================================================================
+--- dietlibc-0.32.orig/test/stdio/tstscanf.c
++++ dietlibc-0.32/test/stdio/tstscanf.c
+@@ -338,14 +338,14 @@ main (int argc, char **argv)
+     int res;
+ 
+     res = sscanf ("-InF", "%f", &value);
+-    if (res != 1 || isinf (value) != -1)
++    if (res != 1 || !isinf (value) || !(value<0))
+       {
+ 	fputs ("test failed!\n", stdout);
+ 	result = 1;
+       }
+ 
+     res = sscanf ("+InfiNiTY", "%f", &value);
+-    if (res != 1 || isinf (value) != 1)
++    if (res != 1 || !isinf (value) || !(value>0))
+       {
+ 	fputs ("test failed!\n", stdout);
+ 	result = 1;
+Index: dietlibc-0.32/test/stdlib/tst-malloc.c
+===================================================================
+--- dietlibc-0.32.orig/test/stdlib/tst-malloc.c
++++ dietlibc-0.32/test/stdlib/tst-malloc.c
+@@ -21,13 +21,15 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ 
++#include "../../dietfeatures.h"
++
+ static int errors = 0;
+ 
+ static void
+ merror (const char *msg)
+ {
+   ++errors;
+-  printf ("Error: %s\n", msg);
++  fprintf (stderr, "Error: %s\n", msg);
+ }
+ 
+ int
+@@ -56,9 +58,11 @@ main (void)
+   if (p != NULL)
+     merror ("realloc (p, 0) failed.");
+ 
++#ifdef WANT_MALLOC_ZERO
+   p = malloc (0);
+   if (p == NULL)
+     merror ("malloc (0) failed.");
++#endif
+ 
+   p = realloc (p, 0);
+   if (p != NULL)
+Index: dietlibc-0.32/test/stdlib/tst-strtod.c
+===================================================================
+--- dietlibc-0.32.orig/test/stdlib/tst-strtod.c
++++ dietlibc-0.32/test/stdlib/tst-strtod.c
+@@ -149,10 +149,10 @@ main (int argc, char ** argv)
+     }
+ 
+   const char input2[] = "+1.000000000116415321826934814453125";
+-  if (strtold (input2, NULL) != +1.000000000116415321826934814453125)
++  if (strtold (input2, NULL) != +1.000000000116415321826934814453125L)
+     {
+       printf ("input2: %La != %La\n", strtold (input2, NULL),
+-	      +1.000000000116415321826934814453125);
++	      +1.000000000116415321826934814453125L);
+       status = 1;
+     }
+ 
+Index: dietlibc-0.32/test/sysenter.c
+===================================================================
+--- dietlibc-0.32.orig/test/sysenter.c
++++ dietlibc-0.32/test/sysenter.c
+@@ -11,11 +11,11 @@ int main() {
+   int i;
+   for (i=0; environ[i]; ++i) ;
+   for (x=(struct elf_aux*)(environ+i+1); x->type; ++x) {
+-    printf("%d %x\n",x->type,x->value);
++    printf("%ld %lx\n",x->type,x->value);
+     if (x->type==AT_PAGESZ)
+-      printf("pagesize %d\n",x->value);
++      printf("pagesize %ld\n",x->value);
+     else if (x->type==AT_SYSINFO)
+-      printf("vsyscall %p\n",x->value);
++      printf("vsyscall %p\n",(void *)x->value);
+   }
+   return 0;
+ }
+Index: dietlibc-0.32/test/time/tst-strftime.c
+===================================================================
+--- dietlibc-0.32.orig/test/time/tst-strftime.c
++++ dietlibc-0.32/test/time/tst-strftime.c
+@@ -49,18 +49,18 @@ int main (void) {
+ 
+       if (res == 0)
+ 	{
+-	  printf ("%Zu: %s: res == 0 despite size == %Zu\n",
++	  printf ("%zu: %s: res == 0 despite size == %zu\n",
+ 		  cnt, tests[cnt].fmt, size);
+ 	  result = 1;
+ 	}
+       else if (size < tests[cnt].min)
+ 	{
+-	  printf ("%Zu: %s: size == %Zu was enough\n",
++	  printf ("%zu: %s: size == %zu was enough\n",
+ 		  cnt, tests[cnt].fmt, size);
+ 	  result = 1;
+ 	}
+       else
+-	printf ("%Zu: %s: size == %Zu: OK\n", cnt, tests[cnt].fmt, size);
++	printf ("%zu: %s: size == %zu: OK\n", cnt, tests[cnt].fmt, size);
+ 
+       free (buf);
+     }
+Index: dietlibc-0.32/test/time/tst-strptime.c
+===================================================================
+--- dietlibc-0.32.orig/test/time/tst-strptime.c
++++ dietlibc-0.32/test/time/tst-strptime.c
+@@ -41,10 +41,12 @@ static const struct
+   { "C", "03/03/00", "%D", 5, 62, 2, 3 },
+   { "C", "9/9/99", "%x", 4, 251, 8, 9 },
+   { "C", "19990502123412", "%Y%m%d%H%M%S", 0, 121, 4, 2 },
++#if 0		/* dietlibc does not support %U/%W/%j and non-POSIX locales */
+   { "C", "2001 20 Mon", "%Y %U %a", 1, 140, 4, 21 },
+   { "C", "2001 21 Mon", "%Y %W %a", 1, 140, 4, 21 },
+   { "ja_JP.EUC-JP", "2001 20 \xb7\xee", "%Y %U %a", 1, 140, 4, 21 },
+   { "ja_JP.EUC-JP", "2001 21 \xb7\xee", "%Y %W %a", 1, 140, 4, 21 },
++#endif
+ };
+ 
+ 
+@@ -72,9 +74,16 @@ test_tm (void)
+ 
+   for (i = 0; i < sizeof (tm_tests) / sizeof (tm_tests[0]); ++i)
+     {
++      char *pres;
+       memset (&tm, '\0', sizeof (tm));
+-      
+-      if (strptime (tm_tests[i].input, tm_tests[i].format, &tm) != '\0')
++
++      pres = strptime (tm_tests[i].input, tm_tests[i].format, &tm);
++      if (!pres)
++	{
++	  fprintf(stderr, "failed to parse '%s'\n", day_tests[i].input);
++	  result = 1;
++	}
++      else if (*pres != '\0')
+ 	{
+ 	  printf ("not all of `%s' read\n", tm_tests[i].input);
+ 	  result = 1;
+@@ -118,6 +127,7 @@ int main (void) {
+ 
+   for (i = 0; i < sizeof (day_tests) / sizeof (day_tests[0]); ++i)
+     {
++      char *pres;
+       memset (&tm, '\0', sizeof (tm));
+ 
+       if (setlocale (LC_ALL, day_tests[i].locale) == NULL)
+@@ -125,7 +135,14 @@ int main (void) {
+ 	  printf ("cannot set locale %s: %m\n", day_tests[i].locale);
+ 	}
+ 
+-      if (*strptime (day_tests[i].input, day_tests[i].format, &tm) != '\0')
++      pres = strptime (day_tests[i].input, day_tests[i].format, &tm);
++      if (!pres)
++	{
++	  fprintf(stderr, "failed to parse '%s' for locale '%s'\n",
++		  day_tests[i].input, day_tests[i].locale);
++	  result = 1;
++	}
++      else if (*pres != '\0')
+ 	{
+ 	  printf ("not all of `%s' read\n", day_tests[i].input);
+ 	  result = 1;

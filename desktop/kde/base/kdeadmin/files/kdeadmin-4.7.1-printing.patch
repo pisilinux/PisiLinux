@@ -1,0 +1,420 @@
+diff -Nur kdeadmin-4.7.1/system-config-printer-kde/CMakeLists.txt kdeadmin-4.7.1-printing/system-config-printer-kde/CMakeLists.txt
+--- kdeadmin-4.7.1/system-config-printer-kde/CMakeLists.txt	2011-05-20 22:19:35.000000000 +0200
++++ kdeadmin-4.7.1-printing/system-config-printer-kde/CMakeLists.txt	2011-09-19 12:29:19.000000000 +0200
+@@ -5,29 +5,9 @@
+ macro_optional_find_package(PythonLibrary)
+ macro_optional_find_package(SIP)
+ 
+-macro_optional_find_package(PyQt4)
+-IF(NOT PYQT4_FOUND)
+-    macro_log_feature(PYQT4_FOUND "PyQt4" "PyQt4 was not found.  It is needed by system-config-printer-kde to run. (Use -DINSTALL_SYSTEM_CONFIG_PRINTER=TRUE to install anyway)" "http://www.riverbankcomputing.co.uk/pyqt/" FALSE)
+-ENDIF(NOT PYQT4_FOUND)
+-
+-macro_optional_find_package(PyKDE4)
+-IF(NOT PYKDE4_FOUND)
+-    macro_log_feature(PYKDE_FOUND "PyKDE4" "PyKDE4 was not found.  It is needed by system-config-printer-kde to run.  (Use -DINSTALL_SYSTEM_CONFIG_PRINTER=TRUE to install anyway)" "http://websvn.kde.org/trunk/KDE/kdebindings/python/pykde4/" FALSE)
+-ENDIF(NOT PYKDE4_FOUND)
+-
+-macro_optional_find_package(PyCups)
+-IF(NOT PYCUPS_FOUND)
+-    macro_log_feature(PYCUPS_FOUND "PyCups" "PyCups was not found.  It is needed by system-config-printer-kde to run.  (Use -DINSTALL_SYSTEM_CONFIG_PRINTER=TRUE to install anyway)" "http://cyberelk.net/tim/software/pycups/" FALSE)
+-ENDIF(NOT PYCUPS_FOUND)
+-
+-macro_optional_find_package(SystemConfigPrinter)
+-IF(NOT SYSTEMCONFIGPRINTER_FOUND)
+-    macro_log_feature(SYSTEMCONFIGPRINTER_FOUND "system-config-printer" "system-config-printer was not found.  Some of its modules (cupshelpers modules, config.py, smburi.py, debug.py and ppdippstr.py) are required by system-config-printer-kde." "http://cyberelk.net/tim/software/system-config-printer/" FALSE)
+-ENDIF(NOT SYSTEMCONFIGPRINTER_FOUND)
+-
+-IF(PYQT4_FOUND AND PYKDE4_FOUND AND PYCUPS_FOUND AND SYSTEMCONFIGPRINTER_FOUND)
+-    SET(INSTALL_SYSTEM_CONFIG_PRINTER TRUE)
+-ENDIF(PYQT4_FOUND AND PYKDE4_FOUND AND PYCUPS_FOUND AND SYSTEMCONFIGPRINTER_FOUND)
++if(PYTHONLIBRARY_FOUND)
++   set(INSTALL_SYSTEM_CONFIG_PRINTER TRUE)
++endif(PYTHONLIBRARY_FOUND)
+ 
+ IF(INSTALL_SYSTEM_CONFIG_PRINTER)
+     install( FILES
+@@ -37,6 +17,9 @@
+         system-config-printer-kde.py
+         options.py
+         optionwidgets.py
++        debug.py
++        smburi.py
++        ppdippstr.py
+         pysmb.py
+         ipp-browse-dialog.ui
+         smb-browse-dialog.ui
+diff -Nur kdeadmin-4.7.1/system-config-printer-kde/debug.py kdeadmin-4.7.1-printing/system-config-printer-kde/debug.py
+--- kdeadmin-4.7.1/system-config-printer-kde/debug.py	1970-01-01 01:00:00.000000000 +0100
++++ kdeadmin-4.7.1-printing/system-config-printer-kde/debug.py	2011-08-19 12:17:26.000000000 +0200
+@@ -0,0 +1,57 @@
++#!/usr/bin/python
++
++## Copyright (C) 2008, 2010 Red Hat, Inc.
++## Authors:
++##  Tim Waugh <twaugh@redhat.com>
++
++## This program is free software; you can redistribute it and/or modify
++## it under the terms of the GNU General Public License as published by
++## the Free Software Foundation; either version 2 of the License, or
++## (at your option) any later version.
++
++## This program is distributed in the hope that it will be useful,
++## but WITHOUT ANY WARRANTY; without even the implied warranty of
++## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++## GNU General Public License for more details.
++
++## You should have received a copy of the GNU General Public License
++## along with this program; if not, write to the Free Software
++## Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++
++import sys
++import traceback
++
++_debug=False
++def debugprint (x):
++    if _debug:
++        try:
++            sys.stderr.write (x + "\n")
++            sys.stderr.flush ()
++        except:
++            pass
++
++def get_debugging ():
++    return _debug
++
++def set_debugging (d):
++    global _debug
++    _debug = d
++
++def fatalException (exitcode=1):
++    nonfatalException (type="fatal", end="Exiting")
++    sys.exit (exitcode)
++
++def nonfatalException (type="non-fatal", end="Continuing anyway.."):
++    d = get_debugging ()
++    set_debugging (True)
++    debugprint ("Caught %s exception.  Traceback:" % type)
++    (type, value, tb) = sys.exc_info ()
++    tblast = traceback.extract_tb (tb, limit=None)
++    if len (tblast):
++        tblast = tblast[:len (tblast) - 1]
++    extxt = traceback.format_exception_only (type, value)
++    for line in traceback.format_tb(tb):
++        debugprint (line.strip ())
++    debugprint (extxt[0].strip ())
++    debugprint (end)
++    set_debugging (d)
+diff -Nur kdeadmin-4.7.1/system-config-printer-kde/ppdippstr.py kdeadmin-4.7.1-printing/system-config-printer-kde/ppdippstr.py
+--- kdeadmin-4.7.1/system-config-printer-kde/ppdippstr.py	1970-01-01 01:00:00.000000000 +0100
++++ kdeadmin-4.7.1-printing/system-config-printer-kde/ppdippstr.py	2011-08-19 12:17:26.000000000 +0200
+@@ -0,0 +1,183 @@
++#!/usr/bin/python
++
++## system-config-printer
++
++## Copyright (C) 2008, 2009, 2010 Red Hat, Inc.
++## Authors:
++##  Tim Waugh <twaugh@redhat.com>
++
++## This program is free software; you can redistribute it and/or modify
++## it under the terms of the GNU General Public License as published by
++## the Free Software Foundation; either version 2 of the License, or
++## (at your option) any later version.
++
++## This program is distributed in the hope that it will be useful,
++## but WITHOUT ANY WARRANTY; without even the implied warranty of
++## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++## GNU General Public License for more details.
++
++## You should have received a copy of the GNU General Public License
++## along with this program; if not, write to the Free Software
++## Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++
++from gettext import gettext as _
++
++printer_error_policy = dict()
++printer_op_policy = dict()
++job_sheets = dict()
++job_options = dict()
++ppd = dict()
++backends = dict()
++
++class TranslationDict:
++    STR = {}
++
++    def __init__ (self, d):
++        self.STR = d
++
++    def get (self, str):
++        return self.STR.get (str, str)
++
++def init ():
++    ## IPP strings
++
++    # Names of printer error policies
++    global printer_error_policy
++    printer_error_policy = TranslationDict ({
++            "abort-job": _("Abort job"),
++            "retry-current-job": _("Retry current job"),
++            "retry-job": _("Retry job"),
++            "stop-printer": _("Stop printer")
++            })
++    
++    # Names of printer operation policies
++    global printer_op_policy
++    printer_op_policy = TranslationDict ({
++            "default": _("Default behavior"),
++            "authenticated": _("Authenticated")
++            })
++
++    # Names of banner pages.
++    global job_sheets
++    job_sheets = TranslationDict ({
++            "none": _("None"),
++            "classified": _("Classified"),
++            "confidential": _("Confidential"),
++            "secret": _("Secret"),
++            "standard": _("Standard"),
++            "topsecret": _("Top secret"),
++            "unclassified": _("Unclassified")
++            })
++
++    # Names of job-hold-until values.
++    global job_options
++    job_options["job-hold-until"] = TranslationDict ({
++            "no-hold": _("No hold"),
++            "indefinite": _("Indefinite"),
++            "day-time": _("Daytime"),
++            "evening": _("Evening"),
++            "night": _("Night"),
++            "second-shift": _("Second shift"),
++            "third-shift": _("Third shift"),
++            "weekend": _("Weekend")
++            })
++
++    ## Common PPD strings
++
++    # Foomatic strings
++
++    # These are PPD option and group names and values.
++    global ppd
++    ppd = TranslationDict ({
++            "General": _("General"),
++
++            # HPIJS options
++            "Printout Mode": _("Printout mode"),
++            "Draft (auto-detect paper type)":
++                _("Draft (auto-detect-paper type)"),
++            "Draft Grayscale (auto-detect paper type)":
++                _("Draft grayscale (auto-detect-paper type)"),
++            "Normal (auto-detect paper type)":
++                _("Normal (auto-detect-paper type)"),
++            "Normal Grayscale (auto-detect paper type)":
++                _("Normal grayscale (auto-detect-paper type)"),
++            "High Quality (auto-detect paper type)":
++                _("High quality (auto-detect-paper type)"),
++            "High Quality Grayscale (auto-detect paper type)":
++                _("High quality grayscale (auto-detect-paper type)"),
++            "Photo (on photo paper)": _("Photo (on photo paper)"),
++            "Best Quality (color on photo paper)":
++                _("Best quality (color on photo paper)"),
++            "Normal Quality (color on photo paper)":
++                _("Normal quality (color on photo paper)"),
++
++            "Media Source": _("Media source"),
++            "Printer default": _("Printer default"),
++            "Photo Tray": _("Photo tray"),
++            "Upper Tray": _("Upper tray"),
++            "Lower Tray": _("Lower tray"),
++            "CD or DVD Tray": _("CD or DVD tray"),
++            "Envelope Feeder": _("Envelope feeder"),
++            "Large Capacity Tray": _("Large capacity tray"),
++            "Manual Feeder": _("Manual feeder"),
++            "Multi Purpose Tray": _("Multi-purpose tray"),
++
++            "Page Size": _("Page size"),
++            "Custom": _("Custom"),
++            "Photo or 4x6 inch index card": _("Photo or 4x6 inch index card"),
++            "Photo or 5x7 inch index card": _("Photo or 5x7 inch index card"),
++            "Photo with tear-off tab": _("Photo with tear-off tab"),
++            "3x5 inch index card": _("3x5 inch index card"),
++            "5x8 inch index card": _("5x8 inch index card"),
++            "A6 with tear-off tab": _("A6 with tear-off tab"),
++            "CD or DVD 80 mm": _("CD or DVD 80mm"),
++            "CD or DVD 120 mm": _("CD or DVD 120mm"),
++
++            "Double-Sided Printing": _("Double-sided printing"),
++            "Long Edge (Standard)": _("Long edge (standard)"),
++            "Short Edge (Flip)": _("Short edge (flip)"),
++            "Off": _("Off"),
++
++            "Resolution, Quality, Ink Type, Media Type":
++                _("Resolution, quality, ink type, media type"),
++            "Controlled by 'Printout Mode'": _("Controlled by 'Printout mode'"),
++            "300 dpi, Color, Black + Color Cartr.":
++                _("300 dpi, color, black + color cartridge"),
++            "300 dpi, Draft, Color, Black + Color Cartr.":
++                _("300 dpi, draft, color, black + color cartridge"),
++            "300 dpi, Draft, Grayscale, Black + Color Cartr.":
++                _("300 dpi, draft, grayscale, black + color cartridge"),
++            "300 dpi, Grayscale, Black + Color Cartr.":
++                _("300 dpi, grayscale, black + color cartridge"),
++            "600 dpi, Color, Black + Color Cartr.":
++                _("600 dpi, color, black + color cartridge"),
++            "600 dpi, Grayscale, Black + Color Cartr.":
++                _("600 dpi, grayscale, black + color cartridge"),
++            "600 dpi, Photo, Black + Color Cartr., Photo Paper":
++                _("600 dpi, photo, black + color cartridge, photo paper"),
++            "600 dpi, Color, Black + Color Cartr., Photo Paper, Normal":
++                _("600 dpi, color, black + color cartridge, photo paper, normal"),
++            "1200 dpi, Photo, Black + Color Cartr., Photo Paper":
++                _("1200 dpi, photo, black + color cartridge, photo paper"),
++            })
++
++    ## Common backend descriptions
++    global backends
++    backends = TranslationDict ({
++            "Internet Printing Protocol (ipp)":
++                _("Internet Printing Protocol (ipp)"),
++            "Internet Printing Protocol (http)":
++                _("Internet Printing Protocol (http)"),
++            "Internet Printing Protocol (https)":
++                _("Internet Printing Protocol (https)"),
++            "LPD/LPR Host or Printer":
++                _("LPD/LPR Host or Printer"),
++            "AppSocket/HP JetDirect":
++                _("AppSocket/HP JetDirect"),
++            "Serial Port #1":
++                _("Serial Port #1"),
++            "LPT #1":
++                _("LPT #1"),
++            "Windows Printer via SAMBA":
++                _("Windows Printer via SAMBA"),
++            })
+diff -Nur kdeadmin-4.7.1/system-config-printer-kde/smburi.py kdeadmin-4.7.1-printing/system-config-printer-kde/smburi.py
+--- kdeadmin-4.7.1/system-config-printer-kde/smburi.py	1970-01-01 01:00:00.000000000 +0100
++++ kdeadmin-4.7.1-printing/system-config-printer-kde/smburi.py	2011-08-19 12:17:26.000000000 +0200
+@@ -0,0 +1,102 @@
++#!/usr/bin/python
++
++## system-config-printer
++
++## Copyright (C) 2006, 2007, 2008, 2009, 2011 Red Hat, Inc.
++## Copyright (C) 2006, 2007 Florian Festi <ffesti@redhat.com>
++## Copyright (C) 2006, 2007, 2008, 2009 Tim Waugh <twaugh@redhat.com>
++
++## This program is free software; you can redistribute it and/or modify
++## it under the terms of the GNU General Public License as published by
++## the Free Software Foundation; either version 2 of the License, or
++## (at your option) any later version.
++
++## This program is distributed in the hope that it will be useful,
++## but WITHOUT ANY WARRANTY; without even the implied warranty of
++## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++## GNU General Public License for more details.
++
++## You should have received a copy of the GNU General Public License
++## along with this program; if not, write to the Free Software
++## Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++
++import urllib
++
++def urlquote (x):
++    q = urllib.quote (x)
++    for c in ["/", "@", ":"]:
++        q = q.replace (c, "%%%02X" % ord (c))
++
++    return q
++
++class SMBURI:
++    def __init__ (self,
++                  uri=None,
++                  group='', host='', share='', user='', password=''):
++        if uri:
++            if group or host or share or user or password:
++                raise RuntimeError
++
++            if uri.startswith ("smb://"):
++                uri = uri[6:]
++
++            self.uri = uri
++        else:
++            self.uri = self._construct (group, host, share,
++                                        user=user, password=password)
++
++    def _construct (self, group, host, share, user='', password=''):
++        uri_password = ''
++        if password:
++            uri_password = ':' + urlquote (password)
++        if user:
++            uri_password += '@'
++        uri = "%s%s%s" % (urlquote (user),
++                          uri_password,
++                          urlquote (group))
++        if len (group) > 0:
++            uri += '/'
++        uri += urlquote (host)
++        if len (share) > 0:
++            uri += "/" + urlquote (share)
++        return uri
++
++    def get_uri (self):
++        return self.uri
++
++    def sanitize_uri (self):
++        group, host, share, user, password = self.separate ()
++        return self._construct (group, host, share)
++
++    def separate (self):
++        uri = self.get_uri ()
++        user = ''
++        password = ''
++        auth = uri.find ('@')
++        if auth != -1:
++            u = uri[:auth].find(':')
++            if u != -1:
++                user = uri[:u]
++                password = uri[u + 1:auth]
++            else:
++                user = uri[:auth]
++            uri = uri[auth + 1:]
++        sep = uri.count ('/')
++        group = ''
++        if sep == 2:
++            g = uri.find('/')
++            group = uri[:g]
++            uri = uri[g + 1:]
++        if sep < 1:
++            host = ''
++        else:
++            h = uri.find('/')
++            host = uri[:h]
++            uri = uri[h + 1:]
++            p = host.find(':')
++            if p != -1:
++                host = host[:p]
++        share = uri
++        return (urllib.unquote (group), urllib.unquote (host),
++                urllib.unquote (share),
++                urllib.unquote (user), urllib.unquote (password))
+diff -Nur kdeadmin-4.7.1/system-config-printer-kde/system-config-printer-kde.py kdeadmin-4.7.1-printing/system-config-printer-kde/system-config-printer-kde.py
+--- kdeadmin-4.7.1/system-config-printer-kde/system-config-printer-kde.py	2011-05-20 22:19:35.000000000 +0200
++++ kdeadmin-4.7.1-printing/system-config-printer-kde/system-config-printer-kde.py	2011-09-19 12:10:52.000000000 +0200
+@@ -34,7 +34,7 @@
+ import sys, os, time, traceback, re, tempfile, httplib, thread, string
+ 
+ #load modules from system-config-printer-common (debug, smburi), change path here if you have it installed elsewhere
+-SYSTEM_CONFIG_PRINTER_DIR = "/usr/share/system-config-printer"
++SYSTEM_CONFIG_PRINTER_DIR = "/usr/share/kde4/apps/system-config-printer"
+ if os.path.exists(SYSTEM_CONFIG_PRINTER_DIR + "/debug.py"):
+     sys.path.append(SYSTEM_CONFIG_PRINTER_DIR)
+ 
+@@ -72,7 +72,6 @@
+     PYSMB_AVAILABLE=False
+ 
+ # These come from system-config-printer
+-import config
+ import cupshelpers, options
+ from optionwidgets import OptionWidget
+ from smburi import SMBURI

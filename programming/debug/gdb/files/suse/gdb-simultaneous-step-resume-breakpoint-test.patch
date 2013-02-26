@@ -1,0 +1,150 @@
+--- /dev/null	2009-09-25 12:44:54.497650251 +0200
++++ ./gdb/testsuite/gdb.threads/simultaneous-step-resume-breakpoint.exp	2009-09-25 17:27:12.000000000 +0200
+@@ -0,0 +1,65 @@
++# Copyright (C) 2009 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++# Test multiple threads stepping into a .debug_line-less function with
++# a breakpoint placed on its return-to-caller point.
++
++set testfile simultaneous-step-resume-breakpoint
++set srcfile ${testfile}.c
++set binfile ${objdir}/${subdir}/${testfile}
++
++if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
++    return -1
++}
++
++gdb_exit
++gdb_start
++gdb_reinitialize_dir $srcdir/$subdir
++
++# Ensure we have no debuginfo for the `sleep' call itself (=for libc).
++gdb_test "set debug-file-directory /DoesNotExist"
++
++gdb_load ${binfile}
++if ![runto_main] {
++   return -1
++}
++
++# Red Hat vendor patch does set it to "step" by default.
++gdb_test "set scheduler-locking off"
++
++gdb_breakpoint [gdb_get_line_number "final-exit"]
++
++gdb_breakpoint [gdb_get_line_number "sleep-call"]
++gdb_continue_to_breakpoint "sleep-call"
++
++gdb_test "step" "sleep-call.*" "step thread 1"
++gdb_test "step" "sleep-call.*" "step thread 2"
++gdb_test "step" "sleep-after.*" "step thread 3"
++
++set test "first continue"
++gdb_test_multiple "continue" $test {
++    -re "final-exit.*$gdb_prompt $" {
++	# gdb-7.0.
++	pass $test
++	return
++    }
++    -re "sleep-after.*$gdb_prompt $" {
++	# Fedora/RHEL branch.
++	pass $test
++    }
++}
++
++gdb_test "continue" "sleep-after.*" "second continue"
++gdb_test "continue" "final-exit.*" "third continue"
+--- /dev/null	2009-09-25 12:44:54.497650251 +0200
++++ ./gdb/testsuite/gdb.threads/simultaneous-step-resume-breakpoint.c	2009-09-25 17:29:42.000000000 +0200
+@@ -0,0 +1,79 @@
++/* Copyright 2009 Free Software Foundation, Inc.
++
++   Written by Fred Fish of Cygnus Support
++   Contributed by Cygnus Support
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++/* Test multiple threads stepping into a .debug_line-less function with
++   a breakpoint placed on its return-to-caller point.  */
++
++#include <pthread.h>
++#include <assert.h>
++#include <unistd.h>
++#include <errno.h>
++#include <stdio.h>
++
++#define THREADS 3
++
++static void *
++func (void *unused)
++{
++  int i;
++
++  errno = 0;
++  i = 0xdeadf00d;
++  i = sleep (THREADS);	/* sleep-call */
++  if (errno != 0)	/* sleep-after */
++    perror ("sleep");
++
++  /* The GDB bug with forgotten step-resume breakpoint could leave stale
++     breakpoint on the I assignment making it a nop.  */
++  if (i == 0xdeadf00d)
++    assert (0);
++
++  assert (i == 0);
++
++  pthread_exit (NULL);
++}
++
++int
++main (void)
++{
++  pthread_t threads[THREADS];
++  int threadi;
++
++  for (threadi = 0; threadi < THREADS; threadi++)
++    {
++      int i;
++
++      i = pthread_create (&threads[threadi], NULL, func, NULL);
++      assert (i == 0);
++
++      i = sleep (1);
++      assert (i == 0);
++    }
++
++  for (threadi = 0; threadi < THREADS; threadi++)
++    {
++      int i;
++
++      i = pthread_join (threads[threadi], NULL);
++      assert (i == 0);
++    }
++
++  return 0;	/* final-exit */
++}

@@ -1,0 +1,1520 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.143
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.143
+Problem:    Memfile is not tested sufficiently.  Looking up blocks in a
+	    memfile is slow when there are many blocks.
+Solution:   Add high level test and unittest.  Adjust the number of hash
+	    buckets to the number of blocks.  (Ivan Krasilnikov)
+Files:	    Filelist, src/Makefile, src/main.c, src/memfile.c,
+	    src/memfile_test.c src/structs.h src/testdir/Make_amiga.mak,
+	    src/testdir/Make_dos.mak, src/testdir/Make_ming.mak,
+	    src/testdir/Make_os2.mak, src/testdir/Make_vms.mak,
+	    src/testdir/Makefile, src/testdir/test77.in, src/testdir/test77.ok
+
+
+*** ../vim-7.3.142/Filelist	2010-08-15 21:57:20.000000000 +0200
+--- Filelist	2011-03-22 17:39:22.000000000 +0100
+***************
+*** 39,44 ****
+--- 39,45 ----
+  		src/mark.c \
+  		src/mbyte.c \
+  		src/memfile.c \
++ 		src/memfile_test.c \
+  		src/memline.c \
+  		src/menu.c \
+  		src/message.c \
+***************
+*** 686,691 ****
+--- 687,694 ----
+  		runtime/tutor/tutor.utf-8 \
+  		runtime/tutor/tutor.?? \
+  		runtime/tutor/tutor.??.* \
++ 		runtime/tutor/tutor.bar \
++ 		runtime/tutor/tutor.bar.* \
+  		runtime/spell/README.txt \
+  		runtime/spell/??/*.diff \
+  		runtime/spell/??/main.aap \
+*** ../vim-7.3.142/src/Makefile	2011-02-15 15:27:00.000000000 +0100
+--- src/Makefile	2011-03-22 18:07:25.000000000 +0100
+***************
+*** 561,567 ****
+  #CFLAGS = -g -O2 '-DSTARTUPTIME="vimstartup"' -fno-strength-reduce -Wall -Wmissing-prototypes
+  
+  # Use this with GCC to check for mistakes, unused arguments, etc.
+! #CFLAGS = -g -Wall -Wextra -Wmissing-prototypes -Wunreachable-code -D_FORTIFY_SOURCE=1 -DU_DEBUG
+  #CFLAGS = -g -O2 -Wall -Wextra -Wmissing-prototypes -D_FORTIFY_SOURCE=1 -DU_DEBUG
+  #PYTHON_CFLAGS_EXTRA = -Wno-missing-field-initializers
+  #MZSCHEME_CFLAGS_EXTRA = -Wno-unreachable-code -Wno-unused-parameter
+--- 561,567 ----
+  #CFLAGS = -g -O2 '-DSTARTUPTIME="vimstartup"' -fno-strength-reduce -Wall -Wmissing-prototypes
+  
+  # Use this with GCC to check for mistakes, unused arguments, etc.
+! #CFLAGS = -g -Wall -Wextra -Wmissing-prototypes -Wunreachable-code -D_FORTIFY_SOURCE=1
+  #CFLAGS = -g -O2 -Wall -Wextra -Wmissing-prototypes -D_FORTIFY_SOURCE=1 -DU_DEBUG
+  #PYTHON_CFLAGS_EXTRA = -Wno-missing-field-initializers
+  #MZSCHEME_CFLAGS_EXTRA = -Wno-unreachable-code -Wno-unused-parameter
+***************
+*** 594,601 ****
+  
+  # PROFILING - Uncomment the next two lines to do profiling with gcc and gprof.
+  # Might not work with GUI or Perl.
+! # For unknown reasons adding "-lc" fixes a linking problem with GCC.  That's
+! # probably a bug in the "-pg" implementation.
+  # Need to recompile everything after changing this: "make clean" "make".
+  #PROFILE_CFLAGS = -pg -g -DWE_ARE_PROFILING
+  #PROFILE_LIBS = -pg
+--- 594,602 ----
+  
+  # PROFILING - Uncomment the next two lines to do profiling with gcc and gprof.
+  # Might not work with GUI or Perl.
+! # For unknown reasons adding "-lc" fixes a linking problem with some versions
+! # of GCC.  That's probably a bug in the "-pg" implementation.
+! # After running Vim see the profile result with: gmon vim gmon.out | vim -
+  # Need to recompile everything after changing this: "make clean" "make".
+  #PROFILE_CFLAGS = -pg -g -DWE_ARE_PROFILING
+  #PROFILE_LIBS = -pg
+***************
+*** 606,613 ****
+  # Configuration is in the .ccmalloc or ~/.ccmalloc file.
+  # Doesn't work very well, since memory linked to from global variables
+  # (in libraries) is also marked as leaked memory.
+! #PROFILE_CFLAGS = -DEXITFREE
+! #PROFILE_LIBS = -lccmalloc
+  
+  #####################################################
+  ###  Specific systems, check if yours is listed!  ### {{{
+--- 607,614 ----
+  # Configuration is in the .ccmalloc or ~/.ccmalloc file.
+  # Doesn't work very well, since memory linked to from global variables
+  # (in libraries) is also marked as leaked memory.
+! #LEAK_CFLAGS = -DEXITFREE
+! #LEAK_LIBS = -lccmalloc
+  
+  #####################################################
+  ###  Specific systems, check if yours is listed!  ### {{{
+***************
+*** 1329,1335 ****
+  PRE_DEFS = -Iproto $(DEFS) $(GUI_DEFS) $(GUI_IPATH) $(CPPFLAGS) $(EXTRA_IPATHS)
+  POST_DEFS = $(X_CFLAGS) $(MZSCHEME_CFLAGS) $(TCL_CFLAGS) $(EXTRA_DEFS)
+  
+! ALL_CFLAGS = $(PRE_DEFS) $(CFLAGS) $(PROFILE_CFLAGS) $(POST_DEFS)
+  
+  # Exclude $CFLAGS for osdef.sh, for Mac 10.4 some flags don't work together
+  # with "-E".
+--- 1330,1336 ----
+  PRE_DEFS = -Iproto $(DEFS) $(GUI_DEFS) $(GUI_IPATH) $(CPPFLAGS) $(EXTRA_IPATHS)
+  POST_DEFS = $(X_CFLAGS) $(MZSCHEME_CFLAGS) $(TCL_CFLAGS) $(EXTRA_DEFS)
+  
+! ALL_CFLAGS = $(PRE_DEFS) $(CFLAGS) $(PROFILE_CFLAGS) $(LEAK_CFLAGS) $(POST_DEFS)
+  
+  # Exclude $CFLAGS for osdef.sh, for Mac 10.4 some flags don't work together
+  # with "-E".
+***************
+*** 1358,1364 ****
+  	   $(PYTHON3_LIBS) \
+  	   $(TCL_LIBS) \
+  	   $(RUBY_LIBS) \
+! 	   $(PROFILE_LIBS)
+  
+  # abbreviations
+  DEST_BIN = $(DESTDIR)$(BINDIR)
+--- 1359,1366 ----
+  	   $(PYTHON3_LIBS) \
+  	   $(TCL_LIBS) \
+  	   $(RUBY_LIBS) \
+! 	   $(PROFILE_LIBS) \
+! 	   $(LEAK_LIBS)
+  
+  # abbreviations
+  DEST_BIN = $(DESTDIR)$(BINDIR)
+***************
+*** 1480,1487 ****
+  	    if_python.c if_python3.c if_tcl.c if_ruby.c if_sniff.c \
+  	    gui_beval.c workshop.c wsdebug.c integration.c netbeans.c
+  
+  # All sources, also the ones that are not configured
+! ALL_SRC = $(BASIC_SRC) $(ALL_GUI_SRC) $(EXTRA_SRC)
+  
+  # Which files to check with lint.  Select one of these three lines.  ALL_SRC
+  # checks more, but may not work well for checking a GUI that wasn't configured.
+--- 1482,1496 ----
+  	    if_python.c if_python3.c if_tcl.c if_ruby.c if_sniff.c \
+  	    gui_beval.c workshop.c wsdebug.c integration.c netbeans.c
+  
++ # Unittest files
++ MEMFILE_TEST_SRC = memfile_test.c
++ MEMFILE_TEST_TARGET = memfile_test$(EXEEXT)
++ 
++ UNITTEST_SRC = $(MEMFILE_TEST_SRC)
++ UNITTEST_TARGETS = $(MEMFILE_TEST_TARGET)
++ 
+  # All sources, also the ones that are not configured
+! ALL_SRC = $(BASIC_SRC) $(ALL_GUI_SRC) $(UNITTEST_SRC) $(EXTRA_SRC)
+  
+  # Which files to check with lint.  Select one of these three lines.  ALL_SRC
+  # checks more, but may not work well for checking a GUI that wasn't configured.
+***************
+*** 1492,1498 ****
+  #LINT_SRC = $(ALL_SRC)
+  #LINT_SRC = $(BASIC_SRC)
+  
+! OBJ = \
+  	objects/buffer.o \
+  	objects/blowfish.o \
+  	objects/charset.o \
+--- 1501,1507 ----
+  #LINT_SRC = $(ALL_SRC)
+  #LINT_SRC = $(BASIC_SRC)
+  
+! OBJ_COMMON = \
+  	objects/buffer.o \
+  	objects/blowfish.o \
+  	objects/charset.o \
+***************
+*** 1513,1522 ****
+  	$(HANGULIN_OBJ) \
+  	objects/if_cscope.o \
+  	objects/if_xcmdsrv.o \
+- 	objects/main.o \
+  	objects/mark.o \
+! 	objects/memfile.o \
+! 	objects/memline.o \
+  	objects/menu.o \
+  	objects/message.o \
+  	objects/misc1.o \
+--- 1522,1529 ----
+  	$(HANGULIN_OBJ) \
+  	objects/if_cscope.o \
+  	objects/if_xcmdsrv.o \
+  	objects/mark.o \
+!         objects/memline.o \
+  	objects/menu.o \
+  	objects/message.o \
+  	objects/misc1.o \
+***************
+*** 1541,1546 ****
+--- 1548,1554 ----
+  	objects/term.o \
+  	objects/ui.o \
+  	objects/undo.o \
++ 	objects/version.o \
+  	objects/window.o \
+  	$(GUI_OBJ) \
+  	$(LUA_OBJ) \
+***************
+*** 1555,1560 ****
+--- 1563,1575 ----
+  	$(NETBEANS_OBJ) \
+  	$(WSDEBUG_OBJ)
+  
++ OBJ = $(OBJ_COMMON) \
++ 	objects/main.o \
++ 	objects/memfile.o \
++ 
++ MEMFILE_TEST_OBJ = $(OBJ_COMMON) \
++         objects/memfile_test.o
++ 
+  PRO_AUTO = \
+  	blowfish.pro \
+  	buffer.pro \
+***************
+*** 1700,1706 ****
+  $(VIMTARGET): auto/config.mk objects $(OBJ) version.c version.h
+  	$(CCC) version.c -o objects/version.o
+  	@LINK="$(PURIFY) $(SHRPENV) $(CClink) $(ALL_LIB_DIRS) $(LDFLAGS) \
+! 		-o $(VIMTARGET) $(OBJ) objects/version.o $(ALL_LIBS)" \
+  		MAKE="$(MAKE)" LINK_AS_NEEDED=$(LINK_AS_NEEDED) \
+  		sh $(srcdir)/link.sh
+  
+--- 1715,1721 ----
+  $(VIMTARGET): auto/config.mk objects $(OBJ) version.c version.h
+  	$(CCC) version.c -o objects/version.o
+  	@LINK="$(PURIFY) $(SHRPENV) $(CClink) $(ALL_LIB_DIRS) $(LDFLAGS) \
+! 		-o $(VIMTARGET) $(OBJ) $(ALL_LIBS)" \
+  		MAKE="$(MAKE)" LINK_AS_NEEDED=$(LINK_AS_NEEDED) \
+  		sh $(srcdir)/link.sh
+  
+***************
+*** 1825,1830 ****
+--- 1840,1854 ----
+  		ln -s $(VIMTARGET) vim; \
+  	fi
+  	cd testdir; $(MAKE) -f Makefile $(GUI_TESTTARGET) VIMPROG=../$(VIMTARGET) $(GUI_TESTARG)
++ 	$(MAKE) -f Makefile unittest
++ 
++ unittesttargets:
++ 	$(MAKE) -f Makefile $(UNITTEST_TARGETS)
++ 
++ unittest unittests: $(UNITTEST_TARGETS)
++ 	@for t in $(UNITTEST_TARGETS); do \
++ 		./$$t || exit 1; echo $$t passed; \
++ 	done
+  
+  testclean:
+  	cd testdir; $(MAKE) -f Makefile clean
+***************
+*** 1832,1837 ****
+--- 1856,1872 ----
+  		cd $(PODIR); $(MAKE) checkclean; \
+  	fi
+  
++ # Unittests
++ # It's build just like Vim to satisfy all dependencies.
++ $(MEMFILE_TEST_TARGET): auto/config.mk objects $(MEMFILE_TEST_OBJ)
++ 	$(CCC) version.c -o objects/version.o
++ 	@LINK="$(PURIFY) $(SHRPENV) $(CClink) $(ALL_LIB_DIRS) $(LDFLAGS) \
++ 		-o $(MEMFILE_TEST_TARGET) $(MEMFILE_TEST_OBJ) $(ALL_LIBS)" \
++ 		MAKE="$(MAKE)" LINK_AS_NEEDED=$(LINK_AS_NEEDED) \
++ 		sh $(srcdir)/link.sh
++ 
++ # install targets
++ 
+  install: $(GUI_INSTALL)
+  
+  install_normal: installvim installtools $(INSTALL_LANGS) install-icons
+***************
+*** 2265,2270 ****
+--- 2300,2306 ----
+  	-rm -f *.o objects/* core $(VIMTARGET).core $(VIMTARGET) vim xxd/*.o
+  	-rm -f $(TOOLS) auto/osdef.h auto/pathdef.c auto/if_perl.c
+  	-rm -f conftest* *~ auto/link.sed
++ 	-rm -f $(UNITTEST_TARGETS)
+  	-rm -f runtime pixmaps
+  	-rm -rf $(APPDIR)
+  	-rm -rf mzscheme_base.c
+***************
+*** 2559,2564 ****
+--- 2595,2603 ----
+  objects/memfile.o: memfile.c
+  	$(CCC) -o $@ memfile.c
+  
++ objects/memfile_test.o: memfile_test.c
++ 	$(CCC) -o $@ memfile_test.c
++ 
+  objects/memline.o: memline.c
+  	$(CCC) -o $@ memline.c
+  
+***************
+*** 2877,2883 ****
+  objects/os_unix.o: os_unix.c vim.h auto/config.h feature.h os_unix.h auto/osdef.h \
+   ascii.h keymap.h term.h macros.h option.h structs.h regexp.h gui.h \
+   gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h globals.h farsi.h \
+!  arabic.h if_mzsch.h os_unixx.h
+  objects/pathdef.o: auto/pathdef.c vim.h auto/config.h feature.h os_unix.h \
+   auto/osdef.h ascii.h keymap.h term.h macros.h option.h structs.h \
+   regexp.h gui.h gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h \
+--- 2916,2922 ----
+  objects/os_unix.o: os_unix.c vim.h auto/config.h feature.h os_unix.h auto/osdef.h \
+   ascii.h keymap.h term.h macros.h option.h structs.h regexp.h gui.h \
+   gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h globals.h farsi.h \
+!  arabic.h os_unixx.h
+  objects/pathdef.o: auto/pathdef.c vim.h auto/config.h feature.h os_unix.h \
+   auto/osdef.h ascii.h keymap.h term.h macros.h option.h structs.h \
+   regexp.h gui.h gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h \
+***************
+*** 3016,3021 ****
+--- 3055,3064 ----
+  objects/pty.o: pty.c vim.h auto/config.h feature.h os_unix.h auto/osdef.h ascii.h \
+   keymap.h term.h macros.h option.h structs.h regexp.h gui.h gui_beval.h \
+   proto/gui_beval.pro ex_cmds.h proto.h globals.h farsi.h arabic.h
++ objects/memfile_test.o: memfile_test.c main.c vim.h auto/config.h feature.h \
++  os_unix.h auto/osdef.h ascii.h keymap.h term.h macros.h option.h \
++  structs.h regexp.h gui.h gui_beval.h proto/gui_beval.pro ex_cmds.h \
++  proto.h globals.h farsi.h arabic.h farsi.c arabic.c memfile.c
+  objects/hangulin.o: hangulin.c vim.h auto/config.h feature.h os_unix.h \
+   auto/osdef.h ascii.h keymap.h term.h macros.h option.h structs.h \
+   regexp.h gui.h gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h \
+***************
+*** 3027,3033 ****
+  objects/if_mzsch.o: if_mzsch.c vim.h auto/config.h feature.h os_unix.h \
+   auto/osdef.h ascii.h keymap.h term.h macros.h option.h structs.h \
+   regexp.h gui.h gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h \
+!  globals.h farsi.h arabic.h if_mzsch.h mzscheme_base.c
+  objects/if_perl.o: auto/if_perl.c vim.h auto/config.h feature.h os_unix.h \
+   auto/osdef.h ascii.h keymap.h term.h macros.h option.h structs.h \
+   regexp.h gui.h gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h \
+--- 3070,3076 ----
+  objects/if_mzsch.o: if_mzsch.c vim.h auto/config.h feature.h os_unix.h \
+   auto/osdef.h ascii.h keymap.h term.h macros.h option.h structs.h \
+   regexp.h gui.h gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h \
+!  globals.h farsi.h arabic.h if_mzsch.h
+  objects/if_perl.o: auto/if_perl.c vim.h auto/config.h feature.h os_unix.h \
+   auto/osdef.h ascii.h keymap.h term.h macros.h option.h structs.h \
+   regexp.h gui.h gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h \
+***************
+*** 3048,3054 ****
+   ascii.h keymap.h term.h macros.h option.h structs.h regexp.h gui.h \
+   gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h globals.h farsi.h \
+   arabic.h
+! objects/if_ruby.o: if_ruby.c vim.h auto/config.h feature.h os_unix.h auto/osdef.h \
+   ascii.h keymap.h term.h macros.h option.h structs.h regexp.h gui.h \
+   gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h globals.h farsi.h \
+   arabic.h version.h
+--- 3091,3097 ----
+   ascii.h keymap.h term.h macros.h option.h structs.h regexp.h gui.h \
+   gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h globals.h farsi.h \
+   arabic.h
+! objects/if_ruby.o: if_ruby.c auto/config.h vim.h feature.h os_unix.h auto/osdef.h \
+   ascii.h keymap.h term.h macros.h option.h structs.h regexp.h gui.h \
+   gui_beval.h proto/gui_beval.pro ex_cmds.h proto.h globals.h farsi.h \
+   arabic.h version.h
+*** ../vim-7.3.142/src/main.c	2011-02-15 16:29:54.000000000 +0100
+--- src/main.c	2011-03-18 13:19:48.000000000 +0100
+***************
+*** 92,128 ****
+  #define EDIT_TAG    3	    /* tag name argument given, use tagname */
+  #define EDIT_QF	    4	    /* start in quickfix mode */
+  
+! #if defined(UNIX) || defined(VMS)
+  static int file_owned __ARGS((char *fname));
+  #endif
+  static void mainerr __ARGS((int, char_u *));
+  static void main_msg __ARGS((char *s));
+  static void usage __ARGS((void));
+  static int get_number_arg __ARGS((char_u *p, int *idx, int def));
+! #if defined(HAVE_LOCALE_H) || defined(X_LOCALE)
+  static void init_locale __ARGS((void));
+! #endif
+  static void parse_command_name __ARGS((mparm_T *parmp));
+  static void early_arg_scan __ARGS((mparm_T *parmp));
+  static void command_line_scan __ARGS((mparm_T *parmp));
+  static void check_tty __ARGS((mparm_T *parmp));
+  static void read_stdin __ARGS((void));
+  static void create_windows __ARGS((mparm_T *parmp));
+! #ifdef FEAT_WINDOWS
+  static void edit_buffers __ARGS((mparm_T *parmp));
+! #endif
+  static void exe_pre_commands __ARGS((mparm_T *parmp));
+  static void exe_commands __ARGS((mparm_T *parmp));
+  static void source_startup_scripts __ARGS((mparm_T *parmp));
+  static void main_start_gui __ARGS((void));
+! #if defined(HAS_SWAP_EXISTS_ACTION)
+  static void check_swap_exists_action __ARGS((void));
+! #endif
+! #ifdef FEAT_CLIENTSERVER
+  static void exec_on_server __ARGS((mparm_T *parmp));
+  static void prepare_server __ARGS((mparm_T *parmp));
+  static void cmdsrv_main __ARGS((int *argc, char **argv, char_u *serverName_arg, char_u **serverStr));
+  static char_u *serverMakeName __ARGS((char_u *arg, char *cmd));
+  #endif
+  
+  
+--- 92,130 ----
+  #define EDIT_TAG    3	    /* tag name argument given, use tagname */
+  #define EDIT_QF	    4	    /* start in quickfix mode */
+  
+! #if (defined(UNIX) || defined(VMS)) && !defined(NO_VIM_MAIN)
+  static int file_owned __ARGS((char *fname));
+  #endif
+  static void mainerr __ARGS((int, char_u *));
++ #ifndef NO_VIM_MAIN
+  static void main_msg __ARGS((char *s));
+  static void usage __ARGS((void));
+  static int get_number_arg __ARGS((char_u *p, int *idx, int def));
+! # if defined(HAVE_LOCALE_H) || defined(X_LOCALE)
+  static void init_locale __ARGS((void));
+! # endif
+  static void parse_command_name __ARGS((mparm_T *parmp));
+  static void early_arg_scan __ARGS((mparm_T *parmp));
+  static void command_line_scan __ARGS((mparm_T *parmp));
+  static void check_tty __ARGS((mparm_T *parmp));
+  static void read_stdin __ARGS((void));
+  static void create_windows __ARGS((mparm_T *parmp));
+! # ifdef FEAT_WINDOWS
+  static void edit_buffers __ARGS((mparm_T *parmp));
+! # endif
+  static void exe_pre_commands __ARGS((mparm_T *parmp));
+  static void exe_commands __ARGS((mparm_T *parmp));
+  static void source_startup_scripts __ARGS((mparm_T *parmp));
+  static void main_start_gui __ARGS((void));
+! # if defined(HAS_SWAP_EXISTS_ACTION)
+  static void check_swap_exists_action __ARGS((void));
+! # endif
+! # if defined(FEAT_CLIENTSERVER) || defined(PROTO)
+  static void exec_on_server __ARGS((mparm_T *parmp));
+  static void prepare_server __ARGS((mparm_T *parmp));
+  static void cmdsrv_main __ARGS((int *argc, char **argv, char_u *serverName_arg, char_u **serverStr));
+  static char_u *serverMakeName __ARGS((char_u *arg, char *cmd));
++ # endif
+  #endif
+  
+  
+***************
+*** 145,151 ****
+  #define ME_INVALID_ARG		5
+  };
+  
+! #ifndef PROTO	    /* don't want a prototype for main() */
+      int
+  # ifdef VIMDLL
+  _export
+--- 147,154 ----
+  #define ME_INVALID_ARG		5
+  };
+  
+! #ifndef NO_VIM_MAIN	/* skip this for unittests */
+! #ifndef PROTO		/* don't want a prototype for main() */
+      int
+  # ifdef VIMDLL
+  _export
+***************
+*** 966,971 ****
+--- 969,975 ----
+      return 0;
+  }
+  #endif /* PROTO */
++ #endif /* NO_VIM_MAIN */
+  
+  /*
+   * Main loop: Execute Normal mode commands until exiting Vim.
+***************
+*** 1430,1435 ****
+--- 1434,1440 ----
+      mch_exit(exitval);
+  }
+  
++ #ifndef NO_VIM_MAIN
+  /*
+   * Get a (optional) count for a Vim argument.
+   */
+***************
+*** 2994,2999 ****
+--- 2999,3006 ----
+  #endif
+  }
+  
++ #endif  /* NO_VIM_MAIN */
++ 
+  /*
+   * Get an environment variable, and execute it as Ex commands.
+   * Returns FAIL if the environment variable was not executed, OK otherwise.
+***************
+*** 3033,3039 ****
+      return FAIL;
+  }
+  
+! #if defined(UNIX) || defined(VMS)
+  /*
+   * Return TRUE if we are certain the user owns the file "fname".
+   * Used for ".vimrc" and ".exrc".
+--- 3040,3046 ----
+      return FAIL;
+  }
+  
+! #if (defined(UNIX) || defined(VMS)) && !defined(NO_VIM_MAIN)
+  /*
+   * Return TRUE if we are certain the user owns the file "fname".
+   * Used for ".vimrc" and ".exrc".
+***************
+*** 3091,3096 ****
+--- 3098,3104 ----
+      mainerr(ME_ARG_MISSING, str);
+  }
+  
++ #ifndef NO_VIM_MAIN
+  /*
+   * print a message with three spaces prepended and '\n' appended.
+   */
+***************
+*** 3311,3316 ****
+--- 3319,3326 ----
+  }
+  #endif
+  
++ #endif
++ 
+  #if defined(STARTUPTIME) || defined(PROTO)
+  static void time_diff __ARGS((struct timeval *then, struct timeval *now));
+  
+***************
+*** 3420,3426 ****
+  
+  #endif
+  
+! #if defined(FEAT_CLIENTSERVER) || defined(PROTO)
+  
+  /*
+   * Common code for the X command server and the Win32 command server.
+--- 3430,3436 ----
+  
+  #endif
+  
+! #if (defined(FEAT_CLIENTSERVER) && !defined(NO_VIM_MAIN)) || defined(PROTO)
+  
+  /*
+   * Common code for the X command server and the Win32 command server.
+***************
+*** 3888,3893 ****
+--- 3898,3929 ----
+  }
+  
+  /*
++  * Make our basic server name: use the specified "arg" if given, otherwise use
++  * the tail of the command "cmd" we were started with.
++  * Return the name in allocated memory.  This doesn't include a serial number.
++  */
++     static char_u *
++ serverMakeName(arg, cmd)
++     char_u	*arg;
++     char	*cmd;
++ {
++     char_u *p;
++ 
++     if (arg != NULL && *arg != NUL)
++ 	p = vim_strsave_up(arg);
++     else
++     {
++ 	p = vim_strsave_up(gettail((char_u *)cmd));
++ 	/* Remove .exe or .bat from the name. */
++ 	if (p != NULL && vim_strchr(p, '.') != NULL)
++ 	    *vim_strchr(p, '.') = NUL;
++     }
++     return p;
++ }
++ #endif /* FEAT_CLIENTSERVER */
++ 
++ #if defined(FEAT_CLIENTSERVER) || defined(PROTO)
++ /*
+   * Replace termcodes such as <CR> and insert as key presses if there is room.
+   */
+      void
+***************
+*** 3998,4029 ****
+  # endif
+      return res;
+  }
+! 
+! 
+! /*
+!  * Make our basic server name: use the specified "arg" if given, otherwise use
+!  * the tail of the command "cmd" we were started with.
+!  * Return the name in allocated memory.  This doesn't include a serial number.
+!  */
+!     static char_u *
+! serverMakeName(arg, cmd)
+!     char_u	*arg;
+!     char	*cmd;
+! {
+!     char_u *p;
+! 
+!     if (arg != NULL && *arg != NUL)
+! 	p = vim_strsave_up(arg);
+!     else
+!     {
+! 	p = vim_strsave_up(gettail((char_u *)cmd));
+! 	/* Remove .exe or .bat from the name. */
+! 	if (p != NULL && vim_strchr(p, '.') != NULL)
+! 	    *vim_strchr(p, '.') = NUL;
+!     }
+!     return p;
+! }
+! #endif /* FEAT_CLIENTSERVER */
+  
+  /*
+   * When FEAT_FKMAP is defined, also compile the Farsi source code.
+--- 4034,4040 ----
+  # endif
+      return res;
+  }
+! #endif
+  
+  /*
+   * When FEAT_FKMAP is defined, also compile the Farsi source code.
+*** ../vim-7.3.142/src/memfile.c	2010-12-17 18:06:00.000000000 +0100
+--- src/memfile.c	2011-03-03 18:47:39.000000000 +0100
+***************
+*** 84,89 ****
+--- 84,96 ----
+  static int  mf_write_block __ARGS((memfile_T *mfp, bhdr_T *hp, off_t offset, unsigned size));
+  static int  mf_trans_add __ARGS((memfile_T *, bhdr_T *));
+  static void mf_do_open __ARGS((memfile_T *, char_u *, int));
++ static void mf_hash_init __ARGS((mf_hashtab_T *));
++ static void mf_hash_free __ARGS((mf_hashtab_T *));
++ static void mf_hash_free_all __ARGS((mf_hashtab_T *));
++ static mf_hashitem_T *mf_hash_find __ARGS((mf_hashtab_T *, blocknr_T));
++ static void mf_hash_add_item __ARGS((mf_hashtab_T *, mf_hashitem_T *));
++ static void mf_hash_rem_item __ARGS((mf_hashtab_T *, mf_hashitem_T *));
++ static int mf_hash_grow __ARGS((mf_hashtab_T *));
+  
+  /*
+   * The functions for using a memfile:
+***************
+*** 119,125 ****
+      int		flags;
+  {
+      memfile_T		*mfp;
+-     int			i;
+      off_t		size;
+  #if defined(STATFS) && defined(UNIX) && !defined(__QNX__)
+  # define USE_FSTATFS
+--- 126,131 ----
+***************
+*** 152,162 ****
+      mfp->mf_used_last = NULL;
+      mfp->mf_dirty = FALSE;
+      mfp->mf_used_count = 0;
+!     for (i = 0; i < MEMHASHSIZE; ++i)
+!     {
+! 	mfp->mf_hash[i] = NULL;		/* hash lists are empty */
+! 	mfp->mf_trans[i] = NULL;	/* trans lists are empty */
+!     }
+      mfp->mf_page_size = MEMFILE_PAGE_SIZE;
+  #ifdef FEAT_CRYPT
+      mfp->mf_old_key = NULL;
+--- 158,165 ----
+      mfp->mf_used_last = NULL;
+      mfp->mf_dirty = FALSE;
+      mfp->mf_used_count = 0;
+!     mf_hash_init(&mfp->mf_hash);
+!     mf_hash_init(&mfp->mf_trans);
+      mfp->mf_page_size = MEMFILE_PAGE_SIZE;
+  #ifdef FEAT_CRYPT
+      mfp->mf_old_key = NULL;
+***************
+*** 242,249 ****
+      int		del_file;
+  {
+      bhdr_T	*hp, *nextp;
+-     NR_TRANS	*tp, *tpnext;
+-     int		i;
+  
+      if (mfp == NULL)		    /* safety check */
+  	return;
+--- 245,250 ----
+***************
+*** 263,274 ****
+      }
+      while (mfp->mf_free_first != NULL)	    /* free entries in free list */
+  	vim_free(mf_rem_free(mfp));
+!     for (i = 0; i < MEMHASHSIZE; ++i)	    /* free entries in trans lists */
+! 	for (tp = mfp->mf_trans[i]; tp != NULL; tp = tpnext)
+! 	{
+! 	    tpnext = tp->nt_next;
+! 	    vim_free(tp);
+! 	}
+      vim_free(mfp->mf_fname);
+      vim_free(mfp->mf_ffname);
+      vim_free(mfp);
+--- 264,271 ----
+      }
+      while (mfp->mf_free_first != NULL)	    /* free entries in free list */
+  	vim_free(mf_rem_free(mfp));
+!     mf_hash_free(&mfp->mf_hash);
+!     mf_hash_free_all(&mfp->mf_trans);	    /* free hashtable and its items */
+      vim_free(mfp->mf_fname);
+      vim_free(mfp->mf_ffname);
+      vim_free(mfp);
+***************
+*** 743,758 ****
+      memfile_T	*mfp;
+      bhdr_T	*hp;
+  {
+!     bhdr_T	*hhp;
+!     int		hash;
+! 
+!     hash = MEMHASH(hp->bh_bnum);
+!     hhp = mfp->mf_hash[hash];
+!     hp->bh_hash_next = hhp;
+!     hp->bh_hash_prev = NULL;
+!     if (hhp != NULL)
+! 	hhp->bh_hash_prev = hp;
+!     mfp->mf_hash[hash] = hp;
+  }
+  
+  /*
+--- 740,746 ----
+      memfile_T	*mfp;
+      bhdr_T	*hp;
+  {
+!     mf_hash_add_item(&mfp->mf_hash, (mf_hashitem_T *)hp);
+  }
+  
+  /*
+***************
+*** 763,775 ****
+      memfile_T	*mfp;
+      bhdr_T	*hp;
+  {
+!     if (hp->bh_hash_prev == NULL)
+! 	mfp->mf_hash[MEMHASH(hp->bh_bnum)] = hp->bh_hash_next;
+!     else
+! 	hp->bh_hash_prev->bh_hash_next = hp->bh_hash_next;
+! 
+!     if (hp->bh_hash_next)
+! 	hp->bh_hash_next->bh_hash_prev = hp->bh_hash_prev;
+  }
+  
+  /*
+--- 751,757 ----
+      memfile_T	*mfp;
+      bhdr_T	*hp;
+  {
+!     mf_hash_rem_item(&mfp->mf_hash, (mf_hashitem_T *)hp);
+  }
+  
+  /*
+***************
+*** 780,791 ****
+      memfile_T	*mfp;
+      blocknr_T	nr;
+  {
+!     bhdr_T	*hp;
+! 
+!     for (hp = mfp->mf_hash[MEMHASH(nr)]; hp != NULL; hp = hp->bh_hash_next)
+! 	if (hp->bh_bnum == nr)
+! 	    break;
+!     return hp;
+  }
+  
+  /*
+--- 762,768 ----
+      memfile_T	*mfp;
+      blocknr_T	nr;
+  {
+!     return (bhdr_T *)mf_hash_find(&mfp->mf_hash, nr);
+  }
+  
+  /*
+***************
+*** 1187,1193 ****
+  {
+      bhdr_T	*freep;
+      blocknr_T	new_bnum;
+-     int		hash;
+      NR_TRANS	*np;
+      int		page_count;
+  
+--- 1164,1169 ----
+***************
+*** 1235,1246 ****
+      hp->bh_bnum = new_bnum;
+      mf_ins_hash(mfp, hp);		    /* insert in new hash list */
+  
+!     hash = MEMHASH(np->nt_old_bnum);	    /* insert in trans list */
+!     np->nt_next = mfp->mf_trans[hash];
+!     mfp->mf_trans[hash] = np;
+!     if (np->nt_next != NULL)
+! 	np->nt_next->nt_prev = np;
+!     np->nt_prev = NULL;
+  
+      return OK;
+  }
+--- 1211,1218 ----
+      hp->bh_bnum = new_bnum;
+      mf_ins_hash(mfp, hp);		    /* insert in new hash list */
+  
+!     /* Insert "np" into "mf_trans" hashtable with key "np->nt_old_bnum" */
+!     mf_hash_add_item(&mfp->mf_trans, (mf_hashitem_T *)np);
+  
+      return OK;
+  }
+***************
+*** 1255,1279 ****
+      memfile_T	*mfp;
+      blocknr_T	old_nr;
+  {
+-     int		hash;
+      NR_TRANS	*np;
+      blocknr_T	new_bnum;
+  
+!     hash = MEMHASH(old_nr);
+!     for (np = mfp->mf_trans[hash]; np != NULL; np = np->nt_next)
+! 	if (np->nt_old_bnum == old_nr)
+! 	    break;
+      if (np == NULL)		/* not found */
+  	return old_nr;
+  
+      mfp->mf_neg_count--;
+      new_bnum = np->nt_new_bnum;
+!     if (np->nt_prev != NULL)		/* remove entry from the trans list */
+! 	np->nt_prev->nt_next = np->nt_next;
+!     else
+! 	mfp->mf_trans[hash] = np->nt_next;
+!     if (np->nt_next != NULL)
+! 	np->nt_next->nt_prev = np->nt_prev;
+      vim_free(np);
+  
+      return new_bnum;
+--- 1227,1246 ----
+      memfile_T	*mfp;
+      blocknr_T	old_nr;
+  {
+      NR_TRANS	*np;
+      blocknr_T	new_bnum;
+  
+!     np = (NR_TRANS *)mf_hash_find(&mfp->mf_trans, old_nr);
+! 
+      if (np == NULL)		/* not found */
+  	return old_nr;
+  
+      mfp->mf_neg_count--;
+      new_bnum = np->nt_new_bnum;
+! 
+!     /* remove entry from the trans list */
+!     mf_hash_rem_item(&mfp->mf_trans, (mf_hashitem_T *)np);
+! 
+      vim_free(np);
+  
+      return new_bnum;
+***************
+*** 1397,1399 ****
+--- 1364,1570 ----
+  	mch_hide(mfp->mf_fname);    /* try setting the 'hidden' flag */
+      }
+  }
++ 
++ /*
++  * Implementation of mf_hashtab_T follows.
++  */
++ 
++ /*
++  * The number of buckets in the hashtable is increased by a factor of
++  * MHT_GROWTH_FACTOR when the average number of items per bucket
++  * exceeds 2 ^ MHT_LOG_LOAD_FACTOR.
++  */
++ #define MHT_LOG_LOAD_FACTOR 6
++ #define MHT_GROWTH_FACTOR   2   /* must be a power of two */
++ 
++ /*
++  * Initialize an empty hash table.
++  */
++     static void
++ mf_hash_init(mht)
++     mf_hashtab_T *mht;
++ {
++     vim_memset(mht, 0, sizeof(mf_hashtab_T));
++     mht->mht_buckets = mht->mht_small_buckets;
++     mht->mht_mask = MHT_INIT_SIZE - 1;
++ }
++ 
++ /*
++  * Free the array of a hash table.  Does not free the items it contains!
++  * The hash table must not be used again without another mf_hash_init() call.
++  */
++     static void
++ mf_hash_free(mht)
++     mf_hashtab_T *mht;
++ {
++     if (mht->mht_buckets != mht->mht_small_buckets)
++ 	vim_free(mht->mht_buckets);
++ }
++ 
++ /*
++  * Free the array of a hash table and all the items it contains.
++  */
++     static void
++ mf_hash_free_all(mht)
++     mf_hashtab_T    *mht;
++ {
++     long_u	    idx;
++     mf_hashitem_T   *mhi;
++     mf_hashitem_T   *next;
++ 
++     for (idx = 0; idx <= mht->mht_mask; idx++)
++ 	for (mhi = mht->mht_buckets[idx]; mhi != NULL; mhi = next)
++ 	{
++ 	    next = mhi->mhi_next;
++ 	    vim_free(mhi);
++ 	}
++ 
++     mf_hash_free(mht);
++ }
++ 
++ /*
++  * Find "key" in hashtable "mht".
++  * Returns a pointer to a mf_hashitem_T or NULL if the item was not found.
++  */
++     static mf_hashitem_T *
++ mf_hash_find(mht, key)
++     mf_hashtab_T    *mht;
++     blocknr_T	    key;
++ {
++     mf_hashitem_T   *mhi;
++ 
++     mhi = mht->mht_buckets[key & mht->mht_mask];
++     while (mhi != NULL && mhi->mhi_key != key)
++ 	mhi = mhi->mhi_next;
++ 
++     return mhi;
++ }
++ 
++ /*
++  * Add item "mhi" to hashtable "mht".
++  * "mhi" must not be NULL.
++  */
++     static void
++ mf_hash_add_item(mht, mhi)
++     mf_hashtab_T    *mht;
++     mf_hashitem_T   *mhi;
++ {
++     long_u	    idx;
++ 
++     idx = mhi->mhi_key & mht->mht_mask;
++     mhi->mhi_next = mht->mht_buckets[idx];
++     mhi->mhi_prev = NULL;
++     if (mhi->mhi_next != NULL)
++ 	mhi->mhi_next->mhi_prev = mhi;
++     mht->mht_buckets[idx] = mhi;
++ 
++     mht->mht_count++;
++ 
++     /*
++      * Grow hashtable when we have more thank 2^MHT_LOG_LOAD_FACTOR
++      * items per bucket on average
++      */
++     if (mht->mht_fixed == 0
++ 	&& (mht->mht_count >> MHT_LOG_LOAD_FACTOR) > mht->mht_mask)
++     {
++ 	if (mf_hash_grow(mht) == FAIL)
++ 	{
++ 	    /* stop trying to grow after first failure to allocate memory */
++ 	    mht->mht_fixed = 1;
++ 	}
++     }
++ }
++ 
++ /*
++  * Remove item "mhi" from hashtable "mht".
++  * "mhi" must not be NULL and must have been inserted into "mht".
++  */
++     static void
++ mf_hash_rem_item(mht, mhi)
++     mf_hashtab_T    *mht;
++     mf_hashitem_T   *mhi;
++ {
++     if (mhi->mhi_prev == NULL)
++ 	mht->mht_buckets[mhi->mhi_key & mht->mht_mask] = mhi->mhi_next;
++     else
++ 	mhi->mhi_prev->mhi_next = mhi->mhi_next;
++ 
++     if (mhi->mhi_next != NULL)
++ 	mhi->mhi_next->mhi_prev = mhi->mhi_prev;
++ 
++     mht->mht_count--;
++ 
++     /* We could shrink the table here, but it typically takes little memory,
++      * so why bother?  */
++ }
++ 
++ /*
++  * Increase number of buckets in the hashtable by MHT_GROWTH_FACTOR and
++  * rehash items.
++  * Returns FAIL when out of memory.
++  */
++     static int
++ mf_hash_grow(mht)
++     mf_hashtab_T    *mht;
++ {
++     long_u	    i, j;
++     int		    shift;
++     mf_hashitem_T   *mhi;
++     mf_hashitem_T   *tails[MHT_GROWTH_FACTOR];
++     mf_hashitem_T   **buckets;
++     size_t	    size;
++ 
++     size = (mht->mht_mask + 1) * MHT_GROWTH_FACTOR * sizeof(void *);
++     buckets = (mf_hashitem_T **)lalloc_clear(size, FALSE);
++     if (buckets == NULL)
++ 	return FAIL;
++ 
++     shift = 0;
++     while ((mht->mht_mask >> shift) != 0)
++ 	shift++;
++ 
++     for (i = 0; i <= mht->mht_mask; i++)
++     {
++ 	/*
++ 	 * Traverse the items in the i-th original bucket and move them into
++ 	 * MHT_GROWTH_FACTOR new buckets, preserving their relative order
++ 	 * within each new bucket.  Preserving the order is important because
++ 	 * mf_get() tries to keep most recently used items at the front of
++ 	 * each bucket.
++ 	 *
++ 	 * Here we strongly rely on the fact the hashes are computed modulo
++ 	 * a power of two.
++ 	 */
++ 
++ 	vim_memset(tails, 0, sizeof(tails));
++ 
++ 	for (mhi = mht->mht_buckets[i]; mhi != NULL; mhi = mhi->mhi_next)
++ 	{
++ 	    j = (mhi->mhi_key >> shift) & (MHT_GROWTH_FACTOR - 1);
++ 	    if (tails[j] == NULL)
++ 	    {
++ 		buckets[i + (j << shift)] = mhi;
++ 		tails[j] = mhi;
++ 		mhi->mhi_prev = NULL;
++ 	    }
++ 	    else
++ 	    {
++ 		tails[j]->mhi_next = mhi;
++ 		mhi->mhi_prev = tails[j];
++ 		tails[j] = mhi;
++ 	    }
++ 	}
++ 
++ 	for (j = 0; j < MHT_GROWTH_FACTOR; j++)
++ 	    if (tails[j] != NULL)
++ 		tails[j]->mhi_next = NULL;
++     }
++ 
++     if (mht->mht_buckets != mht->mht_small_buckets)
++ 	vim_free(mht->mht_buckets);
++ 
++     mht->mht_buckets = buckets;
++     mht->mht_mask = (mht->mht_mask + 1) * MHT_GROWTH_FACTOR - 1;
++ 
++     return OK;
++ }
+*** ../vim-7.3.142/src/memfile_test.c	2011-03-03 21:58:14.000000000 +0100
+--- src/memfile_test.c	2011-03-03 20:40:29.000000000 +0100
+***************
+*** 0 ****
+--- 1,145 ----
++ /* vi:set ts=8 sts=4 sw=4:
++  *
++  * VIM - Vi IMproved	by Bram Moolenaar
++  *
++  * Do ":help uganda"  in Vim to read copying and usage conditions.
++  * Do ":help credits" in Vim to see a list of people who contributed.
++  * See README.txt for an overview of the Vim source code.
++  */
++ 
++ /*
++  * memfile_test.c: Unittests for memfile.c
++  * Mostly by Ivan Krasilnikov.
++  */
++ 
++ #undef NDEBUG
++ #include <assert.h>
++ 
++ /* Must include main.c because it contains much more than just main() */
++ #define NO_VIM_MAIN
++ #include "main.c"
++ 
++ /* This file has to be included because the tested functions are static */
++ #include "memfile.c"
++ 
++ #define index_to_key(i) ((i) ^ 15167)
++ #define TEST_COUNT 50000
++ 
++ static void test_mf_hash __ARGS((void));
++ 
++ /*
++  * Test mf_hash_*() functions.
++  */
++     static void
++ test_mf_hash()
++ {
++     mf_hashtab_T   ht;
++     mf_hashitem_T  *item;
++     blocknr_T      key;
++     long_u	   i;
++     long_u	   num_buckets;
++ 
++     mf_hash_init(&ht);
++ 
++     /* insert some items and check invariants */
++     for (i = 0; i < TEST_COUNT; i++)
++     {
++ 	assert(ht.mht_count == i);
++ 
++ 	/* check that number of buckets is a power of 2 */
++ 	num_buckets = ht.mht_mask + 1;
++ 	assert(num_buckets > 0 && (num_buckets & (num_buckets - 1)) == 0);
++ 
++ 	/* check load factor */
++ 	assert(ht.mht_count <= (num_buckets << MHT_LOG_LOAD_FACTOR));
++ 
++ 	if (i < (MHT_INIT_SIZE << MHT_LOG_LOAD_FACTOR))
++ 	{
++ 	    /* first expansion shouldn't have occurred yet */
++ 	    assert(num_buckets == MHT_INIT_SIZE);
++ 	    assert(ht.mht_buckets == ht.mht_small_buckets);
++ 	}
++ 	else
++ 	{
++ 	    assert(num_buckets > MHT_INIT_SIZE);
++ 	    assert(ht.mht_buckets != ht.mht_small_buckets);
++ 	}
++ 
++ 	key = index_to_key(i);
++ 	assert(mf_hash_find(&ht, key) == NULL);
++ 
++ 	/* allocate and add new item */
++ 	item = (mf_hashitem_T *)lalloc_clear(sizeof(mf_hashtab_T), FALSE);
++ 	assert(item != NULL);
++ 	item->mhi_key = key;
++ 	mf_hash_add_item(&ht, item);
++ 
++ 	assert(mf_hash_find(&ht, key) == item);
++ 
++ 	if (ht.mht_mask + 1 != num_buckets)
++ 	{
++ 	    /* hash table was expanded */
++ 	    assert(ht.mht_mask + 1 == num_buckets * MHT_GROWTH_FACTOR);
++ 	    assert(i + 1 == (num_buckets << MHT_LOG_LOAD_FACTOR));
++ 	}
++     }
++ 
++     /* check presence of inserted items */
++     for (i = 0; i < TEST_COUNT; i++)
++     {
++ 	key = index_to_key(i);
++ 	item = mf_hash_find(&ht, key);
++ 	assert(item != NULL);
++ 	assert(item->mhi_key == key);
++     }
++ 
++     /* delete some items */
++     for (i = 0; i < TEST_COUNT; i++)
++     {
++ 	if (i % 100 < 70)
++ 	{
++ 	    key = index_to_key(i);
++ 	    item = mf_hash_find(&ht, key);
++ 	    assert(item != NULL);
++ 	    assert(item->mhi_key == key);
++ 
++ 	    mf_hash_rem_item(&ht, item);
++ 	    assert(mf_hash_find(&ht, key) == NULL);
++ 
++ 	    mf_hash_add_item(&ht, item);
++ 	    assert(mf_hash_find(&ht, key) == item);
++ 
++ 	    mf_hash_rem_item(&ht, item);
++ 	    assert(mf_hash_find(&ht, key) == NULL);
++ 
++ 	    vim_free(item);
++ 	}
++     }
++ 
++     /* check again */
++     for (i = 0; i < TEST_COUNT; i++)
++     {
++ 	key = index_to_key(i);
++ 	item = mf_hash_find(&ht, key);
++ 
++ 	if (i % 100 < 70)
++ 	{
++ 	    assert(item == NULL);
++ 	}
++ 	else
++ 	{
++ 	    assert(item != NULL);
++ 	    assert(item->mhi_key == key);
++ 	}
++     }
++ 
++     /* free hash table and all remaining items */
++     mf_hash_free_all(&ht);
++ }
++ 
++     int
++ main()
++ {
++     test_mf_hash();
++     return 0;
++ }
+*** ../vim-7.3.142/src/structs.h	2011-02-15 17:39:14.000000000 +0100
+--- src/structs.h	2011-03-03 18:49:01.000000000 +0100
+***************
+*** 378,383 ****
+--- 378,412 ----
+  typedef long		    blocknr_T;
+  
+  /*
++  * mf_hashtab_T is a chained hashtable with blocknr_T key and arbitrary
++  * structures as items.  This is an intrusive data structure: we require
++  * that items begin with mf_hashitem_T which contains the key and linked
++  * list pointers.  List of items in each bucket is doubly-linked.
++  */
++ 
++ typedef struct mf_hashitem_S mf_hashitem_T;
++ 
++ struct mf_hashitem_S
++ {
++     mf_hashitem_T   *mhi_next;
++     mf_hashitem_T   *mhi_prev;
++     blocknr_T	    mhi_key;
++ };
++ 
++ #define MHT_INIT_SIZE   64
++ 
++ typedef struct mf_hashtab_S
++ {
++     long_u	    mht_mask;	    /* mask used for hash value (nr of items
++ 				     * in array is "mht_mask" + 1) */
++     long_u	    mht_count;	    /* nr of items inserted into hashtable */
++     mf_hashitem_T   **mht_buckets;  /* points to mht_small_buckets or
++ 				     *dynamically allocated array */
++     mf_hashitem_T   *mht_small_buckets[MHT_INIT_SIZE];   /* initial buckets */
++     char	    mht_fixed;	    /* non-zero value forbids growth */
++ } mf_hashtab_T;
++ 
++ /*
+   * for each (previously) used block in the memfile there is one block header.
+   *
+   * The block may be linked in the used list OR in the free list.
+***************
+*** 394,404 ****
+  
+  struct block_hdr
+  {
+      bhdr_T	*bh_next;	    /* next block_hdr in free or used list */
+      bhdr_T	*bh_prev;	    /* previous block_hdr in used list */
+-     bhdr_T	*bh_hash_next;	    /* next block_hdr in hash list */
+-     bhdr_T	*bh_hash_prev;	    /* previous block_hdr in hash list */
+-     blocknr_T	bh_bnum;	    /* block number */
+      char_u	*bh_data;	    /* pointer to memory (for used block) */
+      int		bh_page_count;	    /* number of pages in this block */
+  
+--- 423,433 ----
+  
+  struct block_hdr
+  {
++     mf_hashitem_T bh_hashitem;      /* header for hash table and key */
++ #define bh_bnum bh_hashitem.mhi_key /* block number, part of bh_hashitem */
++ 
+      bhdr_T	*bh_next;	    /* next block_hdr in free or used list */
+      bhdr_T	*bh_prev;	    /* previous block_hdr in used list */
+      char_u	*bh_data;	    /* pointer to memory (for used block) */
+      int		bh_page_count;	    /* number of pages in this block */
+  
+***************
+*** 417,425 ****
+  
+  struct nr_trans
+  {
+!     NR_TRANS	*nt_next;		/* next nr_trans in hash list */
+!     NR_TRANS	*nt_prev;		/* previous nr_trans in hash list */
+!     blocknr_T	nt_old_bnum;		/* old, negative, number */
+      blocknr_T	nt_new_bnum;		/* new, positive, number */
+  };
+  
+--- 446,454 ----
+  
+  struct nr_trans
+  {
+!     mf_hashitem_T nt_hashitem;		/* header for hash table and key */
+! #define nt_old_bnum nt_hashitem.mhi_key	/* old, negative, number */
+! 
+      blocknr_T	nt_new_bnum;		/* new, positive, number */
+  };
+  
+***************
+*** 499,510 ****
+  
+  typedef struct file_buffer buf_T;  /* forward declaration */
+  
+- /*
+-  * Simplistic hashing scheme to quickly locate the blocks in the used list.
+-  * 64 blocks are found directly (64 * 4K = 256K, most files are smaller).
+-  */
+- #define MEMHASHSIZE	64
+- #define MEMHASH(nr)	((nr) & (MEMHASHSIZE - 1))
+  #define MF_SEED_LEN	8
+  
+  struct memfile
+--- 528,533 ----
+***************
+*** 517,524 ****
+      bhdr_T	*mf_used_last;		/* lru block_hdr in used list */
+      unsigned	mf_used_count;		/* number of pages in used list */
+      unsigned	mf_used_count_max;	/* maximum number of pages in memory */
+!     bhdr_T	*mf_hash[MEMHASHSIZE];	/* array of hash lists */
+!     NR_TRANS	*mf_trans[MEMHASHSIZE];	/* array of trans lists */
+      blocknr_T	mf_blocknr_max;		/* highest positive block number + 1*/
+      blocknr_T	mf_blocknr_min;		/* lowest negative block number - 1 */
+      blocknr_T	mf_neg_count;		/* number of negative blocks numbers */
+--- 540,547 ----
+      bhdr_T	*mf_used_last;		/* lru block_hdr in used list */
+      unsigned	mf_used_count;		/* number of pages in used list */
+      unsigned	mf_used_count_max;	/* maximum number of pages in memory */
+!     mf_hashtab_T mf_hash;		/* hash lists */
+!     mf_hashtab_T mf_trans;		/* trans lists */
+      blocknr_T	mf_blocknr_max;		/* highest positive block number + 1*/
+      blocknr_T	mf_blocknr_min;		/* lowest negative block number - 1 */
+      blocknr_T	mf_neg_count;		/* number of negative blocks numbers */
+*** ../vim-7.3.142/src/testdir/Make_amiga.mak	2010-11-10 16:54:16.000000000 +0100
+--- src/testdir/Make_amiga.mak	2011-03-03 17:04:14.000000000 +0100
+***************
+*** 28,34 ****
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out
+  
+  .SUFFIXES: .in .out
+  
+--- 28,34 ----
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 124,126 ****
+--- 124,127 ----
+  test74.out: test74.in
+  test75.out: test75.in
+  test76.out: test76.in
++ test77.out: test77.in
+*** ../vim-7.3.142/src/testdir/Make_dos.mak	2010-11-10 16:54:16.000000000 +0100
+--- src/testdir/Make_dos.mak	2011-03-03 17:04:20.000000000 +0100
+***************
+*** 28,34 ****
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 28,34 ----
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.142/src/testdir/Make_ming.mak	2010-11-10 16:54:16.000000000 +0100
+--- src/testdir/Make_ming.mak	2011-03-03 17:04:32.000000000 +0100
+***************
+*** 48,54 ****
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 48,54 ----
+  		test37.out test38.out test39.out test40.out test41.out \
+  		test42.out test52.out test65.out test66.out test67.out \
+  		test68.out test69.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.142/src/testdir/Make_os2.mak	2010-11-10 16:54:16.000000000 +0100
+--- src/testdir/Make_os2.mak	2011-03-03 17:04:48.000000000 +0100
+***************
+*** 28,34 ****
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out
+  
+  .SUFFIXES: .in .out
+  
+--- 28,34 ----
+  		test61.out test62.out test63.out test64.out test65.out \
+  		test66.out test67.out test68.out test69.out test70.out \
+  		test71.out test72.out test73.out test74.out test75.out \
+! 		test76.out test77.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../vim-7.3.142/src/testdir/Makefile	2010-11-10 16:54:16.000000000 +0100
+--- src/testdir/Makefile	2011-03-22 17:03:25.000000000 +0100
+***************
+*** 25,31 ****
+  		test59.out test60.out test61.out test62.out test63.out \
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 25,31 ----
+  		test59.out test60.out test61.out test62.out test63.out \
+  		test64.out test65.out test66.out test67.out test68.out \
+  		test69.out test70.out test71.out test72.out test73.out \
+! 		test74.out test75.out test76.out test77.out
+  
+  SCRIPTS_GUI = test16.out
+  
+***************
+*** 71,77 ****
+  		  fi \
+  		else echo $* NO OUTPUT >>test.log; \
+  		fi"
+! 	-rm -rf X* test.ok viminfo
+  
+  test49.out: test49.vim
+  
+--- 71,77 ----
+  		  fi \
+  		else echo $* NO OUTPUT >>test.log; \
+  		fi"
+! #	-rm -rf X* test.ok viminfo
+  
+  test49.out: test49.vim
+  
+*** ../vim-7.3.142/src/testdir/test77.in	2011-03-03 21:59:10.000000000 +0100
+--- src/testdir/test77.in	2011-03-22 17:12:38.000000000 +0100
+***************
+*** 0 ****
+--- 1,27 ----
++ Inserts 2 million lines with consecutive integers starting from 1
++ (essentially, the output of GNU's seq 1 2000000), writes them to Xtest
++ and writes its cksum to test.out.
++ 
++ We need 2 million lines to trigger a call to mf_hash_grow().  If it would mess
++ up the lines the checksum would differ.
++ 
++ cksum is part of POSIX and so should be available on most Unixes.
++ If it isn't available then the test will be skipped.
++ 
++ STARTTEST
++ :so small.vim
++ :if !executable("cksum")
++ : e! test.ok
++ : w! test.out
++ : qa!
++ :endif
++ :set fileformat=unix undolevels=-1
++ ggdG
++ :let i = 1
++ :while i <= 2000000 | call append(i, range(i, i + 99)) | let i += 100 | endwhile
++ ggdd
++ :w! Xtest
++ :!cksum Xtest > test.out
++ :qa!
++ ENDTEST
++ 
+*** ../vim-7.3.142/src/testdir/test77.ok	2011-03-03 21:59:10.000000000 +0100
+--- src/testdir/test77.ok	2011-03-22 17:10:14.000000000 +0100
+***************
+*** 0 ****
+--- 1 ----
++ 3678979763 14888896 Xtest
+*** ../vim-7.3.142/src/version.c	2011-03-22 15:47:18.000000000 +0100
+--- src/version.c	2011-03-22 18:01:48.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     143,
+  /**/
+
+-- 
+SIGIRO -- irony detected (iron core dumped)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,245 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.333
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.333
+Problem:    Using "." to repeat a Visual delete counts the size in bytes, not
+	    characters.  (Connor Lane Smith)
+Solution:   Store the virtual column numbers instead of byte positions.
+Files:	    src/normal.c
+
+
+*** ../vim-7.3.332/src/normal.c	2011-07-15 17:51:30.000000000 +0200
+--- src/normal.c	2011-10-04 19:47:14.000000000 +0200
+***************
+*** 20,26 ****
+   */
+  static int	resel_VIsual_mode = NUL;	/* 'v', 'V', or Ctrl-V */
+  static linenr_T	resel_VIsual_line_count;	/* number of lines */
+! static colnr_T	resel_VIsual_col;		/* nr of cols or end col */
+  
+  static int	restart_VIsual_select = 0;
+  #endif
+--- 20,26 ----
+   */
+  static int	resel_VIsual_mode = NUL;	/* 'v', 'V', or Ctrl-V */
+  static linenr_T	resel_VIsual_line_count;	/* number of lines */
+! static colnr_T	resel_VIsual_vcol;		/* nr of cols or end col */
+  
+  static int	restart_VIsual_select = 0;
+  #endif
+***************
+*** 1436,1442 ****
+      /* The visual area is remembered for redo */
+      static int	    redo_VIsual_mode = NUL; /* 'v', 'V', or Ctrl-V */
+      static linenr_T redo_VIsual_line_count; /* number of lines */
+!     static colnr_T  redo_VIsual_col;	    /* number of cols or end column */
+      static long	    redo_VIsual_count;	    /* count for Visual operator */
+  # ifdef FEAT_VIRTUALEDIT
+      int		    include_line_break = FALSE;
+--- 1436,1442 ----
+      /* The visual area is remembered for redo */
+      static int	    redo_VIsual_mode = NUL; /* 'v', 'V', or Ctrl-V */
+      static linenr_T redo_VIsual_line_count; /* number of lines */
+!     static colnr_T  redo_VIsual_vcol;	    /* number of cols or end column */
+      static long	    redo_VIsual_count;	    /* count for Visual operator */
+  # ifdef FEAT_VIRTUALEDIT
+      int		    include_line_break = FALSE;
+***************
+*** 1549,1570 ****
+  #ifdef FEAT_VISUAL
+  	if (redo_VIsual_busy)
+  	{
+  	    oap->start = curwin->w_cursor;
+  	    curwin->w_cursor.lnum += redo_VIsual_line_count - 1;
+  	    if (curwin->w_cursor.lnum > curbuf->b_ml.ml_line_count)
+  		curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
+  	    VIsual_mode = redo_VIsual_mode;
+! 	    if (VIsual_mode == 'v')
+  	    {
+! 		if (redo_VIsual_line_count <= 1)
+! 		    curwin->w_cursor.col += redo_VIsual_col - 1;
+  		else
+! 		    curwin->w_cursor.col = redo_VIsual_col;
+! 	    }
+! 	    if (redo_VIsual_col == MAXCOL)
+! 	    {
+! 		curwin->w_curswant = MAXCOL;
+! 		coladvance((colnr_T)MAXCOL);
+  	    }
+  	    cap->count0 = redo_VIsual_count;
+  	    if (redo_VIsual_count != 0)
+--- 1549,1579 ----
+  #ifdef FEAT_VISUAL
+  	if (redo_VIsual_busy)
+  	{
++ 	    /* Redo of an operation on a Visual area. Use the same size from
++ 	     * redo_VIsual_line_count and redo_VIsual_vcol. */
+  	    oap->start = curwin->w_cursor;
+  	    curwin->w_cursor.lnum += redo_VIsual_line_count - 1;
+  	    if (curwin->w_cursor.lnum > curbuf->b_ml.ml_line_count)
+  		curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
+  	    VIsual_mode = redo_VIsual_mode;
+! 	    if (redo_VIsual_vcol == MAXCOL || VIsual_mode == 'v')
+  	    {
+! 		if (VIsual_mode == 'v')
+! 		{
+! 		    if (redo_VIsual_line_count <= 1)
+! 		    {
+! 			validate_virtcol();
+! 			curwin->w_curswant =
+! 				     curwin->w_virtcol + redo_VIsual_vcol - 1;
+! 		    }
+! 		    else
+! 			curwin->w_curswant = redo_VIsual_vcol;
+! 		}
+  		else
+! 		{
+! 		    curwin->w_curswant = MAXCOL;
+! 		}
+! 		coladvance(curwin->w_curswant);
+  	    }
+  	    cap->count0 = redo_VIsual_count;
+  	    if (redo_VIsual_count != 0)
+***************
+*** 1710,1716 ****
+  		    }
+  		}
+  		else if (redo_VIsual_busy)
+! 		    oap->end_vcol = oap->start_vcol + redo_VIsual_col - 1;
+  		/*
+  		 * Correct oap->end.col and oap->start.col to be the
+  		 * upper-left and lower-right corner of the block area.
+--- 1719,1725 ----
+  		    }
+  		}
+  		else if (redo_VIsual_busy)
+! 		    oap->end_vcol = oap->start_vcol + redo_VIsual_vcol - 1;
+  		/*
+  		 * Correct oap->end.col and oap->start.col to be the
+  		 * upper-left and lower-right corner of the block area.
+***************
+*** 1735,1747 ****
+  		 */
+  		resel_VIsual_mode = VIsual_mode;
+  		if (curwin->w_curswant == MAXCOL)
+! 		    resel_VIsual_col = MAXCOL;
+! 		else if (VIsual_mode == Ctrl_V)
+! 		    resel_VIsual_col = oap->end_vcol - oap->start_vcol + 1;
+! 		else if (oap->line_count > 1)
+! 		    resel_VIsual_col = oap->end.col;
+  		else
+! 		    resel_VIsual_col = oap->end.col - oap->start.col + 1;
+  		resel_VIsual_line_count = oap->line_count;
+  	    }
+  
+--- 1744,1765 ----
+  		 */
+  		resel_VIsual_mode = VIsual_mode;
+  		if (curwin->w_curswant == MAXCOL)
+! 		    resel_VIsual_vcol = MAXCOL;
+  		else
+! 		{
+! 		    if (VIsual_mode != Ctrl_V)
+! 			getvvcol(curwin, &(oap->end),
+! 						  NULL, NULL, &oap->end_vcol);
+! 		    if (VIsual_mode == Ctrl_V || oap->line_count <= 1)
+! 		    {
+! 			if (VIsual_mode != Ctrl_V)
+! 			    getvvcol(curwin, &(oap->start),
+! 						&oap->start_vcol, NULL, NULL);
+! 			resel_VIsual_vcol = oap->end_vcol - oap->start_vcol + 1;
+! 		    }
+! 		    else
+! 			resel_VIsual_vcol = oap->end_vcol;
+! 		}
+  		resel_VIsual_line_count = oap->line_count;
+  	    }
+  
+***************
+*** 1769,1775 ****
+  		if (!redo_VIsual_busy)
+  		{
+  		    redo_VIsual_mode = resel_VIsual_mode;
+! 		    redo_VIsual_col = resel_VIsual_col;
+  		    redo_VIsual_line_count = resel_VIsual_line_count;
+  		    redo_VIsual_count = cap->count0;
+  		}
+--- 1787,1793 ----
+  		if (!redo_VIsual_busy)
+  		{
+  		    redo_VIsual_mode = resel_VIsual_mode;
+! 		    redo_VIsual_vcol = resel_VIsual_vcol;
+  		    redo_VIsual_line_count = resel_VIsual_line_count;
+  		    redo_VIsual_count = cap->count0;
+  		}
+***************
+*** 7631,7642 ****
+  	    if (VIsual_mode == 'v')
+  	    {
+  		if (resel_VIsual_line_count <= 1)
+! 		    curwin->w_cursor.col += resel_VIsual_col * cap->count0 - 1;
+  		else
+! 		    curwin->w_cursor.col = resel_VIsual_col;
+! 		check_cursor_col();
+  	    }
+! 	    if (resel_VIsual_col == MAXCOL)
+  	    {
+  		curwin->w_curswant = MAXCOL;
+  		coladvance((colnr_T)MAXCOL);
+--- 7649,7664 ----
+  	    if (VIsual_mode == 'v')
+  	    {
+  		if (resel_VIsual_line_count <= 1)
+! 		{
+! 		    validate_virtcol();
+! 		    curwin->w_curswant = curwin->w_virtcol
+! 					+ resel_VIsual_vcol * cap->count0 - 1;
+! 		}
+  		else
+! 		    curwin->w_curswant = resel_VIsual_vcol;
+! 		coladvance(curwin->w_curswant);
+  	    }
+! 	    if (resel_VIsual_vcol == MAXCOL)
+  	    {
+  		curwin->w_curswant = MAXCOL;
+  		coladvance((colnr_T)MAXCOL);
+***************
+*** 7645,7651 ****
+  	    {
+  		validate_virtcol();
+  		curwin->w_curswant = curwin->w_virtcol
+! 					 + resel_VIsual_col * cap->count0 - 1;
+  		coladvance(curwin->w_curswant);
+  	    }
+  	    else
+--- 7667,7673 ----
+  	    {
+  		validate_virtcol();
+  		curwin->w_curswant = curwin->w_virtcol
+! 					+ resel_VIsual_vcol * cap->count0 - 1;
+  		coladvance(curwin->w_curswant);
+  	    }
+  	    else
+*** ../vim-7.3.332/src/version.c	2011-10-04 18:03:43.000000000 +0200
+--- src/version.c	2011-10-04 21:05:44.000000000 +0200
+***************
+*** 711,712 ****
+--- 711,714 ----
+  {   /* Add new patch number below this line */
++ /**/
++     333,
+  /**/
+
+-- 
+It was recently discovered that research causes cancer in rats.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

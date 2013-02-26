@@ -1,0 +1,404 @@
+2010-05-31  Chris Moller  <cmoller@redhat.com>
+
+	* python/py-prettyprint.c (print_children): Add formatting for
+	matrices. (apply_val_pretty_printer): Detect and deal with matrix
+	hints. 
+
+
+2010-05-31  Chris Moller  <cmoller@redhat.com>
+
+	* gdb.python/Makefile.in (EXECUTABLES):  Added pr10659.
+	* gdb.python/pr10659.cc:  New file.
+	* gdb.python/pr10659.exp.  New file.
+	* gdb.python/pr10659.py: New file.
+
+Index: gdb-7.1/gdb/valprint.h
+===================================================================
+--- gdb-7.1.orig/gdb/valprint.h	2010-06-30 14:02:16.000000000 +0200
++++ gdb-7.1/gdb/valprint.h	2010-06-30 14:35:24.000000000 +0200
+@@ -90,6 +90,9 @@ struct value_print_options
+ 
+   /* If nonzero, print the value in "summary" form.  */
+   int summary;
++
++  /* Affects pretty printing of matrices.  */
++  int prettyprint_matrix;
+ };
+ 
+ /* The global print options set by the user.  In general this should
+Index: gdb-7.1/gdb/python/py-prettyprint.c
+===================================================================
+--- gdb-7.1.orig/gdb/python/py-prettyprint.c	2010-06-30 14:01:40.000000000 +0200
++++ gdb-7.1/gdb/python/py-prettyprint.c	2010-06-30 14:34:49.000000000 +0200
+@@ -385,7 +385,8 @@ print_children (PyObject *printer, const
+ 
+   /* Use the prettyprint_arrays option if we are printing an array,
+      and the pretty option otherwise.  */
+-  pretty = is_array ? options->prettyprint_arrays : options->pretty;
++  pretty = (is_array || options->prettyprint_matrix) ?
++    options->prettyprint_arrays : options->pretty;
+ 
+   /* Manufacture a dummy Python frame to work around Python 2.4 bug,
+      where it insists on having a non-NULL tstate->frame when
+@@ -397,6 +398,9 @@ print_children (PyObject *printer, const
+       goto done;
+     }
+   make_cleanup_py_decref (frame);
++  
++  if (options->prettyprint_matrix && recurse == 0)
++    fputs_filtered ("\n", stream);
+ 
+   done_flag = 0;
+   for (i = 0; i < options->print_max; ++i)
+@@ -431,12 +435,23 @@ print_children (PyObject *printer, const
+ 	 3. Other.  Always print a ",".  */
+       if (i == 0)
+ 	{
+-         if (is_py_none)
+-           fputs_filtered ("{", stream);
+-         else
+-           fputs_filtered (" = {", stream);
++	  if (options->prettyprint_matrix && recurse == 0)
++	    print_spaces_filtered (2 + 2 * recurse, stream);
++	  if (is_py_none)
++	    {
++	      if (options->prettyprint_matrix && strcmp (hint, "array"))
++		{
++		  fputs_filtered ("{\n", stream);
++		  print_spaces_filtered (4 + 2 * recurse, stream);
++		}
++	      else
++		fputs_filtered ("{", stream);
++	    }
++	  else
++	    fputs_filtered (" = {", stream);
+        }
+-
++      else if (options->prettyprint_matrix)
++	print_spaces_filtered (4 + 2 * recurse, stream);
+       else if (! is_map || i % 2 == 0)
+ 	fputs_filtered (pretty ? "," : ", ", stream);
+ 
+@@ -465,6 +480,10 @@ print_children (PyObject *printer, const
+ 
+       if (is_map && i % 2 == 0)
+ 	fputs_filtered ("[", stream);
++      else if (options->prettyprint_matrix)
++	{
++	  /* Force a do-nothing.  */
++	}
+       else if (is_array)
+ 	{
+ 	  /* We print the index, not whatever the child method
+@@ -539,7 +558,12 @@ print_children (PyObject *printer, const
+ 	  fputs_filtered ("\n", stream);
+ 	  print_spaces_filtered (2 * recurse, stream);
+ 	}
+-      fputs_filtered ("}", stream);
++      if (options->prettyprint_matrix)
++      {
++	print_spaces_filtered (4 * recurse, stream);
++	fputs_filtered ("}\n", stream);
++      }
++      else fputs_filtered ("}", stream);
+     }
+ 
+  done:
+@@ -561,6 +585,7 @@ apply_val_pretty_printer (struct type *t
+   struct cleanup *cleanups;
+   int result = 0;
+   int is_py_none = 0;
++  struct value_print_options *options_copy;
+   cleanups = ensure_python_env (gdbarch, language);
+ 
+   /* Instantiate the printer.  */
+@@ -582,12 +607,23 @@ apply_val_pretty_printer (struct type *t
+ 
+   /* If we are printing a map, we want some special formatting.  */
+   hint = gdbpy_get_display_hint (printer);
++  
++  if (recurse == 0)
++    {
++      options_copy = alloca (sizeof (struct value_print_options));
++      memcpy (options_copy, options, sizeof (struct value_print_options));
++      options_copy->prettyprint_matrix = hint && !strcmp (hint, "matrix");
++    }
++  else options_copy = (struct value_print_options *)options;
++
+   make_cleanup (free_current_contents, &hint);
+ 
+   /* Print the section */
+-  is_py_none = print_string_repr (printer, hint, stream, recurse,
+-				  options, language, gdbarch);
+-  print_children (printer, hint, stream, recurse, options, language,
++  is_py_none = options_copy->prettyprint_matrix ?
++    1 : print_string_repr (printer, hint, stream,
++			   recurse, options_copy,
++			   language, gdbarch);
++  print_children (printer, hint, stream, recurse, options_copy, language,
+ 		  is_py_none);
+ 
+   result = 1;
+Index: gdb-7.1/gdb/testsuite/gdb.python/pr10659.cc
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.1/gdb/testsuite/gdb.python/pr10659.cc	2010-06-30 14:34:49.000000000 +0200
+@@ -0,0 +1,43 @@
++#include <list>
++#include <vector>  // /usr/include/c++/4.4.1/bits/vector.tcc
++#include <iostream>
++
++using namespace std;
++
++int use_windows = 9999;
++
++int
++main(){
++  vector<int> test1(2,0);
++  test1[0]=8;
++  test1[1]=9;
++  
++  vector< vector<int> > test2(3, vector<int>(2,0));
++  test2[0][0]=0;
++  test2[0][1]=1;
++  test2[1][0]=2;
++  test2[1][1]=3;
++  test2[2][0]=4;
++  test2[2][1]=5;
++
++#define NR_ROWS    2
++#define NR_COLS    3
++#define NR_PLANES  4
++  vector<int> rows(NR_ROWS, 0);
++  vector< vector<int> > columns(NR_COLS, rows);
++  vector< vector < vector<int> > > test3(NR_PLANES, columns);
++
++  cout << "rows.size() = " << rows.size()
++       << ", columns.size() = " << columns.size()
++       << ", test3.size() = " << test3.size() << "\n";
++
++  for (int i = 0; i < rows.size(); i++) {
++    for (int j = 0; j < columns.size(); j++) {
++      for (int k = 0; k < test3.size(); k++) {
++	test3[k][j][i] = k * 100 + j * 10 + i;
++      }
++    }
++  }
++  
++  return 0;  // break
++}
+Index: gdb-7.1/gdb/testsuite/gdb.python/pr10659.exp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.1/gdb/testsuite/gdb.python/pr10659.exp	2010-06-30 14:34:49.000000000 +0200
+@@ -0,0 +1,82 @@
++#Copyright 2010 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++set nl             "\[\r\n\]+"
++
++set testfile pr10659
++set srcfile ${testfile}.cc
++if [prepare_for_testing $testfile.exp $testfile $srcfile {debug c++}] {
++    return -1
++}
++
++#if { [skip_python_tests] } { continue }
++
++gdb_test "python execfile(\"$srcdir/$subdir/pr10659.py\")" ""
++gdb_test "python gdb.pretty_printers = \[lookup_function\]" ""
++
++if ![runto_main] then {
++    fail "Can't run to main"
++    return
++}
++
++gdb_breakpoint [gdb_get_line_number "break"]
++gdb_continue_to_breakpoint "break"
++
++gdb_test "p test1" "vector of length 2, capacity 2 =.*"
++
++gdb_test "p test2" "= $nl  {$nl    {.*"
++
++# Complete result is:
++#
++# (gdb) p test2
++# $2 =
++#   {
++#     {0      1    }
++#     {2      3    }
++#     {4      5    }
++#  }
++
++
++gdb_test "p test3" "= $nl  {$nl    {$nl      {.*"
++
++# Complete result is:
++#
++# (gdb) p test3
++# $3 =
++#   {
++#     {
++#       {0        1        }
++#       {10        11        }
++#       {20        21        }
++#     }
++#     {
++#       {100        101        }
++#       {110        111        }
++#       {120        121        }
++#     }
++#     {
++#       {200        201        }
++#       {210        211        }
++#       {220        221        }
++#     }
++#     {
++#       {300        301        }
++#       {310        311        }
++#       {320        321        }
++#     }
++#  }
++# 
++
++
+Index: gdb-7.1/gdb/testsuite/gdb.python/pr10659.py
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gdb-7.1/gdb/testsuite/gdb.python/pr10659.py	2010-06-30 14:34:49.000000000 +0200
+@@ -0,0 +1,109 @@
++# Copyright (C) 2008, 2009 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++import gdb
++import itertools
++import re
++
++vector_sig = 'std::vector'
++vector_regex = re.compile('^' + vector_sig + '<.*>$')
++
++class FakeVectorPrinter:
++    "Print a std::vector"
++
++    class _iterator:
++        def __init__ (self, start, finish):
++            self.item = start
++            self.finish = finish
++            self.count = 0
++
++        def __iter__(self):
++            return self
++
++        def next(self):
++            if self.item == self.finish:
++                raise StopIteration
++            count = self.count
++            self.count = self.count + 1
++            elt = self.item.dereference()
++            self.item = self.item + 1
++            return ('[%d]' % count, elt)
++
++    def __init__(self, typename, val):
++        self.typename = typename
++        self.val = val
++
++    def children(self):
++        return self._iterator(self.val['_M_impl']['_M_start'],
++                              self.val['_M_impl']['_M_finish'])
++
++    def to_string(self):
++        start = self.val['_M_impl']['_M_start']
++        finish = self.val['_M_impl']['_M_finish']
++        end = self.val['_M_impl']['_M_end_of_storage']
++        return ('std::vector of length %d, capacity %d'
++                % (int (finish - start), int (end - start)))
++
++    def display_hint(self):
++        itype0  = self.val.type.template_argument(0)
++        itag = itype0.tag
++        if itag and re.match(vector_regex, itag):
++            rc = 'matrix'
++        else:
++            rc = 'array'
++        return rc
++
++def register_libstdcxx_printers (obj):
++    "Register libstdc++ pretty-printers with objfile Obj."
++
++    if obj == None:
++        obj = gdb
++
++    obj.pretty_printers.append (lookup_function)
++
++def lookup_function (val):
++    "Look-up and return a pretty-printer that can print val."
++
++    # Get the type.
++    type = val.type;
++
++    # If it points to a reference, get the reference.
++    if type.code == gdb.TYPE_CODE_REF:
++        type = type.target ()
++
++    # Get the unqualified type, stripped of typedefs.
++    type = type.unqualified ().strip_typedefs ()
++
++    # Get the type name.    
++    typename = type.tag
++    if typename == None:
++        return None
++
++    # Iterate over local dictionary of types to determine
++    # if a printer is registered for that type.  Return an
++    # instantiation of the printer if found.
++    for function in fake_pretty_printers_dict:
++        if function.search (typename):
++            return fake_pretty_printers_dict[function] (val)
++        
++    # Cannot find a pretty printer.  Return None.
++    return None
++
++def build_libfakecxx_dictionary ():
++    fake_pretty_printers_dict[vector_regex] = lambda val: FakeVectorPrinter(vector_sig, val)
++
++fake_pretty_printers_dict = {}
++
++build_libfakecxx_dictionary ()
+Index: gdb-7.1/gdb/valprint.c
+===================================================================
+--- gdb-7.1.orig/gdb/valprint.c	2010-06-30 13:51:26.000000000 +0200
++++ gdb-7.1/gdb/valprint.c	2010-06-30 14:35:41.000000000 +0200
+@@ -83,7 +83,8 @@ struct value_print_options user_print_op
+   1,				/* static_field_print */
+   1,				/* pascal_static_field_print */
+   0,				/* raw */
+-  0				/* summary */
++  0,				/* summary */
++  0				/* prettyprint_matrix */
+ };
+ 
+ /* Initialize *OPTS to be a copy of the user print options.  */

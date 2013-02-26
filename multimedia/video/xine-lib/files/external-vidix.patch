@@ -1,0 +1,138 @@
+diff -urN xine-lib-1.1.9.orig/configure.ac xine-lib-1.1.9/configure.ac
+--- xine-lib-1.1.9.orig/configure.ac	2008-01-04 20:02:22 +0200
++++ xine-lib-1.1.9/configure.ac	2008-01-10 21:16:25 +0200
+@@ -1129,17 +1129,18 @@
+ AC_SUBST([LINUX_INCLUDE])
+ 
+ AC_ARG_ENABLE(vidix, AS_HELP_STRING([--disable-vidix], [do not build vidix support]),
+-	      check_vidix=$enableval, check_vidix=yes)
++	      enable_vidix=$enableval, enable_vidix=yes)
+ AC_ARG_ENABLE(dha-kmod, AS_HELP_STRING([--enable-dha-kmod], [build DHA kernel module]),
+ 	      enable_dha_kmod=$enableval,enable_dha_kmod=no)
+ 
+-enable_vidix="no"
++AC_ARG_WITH(external-vidix, AC_HELP_STRING([--with-external-vidix], [use external vidix library (not recommended)]),
++            [external_vidix="$withval"], [external_vidix="no"])
+ 
+ AC_MSG_CHECKING(for vidix support)
+-if test "x$check_vidix" = "xyes" -a "x$ac_cv_prog_AWK" != "xno"; then
++if test "x$enable_vidix" = "xyes" -a "x$ac_cv_prog_AWK" != "xno"; then
+   if test "x$no_x" != "xyes" -o "x$have_fb" = "xyes"; then
+     case "$host_or_hostalias" in
+-      i?86-*-linux* | k?-*-linux* | athlon-*-linux*)
++      i?86-*-linux* | k?-*-linux* | athlon-*-linux* | pentium*-*-linux* | x86_64-*-linux*)
+         enable_vidix="yes"
+         enable_linux="yes"
+         ;;
+@@ -1153,9 +1154,40 @@
+         ;;
+     esac
+   fi
++  VIDIX_PLUGINDIR=XINE_PLUGINDIR\"/vidix/\"
+ fi
+ AC_MSG_RESULT($enable_vidix)
+ 
++have_vidix="no"
++if test x"$enable_vidix" = "xno"; then
++  AC_MSG_RESULT([vidix support disabled])
++elif test x"$external_vidix" = "xyes"; then
++  have_vidix="yes"
++  AC_CHECK_HEADERS([vidix/vidixlib.h],, have_vidix="no",
++[
++  #ifdef HAVE_SYS_TYPES_H
++  # include <sys/types.h>
++  #endif
++  #ifdef HAVE_INTTYPES_H
++  # include <inttypes.h>
++  #endif
++  #ifdef HAVE_STDINT_H
++  # include <stdint.h>
++  #endif
++
++  #include <vidix/vidixlib.h>
++])
++  SAVE_LIBS="$LIBS"
++  AC_CHECK_LIB([vidix], [vdlGetVersion],, have_vidix="no", [])
++  LIBS="$SAVE_LIBS"
++  if test "x$have_vidix" = "xno"; then
++    AC_MSG_RESULT([*** no usable version of vidix found, using internal copy ***])
++  else
++    VIDIX_PLUGINDIR=\"$libdir/vidix/\"
++  fi
++fi
++AM_CONDITIONAL(EXTERNAL_VIDIX, test x"$have_vidix" = "xyes")
++
+ AC_MSG_CHECKING(for DHA linux kernel module build)
+ if test "x$enable_dha_kmod" = "xyes"; then
+   AC_MSG_RESULT(yes)
+@@ -2430,6 +2462,7 @@
+ AC_SUBST(XINE_FONTPATH)
+ AC_SUBST(XINE_LOCALEPATH)
+ AC_SUBST(XINE_PLUGINDIR)
++AC_SUBST(VIDIX_PLUGINDIR)
+ AC_SUBST(XINE_FONTDIR)
+ AC_SUBST(XINE_LOCALEDIR)
+ 
+diff -urN xine-lib-1.1.9.orig/src/video_out/Makefile.am xine-lib-1.1.9/src/video_out/Makefile.am
+--- xine-lib-1.1.9.orig/src/video_out/Makefile.am	2008-01-04 20:04:49 +0200
++++ xine-lib-1.1.9/src/video_out/Makefile.am	2008-01-10 21:18:22 +0200
+@@ -3,13 +3,17 @@
+ AM_CPPFLAGS = -DXINE_COMPILE
+ AM_LDFLAGS = $(xineplug_ldflags)
+ 
++if EXTERNAL_VIDIX
++SUBDIRS = macosx
++VIDIX_CFLAGS = -DVIDIX_PLUGINDIR='@VIDIX_PLUGINDIR@'
++else
+ SUBDIRS = libdha vidix macosx
++VIDIX_CFLAGS = -I$(top_builddir)/src/video_out/vidix \
++	-I$(top_srcdir)/src/video_out/vidix -DVIDIX_PLUGINDIR='@VIDIX_PLUGINDIR@'
++endif
+ 
+ EXTRA_DIST = video_out_directfb.c video_out_directfb_fb.c video_out_directfb_x.c video_out_directx.c video_out_macosx.m
+ 
+-VIDIX_CFLAGS = -I$(top_builddir)/src/video_out/vidix \
+-	-I$(top_srcdir)/src/video_out/vidix
+-
+ if HAVE_X11
+ X11OSD = x11osd.c
+ xshm_module = xineplug_vo_out_xshm.la
+@@ -147,8 +151,12 @@
+ xineplug_vo_out_pgx32_la_CFLAGS = $(VISIBILITY_FLAG) $(X_CFLAGS) $(SUNDGA_CFLAGS)
+ 
+ xineplug_vo_out_vidix_la_SOURCES = video_out_vidix.c $(X11OSD)
++if EXTERNAL_VIDIX
++xineplug_vo_out_vidix_la_LIBADD = $(X11_LIBS) -lXext $(X_LIBS) $(XINE_LIB) -lvidix $(THREAD_LIBS) $(LTLIBINTL)
++else
+ xineplug_vo_out_vidix_la_LIBADD = $(XINE_LIB)  $(X_LIBS) \
+ 	$(top_builddir)/src/video_out/vidix/libvidix.la $(PTHREAD_LIBS) $(LTLIBINTL)
++endif
+ xineplug_vo_out_vidix_la_CFLAGS = $(VISIBILITY_FLAG) $(VIDIX_CFLAGS) $(X_CFLAGS) -fno-strict-aliasing
+ 
+ xineplug_vo_out_aa_la_SOURCES =  video_out_aa.c
+diff -urN xine-lib-1.1.9.orig/src/video_out/video_out_vidix.c xine-lib-1.1.9/src/video_out/video_out_vidix.c
+--- xine-lib-1.1.9.orig/src/video_out/video_out_vidix.c	2008-01-01 15:30:09 +0200
++++ xine-lib-1.1.9/src/video_out/video_out_vidix.c	2008-01-10 21:16:25 +0200
+@@ -48,8 +48,13 @@
+ #endif
+ 
+ #include "xine.h"
++#ifdef HAVE_VIDIX_VIDIXLIB_H
++#include <vidix/vidixlib.h>
++#include <vidix/fourcc.h>
++#else
+ #include "vidixlib.h"
+ #include "fourcc.h"
++#endif
+ 
+ #define LOG_MODULE "video_out_vidix"
+ #define LOG_VERBOSE
+@@ -1100,7 +1105,7 @@
+     free(this);
+     return NULL;
+   }
+-  this->vidix_handler = vdlOpen((XINE_PLUGINDIR"/vidix/"), NULL, TYPE_OUTPUT, 0);
++  this->vidix_handler = vdlOpen((VIDIX_PLUGINDIR), NULL, TYPE_OUTPUT, 0);
+   if(this->vidix_handler == NULL)
+   {
+     xprintf(xine, XINE_VERBOSITY_LOG,

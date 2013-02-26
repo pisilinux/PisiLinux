@@ -1,0 +1,304 @@
+--- mc-2007-01-24-03/src/setup.c.showfree	2006-02-23 16:45:06.000000000 +0100
++++ mc-2007-01-24-03/src/setup.c	2007-02-15 09:53:48.000000000 +0100
+@@ -134,6 +134,7 @@
+     { "show_mini_info", &show_mini_info },
+     { "permission_mode", &permission_mode },
+     { "filetype_mode", &filetype_mode },
++    { "free_space", &free_space },
+     { 0, 0 }
+ };
+ 
+--- mc-2007-01-24-03/src/main.c.showfree	2007-02-15 09:53:48.000000000 +0100
++++ mc-2007-01-24-03/src/main.c	2007-02-15 09:53:48.000000000 +0100
+@@ -61,6 +61,7 @@
+ #include "listmode.h"
+ #include "execute.h"
+ #include "ext.h"		/* For flush_extension_file() */
++#include "mountlist.h"		/* my_statfs */
+ 
+ /* Listbox for the command history feature */
+ #include "widget.h"
+@@ -231,6 +232,12 @@
+ /* We need to paint it after CONSOLE_RESTORE, see: load_prompt */
+ int update_prompt = 0;
+ 
++/* Old current working directory for displaying free space */
++char *old_cwd = NULL;
++
++/* Used to figure out how many free space we have */
++struct my_statfs myfs_stats;
++
+ /* The home directory */
+ const char *home_dir = NULL;
+ 
+@@ -402,6 +409,8 @@
+     int reload_other = !(force_update & UP_ONLY_CURRENT);
+     WPanel *panel;
+ 
++    show_free_space(current_panel);
++
+     update_one_panel (get_current_index (), force_update, current_file);
+     if (reload_other)
+ 	update_one_panel (get_other_index (), force_update, UP_KEEPSEL);
+@@ -467,6 +476,38 @@
+     }
+ }
+ 
++void
++show_free_space(WPanel *panel)
++{
++    /* Don't try to stat non-local fs */
++    if (!vfs_file_is_local(panel->cwd) || !free_space)
++	return;
++   
++    if (old_cwd == NULL || strcmp(old_cwd, panel->cwd) != 0) {
++	char rpath[PATH_MAX];
++    
++	init_my_statfs();
++	g_free(old_cwd);
++	old_cwd = g_strdup(panel->cwd);
++	
++	if (mc_realpath (panel->cwd, rpath) == NULL)
++            return;
++	my_statfs (&myfs_stats, rpath);
++    }
++   
++    if (myfs_stats.avail > 0 || myfs_stats.total > 0) {
++	char buffer1 [6], buffer2[6], *tmp;
++	size_trunc_len (buffer1, 5, myfs_stats.avail, 1);
++	size_trunc_len (buffer2, 5, myfs_stats.total, 1);
++	tmp = g_strdup_printf (_("%s (%d%%) of %s"), buffer1, myfs_stats.total > 0 ?
++			       (int)(100 * (double)myfs_stats.avail / myfs_stats.total) : 0,
++			       buffer2);
++	widget_move (&panel->widget, panel->widget.lines-1, panel->widget.cols-2-strlen(tmp));
++	addstr (tmp);
++	g_free (tmp);
++    }
++}
++                                                                                                                                                                                                                                 
+ static int
+ quit_cmd_internal (int quiet)
+ {
+--- mc-2007-01-24-03/src/main.h.showfree	2007-02-15 09:53:48.000000000 +0100
++++ mc-2007-01-24-03/src/main.h	2007-02-15 09:53:48.000000000 +0100
+@@ -55,6 +55,7 @@
+ extern int show_all_if_ambiguous;
+ extern int slow_terminal;
+ extern int update_prompt;	/* To comunicate with subshell */
++extern char *old_cwd;
+ extern int safe_delete;
+ extern int confirm_delete;
+ extern int confirm_directory_hotlist_delete;
+@@ -102,6 +103,7 @@
+ int load_prompt     (int, void *);
+ void save_cwds_stat (void);
+ void quiet_quit_cmd (void);	/* For cmd.c and command.c */
++void show_free_space(WPanel *panel);
+ 
+ void touch_bar      (void);
+ void update_xterm_title_path (void);
+--- mc-2007-01-24-03/src/screen.c.showfree	2007-02-15 09:53:48.000000000 +0100
++++ mc-2007-01-24-03/src/screen.c	2007-02-15 09:53:48.000000000 +0100
+@@ -47,7 +47,7 @@
+ #include "widget.h"
+ #include "menu.h"		/* menubar_visible */
+ #define WANT_WIDGETS
+-#include "main.h"		/* the_menubar */
++#include "main.h"		/* the_menubar, show_free_space() */
+ #include "unixcompat.h"
+ 
+ #define ELEMENTS(arr) ( sizeof(arr) / sizeof((arr)[0]) )
+@@ -866,6 +866,7 @@
+     hline ((slow_terminal ? '-' : ACS_HLINE) | NORMAL_COLOR,
+ 	   panel->widget.cols - 2);
+ #endif				/* !HAVE_SLANG */
++    show_free_space (panel);
+ }
+ 
+ static void
+@@ -910,6 +911,8 @@
+     widget_move (&panel->widget, 0, panel->widget.cols - 3);
+     addstr ("v");
+ 
++    mini_info_separator (panel);
++
+     if (panel->active)
+ 	standend ();
+ }
+--- mc-2007-01-24-03/src/layout.c.showfree	2007-02-15 09:53:47.000000000 +0100
++++ mc-2007-01-24-03/src/layout.c	2007-02-15 09:53:48.000000000 +0100
+@@ -96,6 +96,9 @@
+ /* Set to show current working dir in xterm window title */
+ int xterm_title = 1;
+ 
++/* Set to show free space on device assigned to current directory */
++int free_space = 1;
++
+ /* The starting line for the output of the subprogram */
+ int output_start_y = 0;
+ 
+@@ -125,6 +128,7 @@
+ static int _keybar_visible;
+ static int _message_visible;
+ static int _xterm_title;
++static int _free_space;
+ static int _permission_mode;
+ static int _filetype_mode;
+ 
+@@ -155,6 +159,7 @@
+     int    *variable;
+     WCheck *widget;
+ } check_options [] = {
++    { N_("show free sp&Ace"),  &free_space,      0 },
+     { N_("&Xterm window title"), &xterm_title,   0 },
+     { N_("h&Intbar visible"),  &message_visible, 0 },
+     { N_("&Keybar visible"),   &keybar_visible,  0 },
+@@ -226,8 +231,8 @@
+     if (_equal_split){
+ 	/* Turn equal split off */
+ 	_equal_split = 0;
+-	check_options [6].widget->state = check_options [6].widget->state & ~C_BOOL;
+-	dlg_select_widget (check_options [6].widget);
++	check_options [7].widget->state = check_options [7].widget->state & ~C_BOOL;
++	dlg_select_widget (check_options [7].widget);
+ 	dlg_select_widget (bleft_widget);
+     }
+     _first_panel_size++;
+@@ -241,8 +246,8 @@
+     if (_equal_split){
+ 	/* Turn equal split off */
+ 	_equal_split = 0;
+-	check_options [6].widget->state = check_options [6].widget->state & ~C_BOOL;
+-	dlg_select_widget (check_options [6].widget);
++	check_options [7].widget->state = check_options [7].widget->state & ~C_BOOL;
++	dlg_select_widget (check_options [7].widget);
+ 	dlg_select_widget (bright_widget);
+     }
+     _first_panel_size--;
+@@ -288,23 +293,24 @@
+ 	    if (old_output_lines != _output_lines){
+ 		old_output_lines = _output_lines;
+ 		attrset (COLOR_NORMAL);
+-		dlg_move (h, 9, 16 + first_width);
++		dlg_move (h, 10, 16 + first_width);
+ 		addstr (output_lines_label);
+-		dlg_move (h, 9, 10 + first_width);
++		dlg_move (h, 10, 10 + first_width);
+ 		tty_printf ("%02d", _output_lines);
+ 	    }
+ 	}
+ 	return MSG_HANDLED;
+ 
+     case DLG_POST_KEY:
+-	_filetype_mode = check_options [8].widget->state & C_BOOL;
+-	_permission_mode = check_options [7].widget->state & C_BOOL;
+-	_equal_split = check_options [6].widget->state & C_BOOL;
+-	_menubar_visible = check_options [5].widget->state & C_BOOL;
+-	_command_prompt = check_options [4].widget->state & C_BOOL;
+-	_keybar_visible = check_options [2].widget->state & C_BOOL;
+-	_message_visible = check_options [1].widget->state & C_BOOL;
+-	_xterm_title = check_options [0].widget->state & C_BOOL;
++	_filetype_mode = check_options [9].widget->state & C_BOOL;
++	_permission_mode = check_options [8].widget->state & C_BOOL;
++	_equal_split = check_options [7].widget->state & C_BOOL;
++	_menubar_visible = check_options [6].widget->state & C_BOOL;
++	_command_prompt = check_options [5].widget->state & C_BOOL;
++	_keybar_visible = check_options [3].widget->state & C_BOOL;
++	_message_visible = check_options [2].widget->state & C_BOOL;
++	_xterm_title = check_options [1].widget->state & C_BOOL;
++	_free_space = check_options [0].widget->state & C_BOOL;
+ 	if (console_flag){
+ 	    int minimum;
+ 	    if (_output_lines < 0)
+@@ -332,7 +338,7 @@
+ 	    if (old_output_lines != _output_lines){
+ 		old_output_lines = _output_lines;
+ 		attrset (COLOR_NORMAL);
+-		dlg_move (h, 9, 10 + first_width);
++		dlg_move (h, 10, 10 + first_width);
+ 		tty_printf ("%02d", _output_lines);
+ 	    }
+ 	}
+@@ -371,7 +377,7 @@
+ 		first_width = l1;
+ 	}
+ 
+-	for (i = 0; i <= 8; i++) {
++	for (i = 0; i <= 9; i++) {
+ 	    check_options[i].text = _(check_options[i].text);
+ 	    l1 = mbstrlen (check_options[i].text) + 7;
+ 	    if (l1 > first_width)
+@@ -388,7 +394,7 @@
+ 
+ 
+ 	second_width = mbstrlen (title3) + 1;
+-	for (i = 0; i < 6; i++) {
++	for (i = 0; i < 7; i++) {
+ 	    check_options[i].text = _(check_options[i].text);
+ 	    l1 = mbstrlen (check_options[i].text) + 7;
+ 	    if (l1 > second_width)
+@@ -443,23 +449,23 @@
+ 			    0));
+     if (console_flag) {
+ 	add_widget (layout_dlg,
+-		    button_new (9, 12 + first_width, B_MINUS,
++		    button_new (10, 12 + first_width, B_MINUS,
+ 				NARROW_BUTTON, "&-", bminus_cback));
+ 	add_widget (layout_dlg,
+-		    button_new (9, 7 + first_width, B_PLUS, NARROW_BUTTON,
++		    button_new (10, 7 + first_width, B_PLUS, NARROW_BUTTON,
+ 				"&+", bplus_cback));
+     }
+ #define XTRACT(i) *check_options[i].variable, check_options[i].text
+ 
+-    for (i = 0; i < 6; i++) {
++    for (i = 0; i < 7; i++) {
+ 	check_options[i].widget =
+-	    check_new (8 - i, 7 + first_width, XTRACT (i));
++	    check_new (9 - i, 7 + first_width, XTRACT (i));
+ 	add_widget (layout_dlg, check_options[i].widget);
+     }
+-    check_options[8].widget = check_new (10, 6, XTRACT (8));
++    check_options[9].widget = check_new (10, 6, XTRACT (9));
++    add_widget (layout_dlg, check_options[9].widget);
++    check_options[8].widget = check_new (9, 6, XTRACT (8));
+     add_widget (layout_dlg, check_options[8].widget);
+-    check_options[7].widget = check_new (9, 6, XTRACT (7));
+-    add_widget (layout_dlg, check_options[7].widget);
+ 
+     _filetype_mode = filetype_mode;
+     _permission_mode = permission_mode;
+@@ -469,20 +475,21 @@
+     _keybar_visible = keybar_visible;
+     _message_visible = message_visible;
+     _xterm_title = xterm_title;
++    _free_space = free_space;
+     bright_widget =
+ 	button_new (6, 15, B_2RIGHT, NARROW_BUTTON, "&>", b2right_cback);
+     add_widget (layout_dlg, bright_widget);
+     bleft_widget =
+ 	button_new (6, 9, B_2LEFT, NARROW_BUTTON, "&<", b2left_cback);
+     add_widget (layout_dlg, bleft_widget);
+-    check_options[6].widget = check_new (5, 6, XTRACT (6));
++    check_options[7].widget = check_new (5, 6, XTRACT (7));
+     old_first_panel_size = -1;
+     old_horizontal_split = -1;
+     old_output_lines = -1;
+ 
+     _first_panel_size = first_panel_size;
+     _output_lines = output_lines;
+-    add_widget (layout_dlg, check_options[6].widget);
++    add_widget (layout_dlg, check_options[7].widget);
+     radio_widget = radio_new (3, 6, 2, s_split_direction);
+     add_widget (layout_dlg, radio_widget);
+     radio_widget->sel = horizontal_split;
+--- mc-2007-01-24-03/src/layout.h.showfree	2004-12-03 20:17:47.000000000 +0100
++++ mc-2007-01-24-03/src/layout.h	2007-02-15 09:53:48.000000000 +0100
+@@ -39,6 +39,7 @@
+ extern int output_start_y;
+ extern int message_visible;
+ extern int xterm_title;
++extern int free_space;
+ 
+ extern int horizontal_split;
+ extern int nice_rotating_dash;

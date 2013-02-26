@@ -1,0 +1,155 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.390
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.390
+Problem:    Using NULL buffer pointer in a window.
+Solution:   Check for w_buffer being NULL in more places. (Bjorn Winckler)
+Files:	    src/ex_cmds.c, src/quickfix.c, src/window.c
+
+
+*** ../vim-7.3.389/src/ex_cmds.c	2011-11-30 17:01:55.000000000 +0100
+--- src/ex_cmds.c	2011-12-30 14:59:57.000000000 +0100
+***************
+*** 3390,3395 ****
+--- 3390,3402 ----
+  				      (flags & ECMD_HIDE) ? 0 : DOBUF_UNLOAD);
+  
+  #ifdef FEAT_AUTOCMD
++ 		/* Autocommands may open a new window and leave oldwin open
++ 		 * which leads to crashes since the above call sets
++ 		 * oldwin->w_buffer to NULL. */
++ 		if (curwin != oldwin && oldwin != aucmd_win
++ 			     && win_valid(oldwin) && oldwin->w_buffer == NULL)
++ 		    win_close(oldwin, FALSE);
++ 
+  # ifdef FEAT_EVAL
+  		if (aborting())	    /* autocmds may abort script processing */
+  		{
+*** ../vim-7.3.389/src/quickfix.c	2011-08-10 18:36:49.000000000 +0200
+--- src/quickfix.c	2011-12-30 14:45:19.000000000 +0100
+***************
+*** 2675,2681 ****
+  bt_quickfix(buf)
+      buf_T	*buf;
+  {
+!     return (buf->b_p_bt[0] == 'q');
+  }
+  
+  /*
+--- 2675,2681 ----
+  bt_quickfix(buf)
+      buf_T	*buf;
+  {
+!     return buf != NULL && buf->b_p_bt[0] == 'q';
+  }
+  
+  /*
+***************
+*** 2686,2693 ****
+  bt_nofile(buf)
+      buf_T	*buf;
+  {
+!     return (buf->b_p_bt[0] == 'n' && buf->b_p_bt[2] == 'f')
+! 	    || buf->b_p_bt[0] == 'a';
+  }
+  
+  /*
+--- 2686,2693 ----
+  bt_nofile(buf)
+      buf_T	*buf;
+  {
+!     return buf != NULL && ((buf->b_p_bt[0] == 'n' && buf->b_p_bt[2] == 'f')
+! 	    || buf->b_p_bt[0] == 'a');
+  }
+  
+  /*
+***************
+*** 2697,2703 ****
+  bt_dontwrite(buf)
+      buf_T	*buf;
+  {
+!     return (buf->b_p_bt[0] == 'n');
+  }
+  
+      int
+--- 2697,2703 ----
+  bt_dontwrite(buf)
+      buf_T	*buf;
+  {
+!     return buf != NULL && buf->b_p_bt[0] == 'n';
+  }
+  
+      int
+*** ../vim-7.3.389/src/window.c	2011-09-14 14:43:21.000000000 +0200
+--- src/window.c	2011-12-30 14:44:18.000000000 +0100
+***************
+*** 2170,2176 ****
+  
+      /* When closing the help window, try restoring a snapshot after closing
+       * the window.  Otherwise clear the snapshot, it's now invalid. */
+!     if (win->w_buffer->b_help)
+  	help_window = TRUE;
+      else
+  	clear_snapshot(curtab, SNAP_HELP_IDX);
+--- 2170,2176 ----
+  
+      /* When closing the help window, try restoring a snapshot after closing
+       * the window.  Otherwise clear the snapshot, it's now invalid. */
+!     if (win->w_buffer != NULL && win->w_buffer->b_help)
+  	help_window = TRUE;
+      else
+  	clear_snapshot(curtab, SNAP_HELP_IDX);
+***************
+*** 2214,2226 ****
+  
+  #ifdef FEAT_SYN_HL
+      /* Free independent synblock before the buffer is freed. */
+!     reset_synblock(win);
+  #endif
+  
+      /*
+       * Close the link to the buffer.
+       */
+!     close_buffer(win, win->w_buffer, free_buf ? DOBUF_UNLOAD : 0);
+  
+      /* Autocommands may have closed the window already, or closed the only
+       * other window or moved to another tab page. */
+--- 2214,2228 ----
+  
+  #ifdef FEAT_SYN_HL
+      /* Free independent synblock before the buffer is freed. */
+!     if (win->w_buffer != NULL)
+! 	reset_synblock(win);
+  #endif
+  
+      /*
+       * Close the link to the buffer.
+       */
+!     if (win->w_buffer != NULL)
+! 	close_buffer(win, win->w_buffer, free_buf ? DOBUF_UNLOAD : 0);
+  
+      /* Autocommands may have closed the window already, or closed the only
+       * other window or moved to another tab page. */
+*** ../vim-7.3.389/src/version.c	2011-12-30 14:14:16.000000000 +0100
+--- src/version.c	2011-12-30 14:38:39.000000000 +0100
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     390,
+  /**/
+
+-- 
+There can't be a crisis today, my schedule is already full.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,274 @@
+diff -up ./cmake/internal/SearchForStuff.cmake.enablephidget ./cmake/internal/SearchForStuff.cmake
+--- ./cmake/internal/SearchForStuff.cmake.enablephidget	2011-01-08 09:28:15.974551777 -0500
++++ ./cmake/internal/SearchForStuff.cmake	2011-01-08 09:29:23.678551971 -0500
+@@ -232,3 +232,41 @@ IF (PLAYER_OS_WIN)
+         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/internal/setdlldirectory.c)
+ ENDIF (PLAYER_OS_WIN)
+ 
++# Check for libphidget, see if we have 2.1.7 or later
++SET (PHIDGET_INCLUDE_DIR "" CACHE STRING "Directory containing the Phidget headers")
++SET (PHIDGET_LIB_DIR "" CACHE STRING "Directory containing the Phidget libraries")
++MARK_AS_ADVANCED (PHIDGET_INCLUDE_DIR)
++MARK_AS_ADVANCED (PHIDGET_LIB_DIR)
++
++IF ("${PHIDGET_INCLUDE_DIR}" STREQUAL "")
++    SET (phidgetHeader "phidget21.h")
++    SET (phidgetCFlags "")
++ELSE ("${PHIDGET_INCLUDE_DIR}" STREQUAL "")
++    SET (phidgetHeader "${PHIDGET_INCLUDE_DIR}/phidget21.h")
++    SET (phidgetCFlags "-I${PHIDGET_INCLUDE_DIR}")
++ENDIF ("${PHIDGET_INCLUDE_DIR}" STREQUAL "")
++
++IF ("${PHIDGET_LIB_DIR}" STREQUAL "")
++    SET (phidgetLinkFlags "-lphidget21")
++ELSE ("${PHIDGET_LIB_DIR}" STREQUAL "")
++    SET (phidgetLinkFlags " -L${PHIDGET_LIB_DIR} -lphidget21")
++ENDIF ("${PHIDGET_LIB_DIR}" STREQUAL "")
++
++IF (HAVE_DNS_SD)
++   SET (phidgetLinkFlags "${phidgetLinkFlags} -ldns_sd")
++ENDIF(HAVE_DNS_SD)
++
++CHECK_INCLUDE_FILES(${phidgetHeader} HAVE_PHIDGET_H)
++IF (HAVE_PHIDGET_H)
++    INCLUDE (CheckCSourceCompiles)
++    SET(CMAKE_REQUIRED_FLAGS "${phidgetCFlags} ${phidgetLinkFlags} -lphidget21")
++    SET (CHECK_PHIDGET_SOURCE_CODE "#include <phidget21.h>\n int main () 
++    {CPhidgetInterfaceKitHandle ifk=0; int phidget_num_outputs=0;
++    CPhidgetInterfaceKit_create(&ifk);
++    CPhidgetInterfaceKit_getOutputCount(ifk, &phidget_num_outputs); return 0; }\n")
++    CHECK_C_SOURCE_COMPILES ("${CHECK_PHIDGET_SOURCE_CODE}" HAVE_PHIDGET_2_1_7)
++ENDIF (HAVE_PHIDGET_H)
++
++IF (HAVE_PHIDGET_H)
++   SET(HAVE_PHIDGET true)
++ENDIF (HAVE_PHIDGET_H)
+diff -up ./config.h.in.enablephidget ./config.h.in
+--- ./config.h.in.enablephidget	2011-01-08 09:42:02.950551971 -0500
++++ ./config.h.in	2011-01-08 09:42:43.419551971 -0500
+@@ -15,4 +15,5 @@
+ #cmakedefine HAVE_IEEEFP_H 1
+ #cmakedefine WORDS_BIGENDIAN 1
+ #cmakedefine HAVE_SETDLLDIRECTORY 1
++#cmakedefine HAVE_PHIDGET_2_1_7 1
+ 
+diff -up ./server/drivers/mixed/phidgetIFK/CMakeLists.txt.enablephidget ./server/drivers/mixed/phidgetIFK/CMakeLists.txt
+--- ./server/drivers/mixed/phidgetIFK/CMakeLists.txt.enablephidget	2011-01-08 09:30:18.492552601 -0500
++++ ./server/drivers/mixed/phidgetIFK/CMakeLists.txt	2011-01-08 09:31:27.874551975 -0500
+@@ -1,16 +1,10 @@
+-PLAYERDRIVER_OPTION (phidgetifk build_phidgetifk ON)
+-SET (PHIDGETIFK_DIR "" CACHE STRING "Directory containing the Phidget IFK headers and libraries")
+-MARK_AS_ADVANCED (PHIDGETIFK_DIR)
+-IF ("${PHIDGETIFK_DIR}" STREQUAL "")
+-    SET (phidgetReqHeader "phidget21.h")
+-    SET (phidgetExtraFlags "")
+-    SET (phidgetExtraLibs "-lphidget21")
+-ELSE ("${PHIDGETIFK_DIR}" STREQUAL "")
+-    SET (phidgetReqHeader "${PHIDGETIFK_DIR}/phidget21.h")
+-    SET (phidgetExtraFlags "-I${PHIDGETIFK_DIR}/include")
+-    SET (phidgetExtraLibs "-L${PHIDGETIFK_DIR}/lib -lphidget21")
+-ENDIF ("${PHIDGETIFK_DIR}" STREQUAL "")
+-PLAYERDRIVER_REQUIRE_HEADER (phidgetifk build_phidgetifk ${phidgetReqHeader})
++# libphidget now discovered in SearchForStuff.cmake
++IF (HAVE_PHIDGET)
++  PLAYERDRIVER_OPTION (phidgetifk build_phidgetifk ON)
++ELSE (HAVE_PHIDGET)
++  PLAYERDRIVER_OPTION (phidgetifk build_phidgetifk OFF "Could not find libphidget")
++ENDIF (HAVE_PHIDGET)
++  
+ PLAYERDRIVER_ADD_DRIVER (phidgetifk build_phidgetifk
+-    LINKFLAGS ${phidgetExtraLibs} CFLAGS ${phidgetExtraFlags}
++    LINKFLAGS ${phidgetLinkFlags} CFLAGS ${phidgetCFlags}
+     SOURCES phidgetIFK.cc)
+diff -up ./server/drivers/mixed/phidgetIFK/phidgetIFK.cc.enablephidget ./server/drivers/mixed/phidgetIFK/phidgetIFK.cc
+--- ./server/drivers/mixed/phidgetIFK/phidgetIFK.cc.enablephidget	2011-01-08 09:43:14.839551971 -0500
++++ ./server/drivers/mixed/phidgetIFK/phidgetIFK.cc	2011-01-08 09:44:01.493551971 -0500
+@@ -87,7 +87,6 @@ driver
+ /** @} */
+ 
+ 
+-
+ #include <unistd.h>
+ #include <string.h>
+ #include <iostream>
+@@ -97,7 +96,7 @@ driver
+ #include "phidget21.h"
+ 
+ #include <libplayercore/playercore.h>
+-
++#include "config.h"
+ 
+ //For nanosleep:
+ #include <time.h>
+@@ -326,8 +325,11 @@ int PhidgetIFK::ProcessMessage(QueuePoin
+ 
+         //the actual ammount of digital outputs of the widget
+         int phidget_num_outputs(0);
++#ifdef HAVE_PHIDGET_2_1_7
++        CPhidgetInterfaceKit_getOutputCount(ifk, &phidget_num_outputs);
++#else
+         CPhidgetInterfaceKit_getNumOutputs(ifk, &phidget_num_outputs);
+-
++#endif
+         if (count > static_cast<int>(max_do)) {
+             PLAYER_WARN("PhidgetIFK: Received a command with a huge ammount of digital outputs. Check the value of count.\n");
+             PLAYER_WARN1("PhidgetIFK: Limiting to the maximum possible value: %d\n",max_do);
+@@ -379,10 +381,14 @@ int PhidgetIFK::ProcessMessage(QueuePoin
+ 
+         //Get the size of the LCD screen
+         int numcolumns(0);
+-        CPhidgetTextLCD_getNumColumns(lcd,&numcolumns);
+         int numrows(0);
++#ifdef HAVE_PHIDGET_2_1_7
++        CPhidgetTextLCD_getColumnCount(lcd,&numcolumns);
++        CPhidgetTextLCD_getRowCount(lcd,&numrows);
++#else
++        CPhidgetTextLCD_getNumColumns(lcd,&numcolumns);
+         CPhidgetTextLCD_getNumRows(lcd,&numrows);
+-
++#endif
+         //Copy the text to a string for easier manipulation
+         string completemessage;
+         completemessage = const_cast<const char *>(cmd->string);
+@@ -472,8 +478,11 @@ void PhidgetIFK::Main() {
+ 
+         //Read from the device.
+         int numsensors(0);
++#ifdef HAVE_PHIDGET_2_1_7
++        CPhidgetInterfaceKit_getSensorCount(ifk, &numsensors);
++#else
+         CPhidgetInterfaceKit_getNumSensors(ifk, &numsensors);
+-
++#endif
+         std::vector<float> values;
+         for (int i = 0 ; i != numsensors ; ++i) {
+             values.push_back(0.0);
+@@ -502,8 +511,11 @@ void PhidgetIFK::Main() {
+         player_dio_data_t data_di;
+         //need the digital inputs as a bitfield
+         int num_di(0);
++#ifdef HAVE_PHIDGET_2_1_7
++        CPhidgetInterfaceKit_getInputCount(ifk, &num_di);
++#else
+         CPhidgetInterfaceKit_getNumInputs(ifk, &num_di);
+-
++#endif
+         data_di.count=num_di;
+ 
+         std::vector<bool> divalues;
+diff -up ./server/drivers/rfid/CMakeLists.txt.enablephidget ./server/drivers/rfid/CMakeLists.txt
+--- ./server/drivers/rfid/CMakeLists.txt.enablephidget	2011-01-08 09:30:27.997551861 -0500
++++ ./server/drivers/rfid/CMakeLists.txt	2011-01-08 09:31:54.667551970 -0500
+@@ -10,21 +10,15 @@ PLAYERDRIVER_OPTION (skyetekM1 build_sky
+ PLAYERDRIVER_REJECT_OS (skyetekM1 build_skyetekM1 PLAYER_OS_WIN)
+ PLAYERDRIVER_ADD_DRIVER (skyetekM1 build_skyetekM1 SOURCES skyetekM1.cc)
+ 
+-PLAYERDRIVER_OPTION (phidgetRFID build_phidgetRFID ON)
+-SET (PHIDGETRFID_DIR "" CACHE STRING "Directory containing the Phidget RFID headers and libraries")
+-MARK_AS_ADVANCED (PHIDGETRFID_DIR)
+-IF ("${PHIDGETRFID_DIR}" STREQUAL "")
+-    SET (phidgetReqHeader "phidget21.h")
+-    SET (phidgetExtraFlags "")
+-    SET (phidgetExtraLibs "-lphidget21")
+-ELSE ("${PHIDGETRFID_DIR}" STREQUAL "")
+-    SET (phidgetReqHeader "${PHIDGETRFID_DIR}/phidget21.h")
+-    SET (phidgetExtraFlags "-I${PHIDGETRFID_DIR}/include")
+-    SET (phidgetExtraLibs "-L${PHIDGETRFID_DIR}/lib -lphidget21")
+-ENDIF ("${PHIDGETRFID_DIR}" STREQUAL "")
+-PLAYERDRIVER_REQUIRE_HEADER (phidgetRFID build_phidgetRFID ${phidgetReqHeader})
++# libphidget now discovered in SearchForStuff.cmake
++IF (HAVE_PHIDGET)
++  PLAYERDRIVER_OPTION (phidgetAcc build_phidgetRFID ON)
++ELSE (HAVE_PHIDGET)
++  PLAYERDRIVER_OPTION (phidgetAcc build_phidgetRFID OFF "Could not find libphidget")
++ENDIF (HAVE_PHIDGET)
++
+ PLAYERDRIVER_ADD_DRIVER (phidgetRFID build_phidgetRFID
+-    LINKFLAGS ${phidgetExtraLibs} CFLAGS "${phidgetExtraFlags}"
++    LINKFLAGS ${phidgetLinkFlags} CFLAGS "${phidgetCFlags}"
+     SOURCES phidgetRFID.cc)
+ 
+ PLAYERDRIVER_OPTION (acr120u build_acr120u ON)
+diff -up ./server/drivers/rfid/phidgetRFID.cc.enablephidget ./server/drivers/rfid/phidgetRFID.cc
+--- ./server/drivers/rfid/phidgetRFID.cc.enablephidget	2011-01-08 09:43:32.178551971 -0500
++++ ./server/drivers/rfid/phidgetRFID.cc	2011-01-08 09:44:33.501551971 -0500
+@@ -83,9 +83,9 @@ driver
+ /** @} */
+ 
+ 
+-
+ #include "phidget21.h"
+ #include <libplayercore/playercore.h>
++#include "config.h"
+ 
+ #include <unistd.h>
+ #include <string.h>
+@@ -261,7 +261,11 @@ int Phidgetrfid::ProcessMessage(QueuePoi
+ 
+         //the actual ammount of digital outputs of the widget
+         int phidget_num_outputs(0);
++#ifdef HAVE_PHIDGET_2_1_7
++        CPhidgetRFID_getOutputCount(rfid, &phidget_num_outputs);
++#else
+         CPhidgetRFID_getNumOutputs(rfid, &phidget_num_outputs);
++#endif
+         printf("Num of outputs: %d\n", phidget_num_outputs);
+ 
+         if (count > static_cast<int>(max_do)) {
+diff -up ./server/drivers/wsn/CMakeLists.txt.enablephidget ./server/drivers/wsn/CMakeLists.txt
+--- ./server/drivers/wsn/CMakeLists.txt.enablephidget	2011-01-08 09:30:38.161552089 -0500
++++ ./server/drivers/wsn/CMakeLists.txt	2011-01-08 09:32:14.870551971 -0500
+@@ -21,19 +21,12 @@ ELSE (HAVE_STL)
+ ENDIF (HAVE_STL)
+ PLAYERDRIVER_ADD_DRIVER (accel_calib build_accel_calib SOURCES accel_calib.cc)
+ 
+-PLAYERDRIVER_OPTION (phidgetAcc build_phidgetAcc ON)
+-SET (PHIDGETACC_DIR "" CACHE STRING "Directory containing the Phidget Acc headers and libraries")
+-MARK_AS_ADVANCED (PHIDGETACC_DIR)
+-IF ("${PHIDGETACC_DIR}" STREQUAL "")
+-    SET (phidgetReqHeader "phidget21.h")
+-    SET (phidgetExtraFlags "")
+-    SET (phidgetExtraLibs "-lphidget21")
+-ELSE ("${PHIDGETACC_DIR}" STREQUAL "")
+-    SET (phidgetReqHeader "${PHIDGETACC_DIR}/phidget21.h")
+-    SET (phidgetExtraFlags "-I${PHIDGETACC_DIR}/include")
+-    SET (phidgetExtraLibs "-L${PHIDGETACC_DIR}/lib -lphidget21")
+-ENDIF ("${PHIDGETACC_DIR}" STREQUAL "")
+-PLAYERDRIVER_REQUIRE_HEADER (phidgetAcc build_phidgetAcc ${phidgetReqHeader})
++# libphidget now discovered in SearchForStuff.cmake
++IF (HAVE_PHIDGET)
++  PLAYERDRIVER_OPTION (phidgetAcc build_phidgetAcc ON)
++ELSE (HAVE_PHIDGET)
++  PLAYERDRIVER_OPTION (phidgetAcc build_phidgetAcc OFF "Could not find libphidget")
++ENDIF (HAVE_PHIDGET)
+ PLAYERDRIVER_ADD_DRIVER (phidgetAcc build_phidgetAcc
+-    LINKFLAGS ${phidgetExtraLibs} CFLAGS ${phidgetExtraFlags}
++    LINKFLAGS ${phidgetLinkFlags} CFLAGS ${phidgetCFlags}
+     SOURCES phidgetAcc.cc)
+diff -up ./server/drivers/wsn/phidgetAcc.cc.enablephidget ./server/drivers/wsn/phidgetAcc.cc
+--- ./server/drivers/wsn/phidgetAcc.cc.enablephidget	2011-01-08 09:43:25.513551970 -0500
++++ ./server/drivers/wsn/phidgetAcc.cc	2011-01-08 09:44:16.546551971 -0500
+@@ -79,10 +79,9 @@ driver
+  */
+ /** @} */
+ 
+-
+-
+ #include "phidget21.h"
+ #include <libplayercore/playercore.h>
++#include "config.h"
+ 
+ #include <unistd.h>
+ #include <string.h>
+@@ -273,7 +272,11 @@ void PhidgetAcc::Main() {
+     	data.data_packet.temperature = -1;
+     	data.data_packet.battery     = -1;
+ 	int n_axis;
++#ifdef HAVE_PHIDGET_2_1_7
++	if(CPhidgetAccelerometer_getAxisCount(accel,&n_axis)) return;
++#else
+ 	if(CPhidgetAccelerometer_getNumAxis(accel,&n_axis)) return;
++#endif
+ 	double *p_accel;
+ 	p_accel= new double[n_axis];
+ 	for (int i=0;i<n_axis;++i) {

@@ -1,0 +1,268 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.172
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.172
+Problem:    MS-Windows: rename() might delete the file if the name differs but
+	    it's actually the same file.
+Solution:   Use the file handle to check if it's the same file. (Yukihiro
+	    Nakadaira)
+Files:	    src/if_cscope.c, src/fileio.c, src/os_win32.c,
+	    src/proto/os_win32.pro, src/vim.h
+
+
+*** ../vim-7.3.171/src/if_cscope.c	2011-03-03 15:01:25.000000000 +0100
+--- src/if_cscope.c	2011-05-05 16:16:38.000000000 +0200
+***************
+*** 1412,1428 ****
+  {
+      short	i, j;
+  #ifndef UNIX
+-     HANDLE	hFile;
+      BY_HANDLE_FILE_INFORMATION bhfi;
+  
+-     vim_memset(&bhfi, 0, sizeof(bhfi));
+      /* On windows 9x GetFileInformationByHandle doesn't work, so skip it */
+      if (!mch_windows95())
+      {
+! 	hFile = CreateFile(fname, FILE_READ_ATTRIBUTES, 0, NULL, OPEN_EXISTING,
+! 						 FILE_ATTRIBUTE_NORMAL, NULL);
+! 	if (hFile == INVALID_HANDLE_VALUE)
+  	{
+  	    if (p_csverbose)
+  	    {
+  		char *cant_msg = _("E625: cannot open cscope database: %s");
+--- 1412,1426 ----
+  {
+      short	i, j;
+  #ifndef UNIX
+      BY_HANDLE_FILE_INFORMATION bhfi;
+  
+      /* On windows 9x GetFileInformationByHandle doesn't work, so skip it */
+      if (!mch_windows95())
+      {
+! 	switch (win32_fileinfo(fname, &bhfi))
+  	{
++ 	case FILEINFO_ENC_FAIL:		/* enc_to_utf16() failed */
++ 	case FILEINFO_READ_FAIL:	/* CreateFile() failed */
+  	    if (p_csverbose)
+  	    {
+  		char *cant_msg = _("E625: cannot open cscope database: %s");
+***************
+*** 1438,1452 ****
+  		    (void)EMSG2(cant_msg, fname);
+  	    }
+  	    return -1;
+! 	}
+! 	if (!GetFileInformationByHandle(hFile, &bhfi))
+! 	{
+! 	    CloseHandle(hFile);
+  	    if (p_csverbose)
+  		(void)EMSG(_("E626: cannot get cscope database information"));
+  	    return -1;
+  	}
+- 	CloseHandle(hFile);
+      }
+  #endif
+  
+--- 1436,1447 ----
+  		    (void)EMSG2(cant_msg, fname);
+  	    }
+  	    return -1;
+! 
+! 	case FILEINFO_INFO_FAIL:    /* GetFileInformationByHandle() failed */
+  	    if (p_csverbose)
+  		(void)EMSG(_("E626: cannot get cscope database information"));
+  	    return -1;
+  	}
+      }
+  #endif
+  
+*** ../vim-7.3.171/src/fileio.c	2011-04-11 21:35:03.000000000 +0200
+--- src/fileio.c	2011-05-05 16:22:22.000000000 +0200
+***************
+*** 6555,6560 ****
+--- 6555,6575 ----
+  	    use_tmp_file = TRUE;
+      }
+  #endif
++ #ifdef WIN3264
++     {
++ 	BY_HANDLE_FILE_INFORMATION info1, info2;
++ 
++ 	/* It's possible for the source and destination to be the same file.
++ 	 * In that case go through a temp file name.  This makes rename("foo",
++ 	 * "./foo") a no-op (in a complicated way). */
++ 	if (win32_fileinfo(from, &info1) == FILEINFO_OK
++ 		&& win32_fileinfo(to, &info2) == FILEINFO_OK
++ 		&& info1.dwVolumeSerialNumber == info2.dwVolumeSerialNumber
++ 		&& info1.nFileIndexHigh == info2.nFileIndexHigh
++ 		&& info1.nFileIndexLow == info2.nFileIndexLow)
++ 	    use_tmp_file = TRUE;
++     }
++ #endif
+  
+  #if defined(UNIX) || defined(CASE_INSENSITIVE_FILENAME)
+      if (use_tmp_file)
+*** ../vim-7.3.171/src/os_win32.c	2011-02-01 13:48:47.000000000 +0100
+--- src/os_win32.c	2011-05-05 16:24:17.000000000 +0200
+***************
+*** 2645,2669 ****
+      int
+  mch_is_linked(char_u *fname)
+  {
+      HANDLE	hFile;
+!     int		res = 0;
+!     BY_HANDLE_FILE_INFORMATION inf;
+  #ifdef FEAT_MBYTE
+      WCHAR	*wn = NULL;
+  
+      if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
+  	wn = enc_to_utf16(fname, NULL);
+      if (wn != NULL)
+      {
+  	hFile = CreateFileW(wn,		/* file name */
+  		    GENERIC_READ,	/* access mode */
+! 		    0,			/* share mode */
+  		    NULL,		/* security descriptor */
+  		    OPEN_EXISTING,	/* creation disposition */
+! 		    0,			/* file attributes */
+  		    NULL);		/* handle to template file */
+  	if (hFile == INVALID_HANDLE_VALUE
+! 		&& GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
+  	{
+  	    /* Retry with non-wide function (for Windows 98). */
+  	    vim_free(wn);
+--- 2645,2688 ----
+      int
+  mch_is_linked(char_u *fname)
+  {
++     BY_HANDLE_FILE_INFORMATION info;
++ 
++     return win32_fileinfo(fname, &info) == FILEINFO_OK
++ 						   && info.nNumberOfLinks > 1;
++ }
++ 
++ /*
++  * Get the by-handle-file-information for "fname".
++  * Returns FILEINFO_OK when OK.
++  * returns FILEINFO_ENC_FAIL when enc_to_utf16() failed.
++  * Returns FILEINFO_READ_FAIL when CreateFile() failed.
++  * Returns FILEINFO_INFO_FAIL when GetFileInformationByHandle() failed.
++  */
++     int
++ win32_fileinfo(char_u *fname, BY_HANDLE_FILE_INFORMATION *info)
++ {
+      HANDLE	hFile;
+!     int		res = FILEINFO_READ_FAIL;
+  #ifdef FEAT_MBYTE
+      WCHAR	*wn = NULL;
+  
+      if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
++     {
+  	wn = enc_to_utf16(fname, NULL);
++ 	if (wn == NULL)
++ 	    res = FILEINFO_ENC_FAIL;
++     }
+      if (wn != NULL)
+      {
+  	hFile = CreateFileW(wn,		/* file name */
+  		    GENERIC_READ,	/* access mode */
+! 		    FILE_SHARE_READ | FILE_SHARE_WRITE,	/* share mode */
+  		    NULL,		/* security descriptor */
+  		    OPEN_EXISTING,	/* creation disposition */
+! 		    FILE_FLAG_BACKUP_SEMANTICS,	/* file attributes */
+  		    NULL);		/* handle to template file */
+  	if (hFile == INVALID_HANDLE_VALUE
+! 			      && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
+  	{
+  	    /* Retry with non-wide function (for Windows 98). */
+  	    vim_free(wn);
+***************
+*** 2674,2690 ****
+  #endif
+  	hFile = CreateFile(fname,	/* file name */
+  		    GENERIC_READ,	/* access mode */
+! 		    0,			/* share mode */
+  		    NULL,		/* security descriptor */
+  		    OPEN_EXISTING,	/* creation disposition */
+! 		    0,			/* file attributes */
+  		    NULL);		/* handle to template file */
+  
+      if (hFile != INVALID_HANDLE_VALUE)
+      {
+! 	if (GetFileInformationByHandle(hFile, &inf) != 0
+! 		&& inf.nNumberOfLinks > 1)
+! 	    res = 1;
+  	CloseHandle(hFile);
+      }
+  
+--- 2693,2710 ----
+  #endif
+  	hFile = CreateFile(fname,	/* file name */
+  		    GENERIC_READ,	/* access mode */
+! 		    FILE_SHARE_READ | FILE_SHARE_WRITE,	/* share mode */
+  		    NULL,		/* security descriptor */
+  		    OPEN_EXISTING,	/* creation disposition */
+! 		    FILE_FLAG_BACKUP_SEMANTICS,	/* file attributes */
+  		    NULL);		/* handle to template file */
+  
+      if (hFile != INVALID_HANDLE_VALUE)
+      {
+! 	if (GetFileInformationByHandle(hFile, info) != 0)
+! 	    res = FILEINFO_OK;
+! 	else
+! 	    res = FILEINFO_INFO_FAIL;
+  	CloseHandle(hFile);
+      }
+  
+*** ../vim-7.3.171/src/proto/os_win32.pro	2010-10-23 14:02:48.000000000 +0200
+--- src/proto/os_win32.pro	2011-05-05 16:17:42.000000000 +0200
+***************
+*** 21,26 ****
+--- 21,27 ----
+  void mch_hide __ARGS((char_u *name));
+  int mch_isdir __ARGS((char_u *name));
+  int mch_is_linked __ARGS((char_u *fname));
++ int win32_fileinfo __ARGS((char_u *name, BY_HANDLE_FILE_INFORMATION *lpFileInfo));
+  int mch_writable __ARGS((char_u *name));
+  int mch_can_exe __ARGS((char_u *name));
+  int mch_nodetype __ARGS((char_u *name));
+*** ../vim-7.3.171/src/vim.h	2011-04-11 21:35:03.000000000 +0200
+--- src/vim.h	2011-05-05 16:16:57.000000000 +0200
+***************
+*** 2217,2220 ****
+--- 2217,2226 ----
+  #define KEYLEN_PART_MAP -2	/* keylen value for incomplete mapping */
+  #define KEYLEN_REMOVED  9999	/* keylen value for removed sequence */
+  
++ /* Return values from win32_fileinfo(). */
++ #define FILEINFO_OK	     0
++ #define FILEINFO_ENC_FAIL    1	/* enc_to_utf16() failed */
++ #define FILEINFO_READ_FAIL   2	/* CreateFile() failed */
++ #define FILEINFO_INFO_FAIL   3	/* GetFileInformationByHandle() failed */
++ 
+  #endif /* VIM__H */
+*** ../vim-7.3.171/src/version.c	2011-05-05 14:26:37.000000000 +0200
+--- src/version.c	2011-05-05 16:39:35.000000000 +0200
+***************
+*** 716,717 ****
+--- 716,719 ----
+  {   /* Add new patch number below this line */
++ /**/
++     172,
+  /**/
+
+-- 
+Q: What is a patch 22?
+A: A patch you need to include to make it possible to include patches.
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

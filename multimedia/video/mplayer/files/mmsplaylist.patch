@@ -1,0 +1,54 @@
+diff -Nur mplayer-20071223-old/stream/asf_streaming.c mplayer-20071223/stream/asf_streaming.c
+--- mplayer-20071223-old/stream/asf_streaming.c	2007-12-23 23:05:15.871156131 +0200
++++ mplayer-20071223/stream/asf_streaming.c	2007-12-23 23:31:45.429506531 +0200
+@@ -174,7 +174,8 @@
+   return best;
+ }
+ 
+-static int asf_streaming_parse_header(int fd, streaming_ctrl_t* streaming_ctrl) {
++static int asf_streaming_parse_header(int fd, streaming_ctrl_t* streaming_ctrl,
++             void **ret_buffer, int *ret_bufsize) {
+   ASF_stream_chunck_t chunk;
+   asf_http_streaming_ctrl_t* asf_ctrl = streaming_ctrl->data;
+   char* buffer=NULL, *chunk_buffer=NULL;
+@@ -335,6 +336,10 @@
+ 			}
+ 		}
+   }
++  if (ret_buffer) {
++    *ret_buffer = buffer;
++    *ret_bufsize = size;
++  } else
+   free(buffer);
+ 
+   // automatic stream selection based on bandwidth
+@@ -414,6 +419,20 @@
+       if (asf_read_wrapper(fd, &chunk, sizeof(ASF_stream_chunck_t), streaming_ctrl) <= 0)
+         return -1;
+
++      // "playlist" handling
++      if (AV_RL16(&chunk.type) == ASF_STREAMING_CLEAR) {
++        void *buf;
++        int buflen;
++        // reinserts end of chunk that contains header information into the stream
++        streaming_bufferize(streaming_ctrl, (char*)(&chunk)+sizeof(ASF_stream_chunck_t)-4, 4);
++        asf_streaming_parse_header(fd, streaming_ctrl, &buf, &buflen);
++        // reinsert the preprocessed file header
++        streaming_bufferize(streaming_ctrl, buf, buflen);
++        free(buf);
++        rest = waiting = buflen;
++        continue;
++      }
++
+       // Endian handling of the stream chunk
+       le2me_ASF_stream_chunck_t(&chunk);
+       chunk_size = asf_streaming( &chunk, &drop_chunk );
+@@ -761,7 +780,7 @@
+ 				if( asf_http_ctrl->request==1 ) {
+ 					if( asf_http_ctrl->streaming_type!=ASF_PlainText_e ) {
+ 						// First request, we only got the ASF header.
+-						ret = asf_streaming_parse_header(fd,stream->streaming_ctrl);
++						ret = asf_streaming_parse_header(fd,stream->streaming_ctrl,NULL,NULL);
+ 						if(ret < 0) goto err_out;
+ 						if(asf_http_ctrl->n_audio == 0 && asf_http_ctrl->n_video == 0) {
+ 							mp_msg(MSGT_NETWORK,MSGL_ERR,MSGTR_MPDEMUX_ASF_NoStreamFound);

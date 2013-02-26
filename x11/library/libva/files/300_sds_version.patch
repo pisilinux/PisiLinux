@@ -1,0 +1,106 @@
+commit 97b0fbe4111fe276dea5ec678f860d87bd55fc5b
+Author: Gwenole Beauchesne <gbeauchesne@splitted-desktop.com>
+Date:   Wed Jun 24 11:32:40 2009 +0000
+
+    Explicit API extensions from SDS.
+
+diff --git a/configure.ac b/configure.ac
+index 35e7502..7c28d71 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -28,6 +28,9 @@ m4_define([libva_micro_version], [0])
+ m4_define([libva_version],
+           [libva_major_version.libva_minor_version.libva_micro_version])
+ 
++# increase this number for each API change
++m4_define([libva_sds_version], [2])
++
+ # if the library source code has changed, increment revision
+ m4_define([libva_lt_revision], [10])
+ # if any interface was added/removed/changed, then inc current, reset revision
+@@ -53,11 +56,14 @@ AC_SUBST(LIBVA_MINOR_VERSION)
+ AC_SUBST(LIBVA_MICRO_VERSION)
+ AC_SUBST(LIBVA_VERSION)
+ 
++LIBVA_SDS_VERSION=libva_sds_version
++AC_SUBST(LIBVA_SDS_VERSION)
++
+ LIBVA_LT_CURRENT=libva_lt_current
+ LIBVA_LT_REV=libva_lt_revision
+ LIBVA_LT_AGE=libva_lt_age
+ LIBVA_LT_VERSION="$LIBVA_LT_CURRENT:$LIBVA_LT_REV:$LIBVA_LT_AGE"
+-LIBVA_LT_LDFLAGS="-version-info $LIBVA_LT_VERSION"
++LIBVA_LT_LDFLAGS="-version-info $LIBVA_LT_VERSION -release $LIBVA_VERSION.$LIBVA_SDS_VERSION"
+ AC_SUBST(LIBVA_LT_VERSION)
+ AC_SUBST(LIBVA_LT_LDFLAGS)
+ 
+@@ -187,6 +193,7 @@ AM_CONDITIONAL(USE_EGL, test "$USE_EGL" = "yes")
+ 
+ # Make sure drivers use the correctly versioned __vaDriverInit*() function name
+ VA_DRIVER_INIT_FUNC="__vaDriverInit_${LIBVA_MAJOR_VERSION}_${LIBVA_MINOR_VERSION}"
++VA_DRIVER_INIT_FUNC="${VA_DRIVER_INIT_FUNC}_${LIBVA_MICRO_VERSION}_sds${LIBVA_SDS_VERSION}"
+ AC_DEFINE_UNQUOTED([VA_DRIVER_INIT_FUNC], [$VA_DRIVER_INIT_FUNC],
+     [Defined to the versioned __vaDriverInit function name])
+ AC_DEFINE_UNQUOTED([VA_DRIVER_INIT_FUNC_S], ["$VA_DRIVER_INIT_FUNC"],
+diff --git a/libva.pc.in b/libva.pc.in
+index 60f1483..0b37945 100644
+--- a/libva.pc.in
++++ b/libva.pc.in
+@@ -3,6 +3,7 @@ exec_prefix=@exec_prefix@
+ libdir=@libdir@
+ includedir=@includedir@
+ driverdir=@LIBVA_DRIVERS_PATH@
++sdsversion=@LIBVA_SDS_VERSION@
+ 
+ Name: libva
+ Description: Userspace Video Acceleration (VA) core interface
+diff --git a/va/va.c b/va/va.c
+index eaf0db0..ac991b7 100644
+--- a/va/va.c
++++ b/va/va.c
+@@ -38,6 +38,7 @@
+ #include <dlfcn.h>
+ #include <unistd.h>
+ 
++#define DRIVER_INIT_FUNC_0_32	"__vaDriverInit_0_32"
+ #define DRIVER_EXTENSION	"_drv_video.so"
+ 
+ #define CTX(dpy) (((VADisplayContextP)dpy)->pDriverContext)
+@@ -224,6 +225,10 @@ static VAStatus va_openDriver(VADisplay dpy, char *driver_name)
+             init_func = (VADriverInit) dlsym(handle, VA_DRIVER_INIT_FUNC_S);
+             if (!init_func)
+             {
++                init_func = (VADriverInit) dlsym(handle, DRIVER_INIT_FUNC_0_32);
++            }
++            if (!init_func)
++            {
+                 va_errorMessage("%s has no function %s\n", driver_path, VA_DRIVER_INIT_FUNC_S);
+                 dlclose(handle);
+             }
+diff --git a/va/va_version.h.in b/va/va_version.h.in
+index c9ea97a..197c482 100644
+--- a/va/va_version.h.in
++++ b/va/va_version.h.in
+@@ -47,6 +47,13 @@
+ #define VA_MICRO_VERSION   (@LIBVA_MICRO_VERSION@)
+ 
+ /**
++ * VA_SDS_VERSION:
++ *
++ * The version of the SDS API extensions to the VA library
++ */
++#define VA_SDS_VERSION     (@LIBVA_SDS_VERSION@)
++
++/**
+  * VA_VERSION:
+  *
+  * The full version of the VA library, like 1.2.3
+@@ -59,7 +66,7 @@
+  * The full version of the VA library, in string form (suited for
+  * string concatenation)
+  */
+-#define VA_VERSION_S       "@LIBVA_VERSION@"
++#define VA_VERSION_S       "@LIBVA_VERSION@-sds@LIBVA_SDS_VERSION@"
+ 
+ /**
+  * VA_VERSION_HEX:

@@ -1,0 +1,187 @@
+--- a/backend/ipp.c
++++ b/backend/ipp.c
+@@ -62,7 +62,8 @@
+ 			*resource;	/* Resource path */
+   int			port,		/* Port number */
+ 			version,	/* IPP version */
+-			job_id;		/* Job ID for submitted job */
++			job_id,		/* Job ID for submitted job */
++			get_job_attrs;	/* Support Get-Job-Attributes? */
+   const char		*job_name;	/* Job name for submitted job */
+   http_encryption_t	encryption;	/* Use encryption? */
+   ipp_jstate_t		job_state;	/* Current job state */
+@@ -237,6 +238,7 @@
+   ipp_attribute_t *printer_state;	/* printer-state attribute */
+   ipp_attribute_t *printer_accepting;	/* printer-is-accepting-jobs */
+   int		create_job = 0,		/* Does printer support Create-Job? */
++		get_job_attrs = 0,	/* Does printer support Get-Job-Attributes? */
+ 		send_document = 0,	/* Does printer support Send-Document? */
+ 		validate_job = 0;	/* Does printer support Validate-Job? */
+   int		copies,			/* Number of copies for job */
+@@ -1065,13 +1067,18 @@
+ 	  create_job = 1;
+         else if (operations_sup->values[i].integer == IPP_SEND_DOCUMENT)
+ 	  send_document = 1;
++        else if (operations_sup->values[i].integer == IPP_GET_JOB_ATTRIBUTES)
++	  get_job_attrs = 1;
+       }
+ 
+-      if (!send_document)
++      if (create_job && !send_document)
+       {
+         fputs("DEBUG: Printer supports Create-Job but not Send-Document.\n",
+               stderr);
+         create_job = 0;
++
++	update_reasons(NULL, "+cups-ipp-conformance-failure-report,"
++			     "cups-ipp-missing-send-document");
+       }
+ 
+       if (!validate_job)
+@@ -1255,6 +1262,7 @@
+   monitor.port          = port;
+   monitor.version       = version;
+   monitor.job_id        = 0;
++  monitor.get_job_attrs = get_job_attrs;
+   monitor.encryption    = cupsEncryption();
+   monitor.job_state     = IPP_JOB_PENDING;
+   monitor.printer_state = IPP_PRINTER_IDLE;
+@@ -1298,6 +1306,8 @@
+       _cupsLangPrintFilter(stderr, "INFO", _("The printer is busy."));
+       sleep(10);
+     }
++    else if (ipp_status == IPP_DOCUMENT_FORMAT)
++      goto cleanup;
+     else if (ipp_status == IPP_FORBIDDEN ||
+ 	     ipp_status == IPP_AUTHENTICATION_CANCELED)
+     {
+@@ -1652,7 +1662,7 @@
+     * Wait for the job to complete...
+     */
+ 
+-    if (!job_id || !waitjob)
++    if (!job_id || !waitjob || !get_job_attrs)
+       continue;
+ 
+     _cupsLangPrintFilter(stderr, "INFO", _("Waiting for job to complete."));
+@@ -1695,7 +1705,7 @@
+       response   = cupsDoRequest(http, request, resource);
+       ipp_status = cupsLastError();
+ 
+-      if (ipp_status == IPP_NOT_FOUND)
++      if (ipp_status == IPP_NOT_FOUND || ipp_status == IPP_NOT_POSSIBLE)
+       {
+        /*
+         * Job has gone away and/or the server has no job history...
+@@ -1717,7 +1727,6 @@
+       else
+       {
+ 	if (ipp_status != IPP_SERVICE_UNAVAILABLE &&
+-	    ipp_status != IPP_NOT_POSSIBLE &&
+ 	    ipp_status != IPP_PRINTER_BUSY)
+ 	{
+ 	  ippDelete(response);
+@@ -1865,12 +1874,18 @@
+     return (CUPS_BACKEND_AUTH_REQUIRED);
+   else if (ipp_status == IPP_INTERNAL_ERROR)
+     return (CUPS_BACKEND_STOP);
+-  else if (ipp_status == IPP_DOCUMENT_FORMAT ||
+-           ipp_status == IPP_CONFLICT)
++  else if (ipp_status == IPP_CONFLICT)
+     return (CUPS_BACKEND_FAILED);
+-  else if (ipp_status == IPP_REQUEST_VALUE)
++  else if (ipp_status == IPP_REQUEST_VALUE ||
++           ipp_status == IPP_DOCUMENT_FORMAT || job_canceled < 0)
+   {
+-    _cupsLangPrintFilter(stderr, "ERROR", _("Print job too large."));
++    if (ipp_status == IPP_REQUEST_VALUE)
++      _cupsLangPrintFilter(stderr, "ERROR", _("Print job too large."));
++    else if (ipp_status == IPP_DOCUMENT_FORMAT)
++      _cupsLangPrintFilter(stderr, "ERROR",
++                           _("Printer cannot print supplied content."));
++    else
++      _cupsLangPrintFilter(stderr, "ERROR", _("Print job canceled at printer."));
+     return (CUPS_BACKEND_CANCEL);
+   }
+   else if (ipp_status > IPP_OK_CONFLICT && ipp_status != IPP_ERROR_JOB_CANCELED)
+@@ -2116,7 +2131,8 @@
+       * Check the status of the job itself...
+       */
+ 
+-      job_op  = monitor->job_id > 0 ? IPP_GET_JOB_ATTRIBUTES : IPP_GET_JOBS;
++      job_op  = (monitor->job_id > 0 && monitor->get_job_attrs) ?
++                    IPP_GET_JOB_ATTRIBUTES : IPP_GET_JOBS;
+       request = ippNewRequest(job_op);
+       request->request.op.version[0] = monitor->version / 10;
+       request->request.op.version[1] = monitor->version % 10;
+@@ -2306,7 +2322,7 @@
+     fprintf(stderr, "DEBUG: job-name=\"%s\"\n", title);
+   }
+ 
+-  if (format)
++  if (format && op != IPP_CREATE_JOB)
+   {
+     ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_MIMETYPE,
+ 		 "document-format", NULL, format);
+@@ -2314,7 +2330,7 @@
+   }
+ 
+ #ifdef HAVE_LIBZ
+-  if (compression)
++  if (compression && op != IPP_CREATE_JOB)
+   {
+     ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_KEYWORD,
+ 		 "compression", NULL, compression);
+--- a/scheduler/printers.c
++++ b/scheduler/printers.c
+@@ -4233,6 +4233,41 @@
+       }
+ 
+      /*
++      * media-size-supported
++      */
++
++      num_media = p->pc->num_sizes;
++      if (p->pc->custom_min_keyword)
++	num_media ++;
++
++      if ((attr = ippAddCollections(p->ppd_attrs, IPP_TAG_PRINTER,
++				    "media-size-supported", num_media,
++				    NULL)) != NULL)
++      {
++	val = attr->values;
++
++        for (i = p->pc->num_sizes, pwgsize = p->pc->sizes;
++	     i > 0;
++	     i --, pwgsize ++, val ++)
++	{
++	  val->collection = ippNew();
++	  ippAddInteger(val->collection, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
++	                "x-dimension", pwgsize->width);
++	  ippAddInteger(val->collection, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
++	                "y-dimension", pwgsize->length);
++        }
++
++        if (p->pc->custom_min_keyword)
++	{
++	  val->collection = ippNew();
++	  ippAddRange(val->collection, IPP_TAG_PRINTER, "x-dimension",
++	              p->pc->custom_min_width, p->pc->custom_max_width);
++	  ippAddRange(val->collection, IPP_TAG_PRINTER, "y-dimension",
++	              p->pc->custom_min_length, p->pc->custom_max_length);
++        }
++      }
++
++     /*
+       * media-source-supported
+       */
+ 
+@@ -5145,6 +5180,8 @@
+     message = "Printer does not support REQUIRED Validate-Job operation.";
+   else if (!strcmp(reason, "missing-get-printer-attributes"))
+     message = "Printer does not support REQUIRED Get-Printer-Attributes operation.";
++  else if (!strcmp(reason, "missing-send-document"))
++    message = "Printer supports Create-Job but not Send-Document operation.";
+   else if (!strcmp(reason, "missing-job-history"))
+     message = "Printer does not provide REQUIRED job history.";
+   else if (!strcmp(reason, "missing-job-id"))

@@ -1,0 +1,113 @@
+diff -up minicom-2.4/src/main.c.orig minicom-2.4/src/main.c
+--- minicom-2.4/src/main.c.orig	2009-12-12 16:47:47.000000000 +0100
++++ minicom-2.4/src/main.c	2010-03-10 11:43:12.588243671 +0100
+@@ -154,13 +154,18 @@ void term_socket_close(void)
+ int open_term(int doinit, int show_win_on_error)
+ {
+   struct stat stt;
++#ifdef NOTNOW
+   char buf[128];
+-  int fd, n = 0;
++  int fd;
+   int pid;
++#endif
++  int n = 0;
+ #ifdef HAVE_ERRNO_H
+   int s_errno;
+ #endif
+ 
++#ifdef NOTNOW
++
+   /* First see if the lock file directory is present. */
+   if (P_LOCK[0] && stat(P_LOCK, &stt) == 0) {
+ 
+@@ -212,6 +217,29 @@ int open_term(int doinit, int show_win_o
+   if (doinit > 0)
+     lockfile_create();
+ 
++#else
++  lockfile[0] = 0;
++  if (doinit > 0) {
++       int rc = ttylock(dial_tty);
++       if (rc < 0) {
++               if (access(dial_tty, W_OK) == -1)
++                       fprintf(stderr, _("Device %s access failed: %s.\n"),
++                               dial_tty, strerror(errno));
++               else
++                       fprintf(stderr, _("Device %s lock failed: %s.\n"),
++                               dial_tty, strerror(-rc));
++       } else if (rc > 0) {
++               fprintf(stderr, _("Device %s is locked.\n"), dial_tty);
++       } else if (rc == 0) {
++               snprintf(lockfile, sizeof(lockfile), "%s", dial_tty);
++       }
++       if (rc) {
++               if (stdwin) mc_wclose(stdwin, 1);
++               return(-1);
++       }
++  }
++#endif
++
+   /* Run a special program to disable callin if needed. */
+     if (doinit > 0 && P_CALLOUT[0]) {
+       if (fastsystem(P_CALLOUT, NULL, NULL, NULL) < 0) {
+diff -up minicom-2.4/src/minicom.c.orig minicom-2.4/src/minicom.c
+--- minicom-2.4/src/minicom.c.orig	2009-12-12 16:47:47.000000000 +0100
++++ minicom-2.4/src/minicom.c	2010-03-10 11:39:32.406244215 +0100
+@@ -1555,7 +1555,7 @@ dirty_goto:
+   mc_wclose(stdwin, 1);
+   keyboard(KUNINSTALL, 0);
+   if (lockfile[0])
+-    unlink(lockfile);
++    ttyunlock(lockfile);
+   close(portfd);
+ 
+   if (quit != NORESET && P_CALLIN[0])
+diff -up minicom-2.4/src/minicom.h.orig minicom-2.4/src/minicom.h
+--- minicom-2.4/src/minicom.h.orig	2009-12-12 16:47:47.000000000 +0100
++++ minicom-2.4/src/minicom.h	2010-03-10 11:39:32.406244215 +0100
+@@ -35,6 +35,8 @@
+ 
+ #include <time.h>
+ 
++#include <baudboy.h>
++
+ #ifdef USE_SOCKET
+ #include <sys/socket.h>
+ #include <sys/un.h>
+@@ -82,7 +84,7 @@ EXTERN int tempst;	/* Status line is tem
+ EXTERN int escape;	/* Escape code. */
+ EXTERN int disable_online_time; /* disable online time display */
+ 
+-EXTERN char lockfile[128]; /* UUCP lock file of terminal */
++EXTERN char lockfile[1024]; /* UUCP lock file of terminal */
+ EXTERN char homedir[256];  /* Home directory of user */
+ EXTERN char logfname[PARS_VAL_LEN]; /* Name of the logfile */
+ EXTERN char username[16];  /* Who is using minicom? */
+diff -up minicom-2.4/src/updown.c.orig minicom-2.4/src/updown.c
+--- minicom-2.4/src/updown.c.orig	2009-12-13 16:20:34.000000000 +0100
++++ minicom-2.4/src/updown.c	2010-03-10 11:54:05.519368852 +0100
+@@ -378,11 +378,12 @@ void updown(int what, int nr)
+ void lockfile_remove(void)
+ {
+   if (lockfile[0])
+-    unlink(lockfile);
++    ttyunlock(lockfile);
+ }
+ 
+ void lockfile_create(void)
+ {
++#ifdef NOTNOW
+   int fd, n;
+   char buf[81];
+ 
+@@ -399,6 +400,9 @@ void lockfile_create(void)
+     close(fd);
+   }
+   umask(n);
++#else
++  ttylock(lockfile);
++#endif
+ }
+ 
+ /*
