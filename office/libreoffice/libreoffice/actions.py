@@ -1,8 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
-# Copyleft 2012 Pardus ANKA Community
-# Copyright 2005-2011 TUBITAK/UEAKE
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
@@ -11,8 +9,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 import os
-
-#NoStrip = ["%s/lib/libreoffice/basis-link/share" % AppDir, "%s/lib/libreoffice/share" % AppDir]
 
 shelltools.export("HOME", get.workDIR())
 shelltools.export("LDFLAGS", "%s -L/usr/lib/nss" % get.LDFLAGS())
@@ -44,7 +40,7 @@ ldirs = ("/usr/lib/libreoffice/help/%s",
 
 def setup():
     vars = {"lang": langs,
-            "jobs": "1",
+            "jobs": "2",
             "etar": get.workDIR()}
 #            "jobs": get.makeJOBS().replace("-j", ""),
 
