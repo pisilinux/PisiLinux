@@ -9,6 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 import os
+import psutil
 
 shelltools.export("HOME", get.workDIR())
 shelltools.export("LDFLAGS", "%s -L/usr/lib/nss" % get.LDFLAGS())
@@ -40,9 +41,8 @@ ldirs = ("/usr/lib/libreoffice/help/%s",
 
 def setup():
     vars = {"lang": langs,
-            "jobs": "2",
+            "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
-#            "jobs": get.makeJOBS().replace("-j", ""),
 
     autotools.aclocal("-I m4")
     autotools.autoconf()
