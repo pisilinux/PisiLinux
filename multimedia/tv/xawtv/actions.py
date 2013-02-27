@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2005-2010 TUBITAK/UEKAE
-# Licensed under the GNU General Public License, version 2.
-# See the file http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+# Licensed under the GNU General Public License, version 3.
+# See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools

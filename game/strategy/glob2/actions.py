@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2006-2008 TUBITAK/UEKAE
-# Licensed under the GNU General Public License, version 2.
-# See the file http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+# Licensed under the GNU General Public License, version 3.
+# See the file http://www.gnu.org/licenses/gpl.txt
 
 # follow upsream changes through cvs, but prefer tarball
 # CVS_RSH="ssh" cvs -z3 -d:pserver:anonymous@cvs.savannah.nongnu.org:/sources/glob2 co -r alpha22-rc glob2

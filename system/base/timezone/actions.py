@@ -3,7 +3,7 @@
 #
 # Copyleft 2012 Pardus ANKA Community
 # Copyright 2009-2010 TUBITAK/UEKAE
-# Licensed under the GNU General Public License, version 2.
+# Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
 from pisi.actionsapi import autotools

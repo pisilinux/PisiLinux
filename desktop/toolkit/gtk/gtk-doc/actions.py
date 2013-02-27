@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
-# Licensed under the GNU General Public License, version 2.
+# Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licences/old-licenses/gpl-2.0.txt
 
 from pisi.actionsapi import autotools
