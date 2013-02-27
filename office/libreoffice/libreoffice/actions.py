@@ -47,7 +47,7 @@ def setup():
     autotools.aclocal("-I m4")
     autotools.autoconf()
     shelltools.touch("autogen.lastrun")
-    autotools.rawConfigure('--with-vendor="Pardus Anka" \
+    autotools.rawConfigure('--with-vendor="PisiLinux" \
                        --with-unix-wrapper="libreoffice" \
                        --with-ant-home="/usr/share/ant" \
                        --with-jdk-home="/opt/sun-jdk" \
