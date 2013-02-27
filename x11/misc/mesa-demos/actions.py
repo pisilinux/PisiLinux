@@ -11,16 +11,9 @@ from pisi.actionsapi import shelltools
 demos_dir = "/usr/lib/mesa/demos"
 demos_dir_emul32 = "/usr/lib32/mesa/demos"
 
-shelltools.export("LDFLAGS", "%s -lX11 -lGL -lm -lpthread" % get.LDFLAGS())
-
 def setup():
-    options = "--bindir=%s \
-               --disable-static" % demos_dir
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32 \
-                     --bindir=%s" % demos_dir_emul32
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
+    options = "--disable-static \
+               --bindir=%s" % (demos_dir_emul32 if get.buildTYPE() == "emul32" else demos_dir)
 
     autotools.configure(options)
 
