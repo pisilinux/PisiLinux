@@ -10,7 +10,7 @@ MSG_ERR_NEEDCONF = _({"en": "You need /etc/ssh/sshd_config to run sshd.",
                       "tr": "Sshd'yi çalıştırabilmek için /etc/ssh/sshd_config'e ihtiyaç var.",
                       })
 
-PID_FILE = "/var/run/sshd.pid"
+PID_FILE = "/run/sshd.pid"
 RSA1_KEY = "/etc/ssh/ssh_host_key"
 RSA_KEY = "/etc/ssh/ssh_host_rsa_key"
 DSA_KEY = "/etc/ssh/ssh_host_dsa_key"
