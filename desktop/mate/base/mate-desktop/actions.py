@@ -1,7 +1,7 @@
 #!    pisitools.remove("bin/python
 # -*- coding: utf-8 -*-
 #
-# Copyright 2011 TUBITAK/BILGEM
+# Copyleft PiSi GNU/Linux Community
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
