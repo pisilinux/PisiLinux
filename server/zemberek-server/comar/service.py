@@ -23,13 +23,13 @@ def start():
     startService(command="%s/bin/java" % javapath,
                  args="-classpath /usr/share/java/mina-core.jar:/usr/share/java/slf4j-api.jar:/usr/share/java/slf4j-nop.jar:/usr/share/java/zemberek-server.jar:/usr/share/java/zemberek-cekirdek.jar:/usr/share/java/zemberek-tr.jar:/usr/share/java/unix.jar:/usr/share/java/debug-disable.jar:/usr/share/java/dbus.jar -Djava.library.path=/usr/lib/jni/:/lib:/usr/lib -Xverify:none -Xms12m -Xmx14m -DConfigFile=/etc/zemberek-server.ini net.zemberekserver.server.ZemberekServer",
                  detach=True,
-                 pidfile="/var/run/zemberek.pid",
+                 pidfile="/run/zemberek.pid",
                  makepid=True,
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/zemberek.pid",
+    stopService(pidfile="/run/zemberek.pid",
                 donotify=True)
 
 def ready():
@@ -41,4 +41,4 @@ def ready():
         start()
 
 def status():
-    return isServiceRunning("/var/run/zemberek.pid")
+    return isServiceRunning("/run/zemberek.pid")
