@@ -4,18 +4,20 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import autotools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf('-if')
-    autotools.configure("--with-jpeg-factory")
+    cmaketools.configure("-DCMAKE_INSTALL_LIBDIR=lib \
+                          -DJPEG_FACTORY=ON \
+                          -DSIMGEAR_SHARED=ON \
+                          -DSYSTEM_EXPAT=ON")
 
 def build():
-    autotools.make()
+    cmaketools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("README*", "NEWS", "AUTHORS", "ChangeLog")
