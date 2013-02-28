@@ -5,9 +5,9 @@ serviceType = "server"
 serviceDesc = _({"en": "SMB Network Sharing",
                  "tr": "SMB Ağ Paylaşımı"})
 
-WINBINDD_PIDFILE = "/var/run/samba/winbindd.pid"
-NMBD_PIDFILE = "/var/run/samba/nmbd.pid"
-SMBD_PIDFILE = "/var/run/samba/smbd.pid"
+WINBINDD_PIDFILE = "/run/samba/winbindd.pid"
+NMBD_PIDFILE = "/run/samba/nmbd.pid"
+SMBD_PIDFILE = "/run/samba/smbd.pid"
 
 
 @synchronized

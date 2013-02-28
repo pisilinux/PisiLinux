@@ -17,7 +17,7 @@ def setup():
     shelltools.export("CFLAGS", "%s -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -DLDAP_DEPRECATED -fPIC" % get.CFLAGS())
 
     # Manually fix manpages
-    pisitools.dosed("docs/manpages/*", "\$LOCKDIR", "/var/run/samba")
+    pisitools.dosed("docs/manpages/*", "\$LOCKDIR", "/run/samba")
 
     shelltools.cd(SAMBA_SOURCE)
 
@@ -44,7 +44,7 @@ def setup():
                          --localstatedir=/var \
                          --libdir=/usr/lib \
                          --with-configdir=/etc/samba \
-                         --with-piddir=/var/run/samba \
+                         --with-piddir=/run/samba \
                          --with-lockdir=/var/lib/samba \
                          --with-logfilebase=/var/log/samba \
                          --with-pammodulesdir=/lib/security \
@@ -108,8 +108,8 @@ def install():
     shelltools.chmod("%s/var/spool/samba" % get.installDIR(), 01777)
 
     pisitools.dodir("/var/log/samba")
-    pisitools.dodir("/var/run/samba")
-    pisitools.dodir("/var/run/winbindd")
+    pisitools.dodir("/run/samba")
+    pisitools.dodir("/run/winbindd")
     pisitools.dodir("/var/cache/samba")
 
     pisitools.dodir("/var/lib/samba/private")
