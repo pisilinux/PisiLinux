@@ -21,6 +21,4 @@ def build():
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.insinto("/usr/lib/pkgconfig", "packaging/pkgconfig/*.pc")
-
     pisitools.dodoc("AUTHORS.txt", "ChangeLog", "LICENSE.txt", "NEWS.txt", "README.txt")
