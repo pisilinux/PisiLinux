@@ -6,7 +6,7 @@ serviceType = "server"
 serviceDesc = _({"en": "Dansguardian Daemon",
                  "tr": "Dansguardian Servisi"})
 
-PIDFILE = "/var/run/dansguardian.pid"
+PIDFILE = "/run/dansguardian.pid"
 
 @synchronized
 def start():

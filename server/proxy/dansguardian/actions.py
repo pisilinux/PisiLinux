@@ -14,7 +14,7 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--with-logdir=/var/log/dansguardian \
-                         --with-piddir=/var/run \
+                         --with-piddir=/run \
                          --enable-clamav \
                          --enable-clamd \
                          --enable-icap \
