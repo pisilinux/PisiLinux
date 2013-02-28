@@ -17,7 +17,7 @@ def setup():
     pisitools.dosed(
         "%s/%s/include/ldap_defaults.h" % (get.workDIR(), get.srcDIR()),
         "(#define LDAPI_SOCK).*",
-        '\\1 "/var/run/openldap/slapd.sock"'
+        '\\1 "/run/openldap/slapd.sock"'
     )
 
     shelltools.export("CFLAGS","%s  -D_REENTRANT -D_GNU_SOURCE -fPIC" % get.CFLAGS())
@@ -91,8 +91,8 @@ def install():
     # No static libs
     pisitools.remove("/usr/lib/*.a")
 
-    pisitools.dodir("/var/run/openldap")
-    pisitools.dodir("/var/run/openldap/slapd")
+    pisitools.dodir("/run/openldap")
+    pisitools.dodir("/run/openldap/slapd")
     pisitools.dodir("/etc/openldap/ssl")
 
     pisitools.dodoc("ANNOUNCEMENT", "CHANGES", "COPYRIGHT", "README", "LICENSE")

@@ -12,12 +12,12 @@ def start():
 
     startService(command="/usr/libexec/slapd",
                  args="-u ldap -g ldap %s" % config.get("OPTS", ""),
-                 pidfile="/var/run/openldap/slapd.pid",
+                 pidfile="/run/openldap/slapd.pid",
                  donotify=True)
 
 def stop():
-    stopService(pidfile="/var/run/openldap/slapd.pid",
+    stopService(pidfile="/run/openldap/slapd.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/openldap/slapd.pid")
+    return isServiceRunning("/run/openldap/slapd.pid")
