@@ -11,13 +11,13 @@ serviceDefault = "off"
 @synchronized
 def start():
     startService(command="/usr/sbin/xinetd",
-                 args="-pidfile /var/run/xinetd.pid -stayalive -reuse",
-                 pidfile="/var/run/xinetd.pid",
+                 args="-pidfile /run/xinetd.pid -stayalive -reuse",
+                 pidfile="/run/xinetd.pid",
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/xinetd.pid",
+    stopService(pidfile="/run/xinetd.pid",
                 donotify=True)
 
 def reload():
@@ -25,4 +25,4 @@ def reload():
                 signal=signal.SIGHUP)
 
 def status():
-    return isServiceRunning("/var/run/xinetd.pid")
+    return isServiceRunning("/run/xinetd.pid")
