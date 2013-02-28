@@ -13,7 +13,7 @@ serviceDefault = "conditional"
 
 NTPCONF = "/etc/ntp.conf"
 NTPSTEP = "/etc/ntp/step-tickers"
-PIDFILE = "/var/run/ntpdate.pid"
+PIDFILE = "/run/ntpdate.pid"
 
 MSG_NOSERVER = _({"en"  : "NTP server not specified in %s or %s." % (NTPSTEP, NTPCONF),
                   "tr"  : "%s veya %s dosyasında hiç NTP sunucu belirtilmemiş." % (NTPSTEP, NTPCONF)})

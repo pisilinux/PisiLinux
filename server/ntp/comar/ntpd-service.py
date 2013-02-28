@@ -8,7 +8,7 @@ serviceDesc = _({"en": "NTP Daemon",
                  "tr": "NTP Hizmeti"})
 serviceConf = "ntpd"
 
-PIDFILE = "/var/run/ntpd.pid"
+PIDFILE = "/run/ntpd.pid"
 
 @synchronized
 def start():
