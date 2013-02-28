@@ -8,10 +8,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-if get.buildTYPE() == "emul32":
-    Libdir = "/usr/lib32"
-else:
-    Libdir = "/usr/lib"
+Libdir = "/usr/lib32" if get.buildTYPE() == "emul32" else "/usr/lib"
 
 def setup():
     shelltools.export("CFLAGS", "%s -DNDEBUG" % get.CFLAGS())
