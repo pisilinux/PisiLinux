@@ -48,5 +48,5 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     os.system("chown named:named %s" % CHROOT)
     os.system("chown -R named:named %s/var/named" % CHROOT)
     os.system("chown -R named:named %s/etc/bind" % CHROOT)
-    os.system("chown -R named:named %s/var/run/named" % CHROOT)
+    os.system("chown -R named:named %s/run/named" % CHROOT)
     os.system("chown -R named:named %s/var/log" % CHROOT)

@@ -12,7 +12,7 @@ directories = ("/var/named", \
                "/var/named/sec", \
                "/var/named/slaves", \
                "/var/named/named.ca", \
-               "/var/run/named")
+               "/run/named")
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     if not os.path.exists("/etc/bind/rndc.key"):
