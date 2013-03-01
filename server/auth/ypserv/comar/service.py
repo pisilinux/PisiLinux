@@ -4,7 +4,7 @@ serviceType = "server"
 serviceDesc = _({"en": "Network Information Server",
                  "tr": "Ağ Bilgi Sunucusu (NIS)"})
 
-PIDFILE = "/var/run/ypserv.pid"
+PIDFILE = "/run/ypserv.pid"
 
 @synchronized
 def start():

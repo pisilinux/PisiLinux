@@ -7,8 +7,8 @@ serviceDesc = _({"en": "Cyrus-SASL Daemon",
                  "tr": "Cyrus-SASL Servisi"})
 serviceConf = "saslauthd"
 
-SOCKETDIR = "/var/run/saslauthd"
-PIDFILE = "/var/run/saslauthd/saslauthd.pid"
+SOCKETDIR = "/run/saslauthd"
+PIDFILE = "/run/saslauthd/saslauthd.pid"
 
 @synchronized
 def start():

@@ -14,7 +14,7 @@ ERR_CONFIG = _({"en": "Corrupted config file(s)",
 
 serviceConf = "freeradius"
 
-PIDFILE = "/var/run/radiusd/radiusd.pid"
+PIDFILE = "/run/radiusd/radiusd.pid"
 
 def check_config():
     if run("/usr/sbin/radiusd", "-C"):

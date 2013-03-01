@@ -9,7 +9,7 @@ MSG_ERR_NONISDOMAIN = _({"en": 'NISDOMAIN is not set. You can set it via "domain
                          "tr": 'NISDOMAIN atanmamış. "domainname NISDOMAIN" komutuyla atayabilirsiniz.',
                          })
 
-PIDFILE = "/var/run/ypbind.pid"
+PIDFILE = "/run/ypbind.pid"
 
 @synchronized
 def start():

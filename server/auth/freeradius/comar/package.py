@@ -5,7 +5,7 @@ import os
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     os.system("/bin/chown -R radiusd:radiusd /var/log/radius")
-    os.system("/bin/chown -R radiusd:radiusd /var/run/radiusd")
+    os.system("/bin/chown -R radiusd:radiusd /run/radiusd")
 
     os.system("/bin/chown -R root:radiusd /etc/raddb")
 

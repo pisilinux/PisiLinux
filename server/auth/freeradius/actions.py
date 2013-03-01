@@ -50,7 +50,7 @@ def build():
 def install():
     autotools.rawInstall("R=%s" % get.installDIR())
 
-    pisitools.dodir("/var/run/radiusd")
+    pisitools.dodir("/run/radiusd")
     pisitools.dodir("/var/lib/radiusd")
     pisitools.dodir("/var/log/radius/radacct")
 
