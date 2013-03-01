@@ -5,7 +5,7 @@ serviceType = "local"
 serviceDesc = _({"en": "NTLM Proxy Daemon",
                  "tr": "NTLM Vekil Servisi"})
 
-PIDFILE = "/var/run/ntlmaps.pid"
+PIDFILE = "/run/ntlmaps.pid"
 
 @synchronized
 def start():

@@ -12,7 +12,7 @@ MSG_ERR_CACHEDIRNOTDEF = _({"en": "cache_dir defined in %s doesnt\'t exist, plea
 
 serviceConf = "squid"
 
-PIDFILE = "/var/run/squid.pid"
+PIDFILE = "/run/squid.pid"
 SQUIDCONF = "/etc/squid/squid.conf"
 
 def check_cache():

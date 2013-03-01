@@ -6,7 +6,7 @@ serviceDefault = "off"
 serviceDesc = _({"en": "Polipo Proxy Server",
                  "tr": "Polipo Vekil Sunucusu"})
 
-PIDFILE = "/var/run/polipo/polipo.pid"
+PIDFILE = "/run/polipo/polipo.pid"
 LOGFILE = "/var/log/polipo"
 
 @synchronized

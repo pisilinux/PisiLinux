@@ -48,7 +48,7 @@ def setup():
                          --with-openssl \
                          --with-pthreads \
                          --enable-mit=/usr \
-                         --with-pidfile=/var/run/squid.pid \
+                         --with-pidfile=/run/squid.pid \
                          --sysconfdir=/etc/squid \
                          --localstatedir=/var \
                          --libexecdir=/usr/lib/squid \
