@@ -52,8 +52,8 @@ def install():
     pisitools.insinto("/etc/dovecot/ssl", "doc/mkcert.sh")
 
     pisitools.dodir("/etc/dovecot/ssl")
-    pisitools.dodir("/var/run/dovecot")
-    pisitools.dodir("/var/run/dovecot/login")
+    pisitools.dodir("/run/dovecot")
+    pisitools.dodir("/run/dovecot/login")
 
     pisitools.removeDir("/usr/share/doc/dovecot")
     pisitools.remove("/etc/dovecot/dovecot-example.conf")

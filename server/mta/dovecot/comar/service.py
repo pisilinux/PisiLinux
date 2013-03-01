@@ -7,13 +7,13 @@ serviceDesc = _({"en": "Dovecot POP3/IMAP Server",
 @synchronized
 def start():
     startService(command="/usr/sbin/dovecot",
-                 pidfile="/var/run/dovecot/master.pid",
+                 pidfile="/run/dovecot/master.pid",
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/dovecot/master.pid",
+    stopService(pidfile="/run/dovecot/master.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/dovecot/master.pid")
+    return isServiceRunning("/run/dovecot/master.pid")
