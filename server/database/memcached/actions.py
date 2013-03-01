@@ -20,8 +20,8 @@ def build():
 def install():
     autotools.rawInstall('DESTDIR="%s"' % get.installDIR())
 
-    pisitools.dodir("/var/run/memcached")
-    shelltools.chown("%s/var/run/memcached" % get.installDIR(), "memcached", "memcached")
-    shelltools.chmod("%s/var/run/memcached" % get.installDIR())
+    pisitools.dodir("/run/memcached")
+    shelltools.chown("%s/run/memcached" % get.installDIR(), "memcached", "memcached")
+    shelltools.chmod("%s/run/memcached" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "README", "doc/*.txt")

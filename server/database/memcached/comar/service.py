@@ -14,17 +14,17 @@ def start():
         config.get("MEMCACHED_RUNAS", "memcached"),
     )
     startService(command="/usr/bin/memcached",
-                 args="-d -P /var/run/memcached/memcached.pid -p %s -l %s -m %s -c %s -u %s" % args,
+                 args="-d -P /run/memcached/memcached.pid -p %s -l %s -m %s -c %s -u %s" % args,
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/memcached/memcached.pid",
+    stopService(pidfile="/run/memcached/memcached.pid",
                 donotify=True)
     try:
-        os.unlink("/var/run/memcached/memcached.pid")
+        os.unlink("/run/memcached/memcached.pid")
     except:
         pass
 
 def status():
-    return isServiceRunning(pidfile="/var/run/memcached/memcached.pid")
+    return isServiceRunning(pidfile="/run/memcached/memcached.pid")
