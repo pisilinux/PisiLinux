@@ -1,0 +1,143 @@
+diff -ur mozilla-release/extensions/spellcheck/hunspell/src/mozHunspell.h mozilla-release-new/extensions/spellcheck/hunspell/src/mozHunspell.h
+--- mozilla-release/extensions/spellcheck/hunspell/src/mozHunspell.h	2013-02-27 03:25:36.000000000 +0200
++++ mozilla-release-new/extensions/spellcheck/hunspell/src/mozHunspell.h	2013-03-01 04:37:54.080396453 +0200
+@@ -73,7 +73,7 @@
+ #include "nsWeakReference.h"
+ #include "nsCycleCollectionParticipant.h"
+ 
+-#define MOZ_HUNSPELL_CONTRACTID "@mozilla.org/spellchecker/engine;1"
++#define MOZ_HUNSPELL_CONTRACTID "@mozilla.org/spellchecker/hunspell;1"
+ #define MOZ_HUNSPELL_CID         \
+ /* 56c778e4-1bee-45f3-a689-886692a97fe7 */   \
+ { 0x56c778e4, 0x1bee, 0x45f3, \
+diff -ur mozilla-release/extensions/spellcheck/Makefile.in mozilla-release-new/extensions/spellcheck/Makefile.in
+--- mozilla-release/extensions/spellcheck/Makefile.in	2013-02-27 03:25:36.000000000 +0200
++++ mozilla-release-new/extensions/spellcheck/Makefile.in	2013-03-01 04:39:16.580393596 +0200
+@@ -11,6 +11,7 @@
+ 
+ MODULE		= spellchecker
+ DIRS		= idl locales hunspell src
++DIRS            = zemberek
+ 
+ TEST_DIRS += tests/chrome
+ 
+diff -ur mozilla-release/extensions/spellcheck/src/Makefile.in mozilla-release-new/extensions/spellcheck/src/Makefile.in
+--- mozilla-release/extensions/spellcheck/src/Makefile.in	2013-02-27 03:25:36.000000000 +0200
++++ mozilla-release-new/extensions/spellcheck/src/Makefile.in	2013-03-01 04:44:26.920382851 +0200
+@@ -31,10 +31,16 @@
+ 
+ SHARED_LIBRARY_LIBS += ../hunspell/src/$(LIB_PREFIX)hunspell_s.$(LIB_SUFFIX)
+ 
++SHARED_LIBRARY_LIBS += ../zemberek/src/$(LIB_PREFIX)zemberek_s.$(LIB_SUFFIX)
++
+ include $(topsrcdir)/config/rules.mk
+ 
+ LOCAL_INCLUDES += \
+ 	-I$(srcdir)/../hunspell/src \
++	-I$(srcdir)/../zemberek/src \
+ 	-I$(topsrcdir)/content/base/src \
+ 	-I$(topsrcdir)/editor/libeditor/base \
+ 	$(NULL)
++
++CXXFLAGS += $(TK_CFLAGS) $(MOZ_DBUS_GLIB_CFLAGS)
++CXXFLAGS := $(subst -pedantic,,$(CXXFLAGS))
+diff -ur mozilla-release/extensions/spellcheck/src/mozSpellChecker.cpp mozilla-release-new/extensions/spellcheck/src/mozSpellChecker.cpp
+--- mozilla-release/extensions/spellcheck/src/mozSpellChecker.cpp	2013-02-27 03:25:37.000000000 +0200
++++ mozilla-release-new/extensions/spellcheck/src/mozSpellChecker.cpp	2013-03-01 04:47:56.542375593 +0200
+@@ -10,7 +10,7 @@
+ #include "nsICategoryManager.h"
+ #include "nsISupportsPrimitives.h"
+ 
+-#define DEFAULT_SPELL_CHECKER "@mozilla.org/spellchecker/engine;1"
++#define DEFAULT_SPELL_CHECKER "@mozilla.org/spellchecker/hunspell;1"
+ 
+ NS_IMPL_CYCLE_COLLECTING_ADDREF(mozSpellChecker)
+ NS_IMPL_CYCLE_COLLECTING_RELEASE(mozSpellChecker)
+@@ -302,7 +302,11 @@
+       if (dictionaries.Get(dictName, NULL))
+         continue;
+ 
+-      dictionaries.Put(dictName, NULL);
++      // dictionaries.Put(dictName, NULL);
++      if (dictName.Equals(NS_LITERAL_STRING("tr-TR").get()))
++        dictionaries.Put(dictName, new nsCString("@mozilla.org/spellchecker/zemberek;1"));
++      else
++        dictionaries.Put(dictName, new nsCString(contractId));
+ 
+       if (!aDictionaryList->AppendElement(dictName)) {
+         NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(count, words);
+@@ -510,8 +514,14 @@
+ 
+     // Try to load spellchecker engine. Ignore errors silently
+     // except for the last one (HunSpell).
+-    nsCOMPtr<mozISpellCheckingEngine> engine =
+-      do_GetService(contractId.get(), &rv);
++    if (aDictionary.Equals(NS_LITERAL_STRING("tr-TR").get()))
++      engine = do_GetService("@mozilla.org/spellchecker/zemberek;1",&rv);
++    else
++      engine = do_GetService("@mozilla.org/spellchecker/hunspell;1", &rv);
++
++    engine->SetPersonalDictionary(mPersonalDictionary);
++
++
+     if (NS_SUCCEEDED(rv)) {
+       aSpellCheckingEngines->AppendObject(engine);
+     }
+diff -ur mozilla-release/extensions/spellcheck/src/mozSpellCheckerFactory.cpp mozilla-release-new/extensions/spellcheck/src/mozSpellCheckerFactory.cpp
+--- mozilla-release/extensions/spellcheck/src/mozSpellCheckerFactory.cpp	2013-02-27 03:25:37.000000000 +0200
++++ mozilla-release-new/extensions/spellcheck/src/mozSpellCheckerFactory.cpp	2013-03-01 04:54:14.759362498 +0200
+@@ -6,7 +6,9 @@
+ 
+ #include "mozilla/ModuleUtils.h"
+ #include "mozHunspell.h"
++#include "mozZemberek.h"
+ #include "mozHunspellDirProvider.h"
++#include "mozZemberekDirProvider.h"
+ #include "mozSpellChecker.h"
+ #include "mozInlineSpellChecker.h"
+ #include "nsTextServicesCID.h"
+@@ -24,14 +26,18 @@
+ { 0xa0, 0x1a, 0x66, 0x40, 0x2e, 0xa2, 0x86, 0x57} }
+ 
+ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(mozHunspell, Init)
++NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(mozZemberek, Init)
+ NS_GENERIC_FACTORY_CONSTRUCTOR(mozHunspellDirProvider)
++NS_GENERIC_FACTORY_CONSTRUCTOR(mozZemberekDirProvider)
+ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(mozSpellChecker, Init)
+ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(mozPersonalDictionary, Init)
+ NS_GENERIC_FACTORY_CONSTRUCTOR(mozSpellI18NManager)
+ NS_GENERIC_FACTORY_CONSTRUCTOR(mozInlineSpellChecker)
+ 
+ NS_DEFINE_NAMED_CID(MOZ_HUNSPELL_CID);
++NS_DEFINE_NAMED_CID(MOZ_ZEMBEREK_CID);
+ NS_DEFINE_NAMED_CID(HUNSPELLDIRPROVIDER_CID);
++NS_DEFINE_NAMED_CID(ZEMBEREKDIRPROVIDER_CID);
+ NS_DEFINE_NAMED_CID(NS_SPELLCHECKER_CID);
+ NS_DEFINE_NAMED_CID(MOZ_PERSONALDICTIONARY_CID);
+ NS_DEFINE_NAMED_CID(MOZ_SPELLI18NMANAGER_CID);
+@@ -40,6 +46,8 @@
+ static const mozilla::Module::CIDEntry kSpellcheckCIDs[] = {
+     { &kMOZ_HUNSPELL_CID, false, NULL, mozHunspellConstructor },
+     { &kHUNSPELLDIRPROVIDER_CID, false, NULL, mozHunspellDirProviderConstructor },
++    { &kMOZ_ZEMBEREK_CID, false, NULL, mozZemberekConstructor },
++    { &kZEMBEREKDIRPROVIDER_CID, false, NULL, mozZemberekDirProviderConstructor },
+     { &kNS_SPELLCHECKER_CID, false, NULL, mozSpellCheckerConstructor },
+     { &kMOZ_PERSONALDICTIONARY_CID, false, NULL, mozPersonalDictionaryConstructor },
+     { &kMOZ_SPELLI18NMANAGER_CID, false, NULL, mozSpellI18NManagerConstructor },
+@@ -50,6 +58,8 @@
+ static const mozilla::Module::ContractIDEntry kSpellcheckContracts[] = {
+     { MOZ_HUNSPELL_CONTRACTID, &kMOZ_HUNSPELL_CID },
+     { mozHunspellDirProvider::kContractID, &kHUNSPELLDIRPROVIDER_CID },
++    { MOZ_ZEMBEREK_CONTRACTID, &kMOZ_ZEMBEREK_CID },
++    { mozZemberekDirProvider::kContractID, &kZEMBEREKDIRPROVIDER_CID },
+     { NS_SPELLCHECKER_CONTRACTID, &kNS_SPELLCHECKER_CID },
+     { MOZ_PERSONALDICTIONARY_CONTRACTID, &kMOZ_PERSONALDICTIONARY_CID },
+     { MOZ_SPELLI18NMANAGER_CONTRACTID, &kMOZ_SPELLI18NMANAGER_CID },
+@@ -59,6 +69,7 @@
+ 
+ static const mozilla::Module::CategoryEntry kSpellcheckCategories[] = {
+     { XPCOM_DIRECTORY_PROVIDER_CATEGORY, "spellcheck-directory-provider", mozHunspellDirProvider::kContractID },
++    { XPCOM_DIRECTORY_PROVIDER_CATEGORY, "spellcheck-directory-provider", mozZemberekDirProvider::kContractID },
+     { NULL }
+ };
+ 
