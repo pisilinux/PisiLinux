@@ -11,7 +11,7 @@ MSG_NM_NOT_RUNNING = _({"en": "NetworkManager service is not running",
                         "tr": "NetworkManager hizmeti çalışmıyor",
                        })
 
-PIDFILE = "/var/run/dhcpd6.pid"
+PIDFILE = "/run/dhcpd6.pid"
 TIMEOUT = config.get("TIMEOUT", 10)
 
 @synchronized

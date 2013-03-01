@@ -14,13 +14,13 @@ def setup():
 
     for i in ["dhclient.conf.5", "dhclient.leases.5", "dhclient-script.8", "dhclient.8"]:
         pisitools.dosed("client/%s" % i, "CLIENTBINDIR", "/sbin")
-        pisitools.dosed("client/%s" % i, "RUNDIR", "/var/run")
+        pisitools.dosed("client/%s" % i, "RUNDIR", "/run")
         pisitools.dosed("client/%s" % i, "DBDIR", "/var/lib/dhcpd")
         pisitools.dosed("client/%s" % i, "ETCDIR", "/etc/dhcp")
 
     for i in ["dhcpd.conf.5", "dhcpd.leases.5", "dhcpd.8"]:
         pisitools.dosed("server/%s" % i, "CLIENTBINDIR", "/sbin")
-        pisitools.dosed("server/%s" % i, "RUNDIR", "/var/run")
+        pisitools.dosed("server/%s" % i, "RUNDIR", "/run")
         pisitools.dosed("server/%s" % i, "DBDIR", "/var/lib/dhcpd")
         pisitools.dosed("server/%s" % i, "ETCDIR", "/etc/dhcp")
 
@@ -32,11 +32,11 @@ def setup():
                          --with-srv6-lease-file=/var/lib/dhcpd/dhcpd6.leases \
                          --with-cli-lease-file=/var/lib/dhclient/dhclient.leases \
                          --with-cli6-lease-file=/var/lib/dhclient/dhclient6.leases \
-                         --with-srv-pid-file=/var/run/dhcpd.pid \
-                         --with-srv6-pid-file=/var/run/dhcpd6.pid \
-                         --with-cli-pid-file=/var/run/dhclient.pid \
-                         --with-cli6-pid-file=/var/run/dhclient6.pid \
-                         --with-relay-pid-file=/var/run/dhcrelay.pid \
+                         --with-srv-pid-file=/run/dhcpd.pid \
+                         --with-srv6-pid-file=/run/dhcpd6.pid \
+                         --with-cli-pid-file=/run/dhclient.pid \
+                         --with-cli6-pid-file=/run/dhclient6.pid \
+                         --with-relay-pid-file=/run/dhcrelay.pid \
                          --with-ldap \
                          --with-ldapcrypto")
 

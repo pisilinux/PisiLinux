@@ -6,7 +6,7 @@ serviceDesc = _({"en": "DHCP Relay Server",
                  "tr": "DHCP Relay Servisi"})
 serviceConf = "dhcrelay"
 
-pidfile = "/var/run/dhcrelay.pid"
+pidfile = "/run/dhcrelay.pid"
 
 @synchronized
 def start():
