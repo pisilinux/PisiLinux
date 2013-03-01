@@ -4,23 +4,25 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import autotools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("./autogen.sh")
-    autotools.configure("--enable-sp-fdms \
-                         --with-threads \
-                         --with-logging \
-                         --enable-osgviewer \
-                         --with-x \
-                         --with-simgear=/usr")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DENABLE_FGADMIN=OFF \
+                          -DENABLE_PROFILE=OFF \
+                          -DENABLE_RTI=OFF \
+                          -DFG_DATA_DIR=/usr/share/flightgear \
+                          -DSIMGEAR_SHARED=ON \
+                          -DSP_FDMS=OFF \
+                          -DSYSTEM_SQLITE=ON")
 
 def build():
-    autotools.make()
+    cmaketools.make()
 
 def install():
-    autotools.install()
+    cmaketools.install()
+    
     pisitools.dodoc("README*", "ChangeLog", "AUTHORS", "NEWS", "Thanks")
