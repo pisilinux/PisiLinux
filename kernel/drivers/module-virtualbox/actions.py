@@ -7,7 +7,6 @@ from pisi.actionsapi import kerneltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
-WorkDir = "."
 KDIR = kerneltools.getKernelVersion()
 
 def build():
