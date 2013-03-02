@@ -7,7 +7,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import pythonmodules
 
 def install():
-    pythonmodules.install("--install-lib=/usr/lib/pardus")
+    pythonmodules.install("--install-lib=/usr/lib/pisilinux")
 
     pisitools.dosym("zorg-cli", "/usr/bin/zorg")
 
