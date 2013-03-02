@@ -10,21 +10,26 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def build():
-    shelltools.system("bash ./bootStrap.bash")
+    shelltools.system("bash ./bootStrap.bash --with-cli --with-gtk")
     
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     
     pisitools.insinto("/", "install/usr")
-
-    #shelltools.cd("../plugins/build")
-    #autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    #shelltools.cd("../../")
     pisitools.insinto("/usr/share/pixmaps", "avidemux_icon.png", "avidemux.png")
-
-    # remove windows exe and dll files
-    #pisitools.removeDir("/usr/share/ADM_addons")
+    pisitools.domo("po/ca.po", "ca", "avidemux.mo")
+    pisitools.domo("po/cs.po", "cs", "avidemux.mo")
+    pisitools.domo("po/de.po", "de", "avidemux.mo")
+    pisitools.domo("po/el.po", "el", "avidemux.mo")
+    pisitools.domo("po/es.po", "es", "avidemux.mo")
+    pisitools.domo("po/fr.po", "fr", "avidemux.mo")
+    pisitools.domo("po/it.po", "it", "avidemux.mo")
+    pisitools.domo("po/ja.po", "ja", "avidemux.mo")
+    pisitools.domo("po/pt_BR.po", "pt_BR", "avidemux.mo")
+    pisitools.domo("po/ru.po", "ru", "avidemux.mo")
+    pisitools.domo("po/sr.po", "sr", "avidemux.mo")
+    pisitools.domo("po/sr@latin.po", "sr@latin", "avidemux.mo")
+    pisitools.domo("po/tr.po", "tr", "avidemux.mo")
 
     pisitools.dodoc("COPYING", "AUTHORS", "License*")
     pisitools.doman("man/*")
