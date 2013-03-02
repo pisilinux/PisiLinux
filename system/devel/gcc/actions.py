@@ -95,7 +95,7 @@ def setup():
                        --with-pkgversion="Pardus Linux" \
                        --disable-libunwind-exceptions \
                        --enable-long-long \
-                       --with-bugurl=http://bugs.pardus.org.tr' % ( verMajor , get.HOST(), opt_arch, opt_unwind, opt_multilib))
+                       --with-bugurl=http://bugs.pisilinux.org' % ( verMajor , get.HOST(), opt_arch, opt_unwind, opt_multilib))
 
 
 

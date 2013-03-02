@@ -25,8 +25,8 @@ def setup():
                          --enable-plugins \
                          --enable-threads \
                          --with-default-linker=%s \
-                         --with-pkgversion="Pardus Linux" \
-                         --with-bugurl=http://bugs.pardus.org.tr/ \
+                         --with-pkgversion="Pisi Linux" \
+                         --with-bugurl=http://bugs.pisilinux.org/ \
                          --with-separate-debug-dir=/usr/lib/debug \
                          %s \
                          --disable-nls \
