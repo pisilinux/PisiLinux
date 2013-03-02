@@ -1,0 +1,50 @@
+# HG changeset patch
+# User Hiroyuki Ikezoe <hiikezoe@mozilla-japan.org>
+# Date 1311283896 14400
+# Node ID b0599f36be18f17b74fb8ae8334fd5e618f9434a
+# Parent  a1f8fda5108dee9bb7c179d24e4baa597c88d557
+Bug 672671.  Do not call any glib function before XRE_main.  r=trev.sauders
+
+diff --git a/accessible/src/atk/nsApplicationAccessibleWrap.cpp b/accessible/src/atk/nsApplicationAccessibleWrap.cpp
+--- a/accessible/src/atk/nsApplicationAccessibleWrap.cpp
++++ b/accessible/src/atk/nsApplicationAccessibleWrap.cpp
+@@ -112,17 +112,16 @@ static gint sListener_idx = 1;
+                                     MAI_TYPE_UTIL))
+ #define MAI_IS_UTIL_CLASS(klass)   (G_TYPE_CHECK_CLASS_TYPE ((klass), \
+                                     MAI_TYPE_UTIL))
+ #define MAI_UTIL_GET_CLASS(obj)    (G_TYPE_INSTANCE_GET_CLASS ((obj), \
+                                     MAI_TYPE_UTIL, MaiUtilClass))
+ 
+ static GHashTable* sKey_listener_list = NULL;
+ static guint sKey_snooper_id = 0;
+-static GQuark sQuark_gecko_acc_obj = g_quark_from_static_string("GeckoAccObj");
+ static bool sToplevel_event_hook_added = false;
+ static gulong sToplevel_show_hook = 0;
+ static gulong sToplevel_hide_hook = 0;
+ 
+ G_BEGIN_DECLS
+ typedef void (*GnomeAccessibilityInit) (void);
+ typedef void (*GnomeAccessibilityShutdown) (void);
+ G_END_DECLS
+@@ -565,16 +564,21 @@ nsApplicationAccessibleWrap::~nsApplicat
+ }
+ 
+ static gboolean
+ toplevel_event_watcher(GSignalInvocationHint* ihint,
+                        guint                  n_param_values,
+                        const GValue*          param_values,
+                        gpointer               data)
+ {
++  static GQuark sQuark_gecko_acc_obj = 0;
++
++  if (!sQuark_gecko_acc_obj)
++    sQuark_gecko_acc_obj = g_quark_from_static_string("GeckoAccObj");
++
+   if (nsAccessibilityService::IsShutdown())
+     return TRUE;
+ 
+   GObject* object = reinterpret_cast<GObject*>(g_value_get_object(param_values));
+   if (!GTK_IS_WINDOW(object))
+     return TRUE;
+ 
+   AtkObject* child = gtk_widget_get_accessible(GTK_WIDGET(object));

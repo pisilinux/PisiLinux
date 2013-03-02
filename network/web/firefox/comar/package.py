@@ -29,24 +29,24 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     if lang:
         # Bookmarks & Search plugins
         if lang.startswith("tr"):
-            symlink("/usr/lib/MozillaFirefox/pardus/bookmarks-tr.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
-            symlink("/usr/lib/MozillaFirefox/pardus/pardus-wiki_tr.xml", "/usr/lib/MozillaFirefox/searchplugins/pardus-wiki.xml")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/bookmarks-tr.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/pisilinux-wiki_tr.xml", "/usr/lib/MozillaFirefox/searchplugins/pisilinux-wiki.xml")
         elif lang.startswith("nl"):
-            symlink("/usr/lib/MozillaFirefox/pardus/bookmarks-nl.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
-            symlink("/usr/lib/MozillaFirefox/pardus/pardus-wiki_nl.xml", "/usr/lib/MozillaFirefox/searchplugins/pardus-wiki.xml")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/bookmarks-nl.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/pisilinux-wiki_nl.xml", "/usr/lib/MozillaFirefox/searchplugins/pisilinux-wiki.xml")
         elif lang.startswith("pt"):
-            symlink("/usr/lib/MozillaFirefox/pardus/pardus-wiki_pt.xml", "/usr/lib/MozillaFirefox/searchplugins/pardus-wiki.xml")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/pisilinux-wiki_pt.xml", "/usr/lib/MozillaFirefox/searchplugins/pisilinux-wiki.xml")
             #TODO: translate bookmarks to pt also.
-            symlink("/usr/lib/MozillaFirefox/pardus/bookmarks-en.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/bookmarks-en.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
         elif lang.startswith("de"):
-            symlink("/usr/lib/MozillaFirefox/pardus/bookmarks-de.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
-            symlink("/usr/lib/MozillaFirefox/pardus/pardus-wiki_en.xml", "/usr/lib/MozillaFirefox/searchplugins/pardus-wiki.xml")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/bookmarks-de.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/pisilinux-wiki_en.xml", "/usr/lib/MozillaFirefox/searchplugins/pisilinux-wiki.xml")
         else:
-            symlink("/usr/lib/MozillaFirefox/pardus/bookmarks-en.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
-            symlink("/usr/lib/MozillaFirefox/pardus/pardus-wiki_en.xml", "/usr/lib/MozillaFirefox/searchplugins/pardus-wiki.xml")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/bookmarks-en.html", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html")
+            symlink("/usr/lib/MozillaFirefox/pisilinux/pisilinux-wiki_en.xml", "/usr/lib/MozillaFirefox/searchplugins/pisilinux-wiki.xml")
 
 def preRemove():
-    for f in  ("/usr/lib/MozillaFirefox/.autoreg", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html", "/usr/lib/MozillaFirefox/searchplugins/pardus-wiki.xml"):
+    for f in  ("/usr/lib/MozillaFirefox/.autoreg", "/usr/lib/MozillaFirefox/defaults/profile/bookmarks.html", "/usr/lib/MozillaFirefox/searchplugins/pisilinux-wiki.xml"):
         try:
             os.unlink(f)
         except:
