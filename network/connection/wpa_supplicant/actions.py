@@ -33,4 +33,4 @@ def install():
     pisitools.doman("doc/docbook/*.8")
     pisitools.newdoc("wpa_supplicant.conf", "wpa_supplicant.conf.example")
 
-    pisitools.dodoc("ChangeLog", "../COPYING", "eap_testing.txt", "../README", "todo.txt", "examples/*")
+    pisitools.dodoc("ChangeLog", "../COPYING", "eap_testing.txt", "../README", "todo.txt")
