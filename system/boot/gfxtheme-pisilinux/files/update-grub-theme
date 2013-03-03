@@ -1,0 +1,136 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+#
+# A simple script to update gfxtheme file of grub
+# This is required for language setting in installed systems
+#
+# Copyright (C) 2008, TUBITAK/UEKAE
+#
+
+import os
+import sys
+import shutil
+import tempfile
+
+msgfile = "/boot/grub/message"
+langfile = "/etc/env.d/03locale"
+configfile = "/etc/conf.d/gfxtheme"
+themebase = "/usr/share/gfxtheme"
+defaulttheme = "pardus"
+langdirspath = "/usr/lib/locale"
+
+defaultlang = "en_US"
+availablelangs = ["ca_ES", "de_DE", "en_US", "es_ES", "fr_FR", "hu_HU", "it_IT", "nl_NL", "pl_PL", "pt_BR", "ru_RU", "sv_SE", "tr_TR"]
+
+
+def loadFile(path):
+    """Read contents of a file"""
+    try:
+        f = file(path)
+        data = f.readlines()
+        f.close()
+    except IOError:
+        print "could not read %s" % path
+        data = []
+
+    return data
+
+def writeFile(filename, data):
+    """Write data to file"""
+    try:
+        f = file(filename, "w")
+        f.write(data)
+        f.close()
+    except IOError:
+        print "could not write %s" % filename
+        sys.exit(1)
+
+def getLang():
+    lang = defaultlang
+    data = loadFile(langfile)
+
+    for line in data:
+        if line.startswith("LANG="):
+            lang = line[5:].strip().replace(".UTF-8", "")
+
+    if lang in availablelangs:
+        return lang
+    else:
+        return defaultlang
+
+def getAllLang():
+    foundlangs = ""
+    installedlangs = os.listdir(langdirspath)
+
+    for i in availablelangs:
+        if (i or "%s.utf8" % i) in installedlangs:
+            foundlangs += "%s\n" % i
+
+    return foundlangs
+
+def copyDirContents(source, dest):
+    for f in os.listdir(source):
+        shutil.copy(os.path.join(source, f), dest)
+
+def createArchive(source, dest):
+    # I am a bit lazy to write this in python, as cpio does not take source directory path
+    # FIXME: convert this to python when we have python-cpio
+
+    os.chdir(source)
+    if os.system("ls|sed -e 's/ /\\n/'|cpio -o > %s" % dest):
+        print "could not create cpio archive in %s" % dest
+        return False
+    else:
+        return True
+
+def getThemePath(tname):
+    return "%s/%s/boot" % (themebase, tname)
+
+def findTheme(tdefault=defaulttheme):
+    themename = ""
+    for line in loadFile(configfile):
+        if line.lstrip().startswith("THEME") and "=" in line:
+            tname = line.split("=", 1)[1].strip().strip('"')
+            if os.path.exists(getThemePath(tname)):
+                themename = tname
+
+    if themename == "":
+        print "Could not find set theme, trying to fall back to default one"
+        themename = tdefault
+
+    return getThemePath(themename)
+
+if __name__ == "__main__":
+    # find theme name
+    if len(sys.argv) > 1:
+        themedir = getThemePath(sys.argv[1])
+        if not os.path.exists(themedir):
+            print "could not find theme in %s" % themedir
+            sys.exit(1)
+    else:
+        themedir = findTheme()
+
+    # get system language
+    lang = getLang()
+    allLang = getAllLang()
+
+    # make a temporary workdir
+    tmpdir = tempfile.mkdtemp()
+
+    if not os.path.exists("/boot/grub"):
+        os.makedirs("/boot/grub")
+
+    # copy theme contents to workdir
+    copyDirContents(themedir, tmpdir)
+
+    # write system language into theme config
+    writeFile(os.path.join(tmpdir, "lang"), "%s\n" % lang)
+    writeFile(os.path.join(tmpdir, "languages"), allLang)
+
+    # create grub message file
+    if createArchive(tmpdir, msgfile):
+        shutil.rmtree(tmpdir)
+    else:
+        print "could not create grub archive"
+        sys.exit(1)
+

@@ -12,6 +12,7 @@ from pisi.actionsapi import get
 def setup():
     shelltools.export("DSOFLAGS", get.LDFLAGS())
     shelltools.export("CFLAGS", "%s -DLDAP_DEPRECATED" % get.CFLAGS())
+    shelltools.export("LDFLAGS", "%s -lgcrypt" % get.LDFLAGS())
 
     # pdftops from cups is currently overridden by our additional file
 
