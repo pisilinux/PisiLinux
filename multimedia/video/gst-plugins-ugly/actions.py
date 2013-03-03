@@ -17,8 +17,8 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-rpath \
                          --disable-sidplay \
-                         --with-package-name=\"Pardus gstreamer-plugins-ugly package\" \
-                         --with-package-origin=\"http://www.pardus-anka.org/eng\"")
+                         --with-package-name=\"PisiLinux gstreamer-plugins-ugly package\" \
+                         --with-package-origin=\"http://www.pisilinux.org/eng\"")
 
 def build():
     autotools.make()

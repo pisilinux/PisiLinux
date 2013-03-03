@@ -13,7 +13,7 @@ def setup():
     shelltools.cd("source")
 
     autotools.configure(' --disable-native-texlive-build \
-                          --with-banner-add="/Pardus" \
+                          --with-banner-add="/PisiLinux" \
                           --enable-cxx-runtime-hack \
                           --disable-all-pkgs \
                           --disable-dump-share \

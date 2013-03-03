@@ -19,8 +19,8 @@ def setup():
                          --disable-gnome-vfs \
                          --enable-libvisual \
                          --enable-experimental \
-                         --with-package-name='Pardus gstreamer-plugins-base package' \
-                         --with-package-origin='http://www.pardus-anka.org'")
+                         --with-package-name='PisiLinux gstreamer-plugins-base package' \
+                         --with-package-origin='http://www.pisilinux.org'")
 
 def build():
     autotools.make()

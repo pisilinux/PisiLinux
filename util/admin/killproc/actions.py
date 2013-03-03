@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.dosed("Makefile", "^DISTRO.*", "DISTRO = PARDUS")
+    pisitools.dosed("Makefile", "^DISTRO.*", "DISTRO = PisiLinux")
     pisitools.dosed("Makefile", "CC =.*", "CC = %s" % get.CC())
 
 def build():

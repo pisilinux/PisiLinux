@@ -16,8 +16,8 @@ def setup():
     autotools.autoreconf("-vfi")
     #shelltools.system("./autogen.sh --disable-gtk-doc --disable-docbook")
 
-    autotools.configure("--with-package-name='GStreamer package for Pardus' \
-                         --with-package-origin='http://www.pardus-anka.org' \
+    autotools.configure("--with-package-name='GStreamer package for PisiLinux' \
+                         --with-package-origin='http://www.pisilinux.org' \
                          --enable-nls \
                          --enable-debug \
                          --disable-dependency-tracking \

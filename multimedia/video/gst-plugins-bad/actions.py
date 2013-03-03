@@ -27,8 +27,8 @@ def setup():
                          --disable-examples \
                          --disable-gtk-doc \
                          --disable-rpath \
-                         --with-package-name='Pardus gstreamer-plugins-bad package' \
-                         --with-package-origin='http://www.pardus-anka.org' \
+                         --with-package-name='PisiLinux gstreamer-plugins-bad package' \
+                         --with-package-origin='http://www.pisilinux.org' \
                          --disable-experimental \
                          --disable-wininet \
                          --disable-wildmidi \

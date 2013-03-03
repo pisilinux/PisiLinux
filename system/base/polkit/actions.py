@@ -18,7 +18,7 @@ def setup():
     #shelltools.system("cmd='sed -i -e "/mozjs/s:185:187:g" configure src/polkitbackend/polkitbackendjsauthority.c'")
     autotools.autoreconf("-fi")
     autotools.configure("--with-pam-module-dir=/lib/security/ \
-                         --with-os-type=Pardus \
+                         --with-os-type=PisiLinux \
                          --enable-examples \
                          --enable-introspection \
                          --libexecdir=/usr/lib/polkit-1 \

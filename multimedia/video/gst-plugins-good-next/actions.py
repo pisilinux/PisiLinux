@@ -11,8 +11,8 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-esd \
                          --disable-rpath \
-                         --with-package-name='Pardus gstreamer-plugins-good package' \
-                         --with-package-origin='http://www.pardus-anka.org' \
+                         --with-package-name='PisiLinux gstreamer-plugins-good package' \
+                         --with-package-origin='http://www.pisilinux.org' \
                          --disable-schemas-install")
 
 def build():

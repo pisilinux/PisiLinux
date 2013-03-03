@@ -34,7 +34,7 @@ def fixperms(d):
             shelltools.chmod(os.path.join(root, name), 0644)
 
 def setup():
-    pisitools.dosed("base/server.cfg", "set sv_hostname.*", 'set sv_hostname "Tremulous Server on Pardus"')
+    pisitools.dosed("base/server.cfg", "set sv_hostname.*", 'set sv_hostname "Tremulous Server on PisiLinux"')
     fixperms("base")
 
 def install():

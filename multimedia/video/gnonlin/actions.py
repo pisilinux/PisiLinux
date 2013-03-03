@@ -14,8 +14,8 @@ def setup():
     autotools.configure("--disable-static \
                          --enable-gtk-doc \
                          --disable-valgrind \
-                         --with-package-name='Pardus %s package' \
-                         --with-package-origin='http://www.pardus-anka.org/' \
+                         --with-package-name='PisiLinux %s package' \
+                         --with-package-origin='http://www.pisilinux.org/' \
                          " % get.srcNAME())
 
 

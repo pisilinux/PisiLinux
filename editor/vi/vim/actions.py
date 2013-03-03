@@ -48,14 +48,14 @@ def setup():
               --localstatedir=/var/lib/vim \
               --with-features=big \
               --disable-acl \
-              --with-compiledby=Pardus \
+              --with-compiledby=PisiLinux \
               --enable-gpm \
               --enable-acl \
               --enable-cscope \
               --disable-netbeans \
               --enable-perlinterp \
               --disable-luainterp \
-              --with-modified-by=Pardus"
+              --with-modified-by=PisiLinux"
 
     if get.buildTYPE() == "gui":
         options += " --enable-gui=gtk2 \

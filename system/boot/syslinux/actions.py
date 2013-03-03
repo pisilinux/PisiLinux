@@ -25,8 +25,8 @@ def build():
     shelltools.export("CFLAGS", get.CFLAGS())
     shelltools.export("LDFLAGS", "")
 
-    autotools.make('DATE="PARDUS" spotless')
-    autotools.make('DATE="PARDUS"')
+    autotools.make('DATE="PisiLinux" spotless')
+    autotools.make('DATE="PisiLinux"')
     # autotools.make('DATE="PARDUS" installer')
     # autotools.make('DATE="PARDUS" -C sample tidy')
 

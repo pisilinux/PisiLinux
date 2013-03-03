@@ -20,8 +20,8 @@ def setup():
                          --enable-libvisual \
                          --enable-experimental \
                          --enable-introspection=no \
-                         --with-package-name='Pardus gstreamer-plugins-base package' \
-                         --with-package-origin='http://www.pardus-anka.org'")
+                         --with-package-name='PisiLinux gstreamer-plugins-base package' \
+                         --with-package-origin='http://www.pisilinux.org'")
                          
     if get.buildTYPE() == "emul32":
         options = "--disable-static \
@@ -31,8 +31,8 @@ def setup():
                    --enable-libvisual \
                    --enable-experimental \
                    --enable-introspection=no \
-                   --with-package-name='Pardus gstreamer-plugins-base package' \
-                   --with-package-origin='http://www.pardus-anka.org'"
+                   --with-package-name='PisiLinux gstreamer-plugins-base package' \
+                   --with-package-origin='http://www.pisilinux.org'"
         shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
         autotools.configure(options)
 

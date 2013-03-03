@@ -16,7 +16,7 @@ def setup():
     autotools.configure('--with-icondir=/usr/share/pixmaps \
                          --disable-rpath \
                          --with-backend=qt \
-                         --with-distributor="Pardus Anka" \
+                         --with-distributor="PisiLinux" \
                          --disable-debug')
 
 def build():

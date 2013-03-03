@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--disable-static \
                          --with-terminal=Terminal \
-                         --with-vendor-info=Pardus")
+                         --with-vendor-info=PisiLinux")
 
 # Midori is still not in Pardus 2011 repositories.
 # Don't forget to enable again after Midori is ready.

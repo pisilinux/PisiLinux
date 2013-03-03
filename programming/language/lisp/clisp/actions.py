@@ -14,7 +14,7 @@ shelltools.export("LDFLAGS", "%s -Wl,-z,noexecstack" % get.LDFLAGS())
 
 def setup():
     autotools.rawConfigure("--prefix=/usr \
-                            --fsstnd=Pardus \
+                            --fsstnd=PisiLinux \
                             --hyperspec=http://www.lispworks.com/documentation/HyperSpec/ \
                             --with-dynamic-ffi \
                             --with-module=bindings/glibc \

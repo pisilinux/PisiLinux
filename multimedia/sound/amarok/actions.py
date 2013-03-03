@@ -16,7 +16,7 @@ def setup():
     kde4.configure("-DWITH_IPOD=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
                     -DKDE4_BUILD_TESTS=OFF \
                     -DCMAKE_BUILD_TYPE=Debugfull \
-                    -DKDE_DISTRIBUTION_TEXT='Pardus - Anka'")
+                    -DKDE_DISTRIBUTION_TEXT='PisiLinux'")
 
 def build():
     kde4.make()

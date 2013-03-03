@@ -30,7 +30,7 @@ def setup():
 
     shelltools.sym("../configure", "configure")
     autotools.configure("--disable-native-texlive-build \
-                         --with-banner-add=\"/Pardus\" \
+                         --with-banner-add=\"/PisiLinux\" \
                          --disable-multiplatform \
                          --disable-chktex \
                          --disable-dialog \

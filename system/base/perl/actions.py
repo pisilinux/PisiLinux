@@ -38,7 +38,7 @@ def setup():
                       -Duseshrplib \
                       -Dman1ext=1 \
                       -Dman3ext=3pm \
-                      -Dcf_by="Pardus ANKA" \
+                      -Dcf_by="PisiLinux" \
                       -Ud_csh \
                       -Di_ndbm \
                       -Di_gdbm \
