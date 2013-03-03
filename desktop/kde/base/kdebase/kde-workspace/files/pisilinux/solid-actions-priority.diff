@@ -1,0 +1,98 @@
+diff -Naur plasma/applets/devicenotifier/test-predicate-openinwindow.desktop /home/gokcen/kdebase-workspace-4.3.2/plasma/applets/devicenotifier/test-predicate-openinwindow.desktop
+--- plasma/applets/devicenotifier/test-predicate-openinwindow.desktop	2009-10-02 11:19:27.000000000 +0300
++++ plasma/applets/devicenotifier/test-predicate-openinwindow.desktop	2009-10-13 09:05:41.596719483 +0300
+@@ -2,6 +2,7 @@
+ X-KDE-Solid-Predicate=[ [ StorageVolume.ignored == false AND [ StorageVolume.usage == 'FileSystem' OR StorageVolume.usage == 'Encrypted' ] ] OR [ IS StorageAccess AND StorageDrive.driveType == 'Floppy' ] ]
+ Type=Service
+ Actions=open;
++InitialPreference=10
+ 
+ [Desktop Action open]
+ Name=Open with File Manager
+diff -Naur plasma/generic/dataengines/hotplug/hotplugengine.cpp /home/gokcen/kdebase-workspace-4.3.2/plasma/generic/dataengines/hotplug/hotplugengine.cpp
+--- plasma/generic/dataengines/hotplug/hotplugengine.cpp	2009-10-13 11:01:38.507844915 +0300
++++ plasma/generic/dataengines/hotplug/hotplugengine.cpp	2009-10-13 11:06:41.780969537 +0300
+@@ -66,7 +66,7 @@
+         KDesktopFile cfg(path);
+         const QString string_predicate = cfg.desktopGroup().readEntry("X-KDE-Solid-Predicate");
+         //kDebug() << path << string_predicate;
+-        m_predicates.insert(KUrl(path).fileName(), Solid::Predicate::fromString(string_predicate));
++        m_predicates.insert(path, Solid::Predicate::fromString(string_predicate));
+     }
+ 
+     if (m_predicates.isEmpty()) {
+@@ -74,12 +74,34 @@
+     }
+ }
+ 
++bool lessThan(const QString &s1, const QString &s2)
++{
++    KDesktopFile desktop1(s1);
++    KDesktopFile desktop2(s2);
++
++    QVariant initial1 = desktop1.desktopGroup().readEntry("InitialPreference", 0);
++    QVariant initial2 = desktop2.desktopGroup().readEntry("InitialPreference", 0);
++
++    // return "greater than" instead of "less than", we want list in decreasing order
++    if (initial1.toInt() != 0 || initial2.toInt() != 0)
++        return initial1.toInt() > initial2.toInt();
++    else
++        return s1.toLower() > s2.toLower();
++
++}
++
++void HotplugEngine::sortByPreference(QStringList& desktops)
++{
++    qSort(desktops.begin(), desktops.end(), ::lessThan);
++}
++
+ void HotplugEngine::onDeviceAdded(const QString &udi, const bool firstRun)
+ {
+     if (m_predicates.isEmpty()) {
+         findPredicates();
+     }
+ 
++
+     Solid::Device device(udi);
+ 
+     QString deviceInfo = device.vendor() + " " + device.product();
+@@ -106,7 +128,17 @@
+         }
+     }
+ 
+-    if (!interestingDesktopFiles.isEmpty()) {
++    QStringList sortedFiles;
++
++    if (interestingDesktopFiles.count() > 1)
++        sortByPreference(interestingDesktopFiles);
++
++    // use a new stringlist for just filenames
++    QStringListIterator interestor(interestingDesktopFiles);
++    while (interestor.hasNext())
++        sortedFiles << KUrl(interestor.next()).fileName();
++
++    if (!sortedFiles.isEmpty()) {
+         //kDebug() << device.product();
+         //kDebug() << device.vendor();
+         //kDebug() << "number of interesting desktop file : " << interestingDesktopFiles.size();
+@@ -121,7 +153,7 @@
+         }
+         data.insert("icon", device.icon());
+         setData(udi, "icon", device.icon());
+-        data.insert("predicateFiles", interestingDesktopFiles);
++        data.insert("predicateFiles", sortedFiles);
+ 
+         setData(udi, data);
+         //kDebug() << "add hardware solid : " << udi;
+diff -Naur plasma/generic/dataengines/hotplug/hotplugengine.h /home/gokcen/kdebase-workspace-4.3.2/plasma/generic/dataengines/hotplug/hotplugengine.h
+--- plasma/generic/dataengines/hotplug/hotplugengine.h	2009-10-13 11:01:38.508844937 +0300
++++ plasma/generic/dataengines/hotplug/hotplugengine.h	2009-10-13 11:07:04.406719587 +0300
+@@ -47,6 +47,8 @@
+     private :
+         void findPredicates();
+         QHash<QString, QString> pluggedDevices;
++        void sortByPreference(QStringList& desktops);
++        bool lessThan(const QString &s1, const QString &s2);
+ 
+         QHash<QString, Solid::Predicate> m_predicates;
+ };

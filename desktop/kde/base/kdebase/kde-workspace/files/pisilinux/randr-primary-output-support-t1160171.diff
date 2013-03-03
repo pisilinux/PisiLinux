@@ -1,0 +1,432 @@
+Index: ConfigureChecks.cmake
+===================================================================
+--- ConfigureChecks.cmake	(revision 1160170)
++++ ConfigureChecks.cmake	(revision 1160171)
+@@ -83,6 +83,10 @@
+ check_function_exists(getpeereid  HAVE_GETPEEREID) # kdesu
+ check_function_exists(setpriority  HAVE_SETPRIORITY) # kscreenlocker 
+ 
+-pkg_check_modules (XRANDR_1_2   xrandr>=1.2)
++pkg_check_modules (XRANDR_1_2   xrandr>=1.3)
++macro_bool_to_01(XRANDR_1_2_FOUND HAS_RANDR_1_3)
++if (NOT XRANDR_1_2_FOUND)
++   pkg_check_modules (XRANDR_1_2   xrandr>=1.2)
++endif (NOT XRANDR_1_2_FOUND)
+ macro_bool_to_01(XRANDR_1_2_FOUND HAS_RANDR_1_2)
+ 
+Index: kcontrol/randr/randr.h
+===================================================================
+--- kcontrol/randr/randr.h	(revision 1160170)
++++ kcontrol/randr/randr.h	(revision 1160171)
+@@ -69,6 +69,7 @@
+ {
+ public:
+ 	static bool has_1_2;
++	static bool has_1_3;
+ 	static Time timestamp;
+ 	
+ 	static const int OrientationCount = 6;
+Index: kcontrol/randr/randrscreen.h
+===================================================================
+--- kcontrol/randr/randrscreen.h	(revision 1160170)
++++ kcontrol/randr/randrscreen.h	(revision 1160171)
+@@ -56,6 +56,13 @@
+ 	OutputMap outputs() const;
+ 	RandROutput *output(RROutput id) const;
+ 
++#ifdef HAS_RANDR_1_3
++	void setPrimaryOutput(RandROutput* output);
++	RandROutput* primaryOutput();
++
++	void proposePrimaryOutput(RandROutput* output);
++#endif
++
+ 	ModeMap modes() const;
+ 	RandRMode mode(RRMode id) const;
+ 
+@@ -114,6 +121,11 @@
+ 	int m_connectedCount;
+ 	int m_activeCount;
+ 
++#ifdef HAS_RANDR_1_3
++	RandROutput* m_originalPrimaryOutput;
++	RandROutput* m_proposedPrimaryOutput;
++#endif //HAS_RANDR_1_3
++
+ 	XRRScreenResources* m_resources;
+ 
+ 	CrtcMap m_crtcs;
+@@ -123,3 +135,4 @@
+ };
+ 
+ #endif
++// vim:noet:sts=8:sw=8:
+Index: kcontrol/randr/krandrtray.cpp
+===================================================================
+--- kcontrol/randr/krandrtray.cpp	(revision 1160170)
++++ kcontrol/randr/krandrtray.cpp	(revision 1160171)
+@@ -307,6 +307,10 @@
+ 			if (screen->connectedCount() != 1)
+ 				menu->addTitle(SmallIcon("view-fullscreen"), i18n("Outputs"));
+ 
++#ifdef HAS_RANDR_1_3
++			RandROutput *primary = screen->primaryOutput();
++#endif //HAS_RANDR_1_3
++
+ 			foreach(RandROutput *output, outputs)
+ 			{
+ 				if (output->isConnected()) 
+@@ -365,6 +369,20 @@
+ 						connect(actionGroup, SIGNAL(triggered(QAction*)), 
+ 							output, SLOT(slotChangeRefreshRate(QAction*)));
+ 					}
++
++#ifdef HAS_RANDR_1_3
++					if (RandR::has_1_3 && screen->connectedCount() != 1)
++					{
++						outputMenu->addSeparator();
++						action = outputMenu->addAction(
++								i18nc("(checkbox) designate this output as the primary output", "Primary output"),
++								output,
++								SLOT(slotSetAsPrimary(bool)) );
++						action->setCheckable(true);
++						action->setChecked(primary == output);
++					}
++#endif //HAS_RANDR_1_3
++
+ 					
+ 					if (screen->connectedCount() != 1)
+ 						menu->addMenu(outputMenu);
+@@ -573,3 +591,4 @@
+ 	m_kcm.data()->show();
+ 	m_kcm.data()->raise();
+ }
++// vim:noet:sts=8:sw=8:
+Index: kcontrol/randr/randrconfigbase.ui
+===================================================================
+--- kcontrol/randr/randrconfigbase.ui	(revision 1160170)
++++ kcontrol/randr/randrconfigbase.ui	(revision 1160171)
+@@ -38,6 +38,50 @@
+         </widget>
+        </item>
+        <item>
++        <widget class="QWidget" name="primaryDisplaySelector" native="true">
++         <property name="sizePolicy">
++          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
++           <horstretch>0</horstretch>
++           <verstretch>0</verstretch>
++          </sizepolicy>
++         </property>
++         <property name="minimumSize">
++          <size>
++           <width>0</width>
++           <height>25</height>
++          </size>
++         </property>
++         <widget class="QWidget" name="">
++          <property name="geometry">
++           <rect>
++            <x>0</x>
++            <y>0</y>
++            <width>401</width>
++            <height>27</height>
++           </rect>
++          </property>
++          <layout class="QHBoxLayout" name="horizontalLayout_2">
++           <item>
++            <widget class="QLabel" name="label">
++             <property name="maximumSize">
++              <size>
++               <width>100</width>
++               <height>100</height>
++              </size>
++             </property>
++             <property name="text">
++              <string>Primary output:</string>
++             </property>
++            </widget>
++           </item>
++           <item>
++            <widget class="QComboBox" name="primaryDisplayBox"/>
++           </item>
++          </layout>
++         </widget>
++        </widget>
++       </item>
++       <item>
+         <widget class="QPushButton" name="identifyOutputsButton">
+          <property name="text">
+           <string>Identify Outputs</string>
+Index: kcontrol/randr/randroutput.cpp
+===================================================================
+--- kcontrol/randr/randroutput.cpp	(revision 1160170)
++++ kcontrol/randr/randroutput.cpp	(revision 1160171)
+@@ -491,6 +491,23 @@
+ 		setCrtc(crtc);
+ }
+ 
++void RandROutput::slotSetAsPrimary(bool primary)
++{
++	if (!primary)
++	{
++		if (m_screen->primaryOutput() == this)
++		{
++			kDebug() << "Removing" << m_name << "as primary output";
++			m_screen->setPrimaryOutput(0);
++		}
++	}
++	else if (m_connected)
++	{
++		kDebug() << "Setting" << m_name << "as primary output";
++		m_screen->setPrimaryOutput(this);
++	}
++}
++
+ RandRCrtc *RandROutput::findEmptyCrtc()
+ {
+ 	RandRCrtc *crtc = 0;
+@@ -653,3 +670,4 @@
+ #include "randroutput.moc"
+ 
+ 
++// vim:noet:sts=8:sw=8:
+Index: kcontrol/randr/randrconfig.cpp
+===================================================================
+--- kcontrol/randr/randrconfig.cpp	(revision 1160170)
++++ kcontrol/randr/randrconfig.cpp	(revision 1160171)
+@@ -63,6 +63,17 @@
+ 						  QSizePolicy::Minimum);
+ 	layout->addWidget(m_container);
+ 
++#ifdef HAS_RANDR_1_3
++        if (RandR::has_1_3)
++        {
++            primaryDisplaySelector->setVisible(true);
++        }
++        else
++#endif //HAS_RANDR_1_3
++        {
++            primaryDisplaySelector->setVisible(false);
++        }
++
+ 	// create the scene
+ 	m_scene = new QGraphicsScene(m_display->currentScreen()->rect());	
+ 	screenView->setScene(m_scene);
+@@ -90,6 +101,16 @@
+ 	m_configs.clear(); // objects deleted above
+ 	
+ 	OutputMap outputs = m_display->currentScreen()->outputs();
++#ifdef HAS_RANDR_1_3
++	RandROutput *primary = m_display->currentScreen()->primaryOutput();
++	if (RandR::has_1_3)
++	{
++		// disconnect while we repopulate the combo box
++		disconnect(primaryDisplayBox, SIGNAL(currentIndexChanged(int)), this, SLOT(slotChanged()));
++		primaryDisplayBox->clear();
++		primaryDisplayBox->addItem(i18nc("No display selected", "None"));
++	}
++#endif //HAS_RANDR_1_3
+ 
+ 	// FIXME: adjust it to run on a multi screen system
+ 	CollapsibleWidget *w;
+@@ -119,7 +140,24 @@
+ 
+ 		connect(config, SIGNAL(updateView()), this, SLOT(slotUpdateView()));
+ 		connect(config, SIGNAL(optionChanged()), this, SLOT(slotChanged()));
+-	}		    
++
++#ifdef HAS_RANDR_1_3
++		if (RandR::has_1_3 && output->isConnected())
++		{
++			primaryDisplayBox->addItem(output->name(), QVariant::fromValue(output->id()));
++			if (primary == output)
++			{
++				primaryDisplayBox->setCurrentIndex(primaryDisplayBox->count()-1);
++			}
++		}
++#endif //HAS_RANDR_1_3
++	}
++#ifdef HAS_RANDR_1_3
++	if (RandR::has_1_3)
++	{
++		connect(primaryDisplayBox, SIGNAL(currentIndexChanged(int)), this, SLOT(slotChanged()));
++	}
++#endif //HAS_RANDR_1_3
+ 	slotUpdateView();
+ }
+ 
+@@ -196,6 +234,21 @@
+ 			output->slotDisable();
+ 		}
+ 	}
++#ifdef HAS_RANDR_1_3
++	{
++		int primaryOutputIndex = primaryDisplayBox->currentIndex();
++		RandRScreen *screen = m_display->currentScreen();
++		if (primaryOutputIndex > 0)
++		{
++			QVariant output = primaryDisplayBox->itemData(primaryOutputIndex);
++			screen->proposePrimaryOutput(screen->output(output.value<RROutput>()));
++		}
++		else
++		{
++			screen->proposePrimaryOutput(0);
++		}
++	}
++#endif //HAS_RANDR_1_3
+ 	m_display->applyProposed();
+ 	update();
+ }
+@@ -337,3 +390,4 @@
+ 
+ #include "randrconfig.moc"
+ 
++// vim:noet:sts=8:sw=8:
+Index: kcontrol/randr/randrscreen.cpp
+===================================================================
+--- kcontrol/randr/randrscreen.cpp	(revision 1160170)
++++ kcontrol/randr/randrscreen.cpp	(revision 1160171)
+@@ -26,7 +26,9 @@
+ #include <QAction>
+ 
+ RandRScreen::RandRScreen(int screenIndex)
+-: m_resources(0L)
++: m_originalPrimaryOutput(0),
++  m_proposedPrimaryOutput(0),
++  m_resources(0)
+ {
+ 	m_index = screenIndex;
+ 	m_rect = QRect(0, 0, XDisplayWidth(QX11Info::display(), m_index),
+@@ -38,6 +40,8 @@
+ 	loadSettings();
+ 	load();
+ 
++	m_originalPrimaryOutput = primaryOutput();
++
+ 	// select for randr input events
+ 	int mask = RRScreenChangeNotifyMask | 
+ 		   RRCrtcChangeNotifyMask   | 
+@@ -234,6 +238,33 @@
+ 	return 0;
+ }
+ 
++#ifdef HAS_RANDR_1_3
++void RandRScreen::setPrimaryOutput(RandROutput* output)
++{
++	if (RandR::has_1_3)
++	{
++		RROutput id = None;
++		if (output)
++			id = output->id();
++		XRRSetOutputPrimary(QX11Info::display(), rootWindow(), id);
++	}
++}
++
++void RandRScreen::proposePrimaryOutput(RandROutput* output)
++{
++	m_proposedPrimaryOutput = output;
++}
++
++RandROutput* RandRScreen::primaryOutput()
++{
++	if (RandR::has_1_3)
++	{
++		return output(XRRGetOutputPrimary(QX11Info::display(), rootWindow()));
++	}
++	return 0;
++}
++#endif
++
+ ModeMap RandRScreen::modes() const
+ {
+ 	return m_modes;
+@@ -483,6 +514,12 @@
+ 			break;
+ 		}
+ 	}*/
++#ifdef HAS_RANDR_1_3
++	if (succeed)
++	{
++		setPrimaryOutput(m_proposedPrimaryOutput);
++	}
++#endif //HAS_RANDR_1_3
+ 
+ 	kDebug() << "Changes have been applied to all outputs.";
+ 
+@@ -506,6 +543,11 @@
+ 			o->applyProposed();
+ 		}
+ 	}
++
++#ifdef HAS_RANDR_1_3
++	m_proposedPrimaryOutput = m_originalPrimaryOutput;
++	setPrimaryOutput(m_proposedPrimaryOutput);
++#endif //HAS_RANDR_1_3
+ 	return false;
+ }
+ 
+@@ -633,3 +675,4 @@
+ #include "randrscreen.moc"
+ 
+ 
++// vim:noet:sts=8:sw=8:
+Index: kcontrol/randr/randr.cpp
+===================================================================
+--- kcontrol/randr/randr.cpp	(revision 1160170)
++++ kcontrol/randr/randr.cpp	(revision 1160171)
+@@ -21,6 +21,7 @@
+ #include <KIconLoader>
+ 
+ bool RandR::has_1_2 = false;
++bool RandR::has_1_3 = false;
+ Time RandR::timestamp = 0;
+ 
+ QString RandR::rotationName(int rotation, bool pastTense, bool capitalised)
+Index: kcontrol/randr/randrdisplay.cpp
+===================================================================
+--- kcontrol/randr/randrdisplay.cpp	(revision 1160170)
++++ kcontrol/randr/randrdisplay.cpp	(revision 1160171)
+@@ -51,9 +51,12 @@
+ 
+ 	// check if we have the new version of the XRandR extension
+ 	RandR::has_1_2 = (major_version > 1 || (major_version == 1 && minor_version >= 2));
++	RandR::has_1_3 = (major_version > 1 || (major_version == 1 && minor_version >= 3));
+ 	
+-	if(RandR::has_1_2)
+-		kDebug() << "Using XRANDR extension 1.2 or greater.";
++	if(RandR::has_1_3)
++		kDebug() << "Using XRANDR extension 1.3 or greater.";
++        else if(RandR::has_1_2)
++		kDebug() << "Using XRANDR extension 1.2.";
+ 	else kDebug() << "Using legacy XRANDR extension (1.1 or earlier).";
+ 	
+ 	kDebug() << "XRANDR error base: " << m_errorBase;
+@@ -332,3 +335,4 @@
+ 	}
+ }
+ 
++// vim:noet:sts=8:sw=8:
+Index: kcontrol/randr/randroutput.h
+===================================================================
+--- kcontrol/randr/randroutput.h	(revision 1160170)
++++ kcontrol/randr/randroutput.h	(revision 1160171)
+@@ -125,6 +125,7 @@
+ 	void slotChangeRefreshRate(QAction *action);
+ 	void slotDisable();
+ 	void slotEnable();
++	void slotSetAsPrimary(bool primary);
+ 
+ private slots:
+ 	void slotCrtcChanged(RRCrtc c, int changes);
+@@ -177,3 +178,4 @@
+ 	bool m_connected;
+ };
+ #endif
++// vim:noet:sts=8:sw=8:
+Index: kcontrol/randr/config-randr.h.cmake
+===================================================================
+--- kcontrol/randr/config-randr.h.cmake	(revision 1160170)
++++ kcontrol/randr/config-randr.h.cmake	(revision 1160171)
+@@ -1 +1,2 @@
+ #cmakedefine HAS_RANDR_1_2 1
++#cmakedefine HAS_RANDR_1_3 1
