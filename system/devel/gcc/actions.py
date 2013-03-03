@@ -36,7 +36,7 @@ def removePardusSection(_dir):
             # if ("crt" in name and name.endswith(".o")) or name.endswith("nonshared.a"):
             if ("crt" in name and name.endswith(".o")) or name.endswith(".a"):
                 i = os.path.join(root, name)
-                shelltools.system('objcopy -R ".comment.PARDUS.OPTs" -R ".note.gnu.build-id" %s' % i)
+                shelltools.system('objcopy -R ".comment.PISILINUX.OPTs" -R ".note.gnu.build-id" %s' % i)
 
 def exportFlags():
     # we set real flags with new configure settings, these are just safe optimizations
