@@ -38,7 +38,7 @@ def remove_pardus_section(_dir):
         # if ("crt" in k and k.endswith(".o")) or k.endswith("nonshared.a"):
         if ("crt" in k and k.endswith(".o")) or k.endswith(".a"):
             i = os.path.join(_dir, k)
-            shelltools.system('objcopy -R ".comment.PARDUS.OPTs" -R ".note.gnu.build-id" %s' % i)
+            shelltools.system('objcopy -R ".comment.PISILINUX.OPTs" -R ".note.gnu.build-id" %s' % i)
 
 def create_symlinks():
     systools = ("addr2line", "ar", "as", "cpp", "nm",
