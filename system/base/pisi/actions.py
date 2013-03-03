@@ -12,7 +12,7 @@ def build():
 
 def install():
     # Install into /usr/lib/pardus so we can protect ourself from python updates
-    pythonmodules.install("--install-lib=/usr/lib/pisilinux")
+    pythonmodules.install("--install-lib=/usr/lib/pardus")
 
     pisitools.dosym("pisi-cli", "/usr/bin/pisi")
 
