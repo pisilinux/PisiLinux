@@ -22,3 +22,4 @@ def check():
 def install():
     autotools.rawInstall()
     pisitools.insinto("/usr/lib/php/modules","modules/*.so")
+    pisitools.insinto("/etc/php/ext","suhosin.ini")
