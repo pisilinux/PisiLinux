@@ -1,0 +1,368 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.816
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.816
+Problem:    Can't compute a hash.
+Solution:   Add the sha256() function. (Tyru, Hirohito Higashi)
+Files:	    runtime/doc/eval.txt, src/eval.c, src/proto/sha256.pro,
+	    src/sha256.c, src/testdir/test90.in, src/testdir/test90.ok,
+	    src/testdir/Make_amiga.mak, src/testdir/Make_dos.mak,
+	    src/testdir/Make_ming.mak, src/testdir/Make_os2.mak,
+	    src/testdir/Make_vms.mms, src/testdir/Makefile
+
+*** ../vim-7.3.815/runtime/doc/eval.txt	2013-01-23 17:15:25.000000000 +0100
+--- runtime/doc/eval.txt	2013-02-13 17:32:52.000000000 +0100
+***************
+*** 1920,1925 ****
+--- 1931,1937 ----
+  settabwinvar( {tabnr}, {winnr}, {varname}, {val})    set {varname} in window
+  					{winnr} in tab page {tabnr} to {val}
+  setwinvar( {nr}, {varname}, {val})	set {varname} in window {nr} to {val}
++ sha256( {string})		String	SHA256 checksum of {string}
+  shellescape( {string} [, {special}])
+  				String	escape {string} for use as shell
+  					command argument
+***************
+*** 5312,5317 ****
+--- 5337,5347 ----
+  			:call setwinvar(1, "&list", 0)
+  			:call setwinvar(2, "myvar", "foobar")
+  
++ sha256({string})						*sha256()*
++ 		Returns a String with 64 hex charactes, which is the SHA256
++ 		checksum of {string}.
++ 		{only available when compiled with the |+cryptv| feature}
++ 
+  shellescape({string} [, {special}])			*shellescape()*
+  		Escape {string} for use as a shell command argument.
+  		On MS-Windows and MS-DOS, when 'shellslash' is not set, it
+*** ../vim-7.3.815/src/eval.c	2013-01-30 14:55:34.000000000 +0100
+--- src/eval.c	2013-02-13 17:24:40.000000000 +0100
+***************
+*** 688,693 ****
+--- 688,696 ----
+  static void f_settabvar __ARGS((typval_T *argvars, typval_T *rettv));
+  static void f_settabwinvar __ARGS((typval_T *argvars, typval_T *rettv));
+  static void f_setwinvar __ARGS((typval_T *argvars, typval_T *rettv));
++ #ifdef FEAT_CRYPT
++ static void f_sha256 __ARGS((typval_T *argvars, typval_T *rettv));
++ #endif /* FEAT_CRYPT */
+  static void f_shellescape __ARGS((typval_T *argvars, typval_T *rettv));
+  static void f_shiftwidth __ARGS((typval_T *argvars, typval_T *rettv));
+  static void f_simplify __ARGS((typval_T *argvars, typval_T *rettv));
+***************
+*** 8055,8060 ****
+--- 8058,8066 ----
+      {"settabvar",	3, 3, f_settabvar},
+      {"settabwinvar",	4, 4, f_settabwinvar},
+      {"setwinvar",	3, 3, f_setwinvar},
++ #ifdef FEAT_CRYPT
++     {"sha256",		1, 1, f_sha256},
++ #endif
+      {"shellescape",	1, 2, f_shellescape},
+      {"shiftwidth",	0, 0, f_shiftwidth},
+      {"simplify",	1, 1, f_simplify},
+***************
+*** 16710,16715 ****
+--- 16716,16739 ----
+      }
+  }
+  
++ #ifdef FEAT_CRYPT
++ /*
++  * "sha256({string})" function
++  */
++     static void
++ f_sha256(argvars, rettv)
++     typval_T	*argvars;
++     typval_T	*rettv;
++ {
++     char_u	*p;
++ 
++     p = get_tv_string(&argvars[0]);
++     rettv->vval.v_string = vim_strsave(
++ 				    sha256_bytes(p, (int)STRLEN(p), NULL, 0));
++     rettv->v_type = VAR_STRING;
++ }
++ #endif /* FEAT_CRYPT */
++ 
+  /*
+   * "shellescape({string})" function
+   */
+*** ../vim-7.3.815/src/proto/sha256.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/sha256.pro	2013-02-13 17:25:08.000000000 +0100
+***************
+*** 2,7 ****
+--- 2,8 ----
+  void sha256_start __ARGS((context_sha256_T *ctx));
+  void sha256_update __ARGS((context_sha256_T *ctx, char_u *input, UINT32_T length));
+  void sha256_finish __ARGS((context_sha256_T *ctx, char_u digest[32]));
++ char_u *sha256_bytes __ARGS((char_u *buf, int buf_len, char_u *salt, int salt_len));
+  char_u *sha256_key __ARGS((char_u *buf, char_u *salt, int salt_len));
+  int sha256_self_test __ARGS((void));
+  void sha2_seed __ARGS((char_u *header, int header_len, char_u *salt, int salt_len));
+*** ../vim-7.3.815/src/sha256.c	2012-11-20 17:18:56.000000000 +0100
+--- src/sha256.c	2013-02-13 17:25:04.000000000 +0100
+***************
+*** 273,286 ****
+  #endif /* FEAT_CRYPT || FEAT_PERSISTENT_UNDO */
+  
+  #if defined(FEAT_CRYPT) || defined(PROTO)
+- static char_u *sha256_bytes __ARGS((char_u *buf, int buf_len, char_u *salt, int salt_len));
+  static unsigned int get_some_time __ARGS((void));
+  
+  /*
+   * Returns hex digest of "buf[buf_len]" in a static array.
+   * if "salt" is not NULL also do "salt[salt_len]".
+   */
+!     static char_u *
+  sha256_bytes(buf, buf_len, salt, salt_len)
+      char_u *buf;
+      int    buf_len;
+--- 273,285 ----
+  #endif /* FEAT_CRYPT || FEAT_PERSISTENT_UNDO */
+  
+  #if defined(FEAT_CRYPT) || defined(PROTO)
+  static unsigned int get_some_time __ARGS((void));
+  
+  /*
+   * Returns hex digest of "buf[buf_len]" in a static array.
+   * if "salt" is not NULL also do "salt[salt_len]".
+   */
+!     char_u *
+  sha256_bytes(buf, buf_len, salt, salt_len)
+      char_u *buf;
+      int    buf_len;
+*** ../vim-7.3.815/src/testdir/test90.in	2013-02-13 17:33:42.000000000 +0100
+--- src/testdir/test90.in	2013-02-13 17:20:13.000000000 +0100
+***************
+*** 0 ****
+--- 1,53 ----
++ Tests for sha256() function.    vim: set ft=vim et ts=2 sw=2 :
++ 
++ STARTTEST
++ :so small.vim
++ :if !has('cryptv') || !exists('*sha256')
++    e! test.ok
++    wq! test.out
++ :endif
++ :"
++ :let testcase='test for empty string: '
++ :if sha256("") ==# 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
++ : let res='ok'
++ :else
++ : let res='ng'
++ :endif
++ :$put =testcase.res
++ :"
++ :let testcase='test for 1 char: '
++ :if sha256("a") ==# 'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb'
++ : let res='ok'
++ :else
++ : let res='ng'
++ :endif
++ :$put =testcase.res
++ :"
++ :let testcase='test for 3 chars: '
++ :if sha256("abc") ==# 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
++ : let res='ok'
++ :else
++ : let res='ng'
++ :endif
++ :$put =testcase.res
++ :"
++ :let testcase='test for contains meta char: '
++ :if sha256("foo\nbar") ==# '807eff6267f3f926a21d234f7b0cf867a86f47e07a532f15e8cc39ed110ca776'
++ : let res='ok'
++ :else
++ : let res='ng'
++ :endif
++ :$put =testcase.res
++ :"
++ :let testcase='test for contains non-ascii char: '
++ :if sha256("\xde\xad\xbe\xef") ==# '5f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953'
++ : let res='ok'
++ :else
++ : let res='ng'
++ :endif
++ :$put =testcase.res
++ "
++ :/^start:/,$wq! test.out
++ ENDTEST
++ 
++ start:
+*** ../vim-7.3.815/src/testdir/test90.ok	2013-02-13 17:33:42.000000000 +0100
+--- src/testdir/test90.ok	2013-02-13 17:20:36.000000000 +0100
+***************
+*** 0 ****
+--- 1,6 ----
++ start:
++ test for empty string: ok
++ test for 1 char: ok
++ test for 3 chars: ok
++ test for contains meta char: ok
++ test for contains non-ascii char: ok
+*** ../vim-7.3.815/src/testdir/Make_amiga.mak	2013-02-13 15:44:22.000000000 +0100
+--- src/testdir/Make_amiga.mak	2013-02-13 17:21:15.000000000 +0100
+***************
+*** 32,38 ****
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+  		test81.out test82.out test83.out test84.out test88.out \
+! 		test89.out
+  
+  .SUFFIXES: .in .out
+  
+--- 32,38 ----
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+  		test81.out test82.out test83.out test84.out test88.out \
+! 		test89.out test90.out
+  
+  .SUFFIXES: .in .out
+  
+***************
+*** 138,140 ****
+--- 138,141 ----
+  test84.out: test84.in
+  test88.out: test88.in
+  test89.out: test89.in
++ test90.out: test90.in
+*** ../vim-7.3.815/src/testdir/Make_dos.mak	2013-02-13 15:44:22.000000000 +0100
+--- src/testdir/Make_dos.mak	2013-02-13 17:21:22.000000000 +0100
+***************
+*** 31,37 ****
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+  		test84.out test85.out test86.out test87.out test88.out \
+! 		test89.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 31,37 ----
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+  		test84.out test85.out test86.out test87.out test88.out \
+! 		test89.out test90.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.815/src/testdir/Make_ming.mak	2013-02-13 15:44:22.000000000 +0100
+--- src/testdir/Make_ming.mak	2013-02-13 17:21:24.000000000 +0100
+***************
+*** 51,57 ****
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+  		test84.out test85.out test86.out test87.out test88.out \
+! 		test89.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+--- 51,57 ----
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+  		test84.out test85.out test86.out test87.out test88.out \
+! 		test89.out test90.out
+  
+  SCRIPTS32 =	test50.out test70.out
+  
+*** ../vim-7.3.815/src/testdir/Make_os2.mak	2013-02-13 15:44:22.000000000 +0100
+--- src/testdir/Make_os2.mak	2013-02-13 17:21:27.000000000 +0100
+***************
+*** 32,38 ****
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+  		test81.out test82.out test83.out test84.out test88.out \
+! 		test89.out
+  
+  .SUFFIXES: .in .out
+  
+--- 32,38 ----
+  		test71.out test72.out test73.out test74.out test75.out \
+  		test76.out test77.out test78.out test79.out test80.out \
+  		test81.out test82.out test83.out test84.out test88.out \
+! 		test89.out test90.out
+  
+  .SUFFIXES: .in .out
+  
+*** ../vim-7.3.815/src/testdir/Make_vms.mms	2013-02-13 15:44:22.000000000 +0100
+--- src/testdir/Make_vms.mms	2013-02-13 17:21:32.000000000 +0100
+***************
+*** 4,10 ****
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2012 Dec 05
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+--- 4,10 ----
+  # Authors:	Zoltan Arpadffy, <arpadffy@polarhome.com>
+  #		Sandor Kopanyi,  <sandor.kopanyi@mailbox.hu>
+  #
+! # Last change:  2013 Feb 13
+  #
+  # This has been tested on VMS 6.2 to 8.3 on DEC Alpha, VAX and IA64.
+  # Edit the lines in the Configuration section below to select.
+***************
+*** 76,82 ****
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+  	 test77.out test78.out test79.out test80.out test81.out \
+! 	 test82.out test83.out test84.out test88.out test89.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+--- 76,83 ----
+  	 test66.out test67.out test68.out test69.out \
+  	 test71.out test72.out test74.out test75.out test76.out \
+  	 test77.out test78.out test79.out test80.out test81.out \
+! 	 test82.out test83.out test84.out test88.out test89.out \
+! 	 test90.out
+  
+  # Known problems:
+  # Test 30: a problem around mac format - unknown reason
+*** ../vim-7.3.815/src/testdir/Makefile	2013-02-13 15:44:22.000000000 +0100
+--- src/testdir/Makefile	2013-02-13 17:20:58.000000000 +0100
+***************
+*** 28,34 ****
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+  		test84.out test85.out test86.out test87.out test88.out \
+! 		test89.out
+  
+  SCRIPTS_GUI = test16.out
+  
+--- 28,34 ----
+  		test74.out test75.out test76.out test77.out test78.out \
+  		test79.out test80.out test81.out test82.out test83.out \
+  		test84.out test85.out test86.out test87.out test88.out \
+! 		test89.out test90.out
+  
+  SCRIPTS_GUI = test16.out
+  
+*** ../vim-7.3.815/src/version.c	2013-02-13 17:06:06.000000000 +0100
+--- src/version.c	2013-02-13 17:33:04.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     816,
+  /**/
+
+-- 
+   Another bucket of what can only be described as human ordure hits ARTHUR.
+ARTHUR: ... Right!  (to the KNIGHTS) That settles it!
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

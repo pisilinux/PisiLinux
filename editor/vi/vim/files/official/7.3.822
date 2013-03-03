@@ -1,0 +1,159 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.822
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.822 (after 7.3.799)
+Problem:    Crash when accessing freed buffer.
+Solution:   Get 'textwidth' in caller of enter_buffer(). (Christian Brabandt)
+Files:	    src/buffer.c
+
+
+*** ../vim-7.3.821/src/buffer.c	2013-02-06 18:44:57.000000000 +0100
+--- src/buffer.c	2013-02-17 15:10:44.000000000 +0100
+***************
+*** 82,87 ****
+--- 82,90 ----
+  #ifdef FEAT_AUTOCMD
+      buf_T	*old_curbuf;
+  #endif
++ #ifdef FEAT_SYN_HL
++     long	old_tw = curbuf->b_p_tw;
++ #endif
+  
+      /*
+       * The 'readonly' flag is only set when BF_NEVERLOADED is being reset.
+***************
+*** 113,118 ****
+--- 116,125 ----
+  	}
+  	EMSG(_("E83: Cannot allocate buffer, using other one..."));
+  	enter_buffer(curbuf);
++ #ifdef FEAT_SYN_HL
++ 	if (old_tw != curbuf->b_p_tw)
++ 	    check_colorcolumn(curwin);
++ #endif
+  	return FAIL;
+      }
+  
+***************
+*** 786,791 ****
+--- 793,801 ----
+  # if defined(FEAT_AUTOCMD) && defined(FEAT_EVAL)
+      cleanup_T	cs;
+  # endif
++ #ifdef FEAT_SYN_HL
++     long	old_tw = curbuf->b_p_tw;
++ #endif
+  
+      if (swap_exists_action == SEA_QUIT)
+      {
+***************
+*** 804,810 ****
+--- 814,826 ----
+  	if (!buf_valid(old_curbuf) || old_curbuf == curbuf)
+  	    old_curbuf = buflist_new(NULL, NULL, 1L, BLN_CURBUF | BLN_LISTED);
+  	if (old_curbuf != NULL)
++ 	{
+  	    enter_buffer(old_curbuf);
++ #ifdef FEAT_SYN_HL
++ 	    if (old_tw != curbuf->b_p_tw)
++ 		check_colorcolumn(curwin);
++ #endif
++ 	}
+  	/* If "old_curbuf" is NULL we are in big trouble here... */
+  
+  # if defined(FEAT_AUTOCMD) && defined(FEAT_EVAL)
+***************
+*** 1364,1369 ****
+--- 1380,1388 ----
+      buf_T	*prevbuf;
+      int		unload = (action == DOBUF_UNLOAD || action == DOBUF_DEL
+  						     || action == DOBUF_WIPE);
++ #ifdef FEAT_SYN_HL
++     long	old_tw = curbuf->b_p_tw;
++ #endif
+  
+      setpcmark();
+      if (!cmdmod.keepalt)
+***************
+*** 1430,1450 ****
+  # endif
+         )
+  #endif
+  	enter_buffer(buf);
+  }
+  
+  /*
+   * Enter a new current buffer.
+!  * Old curbuf must have been abandoned already!
+   */
+      void
+  enter_buffer(buf)
+      buf_T	*buf;
+  {
+- #ifdef FEAT_SYN_HL
+-     long old_tw = curbuf->b_p_tw;
+- #endif
+- 
+      /* Copy buffer and window local option values.  Not for a help buffer. */
+      buf_copy_options(buf, BCO_ENTER | BCO_NOHELP);
+      if (!buf->b_help)
+--- 1449,1472 ----
+  # endif
+         )
+  #endif
++     {
+  	enter_buffer(buf);
++ #ifdef FEAT_SYN_HL
++ 	if (old_tw != curbuf->b_p_tw)
++ 	    check_colorcolumn(curwin);
++ #endif
++     }
+  }
+  
+  /*
+   * Enter a new current buffer.
+!  * Old curbuf must have been abandoned already!  This also means "curbuf" may
+!  * be pointing to freed memory.
+   */
+      void
+  enter_buffer(buf)
+      buf_T	*buf;
+  {
+      /* Copy buffer and window local option values.  Not for a help buffer. */
+      buf_copy_options(buf, BCO_ENTER | BCO_NOHELP);
+      if (!buf->b_help)
+***************
+*** 1468,1475 ****
+  
+  #ifdef FEAT_SYN_HL
+      curwin->w_s = &(buf->b_s);
+-     if (old_tw != buf->b_p_tw)
+- 	check_colorcolumn(curwin);
+  #endif
+  
+      /* Cursor on first line by default. */
+--- 1490,1495 ----
+*** ../vim-7.3.821/src/version.c	2013-02-16 18:16:11.000000000 +0100
+--- src/version.c	2013-02-17 15:35:41.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     822,
+  /**/
+
+-- 
+Clothes make the man.  Naked people have little or no influence on society.
+                               -- Mark Twain (Samuel Clemens) (1835-1910)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

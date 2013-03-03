@@ -1,0 +1,146 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.814
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.814
+Problem:    Can't input multibyte characters on Win32 console if 'encoding' is
+	    different from current codepage.
+Solution:   Use convert_input_safe() instead of convert_input().  Make
+	    string_convert_ext() return an error for incomplete input. (Ken
+	    Takata)
+Files:	    src/mbyte.c, src/os_win32.c
+
+
+*** ../vim-7.3.813/src/mbyte.c	2013-01-30 13:59:31.000000000 +0100
+--- src/mbyte.c	2013-02-13 16:38:25.000000000 +0100
+***************
+*** 6256,6263 ****
+  	    if (vcp->vc_cpfrom == 0)
+  		tmp_len = utf8_to_utf16(ptr, len, NULL, NULL);
+  	    else
+! 		tmp_len = MultiByteToWideChar(vcp->vc_cpfrom, 0,
+! 							      ptr, len, 0, 0);
+  	    tmp = (short_u *)alloc(sizeof(short_u) * tmp_len);
+  	    if (tmp == NULL)
+  		break;
+--- 6256,6278 ----
+  	    if (vcp->vc_cpfrom == 0)
+  		tmp_len = utf8_to_utf16(ptr, len, NULL, NULL);
+  	    else
+! 	    {
+! 		tmp_len = MultiByteToWideChar(vcp->vc_cpfrom,
+! 					unconvlenp ? MB_ERR_INVALID_CHARS : 0,
+! 					ptr, len, 0, 0);
+! 		if (tmp_len == 0
+! 			&& GetLastError() == ERROR_NO_UNICODE_TRANSLATION)
+! 		{
+! 		    if (lenp != NULL)
+! 			*lenp = 0;
+! 		    if (unconvlenp != NULL)
+! 			*unconvlenp = len;
+! 		    retval = alloc(1);
+! 		    if (retval)
+! 			retval[0] = NUL;
+! 		    return retval;
+! 		}
+! 	    }
+  	    tmp = (short_u *)alloc(sizeof(short_u) * tmp_len);
+  	    if (tmp == NULL)
+  		break;
+*** ../vim-7.3.813/src/os_win32.c	2012-11-20 16:53:34.000000000 +0100
+--- src/os_win32.c	2013-02-13 16:41:05.000000000 +0100
+***************
+*** 1466,1471 ****
+--- 1466,1476 ----
+  #define TYPEAHEADLEN 20
+      static char_u   typeahead[TYPEAHEADLEN];	/* previously typed bytes. */
+      static int	    typeaheadlen = 0;
++ #ifdef FEAT_MBYTE
++     static char_u   *rest = NULL;	/* unconverted rest of previous read */
++     static int	    restlen = 0;
++     int		    unconverted;
++ #endif
+  
+      /* First use any typeahead that was kept because "buf" was too small. */
+      if (typeaheadlen > 0)
+***************
+*** 1569,1574 ****
+--- 1574,1606 ----
+  
+  	    c = tgetch(&modifiers, &ch2);
+  
++ #ifdef FEAT_MBYTE
++ 	    /* stolen from fill_input_buf() in ui.c */
++ 	    if (rest != NULL)
++ 	    {
++ 		/* Use remainder of previous call, starts with an invalid
++ 		 * character that may become valid when reading more. */
++ 		if (restlen > TYPEAHEADLEN - typeaheadlen)
++ 		    unconverted = TYPEAHEADLEN - typeaheadlen;
++ 		else
++ 		    unconverted = restlen;
++ 		mch_memmove(typeahead + typeaheadlen, rest, unconverted);
++ 		if (unconverted == restlen)
++ 		{
++ 		    vim_free(rest);
++ 		    rest = NULL;
++ 		}
++ 		else
++ 		{
++ 		    restlen -= unconverted;
++ 		    mch_memmove(rest, rest + unconverted, restlen);
++ 		}
++ 		typeaheadlen += unconverted;
++ 	    }
++ 	    else
++ 		unconverted = 0;
++ #endif
++ 
+  	    if (typebuf_changed(tb_change_cnt))
+  	    {
+  		/* "buf" may be invalid now if a client put something in the
+***************
+*** 1604,1611 ****
+  		 * when 'tenc' is set. */
+  		if (input_conv.vc_type != CONV_NONE
+  						&& (ch2 == NUL || c != K_NUL))
+! 		    n = convert_input(typeahead + typeaheadlen, n,
+! 						 TYPEAHEADLEN - typeaheadlen);
+  #endif
+  
+  		/* Use the ALT key to set the 8th bit of the character
+--- 1636,1647 ----
+  		 * when 'tenc' is set. */
+  		if (input_conv.vc_type != CONV_NONE
+  						&& (ch2 == NUL || c != K_NUL))
+! 		{
+! 		    typeaheadlen -= unconverted;
+! 		    n = convert_input_safe(typeahead + typeaheadlen,
+! 				n + unconverted, TYPEAHEADLEN - typeaheadlen,
+! 				rest == NULL ? &rest : NULL, &restlen);
+! 		}
+  #endif
+  
+  		/* Use the ALT key to set the 8th bit of the character
+*** ../vim-7.3.813/src/version.c	2013-02-13 16:30:17.000000000 +0100
+--- src/version.c	2013-02-13 16:47:50.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     814,
+  /**/
+
+-- 
+SIGIRO -- irony detected (iron core dumped)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

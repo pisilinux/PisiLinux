@@ -1,0 +1,98 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.765
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.765
+Problem:    Segfault when doing "cclose" on BufUnload in a python function.
+	    (Sean Reifschneider)
+Solution:   Skip window with NULL buffer. (Christian Brabandt)
+Files:	    src/main.c, src/window.c
+
+
+*** ../vim-7.3.764/src/main.c	2012-11-28 15:55:37.000000000 +0100
+--- src/main.c	2013-01-17 13:46:57.000000000 +0100
+***************
+*** 1376,1381 ****
+--- 1376,1384 ----
+  	    for (wp = (tp == curtab)
+  		    ? firstwin : tp->tp_firstwin; wp != NULL; wp = wp->w_next)
+  	    {
++ 		if (wp->w_buffer == NULL)
++ 		    /* Autocmd must have close the buffer already, skip. */
++ 		    continue;
+  		buf = wp->w_buffer;
+  		if (buf->b_changedtick != -1)
+  		{
+*** ../vim-7.3.764/src/window.c	2012-08-29 15:50:22.000000000 +0200
+--- src/window.c	2013-01-17 13:53:10.000000000 +0100
+***************
+*** 2276,2284 ****
+  #endif
+      }
+  
+      /* Autocommands may have closed the window already, or closed the only
+       * other window or moved to another tab page. */
+!     if (!win_valid(win) || last_window() || curtab != prev_curtab
+  	    || close_last_window_tabpage(win, free_buf, prev_curtab))
+  	return;
+  
+--- 2276,2290 ----
+  #endif
+      }
+  
++     if (only_one_window() && win_valid(win) && win->w_buffer == NULL
++ 	    && (last_window() || curtab != prev_curtab
++ 		|| close_last_window_tabpage(win, free_buf, prev_curtab)))
++ 	/* Autocommands have close all windows, quit now. */
++ 	getout(0);
++ 
+      /* Autocommands may have closed the window already, or closed the only
+       * other window or moved to another tab page. */
+!     else if (!win_valid(win) || last_window() || curtab != prev_curtab
+  	    || close_last_window_tabpage(win, free_buf, prev_curtab))
+  	return;
+  
+***************
+*** 6282,6288 ****
+  	return FALSE;
+  
+      for (wp = firstwin; wp != NULL; wp = wp->w_next)
+! 	if ((!((wp->w_buffer->b_help && !curbuf->b_help)
+  # ifdef FEAT_QUICKFIX
+  		    || wp->w_p_pvw
+  # endif
+--- 6288,6295 ----
+  	return FALSE;
+  
+      for (wp = firstwin; wp != NULL; wp = wp->w_next)
+! 	if (wp->w_buffer != NULL
+! 		&& (!((wp->w_buffer->b_help && !curbuf->b_help)
+  # ifdef FEAT_QUICKFIX
+  		    || wp->w_p_pvw
+  # endif
+*** ../vim-7.3.764/src/version.c	2013-01-17 13:35:13.000000000 +0100
+--- src/version.c	2013-01-17 13:56:56.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     765,
+  /**/
+
+-- 
+       He was not in the least bit scared to be mashed into a pulp
+       Or to have his eyes gouged out and his elbows broken;
+       To have his kneecaps split and his body burned away
+       And his limbs all hacked and mangled, brave Sir Robin.
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

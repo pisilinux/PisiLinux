@@ -1,0 +1,120 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.767
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.767
+Problem:    (Win32) The _errno used for iconv may be the wrong one.
+Solution:   Use the _errno from iconv.dll. (Ken Takata)
+Files:	    src/mbyte.c
+
+
+*** ../vim-7.3.766/src/mbyte.c	2012-09-18 18:03:33.000000000 +0200
+--- src/mbyte.c	2013-01-17 14:33:42.000000000 +0100
+***************
+*** 3242,3248 ****
+  
+  /*
+   * Version of strnicmp() that handles multi-byte characters.
+!  * Needed for Big5, Sjift-JIS and UTF-8 encoding.  Other DBCS encodings can
+   * probably use strnicmp(), because there are no ASCII characters in the
+   * second byte.
+   * Returns zero if s1 and s2 are equal (ignoring case), the difference between
+--- 3242,3248 ----
+  
+  /*
+   * Version of strnicmp() that handles multi-byte characters.
+!  * Needed for Big5, Shift-JIS and UTF-8 encoding.  Other DBCS encodings can
+   * probably use strnicmp(), because there are no ASCII characters in the
+   * second byte.
+   * Returns zero if s1 and s2 are equal (ignoring case), the difference between
+***************
+*** 4294,4299 ****
+--- 4294,4337 ----
+  #  endif
+  
+  /*
++  * Get the address of 'funcname' which is imported by 'hInst' DLL.
++  */
++     static void *
++ get_iconv_import_func(HINSTANCE hInst, const char *funcname)
++ {
++     PBYTE			pImage = (PBYTE)hInst;
++     PIMAGE_DOS_HEADER		pDOS = (PIMAGE_DOS_HEADER)hInst;
++     PIMAGE_NT_HEADERS		pPE;
++     PIMAGE_IMPORT_DESCRIPTOR	pImpDesc;
++     PIMAGE_THUNK_DATA		pIAT;	    /* Import Address Table */
++     PIMAGE_THUNK_DATA		pINT;	    /* Import Name Table */
++     PIMAGE_IMPORT_BY_NAME	pImpName;
++ 
++     if (pDOS->e_magic != IMAGE_DOS_SIGNATURE)
++ 	return NULL;
++     pPE = (PIMAGE_NT_HEADERS)(pImage + pDOS->e_lfanew);
++     if (pPE->Signature != IMAGE_NT_SIGNATURE)
++ 	return NULL;
++     pImpDesc = (PIMAGE_IMPORT_DESCRIPTOR)(pImage
++ 	    + pPE->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]
++ 							    .VirtualAddress);
++     for (; pImpDesc->FirstThunk; ++pImpDesc)
++     {
++ 	pIAT = (PIMAGE_THUNK_DATA)(pImage + pImpDesc->FirstThunk);
++ 	pINT = (PIMAGE_THUNK_DATA)(pImage + pImpDesc->OriginalFirstThunk);
++ 	for (; pIAT->u1.Function; ++pIAT, ++pINT)
++ 	{
++ 	    if (IMAGE_SNAP_BY_ORDINAL(pINT->u1.Ordinal))
++ 		continue;
++ 	    pImpName = (PIMAGE_IMPORT_BY_NAME)(pImage + pINT->u1.AddressOfData);
++ 	    if (strcmp(pImpName->Name, funcname) == 0)
++ 		return (void *)pIAT->u1.Function;
++ 	}
++     }
++     return NULL;
++ }
++ 
++ /*
+   * Try opening the iconv.dll and return TRUE if iconv() can be used.
+   */
+      int
+***************
+*** 4326,4332 ****
+      iconv_open	= (void *)GetProcAddress(hIconvDLL, "libiconv_open");
+      iconv_close	= (void *)GetProcAddress(hIconvDLL, "libiconv_close");
+      iconvctl	= (void *)GetProcAddress(hIconvDLL, "libiconvctl");
+!     iconv_errno	= (void *)GetProcAddress(hMsvcrtDLL, "_errno");
+      if (iconv == NULL || iconv_open == NULL || iconv_close == NULL
+  	    || iconvctl == NULL || iconv_errno == NULL)
+      {
+--- 4364,4372 ----
+      iconv_open	= (void *)GetProcAddress(hIconvDLL, "libiconv_open");
+      iconv_close	= (void *)GetProcAddress(hIconvDLL, "libiconv_close");
+      iconvctl	= (void *)GetProcAddress(hIconvDLL, "libiconvctl");
+!     iconv_errno	= get_iconv_import_func(hIconvDLL, "_errno");
+!     if (iconv_errno == NULL)
+! 	iconv_errno = (void *)GetProcAddress(hMsvcrtDLL, "_errno");
+      if (iconv == NULL || iconv_open == NULL || iconv_close == NULL
+  	    || iconvctl == NULL || iconv_errno == NULL)
+      {
+*** ../vim-7.3.766/src/version.c	2013-01-17 14:09:39.000000000 +0100
+--- src/version.c	2013-01-17 14:34:19.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     767,
+  /**/
+
+-- 
+FIRST HEAD:  Oh! quick! get the sword out I want to cut his head off.
+THIRD HEAD:  Oh, cut your own head off.
+SECOND HEAD: Yes - do us all a favour.
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

@@ -1,0 +1,93 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.786
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.786
+Problem:    Python threads don't run in the background (issue 103).
+Solution:   Move the statements to manipulate thread state.
+Files:	    src/if_python.c
+
+
+*** ../vim-7.3.785/src/if_python.c	2012-10-21 01:46:56.000000000 +0200
+--- src/if_python.c	2013-01-30 11:38:06.000000000 +0100
+***************
+*** 740,751 ****
+  #else
+  	PyMac_Initialize();
+  #endif
+! 	/* Initialise threads, and save the state using PyGILState_Ensure.
+! 	 * Without the call to PyGILState_Ensure, thread specific state (such
+! 	 * as the system trace hook), will be lost between invocations of
+! 	 * Python code. */
+  	PyEval_InitThreads();
+- 	pygilstate = PyGILState_Ensure();
+  #ifdef DYNAMIC_PYTHON
+  	get_exceptions();
+  #endif
+--- 740,750 ----
+  #else
+  	PyMac_Initialize();
+  #endif
+! 	/* Initialise threads, and below save the state using
+! 	 * PyGILState_Ensure.  Without the call to PyGILState_Ensure, thread
+! 	 * specific state (such as the system trace hook), will be lost
+! 	 * between invocations of Python code. */
+  	PyEval_InitThreads();
+  #ifdef DYNAMIC_PYTHON
+  	get_exceptions();
+  #endif
+***************
+*** 756,761 ****
+--- 755,764 ----
+  	if (PythonMod_Init())
+  	    goto fail;
+  
++ 	/* The first python thread is vim's, release the lock. */
++ 	Python_SaveThread();
++ 	pygilstate = PyGILState_Ensure();
++ 
+  	globals = PyModule_GetDict(PyImport_AddModule("__main__"));
+  
+  	/* Remove the element from sys.path that was added because of our
+***************
+*** 764,771 ****
+  	 * the current directory in sys.path. */
+  	PyRun_SimpleString("import sys; sys.path = filter(lambda x: x != '/must>not&exist', sys.path)");
+  
+! 	/* the first python thread is vim's, release the lock */
+! 	Python_SaveThread();
+  
+  	initialised = 1;
+      }
+--- 767,773 ----
+  	 * the current directory in sys.path. */
+  	PyRun_SimpleString("import sys; sys.path = filter(lambda x: x != '/must>not&exist', sys.path)");
+  
+! 	PyGILState_Release(pygilstate);
+  
+  	initialised = 1;
+      }
+*** ../vim-7.3.785/src/version.c	2013-01-25 20:10:58.000000000 +0100
+--- src/version.c	2013-01-30 11:44:04.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     786,
+  /**/
+
+-- 
+ARTHUR:        I command you as King of the Britons to stand aside!
+BLACK KNIGHT:  I move for no man.
+                                  The Quest for the Holy Grail (Monty Python)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

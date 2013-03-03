@@ -1,0 +1,450 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.769
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.769
+Problem:    'matchpairs' does not work with multi-byte characters.
+Solution:   Make it work. (Christian Brabandt)
+Files:	    src/misc1.c, src/option.c, src/proto/option.pro, src/search.c,
+	    src/testdir/test69.in, src/testdir/test69.ok
+
+
+*** ../vim-7.3.768/src/misc1.c	2012-08-15 14:04:50.000000000 +0200
+--- src/misc1.c	2013-01-17 15:55:09.000000000 +0100
+***************
+*** 2288,2301 ****
+       */
+      if (p_sm && (State & INSERT)
+  	    && msg_silent == 0
+- #ifdef FEAT_MBYTE
+- 	    && charlen == 1
+- #endif
+  #ifdef FEAT_INS_EXPAND
+  	    && !ins_compl_active()
+  #endif
+         )
+! 	showmatch(c);
+  
+  #ifdef FEAT_RIGHTLEFT
+      if (!p_ri || (State & REPLACE_FLAG))
+--- 2288,2305 ----
+       */
+      if (p_sm && (State & INSERT)
+  	    && msg_silent == 0
+  #ifdef FEAT_INS_EXPAND
+  	    && !ins_compl_active()
+  #endif
+         )
+!     {
+! #ifdef FEAT_MBYTE
+! 	if (has_mbyte)
+! 	    showmatch(mb_ptr2char(buf));
+! 	else
+! #endif
+! 	    showmatch(c);
+!     }
+  
+  #ifdef FEAT_RIGHTLEFT
+      if (!p_ri || (State & REPLACE_FLAG))
+*** ../vim-7.3.768/src/option.c	2012-12-05 14:42:56.000000000 +0100
+--- src/option.c	2013-01-17 16:38:42.000000000 +0100
+***************
+*** 6149,6164 ****
+      /* 'matchpairs' */
+      else if (gvarp == &p_mps)
+      {
+! 	/* Check for "x:y,x:y" */
+! 	for (p = *varp; *p != NUL; p += 4)
+  	{
+! 	    if (p[1] != ':' || p[2] == NUL || (p[3] != NUL && p[3] != ','))
+  	    {
+! 		errmsg = e_invarg;
+! 		break;
+  	    }
+- 	    if (p[3] == NUL)
+- 		break;
+  	}
+      }
+  
+--- 6149,6194 ----
+      /* 'matchpairs' */
+      else if (gvarp == &p_mps)
+      {
+! #ifdef FEAT_MBYTE
+! 	if (has_mbyte)
+  	{
+! 	    for (p = *varp; *p != NUL; ++p)
+  	    {
+! 		int x2,x3 = -1;
+! 
+! 		if (*p != NUL)
+! 		    p += mb_ptr2len(p);
+! 		if (*p != NUL)
+! 		    x2 = *p++;
+! 		if (*p != NUL)
+! 		{
+! 		    x3 = mb_ptr2char(p);
+! 		    p += mb_ptr2len(p);
+! 		}
+! 		if (x2 != ':' || x2 == -1 || x3 == -1
+! 						  || (*p != NUL && *p != ','))
+! 		{
+! 		    errmsg = e_invarg;
+! 		    break;
+! 		}
+! 		if (*p == NUL)
+! 		    break;
+! 	    }
+! 	}
+! 	else
+! #endif
+! 	{
+! 	    /* Check for "x:y,x:y" */
+! 	    for (p = *varp; *p != NUL; p += 4)
+! 	    {
+! 		if (p[1] != ':' || p[2] == NUL || (p[3] != NUL && p[3] != ','))
+! 		{
+! 		    errmsg = e_invarg;
+! 		    break;
+! 		}
+! 		if (p[3] == NUL)
+! 		    break;
+  	    }
+  	}
+      }
+  
+***************
+*** 11453,11455 ****
+--- 11483,11583 ----
+  {
+      return curbuf->b_p_sts < 0 ? get_sw_value() : curbuf->b_p_sts;
+  }
++ 
++ /*
++  * Check matchpairs option for "*initc".
++  * If there is a match set "*initc" to the matching character and "*findc" to
++  * the opposite character.  Set "*backwards" to the direction.
++  * When "switchit" is TRUE swap the direction.
++  */
++     void
++ find_mps_values(initc, findc, backwards, switchit)
++     int	    *initc;
++     int	    *findc;
++     int	    *backwards;
++     int	    switchit;
++ {
++     char_u	*ptr;
++ 
++     ptr = curbuf->b_p_mps;
++     while (*ptr != NUL)
++     {
++ #ifdef FEAT_MBYTE
++ 	if (has_mbyte)
++ 	{
++ 	    char_u *prev;
++ 
++ 	    if (mb_ptr2char(ptr) == *initc)
++ 	    {
++ 		if (switchit)
++ 		{
++ 		    *findc = *initc;
++ 		    *initc = mb_ptr2char(ptr + mb_ptr2len(ptr) + 1);
++ 		    *backwards = TRUE;
++ 		}
++ 		else
++ 		{
++ 		    *findc = mb_ptr2char(ptr + mb_ptr2len(ptr) + 1);
++ 		    *backwards = FALSE;
++ 		}
++ 		return;
++ 	    }
++ 	    prev = ptr;
++ 	    ptr += mb_ptr2len(ptr) + 1;
++ 	    if (mb_ptr2char(ptr) == *initc)
++ 	    {
++ 		if (switchit)
++ 		{
++ 		    *findc = *initc;
++ 		    *initc = mb_ptr2char(prev);
++ 		    *backwards = FALSE;
++ 		}
++ 		else
++ 		{
++ 		    *findc = mb_ptr2char(prev);
++ 		    *backwards = TRUE;
++ 		}
++ 		return;
++ 	    }
++ 	    ptr += mb_ptr2len(ptr);
++ 	}
++ 	else
++ #endif
++ 	{
++ 	    if (*ptr == *initc)
++ 	    {
++ 		if (switchit)
++ 		{
++ 		    *backwards = TRUE;
++ 		    *findc = *initc;
++ 		    *initc = ptr[2];
++ 		}
++ 		else
++ 		{
++ 		    *backwards = FALSE;
++ 		    *findc = ptr[2];
++ 		}
++ 		return;
++ 	    }
++ 	    ptr += 2;
++ 	    if (*ptr == *initc)
++ 	    {
++ 		if (switchit)
++ 		{
++ 		    *backwards = FALSE;
++ 		    *findc = *initc;
++ 		    *initc = ptr[-2];
++ 		}
++ 		else
++ 		{
++ 		    *backwards = TRUE;
++ 		    *findc =  ptr[-2];
++ 		}
++ 		return;
++ 	    }
++ 	    ++ptr;
++ 	}
++ 	if (*ptr == ',')
++ 	    ++ptr;
++     }
++ }
+*** ../vim-7.3.768/src/proto/option.pro	2012-12-05 14:42:56.000000000 +0100
+--- src/proto/option.pro	2013-01-17 16:39:30.000000000 +0100
+***************
+*** 59,62 ****
+--- 59,63 ----
+  int check_ff_value __ARGS((char_u *p));
+  long get_sw_value __ARGS((void));
+  long get_sts_value __ARGS((void));
++ void find_mps_values __ARGS((int *initc, int *findc, int *backwards, int switchit));
+  /* vim: set ft=c : */
+*** ../vim-7.3.768/src/search.c	2012-10-03 13:35:45.000000000 +0200
+--- src/search.c	2013-01-17 16:50:12.000000000 +0100
+***************
+*** 1786,1813 ****
+      }
+      else if (initc != '#' && initc != NUL)
+      {
+! 	/* 'matchpairs' is "x:y,x:y" */
+! 	for (ptr = curbuf->b_p_mps; *ptr; ptr += 2)
+! 	{
+! 	    if (*ptr == initc)
+! 	    {
+! 		findc = initc;
+! 		initc = ptr[2];
+! 		backwards = TRUE;
+! 		break;
+! 	    }
+! 	    ptr += 2;
+! 	    if (*ptr == initc)
+! 	    {
+! 		findc = initc;
+! 		initc = ptr[-2];
+! 		backwards = FALSE;
+! 		break;
+! 	    }
+! 	    if (ptr[1] != ',')
+! 		break;
+! 	}
+! 	if (!findc)		/* invalid initc! */
+  	    return NULL;
+      }
+      /*
+--- 1786,1793 ----
+      }
+      else if (initc != '#' && initc != NUL)
+      {
+! 	find_mps_values(&initc, &findc, &backwards, TRUE);
+! 	if (findc == NUL)
+  	    return NULL;
+      }
+      /*
+***************
+*** 1886,1921 ****
+  		    --pos.col;
+  		for (;;)
+  		{
+! 		    initc = linep[pos.col];
+  		    if (initc == NUL)
+  			break;
+  
+! 		    for (ptr = curbuf->b_p_mps; *ptr; ++ptr)
+! 		    {
+! 			if (*ptr == initc)
+! 			{
+! 			    findc = ptr[2];
+! 			    backwards = FALSE;
+! 			    break;
+! 			}
+! 			ptr += 2;
+! 			if (*ptr == initc)
+! 			{
+! 			    findc = ptr[-2];
+! 			    backwards = TRUE;
+! 			    break;
+! 			}
+! 			if (!*++ptr)
+! 			    break;
+! 		    }
+  		    if (findc)
+  			break;
+! #ifdef FEAT_MBYTE
+! 		    if (has_mbyte)
+! 			pos.col += (*mb_ptr2len)(linep + pos.col);
+! 		    else
+! #endif
+! 			++pos.col;
+  		}
+  		if (!findc)
+  		{
+--- 1866,1879 ----
+  		    --pos.col;
+  		for (;;)
+  		{
+! 		    initc = PTR2CHAR(linep + pos.col);
+  		    if (initc == NUL)
+  			break;
+  
+! 		    find_mps_values(&initc, &findc, &backwards, FALSE);
+  		    if (findc)
+  			break;
+! 		    pos.col += MB_PTR2LEN(linep + pos.col);
+  		}
+  		if (!findc)
+  		{
+***************
+*** 2260,2266 ****
+  	 *   inquote if the number of quotes in a line is even, unless this
+  	 *   line or the previous one ends in a '\'.  Complicated, isn't it?
+  	 */
+! 	switch (c = linep[pos.col])
+  	{
+  	case NUL:
+  	    /* at end of line without trailing backslash, reset inquote */
+--- 2218,2225 ----
+  	 *   inquote if the number of quotes in a line is even, unless this
+  	 *   line or the previous one ends in a '\'.  Complicated, isn't it?
+  	 */
+! 	c = PTR2CHAR(linep + pos.col);
+! 	switch (c)
+  	{
+  	case NUL:
+  	    /* at end of line without trailing backslash, reset inquote */
+***************
+*** 2469,2488 ****
+       * Only show match for chars in the 'matchpairs' option.
+       */
+      /* 'matchpairs' is "x:y,x:y" */
+!     for (p = curbuf->b_p_mps; *p != NUL; p += 2)
+      {
+  #ifdef FEAT_RIGHTLEFT
+! 	if (*p == c && (curwin->w_p_rl ^ p_ri))
+! 	    break;
+  #endif
+! 	p += 2;
+! 	if (*p == c
+  #ifdef FEAT_RIGHTLEFT
+  		&& !(curwin->w_p_rl ^ p_ri)
+  #endif
+  	   )
+  	    break;
+! 	if (p[1] != ',')
+  	    return;
+      }
+  
+--- 2428,2450 ----
+       * Only show match for chars in the 'matchpairs' option.
+       */
+      /* 'matchpairs' is "x:y,x:y" */
+!     for (p = curbuf->b_p_mps; *p != NUL; ++p)
+      {
++ 	if (PTR2CHAR(p) == c
+  #ifdef FEAT_RIGHTLEFT
+! 		    && (curwin->w_p_rl ^ p_ri)
+  #endif
+! 	   )
+! 	    break;
+! 	p += MB_PTR2LEN(p) + 1;
+! 	if (PTR2CHAR(p) == c
+  #ifdef FEAT_RIGHTLEFT
+  		&& !(curwin->w_p_rl ^ p_ri)
+  #endif
+  	   )
+  	    break;
+! 	p += MB_PTR2LEN(p);
+! 	if (*p == NUL)
+  	    return;
+      }
+  
+*** ../vim-7.3.768/src/testdir/test69.in	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test69.in	2013-01-17 15:55:09.000000000 +0100
+***************
+*** 1,4 ****
+--- 1,5 ----
+  Test for multi-byte text formatting.
++ Also test, that 'mps' with multibyte chars works.
+  
+  STARTTEST
+  :so mbyte.vim
+***************
+*** 134,139 ****
+--- 135,149 ----
+  }
+  
+  STARTTEST
++ /^{/+1
++ :set mps+=u2018:u2019
++ d%
++ ENDTEST
++ 
++ {
++ ‘ two three ’ four
++ }
++ STARTTEST
+  :g/^STARTTEST/.,/^ENDTEST/d
+  :1;/^Results/,$wq! test.out
+  ENDTEST
+*** ../vim-7.3.768/src/testdir/test69.ok	2010-08-15 21:57:29.000000000 +0200
+--- src/testdir/test69.ok	2013-01-17 15:55:09.000000000 +0100
+***************
+*** 140,142 ****
+--- 140,146 ----
+  a
+  }
+  
++ 
++ {
++  four
++ }
+*** ../vim-7.3.768/src/version.c	2013-01-17 15:36:54.000000000 +0100
+--- src/version.c	2013-01-17 15:55:49.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     769,
+  /**/
+
+-- 
+Microsoft's definition of a boolean: TRUE, FALSE, MAYBE
+"Embrace and extend"...?
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

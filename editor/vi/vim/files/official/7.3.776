@@ -1,0 +1,435 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.776
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.776
+Problem:    ml_get error when searching, caused by curwin not matching curbuf.
+Solution:   Avoid changing curbuf. (Lech Lorens)
+Files:	    src/charset.c, src/eval.c, src/mark.c, src/proto/charset.pro,
+	    src/proto/mark.pro, src/regexp.c, src/syntax.c
+
+
+*** ../vim-7.3.775/src/charset.c	2012-05-25 11:56:06.000000000 +0200
+--- src/charset.c	2013-01-23 15:43:37.000000000 +0100
+***************
+*** 905,910 ****
+--- 905,918 ----
+  vim_iswordc(c)
+      int c;
+  {
++     return vim_iswordc_buf(c, curbuf);
++ }
++ 
++     int
++ vim_iswordc_buf(c, buf)
++     int		c;
++     buf_T	*buf;
++ {
+  #ifdef FEAT_MBYTE
+      if (c >= 0x100)
+      {
+***************
+*** 914,920 ****
+  	    return utf_class(c) >= 2;
+      }
+  #endif
+!     return (c > 0 && c < 0x100 && GET_CHARTAB(curbuf, c) != 0);
+  }
+  
+  /*
+--- 922,928 ----
+  	    return utf_class(c) >= 2;
+      }
+  #endif
+!     return (c > 0 && c < 0x100 && GET_CHARTAB(buf, c) != 0);
+  }
+  
+  /*
+***************
+*** 933,939 ****
+  
+  #if defined(FEAT_SYN_HL) || defined(PROTO)
+      int
+! vim_iswordc_buf(p, buf)
+      char_u	*p;
+      buf_T	*buf;
+  {
+--- 941,947 ----
+  
+  #if defined(FEAT_SYN_HL) || defined(PROTO)
+      int
+! vim_iswordp_buf(p, buf)
+      char_u	*p;
+      buf_T	*buf;
+  {
+*** ../vim-7.3.775/src/eval.c	2012-12-05 16:10:21.000000000 +0100
+--- src/eval.c	2013-01-23 14:24:08.000000000 +0100
+***************
+*** 18884,18890 ****
+  #endif
+      if (name[0] == '\'')			/* mark */
+      {
+! 	pp = getmark_fnum(name[1], FALSE, fnum);
+  	if (pp == NULL || pp == (pos_T *)-1 || pp->lnum <= 0)
+  	    return NULL;
+  	return pp;
+--- 18884,18890 ----
+  #endif
+      if (name[0] == '\'')			/* mark */
+      {
+! 	pp = getmark_buf_fnum(curbuf, name[1], FALSE, fnum);
+  	if (pp == NULL || pp == (pos_T *)-1 || pp->lnum <= 0)
+  	    return NULL;
+  	return pp;
+*** ../vim-7.3.775/src/mark.c	2012-07-06 17:51:24.000000000 +0200
+--- src/mark.c	2013-01-23 14:24:16.000000000 +0100
+***************
+*** 304,310 ****
+  #endif
+  
+  /*
+!  * Find mark "c".
+   * If "changefile" is TRUE it's allowed to edit another file for '0, 'A, etc.
+   * If "fnum" is not NULL store the fnum there for '0, 'A etc., don't edit
+   * another file.
+--- 304,310 ----
+  #endif
+  
+  /*
+!  * Find mark "c" in buffer pointed to by "buf".
+   * If "changefile" is TRUE it's allowed to edit another file for '0, 'A, etc.
+   * If "fnum" is not NULL store the fnum there for '0, 'A etc., don't edit
+   * another file.
+***************
+*** 315,329 ****
+   * - -1 if mark is in other file and jumped there (only if changefile is TRUE)
+   */
+      pos_T *
+  getmark(c, changefile)
+      int		c;
+      int		changefile;
+  {
+!     return getmark_fnum(c, changefile, NULL);
+  }
+  
+      pos_T *
+! getmark_fnum(c, changefile, fnum)
+      int		c;
+      int		changefile;
+      int		*fnum;
+--- 315,339 ----
+   * - -1 if mark is in other file and jumped there (only if changefile is TRUE)
+   */
+      pos_T *
++ getmark_buf(buf, c, changefile)
++     buf_T	*buf;
++     int		c;
++     int		changefile;
++ {
++     return getmark_buf_fnum(buf, c, changefile, NULL);
++ }
++ 
++     pos_T *
+  getmark(c, changefile)
+      int		c;
+      int		changefile;
+  {
+!     return getmark_buf_fnum(curbuf, c, changefile, NULL);
+  }
+  
+      pos_T *
+! getmark_buf_fnum(buf, c, changefile, fnum)
+!     buf_T	*buf;
+      int		c;
+      int		changefile;
+      int		*fnum;
+***************
+*** 351,365 ****
+  	posp = &pos_copy;		/*   w_pcmark may be changed soon */
+      }
+      else if (c == '"')			/* to pos when leaving buffer */
+! 	posp = &(curbuf->b_last_cursor);
+      else if (c == '^')			/* to where Insert mode stopped */
+! 	posp = &(curbuf->b_last_insert);
+      else if (c == '.')			/* to where last change was made */
+! 	posp = &(curbuf->b_last_change);
+      else if (c == '[')			/* to start of previous operator */
+! 	posp = &(curbuf->b_op_start);
+      else if (c == ']')			/* to end of previous operator */
+! 	posp = &(curbuf->b_op_end);
+      else if (c == '{' || c == '}')	/* to previous/next paragraph */
+      {
+  	pos_T	pos;
+--- 361,375 ----
+  	posp = &pos_copy;		/*   w_pcmark may be changed soon */
+      }
+      else if (c == '"')			/* to pos when leaving buffer */
+! 	posp = &(buf->b_last_cursor);
+      else if (c == '^')			/* to where Insert mode stopped */
+! 	posp = &(buf->b_last_insert);
+      else if (c == '.')			/* to where last change was made */
+! 	posp = &(buf->b_last_change);
+      else if (c == '[')			/* to start of previous operator */
+! 	posp = &(buf->b_op_start);
+      else if (c == ']')			/* to end of previous operator */
+! 	posp = &(buf->b_op_end);
+      else if (c == '{' || c == '}')	/* to previous/next paragraph */
+      {
+  	pos_T	pos;
+***************
+*** 395,402 ****
+  #ifdef FEAT_VISUAL
+      else if (c == '<' || c == '>')	/* start/end of visual area */
+      {
+! 	startp = &curbuf->b_visual.vi_start;
+! 	endp = &curbuf->b_visual.vi_end;
+  	if ((c == '<') == lt(*startp, *endp))
+  	    posp = startp;
+  	else
+--- 405,412 ----
+  #ifdef FEAT_VISUAL
+      else if (c == '<' || c == '>')	/* start/end of visual area */
+      {
+! 	startp = &buf->b_visual.vi_start;
+! 	endp = &buf->b_visual.vi_end;
+  	if ((c == '<') == lt(*startp, *endp))
+  	    posp = startp;
+  	else
+***************
+*** 404,410 ****
+  	/*
+  	 * For Visual line mode, set mark at begin or end of line
+  	 */
+! 	if (curbuf->b_visual.vi_mode == 'V')
+  	{
+  	    pos_copy = *posp;
+  	    posp = &pos_copy;
+--- 414,420 ----
+  	/*
+  	 * For Visual line mode, set mark at begin or end of line
+  	 */
+! 	if (buf->b_visual.vi_mode == 'V')
+  	{
+  	    pos_copy = *posp;
+  	    posp = &pos_copy;
+***************
+*** 420,426 ****
+  #endif
+      else if (ASCII_ISLOWER(c))		/* normal named mark */
+      {
+! 	posp = &(curbuf->b_namedm[c - 'a']);
+      }
+      else if (ASCII_ISUPPER(c) || VIM_ISDIGIT(c))	/* named file mark */
+      {
+--- 430,436 ----
+  #endif
+      else if (ASCII_ISLOWER(c))		/* normal named mark */
+      {
+! 	posp = &(buf->b_namedm[c - 'a']);
+      }
+      else if (ASCII_ISUPPER(c) || VIM_ISDIGIT(c))	/* named file mark */
+      {
+***************
+*** 435,441 ****
+  
+  	if (fnum != NULL)
+  	    *fnum = namedfm[c].fmark.fnum;
+! 	else if (namedfm[c].fmark.fnum != curbuf->b_fnum)
+  	{
+  	    /* mark is in another file */
+  	    posp = &pos_copy;
+--- 445,451 ----
+  
+  	if (fnum != NULL)
+  	    *fnum = namedfm[c].fmark.fnum;
+! 	else if (namedfm[c].fmark.fnum != buf->b_fnum)
+  	{
+  	    /* mark is in another file */
+  	    posp = &pos_copy;
+*** ../vim-7.3.775/src/proto/charset.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/charset.pro	2013-01-23 15:43:25.000000000 +0100
+***************
+*** 19,26 ****
+  int win_linetabsize __ARGS((win_T *wp, char_u *p, colnr_T len));
+  int vim_isIDc __ARGS((int c));
+  int vim_iswordc __ARGS((int c));
+  int vim_iswordp __ARGS((char_u *p));
+! int vim_iswordc_buf __ARGS((char_u *p, buf_T *buf));
+  int vim_isfilec __ARGS((int c));
+  int vim_isfilec_or_wc __ARGS((int c));
+  int vim_isprintc __ARGS((int c));
+--- 19,27 ----
+  int win_linetabsize __ARGS((win_T *wp, char_u *p, colnr_T len));
+  int vim_isIDc __ARGS((int c));
+  int vim_iswordc __ARGS((int c));
++ int vim_iswordc_buf __ARGS((int c, buf_T *buf));
+  int vim_iswordp __ARGS((char_u *p));
+! int vim_iswordp_buf __ARGS((char_u *p, buf_T *buf));
+  int vim_isfilec __ARGS((int c));
+  int vim_isfilec_or_wc __ARGS((int c));
+  int vim_isprintc __ARGS((int c));
+*** ../vim-7.3.775/src/proto/mark.pro	2010-08-15 21:57:28.000000000 +0200
+--- src/proto/mark.pro	2013-01-23 14:24:23.000000000 +0100
+***************
+*** 5,12 ****
+  void checkpcmark __ARGS((void));
+  pos_T *movemark __ARGS((int count));
+  pos_T *movechangelist __ARGS((int count));
+  pos_T *getmark __ARGS((int c, int changefile));
+! pos_T *getmark_fnum __ARGS((int c, int changefile, int *fnum));
+  pos_T *getnextmark __ARGS((pos_T *startpos, int dir, int begin_line));
+  void fmarks_check_names __ARGS((buf_T *buf));
+  int check_mark __ARGS((pos_T *pos));
+--- 5,13 ----
+  void checkpcmark __ARGS((void));
+  pos_T *movemark __ARGS((int count));
+  pos_T *movechangelist __ARGS((int count));
++ pos_T *getmark_buf __ARGS((buf_T *buf, int c, int changefile));
+  pos_T *getmark __ARGS((int c, int changefile));
+! pos_T *getmark_buf_fnum __ARGS((buf_T *buf, int c, int changefile, int *fnum));
+  pos_T *getnextmark __ARGS((pos_T *startpos, int dir, int begin_line));
+  void fmarks_check_names __ARGS((buf_T *buf));
+  int check_mark __ARGS((pos_T *pos));
+*** ../vim-7.3.775/src/regexp.c	2011-07-20 17:58:14.000000000 +0200
+--- src/regexp.c	2013-01-23 14:19:15.000000000 +0100
+***************
+*** 3623,3629 ****
+      proftime_T	*tm;		/* timeout limit or NULL */
+  {
+      long	r;
+-     buf_T	*save_curbuf = curbuf;
+  
+      reg_match = NULL;
+      reg_mmatch = rmp;
+--- 3623,3628 ----
+***************
+*** 3638,3647 ****
+  #endif
+      ireg_maxcol = rmp->rmm_maxcol;
+  
+-     /* Need to switch to buffer "buf" to make vim_iswordc() work. */
+-     curbuf = buf;
+      r = vim_regexec_both(NULL, col, tm);
+-     curbuf = save_curbuf;
+  
+      return r;
+  }
+--- 3637,3643 ----
+***************
+*** 4185,4191 ****
+  		int	cmp = OPERAND(scan)[1];
+  		pos_T	*pos;
+  
+! 		pos = getmark(mark, FALSE);
+  		if (pos == NULL		     /* mark doesn't exist */
+  			|| pos->lnum <= 0    /* mark isn't set (in curbuf) */
+  			|| (pos->lnum == reglnum + reg_firstlnum
+--- 4181,4187 ----
+  		int	cmp = OPERAND(scan)[1];
+  		pos_T	*pos;
+  
+! 		pos = getmark_buf(reg_buf, mark, FALSE);
+  		if (pos == NULL		     /* mark doesn't exist */
+  			|| pos->lnum <= 0    /* mark isn't set (in curbuf) */
+  			|| (pos->lnum == reglnum + reg_firstlnum
+***************
+*** 4315,4322 ****
+  #endif
+  	    else
+  	    {
+! 		if (!vim_iswordc(c)
+! 			|| (reginput > regline && vim_iswordc(reginput[-1])))
+  		    status = RA_NOMATCH;
+  	    }
+  	    break;
+--- 4311,4318 ----
+  #endif
+  	    else
+  	    {
+! 		if (!vim_iswordc_buf(c, reg_buf)
+! 			|| (reginput > regline && vim_iswordc_buf(reginput[-1], reg_buf)))
+  		    status = RA_NOMATCH;
+  	    }
+  	    break;
+***************
+*** 4339,4346 ****
+  #endif
+  	    else
+  	    {
+! 		if (!vim_iswordc(reginput[-1])
+! 			|| (reginput[0] != NUL && vim_iswordc(c)))
+  		    status = RA_NOMATCH;
+  	    }
+  	    break; /* Matched with EOW */
+--- 4335,4342 ----
+  #endif
+  	    else
+  	    {
+! 		if (!vim_iswordc_buf(reginput[-1], reg_buf)
+! 			|| (reginput[0] != NUL && vim_iswordc_buf(c, reg_buf)))
+  		    status = RA_NOMATCH;
+  	    }
+  	    break; /* Matched with EOW */
+*** ../vim-7.3.775/src/syntax.c	2012-10-21 21:25:17.000000000 +0200
+--- src/syntax.c	2013-01-23 14:19:15.000000000 +0100
+***************
+*** 1954,1962 ****
+  	    if (do_keywords)
+  	    {
+  	      line = syn_getcurline();
+! 	      if (vim_iswordc_buf(line + current_col, syn_buf)
+  		      && (current_col == 0
+! 			  || !vim_iswordc_buf(line + current_col - 1
+  #ifdef FEAT_MBYTE
+  			      - (has_mbyte
+  				  ? (*mb_head_off)(line, line + current_col - 1)
+--- 1954,1962 ----
+  	    if (do_keywords)
+  	    {
+  	      line = syn_getcurline();
+! 	      if (vim_iswordp_buf(line + current_col, syn_buf)
+  		      && (current_col == 0
+! 			  || !vim_iswordp_buf(line + current_col - 1
+  #ifdef FEAT_MBYTE
+  			      - (has_mbyte
+  				  ? (*mb_head_off)(line, line + current_col - 1)
+***************
+*** 3280,3286 ****
+  #endif
+  	    ++kwlen;
+      }
+!     while (vim_iswordc_buf(kwp + kwlen, syn_buf));
+  
+      if (kwlen > MAXKEYWLEN)
+  	return 0;
+--- 3280,3286 ----
+  #endif
+  	    ++kwlen;
+      }
+!     while (vim_iswordp_buf(kwp + kwlen, syn_buf));
+  
+      if (kwlen > MAXKEYWLEN)
+  	return 0;
+*** ../vim-7.3.775/src/version.c	2013-01-23 13:55:16.000000000 +0100
+--- src/version.c	2013-01-23 14:19:44.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     776,
+  /**/
+
+-- 
+Q: How does a UNIX Guru do Sex ?
+A: unzip;strip;touch;finger;mount;fsck;more;yes;umount;sleep
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

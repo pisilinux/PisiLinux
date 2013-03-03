@@ -1,0 +1,171 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.782
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.782
+Problem:    Windows: IME composition may use a wrong font.
+Solution:   Use 'guifontwide' for IME when it is set. (Taro Muraoka)
+Files:	    runtime/doc/options.txt, src/gui.c, src/gui_w48.c,
+	    src/proto/gui_w16.pro, src/proto/gui_w32.pro
+
+
+*** ../vim-7.3.781/runtime/doc/options.txt	2012-08-15 16:20:59.000000000 +0200
+--- runtime/doc/options.txt	2013-01-23 18:24:48.000000000 +0100
+***************
+*** 3518,3523 ****
+--- 3560,3569 ----
+  	to set 'guifontwide' at all unless you want to override the choice
+  	made by Pango/Xft.
+  
++ 	Windows +multibyte only:		*guifontwide_win_mbyte*
++ 
++ 	If set and vaild, 'guifontwide' is used for IME instead of 'guifont'.
++ 
+  						*'guiheadroom'* *'ghr'*
+  'guiheadroom' 'ghr'	number	(default 50)
+  			global
+*** ../vim-7.3.781/src/gui.c	2013-01-23 17:43:52.000000000 +0100
+--- src/gui.c	2013-01-23 18:24:48.000000000 +0100
+***************
+*** 1002,1007 ****
+--- 1002,1010 ----
+      else
+  #endif
+  	gui.wide_font = font;
++ #ifdef FEAT_GUI_MSWIN
++     gui_mch_wide_font_changed();
++ #endif
+      return OK;
+  }
+  #endif
+*** ../vim-7.3.781/src/gui_w48.c	2012-12-16 12:50:33.000000000 +0100
+--- src/gui_w48.c	2013-01-23 18:32:45.000000000 +0100
+***************
+*** 323,332 ****
+--- 323,337 ----
+  
+  /*
+   * For control IME.
++  *
++  * These LOGFONT used for IME.
+   */
+  #ifdef FEAT_MBYTE
+  # ifdef USE_IM_CONTROL
++ /* holds LOGFONT for 'guifontwide' if available, otherwise 'guifont' */
+  static LOGFONT norm_logfont;
++ /* holds LOGFONT for 'guifont' always. */
++ static LOGFONT sub_logfont;
+  # endif
+  #endif
+  
+***************
+*** 3090,3095 ****
+--- 3095,3133 ----
+      return res;
+  }
+  
++ 
++ #ifdef FEAT_MBYTE_IME
++ /*
++  * Set correct LOGFONT to IME.  Use 'guifontwide' if available, otherwise use
++  * 'guifont'
++  */
++     static void
++ update_im_font()
++ {
++     LOGFONT	lf_wide;
++ 
++     if (p_guifontwide != NULL && *p_guifontwide != NUL
++ 	    && get_logfont(&lf_wide, p_guifontwide, NULL, TRUE) == OK)
++ 	norm_logfont = lf_wide;
++     else
++ 	norm_logfont = sub_logfont;
++     im_set_font(&norm_logfont);
++ }
++ #endif
++ 
++ #ifdef FEAT_MBYTE
++ /*
++  * Handler of gui.wide_font (p_guifontwide) changed notification.
++  */
++     void
++ gui_mch_wide_font_changed()
++ {
++ # ifdef FEAT_MBYTE_IME
++     update_im_font();
++ # endif
++ }
++ #endif
++ 
+  /*
+   * Initialise vim to use the font with the given name.
+   * Return FAIL if the font could not be loaded, OK otherwise.
+***************
+*** 3112,3120 ****
+  	font_name = lf.lfFaceName;
+  #if defined(FEAT_MBYTE_IME) || defined(GLOBAL_IME)
+      norm_logfont = lf;
+  #endif
+  #ifdef FEAT_MBYTE_IME
+!     im_set_font(&lf);
+  #endif
+      gui_mch_free_font(gui.norm_font);
+      gui.norm_font = font;
+--- 3150,3159 ----
+  	font_name = lf.lfFaceName;
+  #if defined(FEAT_MBYTE_IME) || defined(GLOBAL_IME)
+      norm_logfont = lf;
++     sub_logfont = lf;
+  #endif
+  #ifdef FEAT_MBYTE_IME
+!     update_im_font();
+  #endif
+      gui_mch_free_font(gui.norm_font);
+      gui.norm_font = font;
+*** ../vim-7.3.781/src/proto/gui_w16.pro	2011-01-17 20:08:03.000000000 +0100
+--- src/proto/gui_w16.pro	2013-01-23 18:24:48.000000000 +0100
+***************
+*** 50,55 ****
+--- 50,56 ----
+  void gui_mch_insert_lines __ARGS((int row, int num_lines));
+  void gui_mch_exit __ARGS((int rc));
+  int gui_mch_init_font __ARGS((char_u *font_name, int fontset));
++ void gui_mch_wide_font_changed __ARGS((void));
+  int gui_mch_maximized __ARGS((void));
+  void gui_mch_newfont __ARGS((void));
+  void gui_mch_settitle __ARGS((char_u *title, char_u *icon));
+*** ../vim-7.3.781/src/proto/gui_w32.pro	2011-01-17 20:08:03.000000000 +0100
+--- src/proto/gui_w32.pro	2013-01-23 18:24:48.000000000 +0100
+***************
+*** 50,55 ****
+--- 50,56 ----
+  void gui_mch_insert_lines __ARGS((int row, int num_lines));
+  void gui_mch_exit __ARGS((int rc));
+  int gui_mch_init_font __ARGS((char_u *font_name, int fontset));
++ void gui_mch_wide_font_changed __ARGS((void));
+  int gui_mch_maximized __ARGS((void));
+  void gui_mch_newfont __ARGS((void));
+  void gui_mch_settitle __ARGS((char_u *title, char_u *icon));
+*** ../vim-7.3.781/src/version.c	2013-01-23 17:43:52.000000000 +0100
+--- src/version.c	2013-01-23 18:25:33.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     782,
+  /**/
+
+-- 
+"A mouse can be just as dangerous as a bullet or a bomb."
+             (US Representative Lamar Smith, R-Texas)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

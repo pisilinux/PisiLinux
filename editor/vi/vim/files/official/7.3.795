@@ -1,0 +1,212 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.795
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.795
+Problem:    MzScheme does not build with tiny features.
+Solution:   Add #ifdefs.  Also add UNUSED to avoid warnings.  And change
+	    library ordering.
+Files:	    src/if_mzsch.c, src/Makefile
+
+
+*** ../vim-7.3.794/src/if_mzsch.c	2013-01-30 14:55:35.000000000 +0100
+--- src/if_mzsch.c	2013-01-30 17:23:07.000000000 +0100
+***************
+*** 1483,1489 ****
+  
+  /* (eval {expr-string}) */
+      static Scheme_Object *
+! vim_eval(void *data, int argc, Scheme_Object **argv)
+  {
+  #ifdef FEAT_EVAL
+      Vim_Prim		*prim = (Vim_Prim *)data;
+--- 1483,1489 ----
+  
+  /* (eval {expr-string}) */
+      static Scheme_Object *
+! vim_eval(void *data UNUSED, int argc UNUSED, Scheme_Object **argv UNUSED)
+  {
+  #ifdef FEAT_EVAL
+      Vim_Prim		*prim = (Vim_Prim *)data;
+***************
+*** 1686,1695 ****
+      static Scheme_Object *
+  get_window_count(void *data UNUSED, int argc UNUSED, Scheme_Object **argv UNUSED)
+  {
+-     win_T   *w;
+      int	    n = 0;
+  
+      for (w = firstwin; w != NULL; w = w->w_next)
+  	++n;
+      return scheme_make_integer(n);
+  }
+--- 1686,1697 ----
+      static Scheme_Object *
+  get_window_count(void *data UNUSED, int argc UNUSED, Scheme_Object **argv UNUSED)
+  {
+      int	    n = 0;
++ #ifdef FEAT_WINDOWS
++     win_T   *w;
+  
+      for (w = firstwin; w != NULL; w = w->w_next)
++ #endif
+  	++n;
+      return scheme_make_integer(n);
+  }
+***************
+*** 1701,1712 ****
+      Vim_Prim	    *prim = (Vim_Prim *)data;
+      vim_mz_buffer   *buf;
+      Scheme_Object   *list;
+!     win_T	    *w;
+  
+      buf = get_buffer_arg(prim->name, 0, argc, argv);
+      list = scheme_null;
+  
+!     for (w = firstwin; w != NULL; w = w->w_next)
+  	if (w->w_buffer == buf->buf)
+  	{
+  	    list = scheme_make_pair(window_new(w), list);
+--- 1703,1716 ----
+      Vim_Prim	    *prim = (Vim_Prim *)data;
+      vim_mz_buffer   *buf;
+      Scheme_Object   *list;
+!     win_T	    *w = firstwin;
+  
+      buf = get_buffer_arg(prim->name, 0, argc, argv);
+      list = scheme_null;
+  
+! #ifdef FEAT_WINDOWS
+!     for ( ; w != NULL; w = w->w_next)
+! #endif
+  	if (w->w_buffer == buf->buf)
+  	{
+  	    list = scheme_make_pair(window_new(w), list);
+***************
+*** 1755,1768 ****
+  
+  /* (get-win-num [window]) */
+      static Scheme_Object *
+! get_window_num(void *data, int argc, Scheme_Object **argv)
+  {
+      Vim_Prim	*prim = (Vim_Prim *)data;
+      win_T	*win = get_window_arg(prim->name, 0, argc, argv)->win;
+-     int		nr = 1;
+      win_T	*wp;
+  
+      for (wp = firstwin; wp != win; wp = wp->w_next)
+  	++nr;
+  
+      return scheme_make_integer(nr);
+--- 1759,1774 ----
+  
+  /* (get-win-num [window]) */
+      static Scheme_Object *
+! get_window_num(void *data UNUSED, int argc UNUSED, Scheme_Object **argv UNUSED)
+  {
++     int		nr = 1;
++ #ifdef FEAT_WINDOWS
+      Vim_Prim	*prim = (Vim_Prim *)data;
+      win_T	*win = get_window_arg(prim->name, 0, argc, argv)->win;
+      win_T	*wp;
+  
+      for (wp = firstwin; wp != win; wp = wp->w_next)
++ #endif
+  	++nr;
+  
+      return scheme_make_integer(nr);
+***************
+*** 1773,1786 ****
+  get_window_by_num(void *data, int argc, Scheme_Object **argv)
+  {
+      Vim_Prim	*prim = (Vim_Prim *)data;
+!     win_T	*win;
+      int		fnum;
+  
+      fnum = SCHEME_INT_VAL(GUARANTEE_INTEGER(prim->name, 0));
+      if (fnum < 1)
+  	scheme_signal_error(_("window index is out of range"));
+  
+!     for (win = firstwin; win != NULL; win = win->w_next, --fnum)
+  	if (fnum == 1)	    /* to be 1-based */
+  	    return window_new(win);
+  
+--- 1779,1794 ----
+  get_window_by_num(void *data, int argc, Scheme_Object **argv)
+  {
+      Vim_Prim	*prim = (Vim_Prim *)data;
+!     win_T	*win = firstwin;
+      int		fnum;
+  
+      fnum = SCHEME_INT_VAL(GUARANTEE_INTEGER(prim->name, 0));
+      if (fnum < 1)
+  	scheme_signal_error(_("window index is out of range"));
+  
+! #ifdef FEAT_WINDOWS
+!     for ( ; win != NULL; win = win->w_next, --fnum)
+! #endif
+  	if (fnum == 1)	    /* to be 1-based */
+  	    return window_new(win);
+  
+*** ../vim-7.3.794/src/Makefile	2012-11-20 17:03:23.000000000 +0100
+--- src/Makefile	2013-01-30 17:34:55.000000000 +0100
+***************
+*** 1345,1350 ****
+--- 1345,1352 ----
+  
+  DEPEND_CFLAGS = -DPROTO -DDEPEND -DFEAT_GUI $(LINT_CFLAGS)
+  
++ # Note: MZSCHEME_LIBS must come before LIBS, because LIBS adds -lm which is
++ # needed by racket.
+  ALL_LIB_DIRS = $(GUI_LIBS_DIR) $(X_LIBS_DIR)
+  ALL_LIBS = \
+  	   $(GUI_LIBS1) \
+***************
+*** 1353,1362 ****
+  	   $(X_PRE_LIBS) \
+  	   $(X_LIBS) \
+  	   $(X_EXTRA_LIBS) \
+  	   $(LIBS) \
+  	   $(EXTRA_LIBS) \
+  	   $(LUA_LIBS) \
+- 	   $(MZSCHEME_LIBS) \
+  	   $(PERL_LIBS) \
+  	   $(PYTHON_LIBS) \
+  	   $(PYTHON3_LIBS) \
+--- 1355,1364 ----
+  	   $(X_PRE_LIBS) \
+  	   $(X_LIBS) \
+  	   $(X_EXTRA_LIBS) \
++ 	   $(MZSCHEME_LIBS) \
+  	   $(LIBS) \
+  	   $(EXTRA_LIBS) \
+  	   $(LUA_LIBS) \
+  	   $(PERL_LIBS) \
+  	   $(PYTHON_LIBS) \
+  	   $(PYTHON3_LIBS) \
+*** ../vim-7.3.794/src/version.c	2013-01-30 17:30:14.000000000 +0100
+--- src/version.c	2013-01-30 17:38:25.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     795,
+  /**/
+
+-- 
+GUEST:        He's killed the best man!
+SECOND GUEST: (holding a limp WOMAN) He's killed my auntie.
+FATHER:       No, please!  This is supposed to be a happy occasion!  Let's
+              not bicker and argue about who killed who ...
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

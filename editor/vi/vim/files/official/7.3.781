@@ -1,0 +1,185 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.781
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.781
+Problem:    Drawing with 'guifontwide' can be slow.
+Solution:   Draw multiple characters at a time. (Taro Muraoka)
+Files:	    src/gui.c
+
+
+*** ../vim-7.3.780/src/gui.c	2012-11-20 12:03:02.000000000 +0100
+--- src/gui.c	2013-01-23 17:28:48.000000000 +0100
+***************
+*** 2380,2386 ****
+  	int	cl;		/* byte length of current char */
+  	int	comping;	/* current char is composing */
+  	int	scol = col;	/* screen column */
+! 	int	dowide;		/* use 'guifontwide' */
+  
+  	/* Break the string at a composing character, it has to be drawn on
+  	 * top of the previous character. */
+--- 2380,2388 ----
+  	int	cl;		/* byte length of current char */
+  	int	comping;	/* current char is composing */
+  	int	scol = col;	/* screen column */
+! 	int	curr_wide;	/* use 'guifontwide' */
+! 	int	prev_wide = FALSE;
+! 	int	wide_changed;
+  
+  	/* Break the string at a composing character, it has to be drawn on
+  	 * top of the previous character. */
+***************
+*** 2395,2403 ****
+  		    && fontset == NOFONTSET
+  #  endif
+  		    && gui.wide_font != NOFONT)
+! 		dowide = TRUE;
+  	    else
+! 		dowide = FALSE;
+  	    comping = utf_iscomposing(c);
+  	    if (!comping)	/* count cells from non-composing chars */
+  		cells += cn;
+--- 2397,2405 ----
+  		    && fontset == NOFONTSET
+  #  endif
+  		    && gui.wide_font != NOFONT)
+! 		curr_wide = TRUE;
+  	    else
+! 		curr_wide = FALSE;
+  	    comping = utf_iscomposing(c);
+  	    if (!comping)	/* count cells from non-composing chars */
+  		cells += cn;
+***************
+*** 2405,2413 ****
+  	    if (cl == 0)	/* hit end of string */
+  		len = i + cl;	/* len must be wrong "cannot happen" */
+  
+! 	    /* print the string so far if it's the last character or there is
+  	     * a composing character. */
+! 	    if (i + cl >= len || (comping && i > start) || dowide
+  #  if defined(FEAT_GUI_X11)
+  		    || (cn > 1
+  #   ifdef FEAT_XFONTSET
+--- 2407,2417 ----
+  	    if (cl == 0)	/* hit end of string */
+  		len = i + cl;	/* len must be wrong "cannot happen" */
+  
+! 	    wide_changed = curr_wide != prev_wide;
+! 
+! 	    /* Print the string so far if it's the last character or there is
+  	     * a composing character. */
+! 	    if (i + cl >= len || (comping && i > start) || wide_changed
+  #  if defined(FEAT_GUI_X11)
+  		    || (cn > 1
+  #   ifdef FEAT_XFONTSET
+***************
+*** 2419,2443 ****
+  #  endif
+  	       )
+  	    {
+! 		if (comping || dowide)
+  		    thislen = i - start;
+  		else
+  		    thislen = i - start + cl;
+  		if (thislen > 0)
+  		{
+  		    gui_mch_draw_string(gui.row, scol, s + start, thislen,
+  								  draw_flags);
+  		    start += thislen;
+  		}
+  		scol += cells;
+  		cells = 0;
+! 		if (dowide)
+  		{
+! 		    gui_mch_set_font(gui.wide_font);
+! 		    gui_mch_draw_string(gui.row, scol - cn,
+! 						   s + start, cl, draw_flags);
+! 		    gui_mch_set_font(font);
+! 		    start += cl;
+  		}
+  
+  #  if defined(FEAT_GUI_X11)
+--- 2423,2450 ----
+  #  endif
+  	       )
+  	    {
+! 		if (comping || wide_changed)
+  		    thislen = i - start;
+  		else
+  		    thislen = i - start + cl;
+  		if (thislen > 0)
+  		{
++ 		    if (prev_wide)
++ 			gui_mch_set_font(gui.wide_font);
+  		    gui_mch_draw_string(gui.row, scol, s + start, thislen,
+  								  draw_flags);
++ 		    if (prev_wide)
++ 			gui_mch_set_font(font);
+  		    start += thislen;
+  		}
+  		scol += cells;
+  		cells = 0;
+! 		/* Adjust to not draw a character which width is changed
+! 		 * against with last one. */
+! 		if (wide_changed && !comping)
+  		{
+! 		    scol -= cn;
+! 		    cl = 0;
+  		}
+  
+  #  if defined(FEAT_GUI_X11)
+***************
+*** 2447,2453 ****
+  #   ifdef FEAT_XFONTSET
+  			&& fontset == NOFONTSET
+  #   endif
+! 			&& !dowide)
+  		    gui_mch_draw_string(gui.row, scol - 1, (char_u *)" ",
+  							       1, draw_flags);
+  #  endif
+--- 2454,2460 ----
+  #   ifdef FEAT_XFONTSET
+  			&& fontset == NOFONTSET
+  #   endif
+! 			&& !wide_changed)
+  		    gui_mch_draw_string(gui.row, scol - 1, (char_u *)" ",
+  							       1, draw_flags);
+  #  endif
+***************
+*** 2465,2470 ****
+--- 2472,2478 ----
+  #  endif
+  		start = i + cl;
+  	    }
++ 	    prev_wide = curr_wide;
+  	}
+  	/* The stuff below assumes "len" is the length in screen columns. */
+  	len = scol - col;
+*** ../vim-7.3.780/src/version.c	2013-01-23 17:15:25.000000000 +0100
+--- src/version.c	2013-01-23 17:28:17.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     781,
+  /**/
+
+-- 
+GUARD #1:  Where'd you get the coconut?
+ARTHUR:    We found them.
+GUARD #1:  Found them?  In Mercea?  The coconut's tropical!
+ARTHUR:    What do you mean?
+GUARD #1:  Well, this is a temperate zone.
+                                  The Quest for the Holy Grail (Monty Python)
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///

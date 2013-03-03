@@ -1,0 +1,682 @@
+To: vim_dev@googlegroups.com
+Subject: Patch 7.3.819
+Fcc: outbox
+From: Bram Moolenaar <Bram@moolenaar.net>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+------------
+
+Patch 7.3.819
+Problem:    Compiling without +eval and with Python isn't working.
+Solution:   Add the eval feature when building with Python.
+Files:	    src/if_py_both.h, src/feature.h, src/eval.c, src/ex_docmd.c,
+	    src/normal.c, src/gui_gtk_x11.c
+
+
+*** ../vim-7.3.818/src/if_py_both.h	2012-12-05 16:30:03.000000000 +0100
+--- src/if_py_both.h	2013-02-14 19:22:59.000000000 +0100
+***************
+*** 310,316 ****
+      return result;
+  }
+  
+- #ifdef FEAT_EVAL
+  /*
+   * Function to translate a typval_T into a PyObject; this will recursively
+   * translate lists/dictionaries into their Python equivalents.
+--- 310,315 ----
+***************
+*** 425,436 ****
+  
+      return result;
+  }
+- #endif
+  
+      static PyObject *
+  VimEval(PyObject *self UNUSED, PyObject *args UNUSED)
+  {
+- #ifdef FEAT_EVAL
+      char	*expr;
+      typval_T	*our_tv;
+      PyObject	*result;
+--- 424,433 ----
+***************
+*** 466,475 ****
+      Py_END_ALLOW_THREADS
+  
+      return result;
+- #else
+-     PyErr_SetVim(_("expressions disabled at compile time"));
+-     return NULL;
+- #endif
+  }
+  
+  static PyObject *ConvertToPyObject(typval_T *);
+--- 463,468 ----
+***************
+*** 477,483 ****
+      static PyObject *
+  VimEvalPy(PyObject *self UNUSED, PyObject *args UNUSED)
+  {
+- #ifdef FEAT_EVAL
+      char	*expr;
+      typval_T	*our_tv;
+      PyObject	*result;
+--- 470,475 ----
+***************
+*** 506,515 ****
+      Py_END_ALLOW_THREADS
+  
+      return result;
+- #else
+-     PyErr_SetVim(_("expressions disabled at compile time"));
+-     return NULL;
+- #endif
+  }
+  
+      static PyObject *
+--- 498,503 ----
+***************
+*** 946,952 ****
+  }
+  
+      static PyObject *
+! DictionaryListKeys(PyObject *self)
+  {
+      dict_T	*dict = ((DictionaryObject *)(self))->dict;
+      long_u	todo = dict->dv_hashtab.ht_used;
+--- 934,940 ----
+  }
+  
+      static PyObject *
+! DictionaryListKeys(PyObject *self UNUSED)
+  {
+      dict_T	*dict = ((DictionaryObject *)(self))->dict;
+      long_u	todo = dict->dv_hashtab.ht_used;
+***************
+*** 2549,2555 ****
+      return 0;
+  }
+  
+- #ifdef FEAT_EVAL
+  typedef int (*pytotvfunc)(PyObject *, typval_T *, PyObject *);
+  
+      static int
+--- 2537,2542 ----
+***************
+*** 2781,2784 ****
+  	    return NULL;
+      }
+  }
+- #endif
+--- 2768,2770 ----
+*** ../vim-7.3.818/src/feature.h	2013-01-23 13:40:54.000000000 +0100
+--- src/feature.h	2013-02-14 19:25:33.000000000 +0100
+***************
+*** 392,397 ****
+--- 392,404 ----
+  #endif
+  
+  /*
++  * +python and +python3 require FEAT_EVAL.
++  */
++ #if !defined(FEAT_EVAL) && (defined(FEAT_PYTHON3) || defined(FEAT_PYTHON))
++ # define FEAT_EVAL
++ #endif
++ 
++ /*
+   * +profile		Profiling for functions and scripts.
+   */
+  #if defined(FEAT_HUGE) \
+*** ../vim-7.3.818/src/eval.c	2013-02-13 17:34:59.000000000 +0100
+--- src/eval.c	2013-02-14 19:38:09.000000000 +0100
+***************
+*** 917,923 ****
+--- 917,925 ----
+      hash_clear(&compat_hashtab);
+  
+      free_scriptnames();
++ # if defined(FEAT_CMDL_COMPL)
+      free_locales();
++ # endif
+  
+      /* global variables */
+      vars_clear(&globvarht);
+***************
+*** 1561,1568 ****
+  }
+  
+  
+- #if (defined(FEAT_USR_CMDS) && defined(FEAT_CMDL_COMPL)) \
+- 	|| defined(FEAT_COMPL_FUNC) || defined(PROTO)
+  /*
+   * Call some vimL function and return the result in "*rettv".
+   * Uses argv[argc] for the function arguments.  Only Number and String
+--- 1563,1568 ----
+***************
+*** 1640,1692 ****
+      return ret;
+  }
+  
+- # if (defined(FEAT_USR_CMDS) && defined(FEAT_CMDL_COMPL)) || defined(PROTO)
+  /*
+!  * Call vimL function "func" and return the result as a string.
+!  * Returns NULL when calling the function fails.
+   * Uses argv[argc] for the function arguments.
+   */
+!     void *
+! call_func_retstr(func, argc, argv, safe)
+      char_u      *func;
+      int		argc;
+      char_u      **argv;
+      int		safe;		/* use the sandbox */
+  {
+      typval_T	rettv;
+!     char_u	*retval;
+  
+      /* All arguments are passed as strings, no conversion to number. */
+      if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+! 	return NULL;
+  
+!     retval = vim_strsave(get_tv_string(&rettv));
+      clear_tv(&rettv);
+      return retval;
+  }
+- # endif
+  
+! # if defined(FEAT_COMPL_FUNC) || defined(PROTO)
+  /*
+!  * Call vimL function "func" and return the result as a number.
+!  * Returns -1 when calling the function fails.
+   * Uses argv[argc] for the function arguments.
+   */
+!     long
+! call_func_retnr(func, argc, argv, safe)
+      char_u      *func;
+      int		argc;
+      char_u      **argv;
+      int		safe;		/* use the sandbox */
+  {
+      typval_T	rettv;
+!     long	retval;
+  
+      /* All arguments are passed as strings, no conversion to number. */
+      if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+! 	return -1;
+  
+!     retval = get_tv_number_chk(&rettv, NULL);
+      clear_tv(&rettv);
+      return retval;
+  }
+--- 1640,1693 ----
+      return ret;
+  }
+  
+  /*
+!  * Call vimL function "func" and return the result as a number.
+!  * Returns -1 when calling the function fails.
+   * Uses argv[argc] for the function arguments.
+   */
+!     long
+! call_func_retnr(func, argc, argv, safe)
+      char_u      *func;
+      int		argc;
+      char_u      **argv;
+      int		safe;		/* use the sandbox */
+  {
+      typval_T	rettv;
+!     long	retval;
+  
+      /* All arguments are passed as strings, no conversion to number. */
+      if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+! 	return -1;
+  
+!     retval = get_tv_number_chk(&rettv, NULL);
+      clear_tv(&rettv);
+      return retval;
+  }
+  
+! #if (defined(FEAT_USR_CMDS) && defined(FEAT_CMDL_COMPL)) \
+! 	|| defined(FEAT_COMPL_FUNC) || defined(PROTO)
+! 
+! # if (defined(FEAT_USR_CMDS) && defined(FEAT_CMDL_COMPL)) || defined(PROTO)
+  /*
+!  * Call vimL function "func" and return the result as a string.
+!  * Returns NULL when calling the function fails.
+   * Uses argv[argc] for the function arguments.
+   */
+!     void *
+! call_func_retstr(func, argc, argv, safe)
+      char_u      *func;
+      int		argc;
+      char_u      **argv;
+      int		safe;		/* use the sandbox */
+  {
+      typval_T	rettv;
+!     char_u	*retval;
+  
+      /* All arguments are passed as strings, no conversion to number. */
+      if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+! 	return NULL;
+  
+!     retval = vim_strsave(get_tv_string(&rettv));
+      clear_tv(&rettv);
+      return retval;
+  }
+***************
+*** 1720,1726 ****
+  }
+  #endif
+  
+- 
+  /*
+   * Save the current function call pointer, and set it to NULL.
+   * Used when executing autocommands and for ":source".
+--- 1721,1726 ----
+***************
+*** 9330,9336 ****
+   */
+      static void
+  f_cindent(argvars, rettv)
+!     typval_T	*argvars;
+      typval_T	*rettv;
+  {
+  #ifdef FEAT_CINDENT
+--- 9330,9336 ----
+   */
+      static void
+  f_cindent(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+  #ifdef FEAT_CINDENT
+***************
+*** 10379,10387 ****
+  
+      static void
+  findfilendir(argvars, rettv, find_what)
+!     typval_T	*argvars;
+      typval_T	*rettv;
+!     int		find_what;
+  {
+  #ifdef FEAT_SEARCHPATH
+      char_u	*fname;
+--- 10379,10387 ----
+  
+      static void
+  findfilendir(argvars, rettv, find_what)
+!     typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+!     int		find_what UNUSED;
+  {
+  #ifdef FEAT_SEARCHPATH
+      char_u	*fname;
+***************
+*** 10751,10759 ****
+   */
+      static void
+  foldclosed_both(argvars, rettv, end)
+!     typval_T	*argvars;
+      typval_T	*rettv;
+!     int		end;
+  {
+  #ifdef FEAT_FOLDING
+      linenr_T	lnum;
+--- 10751,10759 ----
+   */
+      static void
+  foldclosed_both(argvars, rettv, end)
+!     typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+!     int		end UNUSED;
+  {
+  #ifdef FEAT_FOLDING
+      linenr_T	lnum;
+***************
+*** 10802,10809 ****
+   */
+      static void
+  f_foldlevel(argvars, rettv)
+!     typval_T	*argvars;
+!     typval_T	*rettv;
+  {
+  #ifdef FEAT_FOLDING
+      linenr_T	lnum;
+--- 10802,10809 ----
+   */
+      static void
+  f_foldlevel(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+!     typval_T	*rettv UNUSED;
+  {
+  #ifdef FEAT_FOLDING
+      linenr_T	lnum;
+***************
+*** 11583,11589 ****
+      static void
+  f_getmatches(argvars, rettv)
+      typval_T	*argvars UNUSED;
+!     typval_T	*rettv;
+  {
+  #ifdef FEAT_SEARCH_EXTRA
+      dict_T	*dict;
+--- 11583,11589 ----
+      static void
+  f_getmatches(argvars, rettv)
+      typval_T	*argvars UNUSED;
+!     typval_T	*rettv UNUSED;
+  {
+  #ifdef FEAT_SEARCH_EXTRA
+      dict_T	*dict;
+***************
+*** 13589,13595 ****
+   */
+      static void
+  f_lispindent(argvars, rettv)
+!     typval_T	*argvars;
+      typval_T	*rettv;
+  {
+  #ifdef FEAT_LISP
+--- 13589,13595 ----
+   */
+      static void
+  f_lispindent(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+  #ifdef FEAT_LISP
+***************
+*** 13983,13990 ****
+   */
+      static void
+  f_matchadd(argvars, rettv)
+!     typval_T	*argvars;
+!     typval_T	*rettv;
+  {
+  #ifdef FEAT_SEARCH_EXTRA
+      char_u	buf[NUMBUFLEN];
+--- 13983,13990 ----
+   */
+      static void
+  f_matchadd(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+!     typval_T	*rettv UNUSED;
+  {
+  #ifdef FEAT_SEARCH_EXTRA
+      char_u	buf[NUMBUFLEN];
+***************
+*** 14021,14027 ****
+   */
+      static void
+  f_matcharg(argvars, rettv)
+!     typval_T	*argvars;
+      typval_T	*rettv;
+  {
+      if (rettv_list_alloc(rettv) == OK)
+--- 14021,14027 ----
+   */
+      static void
+  f_matcharg(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+      if (rettv_list_alloc(rettv) == OK)
+***************
+*** 14053,14060 ****
+   */
+      static void
+  f_matchdelete(argvars, rettv)
+!     typval_T	*argvars;
+!     typval_T	*rettv;
+  {
+  #ifdef FEAT_SEARCH_EXTRA
+      rettv->vval.v_number = match_delete(curwin,
+--- 14053,14060 ----
+   */
+      static void
+  f_matchdelete(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+!     typval_T	*rettv UNUSED;
+  {
+  #ifdef FEAT_SEARCH_EXTRA
+      rettv->vval.v_number = match_delete(curwin,
+***************
+*** 14871,14878 ****
+   */
+      static void
+  f_reltime(argvars, rettv)
+!     typval_T	*argvars;
+!     typval_T	*rettv;
+  {
+  #ifdef FEAT_RELTIME
+      proftime_T	res;
+--- 14871,14878 ----
+   */
+      static void
+  f_reltime(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+!     typval_T	*rettv UNUSED;
+  {
+  #ifdef FEAT_RELTIME
+      proftime_T	res;
+***************
+*** 14920,14926 ****
+   */
+      static void
+  f_reltimestr(argvars, rettv)
+!     typval_T	*argvars;
+      typval_T	*rettv;
+  {
+  #ifdef FEAT_RELTIME
+--- 14920,14926 ----
+   */
+      static void
+  f_reltimestr(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+  #ifdef FEAT_RELTIME
+***************
+*** 15965,15971 ****
+      int		flags;	    /* SP_SETPCMARK and other SP_ values */
+      pos_T	*match_pos;
+      linenr_T	lnum_stop;  /* stop at this line if not zero */
+!     long	time_limit; /* stop after this many msec */
+  {
+      char_u	*save_cpo;
+      char_u	*pat, *pat2 = NULL, *pat3 = NULL;
+--- 15965,15971 ----
+      int		flags;	    /* SP_SETPCMARK and other SP_ values */
+      pos_T	*match_pos;
+      linenr_T	lnum_stop;  /* stop at this line if not zero */
+!     long	time_limit UNUSED; /* stop after this many msec */
+  {
+      char_u	*save_cpo;
+      char_u	*pat, *pat2 = NULL, *pat3 = NULL;
+***************
+*** 16390,16397 ****
+   */
+      static void
+  f_setmatches(argvars, rettv)
+!     typval_T	*argvars;
+!     typval_T	*rettv;
+  {
+  #ifdef FEAT_SEARCH_EXTRA
+      list_T	*l;
+--- 16390,16397 ----
+   */
+      static void
+  f_setmatches(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+!     typval_T	*rettv UNUSED;
+  {
+  #ifdef FEAT_SEARCH_EXTRA
+      list_T	*l;
+***************
+*** 18463,18469 ****
+   */
+      static void
+  f_undofile(argvars, rettv)
+!     typval_T	*argvars;
+      typval_T	*rettv;
+  {
+      rettv->v_type = VAR_STRING;
+--- 18463,18469 ----
+   */
+      static void
+  f_undofile(argvars, rettv)
+!     typval_T	*argvars UNUSED;
+      typval_T	*rettv;
+  {
+      rettv->v_type = VAR_STRING;
+*** ../vim-7.3.818/src/ex_docmd.c	2012-12-05 19:13:11.000000000 +0100
+--- src/ex_docmd.c	2013-02-14 20:50:56.000000000 +0100
+***************
+*** 1734,1739 ****
+--- 1734,1741 ----
+  #ifdef FEAT_EVAL
+  	    /* avoid that a function call in 'statusline' does this */
+  	    && !getline_equal(fgetline, cookie, get_func_line)
++ #endif
++ #ifdef FEAT_AUTOCMD
+  	    /* avoid that an autocommand, e.g. QuitPre, does this */
+  	    && !getline_equal(fgetline, cookie, getnextac)
+  #endif
+***************
+*** 5375,5381 ****
+--- 5377,5385 ----
+  #endif
+      return FAIL;
+  }
++ #endif
+  
++ #if defined(FEAT_USR_CMDS) || defined(FEAT_EVAL) || defined(PROTO)
+  /*
+   * List of names for completion for ":command" with the EXPAND_ flag.
+   * Must be alphabetical for completion.
+***************
+*** 5430,5436 ****
+--- 5434,5442 ----
+      {EXPAND_USER_VARS, "var"},
+      {0, NULL}
+  };
++ #endif
+  
++ #if defined(FEAT_USR_CMDS) || defined(PROTO)
+      static void
+  uc_list(name, name_len)
+      char_u	*name;
+***************
+*** 6375,6384 ****
+      int		vallen;
+      int		*complp;
+      long	*argt;
+!     char_u	**compl_arg;
+  {
+      char_u	*arg = NULL;
+      size_t	arglen = 0;
+      int		i;
+      int		valend = vallen;
+  
+--- 6381,6392 ----
+      int		vallen;
+      int		*complp;
+      long	*argt;
+!     char_u	**compl_arg UNUSED;
+  {
+      char_u	*arg = NULL;
++ # if defined(FEAT_EVAL) && defined(FEAT_CMDL_COMPL)
+      size_t	arglen = 0;
++ # endif
+      int		i;
+      int		valend = vallen;
+  
+***************
+*** 6388,6394 ****
+--- 6396,6404 ----
+  	if (value[i] == ',')
+  	{
+  	    arg = &value[i + 1];
++ # if defined(FEAT_EVAL) && defined(FEAT_CMDL_COMPL)
+  	    arglen = vallen - i - 1;
++ # endif
+  	    valend = i;
+  	    break;
+  	}
+*** ../vim-7.3.818/src/normal.c	2013-01-24 21:00:15.000000000 +0100
+--- src/normal.c	2013-02-14 19:33:36.000000000 +0100
+***************
+*** 2292,2298 ****
+--- 2292,2300 ----
+  {
+  #ifdef FEAT_EVAL
+      char_u	*(argv[1]);
++ # ifdef FEAT_VIRTUALEDIT
+      int		save_virtual_op = virtual_op;
++ # endif
+  
+      if (*p_opfunc == NUL)
+  	EMSG(_("E774: 'operatorfunc' is empty"));
+***************
+*** 2312,2324 ****
+--- 2314,2330 ----
+  	else
+  	    argv[0] = (char_u *)"char";
+  
++ # ifdef FEAT_VIRTUALEDIT
+  	/* Reset virtual_op so that 'virtualedit' can be changed in the
+  	 * function. */
+  	virtual_op = MAYBE;
++ # endif
+  
+  	(void)call_func_retnr(p_opfunc, 1, argv, FALSE);
+  
++ # ifdef FEAT_VIRTUALEDIT
+  	virtual_op = save_virtual_op;
++ # endif
+      }
+  #else
+      EMSG(_("E775: Eval feature not available"));
+*** ../vim-7.3.818/src/gui_gtk_x11.c	2013-01-23 16:00:05.000000000 +0100
+--- src/gui_gtk_x11.c	2013-02-14 19:38:42.000000000 +0100
+***************
+*** 5164,5171 ****
+      return FAIL;
+  }
+  
+! #if defined(FEAT_TITLE) \
+! 	|| defined(PROTO)
+  /*
+   * Return the text window-id and display.  Only required for X-based GUI's
+   */
+--- 5164,5170 ----
+      return FAIL;
+  }
+  
+! #if defined(FEAT_TITLE) || defined(FEAT_EVAL) || defined(PROTO)
+  /*
+   * Return the text window-id and display.  Only required for X-based GUI's
+   */
+*** ../vim-7.3.818/src/version.c	2013-02-14 20:58:30.000000000 +0100
+--- src/version.c	2013-02-14 22:09:41.000000000 +0100
+***************
+*** 727,728 ****
+--- 727,730 ----
+  {   /* Add new patch number below this line */
++ /**/
++     819,
+  /**/
+
+-- 
+(letter from Mark to Mike, about the film's probable certificate)
+      For an 'A' we would have to: Lose as many shits as possible; Take Jesus
+      Christ out, if possible; Loose "I fart in your general direction"; Lose
+      "the oral sex"; Lose "oh, fuck off"; Lose "We make castanets out of your
+      testicles"
+                 "Monty Python and the Holy Grail" PYTHON (MONTY) PICTURES LTD
+
+ /// Bram Moolenaar -- Bram@Moolenaar.net -- http://www.Moolenaar.net   \\\
+///        sponsor Vim, vote for features -- http://www.Vim.org/sponsor/ \\\
+\\\  an exciting new programming language -- http://www.Zimbu.org        ///
+ \\\            help me help AIDS victims -- http://ICCF-Holland.org    ///
