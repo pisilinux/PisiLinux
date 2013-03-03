@@ -1,0 +1,643 @@
+Index: linux-2.6.36/drivers/platform/x86/fsam7400.c
+===================================================================
+--- /dev/null
++++ linux-2.6.36/drivers/platform/x86/fsam7400.c
+@@ -0,0 +1,373 @@
++/*******************************************************************************
++  
++  This program is free software; you can redistribute it and/or modify it 
++  under the terms of the GNU General Public License as published by the Free 
++  Software Foundation; either version 2 of the License, or (at your option) 
++  any later version.
++  
++  This program is distributed in the hope that it will be useful, but WITHOUT 
++  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
++  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
++  more details.
++  
++  You should have received a copy of the GNU General Public License along with
++  this program; if not, write to the Free Software Foundation, Inc., 59 
++  Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++  
++  The full GNU General Public License is included in this distribution in the
++  file called LICENSE.
++  
++  Author:
++  Marcel Naziri <fsam7400@zwobbl.de>
++    
++  Based on:
++  pbe5.c by Pedro Ramalhais <pmr09313@students.fct.unl.pt>
++
++  Many thanks to:
++  Pedro Ramalhais for spending several nights with me on IRC disassembling 
++  the structure of the windows driver files... :)
++  
++*******************************************************************************/
++
++#include <linux/compiler.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/types.h>
++#include <linux/netdevice.h>
++#include <linux/proc_fs.h>
++#include <linux/ctype.h>
++#include <linux/string.h>
++#include <linux/kmod.h>
++#include <linux/io.h>
++
++#define DRV_NAME         "fsam7400"
++#define DRV_VERSION      "0.4.0"
++#define DRV_DESCRIPTION  "SW RF kill switch for Fujitsu Siemens Amilo M 7400"
++#define DRV_COPYRIGHT    "Copyright(c) 2004 zwobbl ;)"
++#define DRV_AUTHOR       "Marcel Naziri"
++#define DRV_LICENSE      "GPL"
++
++MODULE_DESCRIPTION(DRV_DESCRIPTION);
++MODULE_AUTHOR(DRV_AUTHOR);
++MODULE_LICENSE(DRV_LICENSE);
++
++#define RADIO_NONE     0xFFFFFFFF
++#define RADIO_OFF      0x00000000
++#define RADIO_ON       0x00000010
++
++static int radio = RADIO_NONE;
++module_param(radio, uint, 0400);
++MODULE_PARM_DESC(radio, "desired radio state when loading module");
++
++static int autooff = 1;
++module_param(autooff, uint, 0400);
++MODULE_PARM_DESC(autooff, "turns radio off when unloading module "
++                          "(default)");
++
++static int uid = 0;
++module_param(uid, uint, 0400);
++MODULE_PARM_DESC(uid, "user ID for proc entry");                          
++                           
++static int gid = 0;
++module_param(gid, uint, 0400);
++MODULE_PARM_DESC(gid, "group ID for proc entry");                          
++                                             
++/* some more or less useful macros */                        
++#ifdef CONFIG_IPW2100_DEBUG
++#define DEBUG_OUT0(a) printk(KERN_INFO DRV_NAME ": " a) 
++#define DEBUG_OUT1(a,b) printk(KERN_INFO DRV_NAME ": " a,b) 
++#define DEBUG_OUT2(a,b,c) printk(KERN_INFO DRV_NAME ": " a,b,c) 
++#define DEBUG_OUT3(a,b,c,d) printk(KERN_INFO DRV_NAME ": " a,b,c,d) 
++#else
++#define DEBUG_OUT0(a)  
++#define DEBUG_OUT1(a,b)  
++#define DEBUG_OUT2(a,b,c)  
++#define DEBUG_OUT3(a,b,c,d) 
++#endif
++
++#define ONOFF(x) (x) ? "ON" : "OFF"
++#define RADIO_ONOFF(x) (x) == RADIO_ON ? "ON" : "OFF"
++#define TOUL(x) (unsigned long) (x)
++                       
++/*
++ * NOTE: These values were obtained from disassembling the wbutton.sys driver
++ * installed in the Fujitsu Siemens Amilo M 7400 laptop. The names were guessed,
++ * so don't rely on them.
++ */
++
++/*** hardware dependant stuff ***/
++
++#define BIOS_CODE_ADDR       0x000F0000
++#define BIOS_CODE_ALT_MASK   0xFFFFC000 
++
++#define BIOS_CODE_MAPSIZE      0x010000
++#define BIOS_CODE_ALT_MAPSIZE  0x004000
++
++#define BIOS_MAGIC_COMMAND    0x9610 
++#define BIOS_MAGIC_OFF        0x0035
++#define BIOS_MAGIC_ON         0x0135
++#define BIOS_MAGIC_CHECK      0x0235
++
++#define PTR_POSITION  5
++#define ALLIGNED_STEP 0x10
++
++#define BIOS_SIGN_SIZE 4
++static const char bios_sign[] = {
++   0x42, 0x21, 0x55, 0x30
++};
++
++#define WLAN_DISABLED_IN_BIOS  0x01
++#define WLAN_ENABLED_IN_BIOS   0x03
++
++static unsigned long bios_code = 0;
++
++static int fsam_bios_routine(int eax, int ebx)
++{
++   __asm__ __volatile__(
++      "call *%3 \t\n"
++      : "=a"(eax)
++      : "a"(eax), "b"(ebx), "c"(bios_code)           
++      ); 
++   return (eax & 0xFF);
++}
++
++static int fsam_call_bios(int value)
++{
++   if (bios_code) {
++      int command = BIOS_MAGIC_COMMAND;
++      
++      DEBUG_OUT2("bios routine gets parameter eax=%X and ebx=%X\n",
++                  command, value);
++                  
++      value = fsam_bios_routine(command, value);                    
++         
++      DEBUG_OUT1("bios routine results %X\n", value);
++      return value;   
++   }
++   return ~0;
++}
++
++/* pointer to mapped memory*/
++static void *mem_code = NULL;
++
++static inline void fsam_unmap_memory(void)
++{
++   bios_code = 0;   
++   if (mem_code) {
++      iounmap(mem_code);
++   }      
++}
++
++static inline int fsam_map_memory(void)
++{   
++   const unsigned long max_offset = BIOS_CODE_MAPSIZE - BIOS_SIGN_SIZE - PTR_POSITION;
++   unsigned long offset;   
++   unsigned int addr;
++   
++   mem_code = ioremap(BIOS_CODE_ADDR, BIOS_CODE_MAPSIZE);
++   if (!mem_code)
++      goto fail;
++
++   DEBUG_OUT3("physical memory %x-%x mapped to virtual address %p\n",
++              BIOS_CODE_ADDR, BIOS_CODE_ADDR+BIOS_CODE_MAPSIZE, mem_code); 
++   
++   for ( offset = 0; offset < max_offset; offset += ALLIGNED_STEP ) 
++      if (check_signature(mem_code + offset, bios_sign, BIOS_SIGN_SIZE))
++         break;
++   
++   if (offset >= max_offset) 
++     goto fail; 
++   
++   DEBUG_OUT1("bios signature found at offset %lx\n", offset);   
++   
++   addr = readl(mem_code + offset + PTR_POSITION);  
++            
++   if (addr < BIOS_CODE_ADDR)
++   {      
++      DEBUG_OUT0("bios routine out of memory range, "
++                 "doing some new memory mapping...\n");
++      iounmap(mem_code);
++      mem_code = NULL;
++      
++      addr &= BIOS_CODE_ALT_MASK;
++           
++      mem_code = ioremap(addr, BIOS_CODE_ALT_MAPSIZE);
++      if (!mem_code)
++         goto fail;
++      
++      DEBUG_OUT3("physical memory %x-%x mapped to virtual address %p\n",
++                 addr, addr+BIOS_CODE_ALT_MAPSIZE, mem_code);
++            
++      addr &= 0x3FFF;           
++   } 
++   else 
++     addr &= 0xFFFF;
++      
++   bios_code = addr + TOUL(mem_code);
++   DEBUG_OUT1("supposed address of bios routine is %lx\n", bios_code);
++
++   return 1;        
++ 
++ fail:
++   fsam_unmap_memory();
++   return 0;
++}
++
++/*** interface stuff ***/
++
++static void rfkill_set_radio(int value) 
++{
++   radio = value == RADIO_ON ? fsam_call_bios(BIOS_MAGIC_ON) :
++                               fsam_call_bios(BIOS_MAGIC_OFF);
++}
++
++static inline int rfkill_get_radio(void)
++{
++   return radio;
++}
++
++static inline int rfkill_supported(void)
++{
++   return bios_code != 0;
++}
++
++static inline void rfkill_initialize(void) {
++   fsam_map_memory();
++   
++   if (rfkill_supported()) {
++      radio = radio != RADIO_NONE 
++              ? ( radio ? RADIO_ON : RADIO_OFF ) /*module parameter*/ 
++              : ( fsam_call_bios(BIOS_MAGIC_CHECK) == WLAN_ENABLED_IN_BIOS 
++                  ? RADIO_ON : RADIO_OFF );  
++   }
++}
++
++static inline void rfkill_uninitialize(void) {
++   fsam_unmap_memory();
++}
++
++/*** proc stuff ***/
++
++static inline int common_proc_set_radio(struct file *file, const char *buffer, 
++                                        unsigned long count, void *data)
++{
++   unsigned long len = 4;
++   char newstate[len];
++   
++   len = count < len ? count : len;
++
++   if ( copy_from_user(newstate, buffer, len) != 0 )
++     return -EFAULT;
++       
++   if ( (*newstate == '1' || *newstate == '0') &&
++        (count == 1 || isspace(newstate[1])) )
++     rfkill_set_radio(*newstate == '1' ? RADIO_ON : RADIO_OFF);
++   else 
++   if ( !strncmp(newstate, "on", 2)  &&
++        (count == 2 || isspace(newstate[2])) )
++     rfkill_set_radio(RADIO_ON);
++   else 
++   if ( !strncmp(newstate, "off", 3) &&
++        (count == 3 || isspace(newstate[3])) ) 
++     rfkill_set_radio(RADIO_OFF);  
++   
++   return count;
++}
++
++static inline int common_proc_get_radio(char *page, char **start, off_t offset,
++                                        int count, int *eof, void *data)
++{
++   int len = snprintf(page, count, DRV_DESCRIPTION ", v" DRV_VERSION "\n"
++                                   "  auto-off is %s\n", 
++                                   ONOFF(autooff));
++   len += snprintf(page+len, count-len, "  radio state is %s\n",
++                                        RADIO_ONOFF(rfkill_get_radio()));   
++   *eof = 1;
++   
++   return len;
++}
++
++#define PROC_DIR    "driver/wireless"
++#define PROC_RADIO  "radio"
++
++static struct proc_dir_entry *dir_base = NULL;
++
++static inline void common_proc_cleanup(void)
++{
++   if (dir_base) {
++      remove_proc_entry(PROC_RADIO, dir_base);
++      remove_proc_entry(PROC_DIR, NULL);
++      dir_base = NULL;
++   }
++}
++
++static inline int common_proc_init(void)
++{
++   struct proc_dir_entry *ent;
++   int err = 0;
++
++   dir_base = proc_mkdir(PROC_DIR, NULL);
++   if (dir_base == NULL) {
++      printk(KERN_ERR DRV_NAME ": Unable to initialize /proc/" PROC_DIR "\n");
++      err = -ENOMEM;
++      goto fail;
++   }
++
++   ent = create_proc_entry(PROC_RADIO, 
++                           S_IFREG | S_IRUGO | S_IWUSR | S_IWGRP, 
++                           dir_base);
++   ent->uid = uid;
++   ent->gid = gid;
++   if (ent) {
++      ent->read_proc = common_proc_get_radio; 
++      ent->write_proc = common_proc_set_radio; 
++   } else {
++      printk(KERN_ERR DRV_NAME ": Unable to initialize /proc/" 
++                      PROC_DIR "/" PROC_RADIO "\n");
++      err = -ENOMEM;
++      goto fail;
++   }
++   return 0;
++ 
++ fail:
++   common_proc_cleanup();
++   return err;
++}
++
++/*** module stuff ***/
++
++static int __init common_init(void)
++{ 
++   printk(KERN_INFO DRV_NAME ": " DRV_DESCRIPTION ", v" DRV_VERSION "\n");
++   printk(KERN_INFO DRV_NAME ": " DRV_COPYRIGHT "\n");
++   
++   rfkill_initialize();
++   
++   if (rfkill_supported()) {
++      common_proc_init();   
++      if (radio != RADIO_NONE) 
++         rfkill_set_radio(radio);
++   } else
++      printk(KERN_INFO DRV_NAME ": no supported wireless hardware found\n");   
++   
++   return 0;
++}
++
++static void __exit common_exit(void)
++{
++   if (rfkill_supported() && autooff) 
++      rfkill_set_radio(RADIO_OFF);
++   
++   common_proc_cleanup();
++   rfkill_uninitialize();   
++   
++   printk(KERN_INFO DRV_NAME ": module removed successfully\n");
++}
++
++module_init(common_init);
++module_exit(common_exit);
++
++/*
++         1         2         3         4         5         6         7
++12345678901234567890123456789012345678901234567890123456789012345678901234567890
++*/
+Index: linux-2.6.36/drivers/platform/x86/fsam7440.c
+===================================================================
+--- /dev/null
++++ linux-2.6.36/drivers/platform/x86/fsam7440.c
+@@ -0,0 +1,228 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Alejandro Vidal Mata & Javier Vidal Mata        *
++ *                                                                         *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ *                                                                         *
++ *   The full GNU General Public License is included in this distribution  *
++ *   in the file called COPYING.                                           *
++ *                                                                         *
++ *   This project haven't a warranty. The project developers haven't       *
++ *   responsible for whatever happens from using.                          *
++ *                                                                         *
++ *   Authors:                                                              *
++ *    Alejandro Vidal Mata <alex14@gmail.com>                              *
++ *    Javier Vidal Mata <javitu@gmail.com>                                 *
++ *                                                                         *
++ *   Based on:                                                             *
++ *    pbe5.c by Pedro Ramalhais <pmr09313@students.fct.unl.pt>             *
++ ***************************************************************************/
++
++#include <linux/compiler.h>
++#include <linux/version.h>
++
++#include <linux/errno.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/types.h>
++#include <linux/netdevice.h>
++#include <linux/proc_fs.h>
++#include <asm/uaccess.h>
++#include <asm/io.h>
++
++#define DRV_NAME		"fsam7440"
++#define DRV_VERSION		"1.0"
++#define DRV_DESCRIPTION		"SW RF kill switch for Fujitsu-Siemens AMILO M 7440"
++#define DRV_AUTHOR		"Alejandro Vidal Mata & Javier Vidal Mata"
++#define DRV_LICENSE		"GPL"
++
++static int radio = 1;
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
++
++MODULE_PARM(radio, "i");
++
++#else /* LINUX_VERSION_CODE < 2.6.0 */
++
++#include <linux/moduleparam.h>
++module_param(radio, int, 1);
++
++#endif /* LINUX_VERSION_CODE < 2.6.0 */
++
++MODULE_PARM_DESC(radio, "Controls state of radio when the module is loaded (1=on, 0=off)");
++
++MODULE_DESCRIPTION(DRV_DESCRIPTION);
++MODULE_AUTHOR(DRV_AUTHOR);
++MODULE_LICENSE(DRV_LICENSE);
++
++/* Module aliases for hotplugging */
++
++/* Amilo M7440 (#11571) */
++MODULE_ALIAS("dmi:*:svnFUJITSUSIEMENS:pnAMILOMSeries:*:rnAMILOM7440:*");
++
++
++/*
++ * These values were obtained from disassembling the PM.exe program
++ * installed in the Fujitsu-Siemens AMILO M 7440
++ */
++#define AMILOM7440_PORT1	0x118f
++#define AMILOM7440_PORT2	0x118e
++
++#define AMILOM7440_RADIO_ON1	0x12
++#define AMILOM7440_RADIO_ON2	0x80
++#define AMILOM7440_RADIO_OFF1	0x10
++#define AMILOM7440_RADIO_OFF2	0x00
++
++// Some "booleans" =;-)
++#define AMILOM7440_RADIO_OFF	0
++#define AMILOM7440_RADIO_ON	1
++
++static int amilom7440_radio_status = AMILOM7440_RADIO_OFF;
++
++unsigned char amilom7440_get_radio(void)
++{
++	unsigned char val1 = 0x00;
++	unsigned char val2 = 0x00;
++	
++	val1 = inb(AMILOM7440_PORT1); // Read the values of this ports to know the
++	val2 = inb(AMILOM7440_PORT2); // state of wireless card.
++
++	if ((val1 == AMILOM7440_RADIO_ON1) && (val2 == AMILOM7440_RADIO_ON2)) // Return the state
++		return AMILOM7440_RADIO_ON;
++	else
++        	return AMILOM7440_RADIO_OFF;
++}
++
++static void amilom7440_set_radio(int state_set)
++{
++	amilom7440_radio_status = amilom7440_get_radio(); // Get the state of wireless card.
++
++	if (amilom7440_radio_status != state_set) { // If it need changes
++        	if (state_set == AMILOM7440_RADIO_ON) { // Turn ON/OFF
++			outb(AMILOM7440_RADIO_ON1, AMILOM7440_PORT1);
++			outb(AMILOM7440_RADIO_ON2, AMILOM7440_PORT2);
++        	} else {
++			outb(AMILOM7440_RADIO_OFF1, AMILOM7440_PORT1);
++			outb(AMILOM7440_RADIO_OFF2, AMILOM7440_PORT2);
++        	}
++
++		amilom7440_radio_status = amilom7440_get_radio(); // Get the state of wireless card again
++		
++		if (state_set == amilom7440_get_radio()) { // Check if the state has changed correctly
++			printk(KERN_INFO DRV_NAME ": Radio turned %s\n", // Notify if it has changed correctly or not
++			   (state_set  == AMILOM7440_RADIO_ON) ? "ON" : "OFF");
++		} else {
++			printk(KERN_INFO DRV_NAME ": ERROR: Radio don't turned %s\n",
++			   (state_set  == AMILOM7440_RADIO_ON) ? "ON" : "OFF");
++		}
++	} else {
++		printk(KERN_INFO DRV_NAME ": Radio already %s\n", // It didn't need changes
++		  (state_set  == AMILOM7440_RADIO_ON) ? "ON" : "OFF");
++	}
++}
++
++
++/*
++ * Proc Stuff
++ */
++static struct proc_dir_entry *dir_base = NULL;
++
++static int proc_set_radio(struct file *file, const char *buffer, 
++			  unsigned long count, void *data)
++{
++	amilom7440_set_radio(buffer[0] == '0' ? AMILOM7440_RADIO_OFF : AMILOM7440_RADIO_ON);
++	
++	return count;
++}
++
++static int proc_get_radio(char *page, char **start, off_t offset,
++			  int count, int *eof, void *data)
++{
++	int len = 0;
++	
++	len += snprintf(page, count, DRV_NAME ": %d\n", 
++			amilom7440_radio_status == AMILOM7440_RADIO_OFF ? 0 : 1);
++	
++	*eof = 1;
++	return len;
++}
++
++
++static void amilom7440_proc_cleanup(void)
++{
++	if (dir_base) {
++		remove_proc_entry("radio", dir_base);
++		remove_proc_entry(DRV_NAME, NULL);
++		dir_base = NULL;
++	}
++}
++
++
++static int amilom7440_proc_init(void)
++{
++	struct proc_dir_entry *ent;
++	int err = 0;
++
++	dir_base = create_proc_entry(DRV_NAME, S_IFDIR, NULL);
++	if (dir_base == NULL) {
++		printk(KERN_ERR DRV_NAME ": Unable to initialise /proc/" 
++		       DRV_NAME "\n");
++		err = -ENOMEM;
++		goto fail;
++	}
++
++
++	ent = create_proc_entry("radio", S_IFREG | S_IRUGO | S_IWUSR, 
++				dir_base);
++	if (ent) {
++		ent->read_proc = proc_get_radio;
++		ent->write_proc = proc_set_radio;
++	} else {
++		printk(KERN_ERR
++		       "Unable to initialize /proc/" DRV_NAME "/radio\n");
++		err = -ENOMEM;
++		goto fail;
++	}
++
++	return 0;
++
++ fail:
++	amilom7440_proc_cleanup();
++	return err;
++}
++
++/*
++ * module stuff
++ */
++static int __init amilom7440_init(void)
++{
++	amilom7440_proc_init();
++
++	amilom7440_set_radio((radio == 1) ? AMILOM7440_RADIO_ON : AMILOM7440_RADIO_OFF);
++	
++	return 0;
++}
++
++static void __exit amilom7440_exit(void)
++{
++	amilom7440_set_radio(AMILOM7440_RADIO_OFF);
++
++	amilom7440_proc_cleanup();
++}
++
++module_init(amilom7440_init);
++module_exit(amilom7440_exit);
++
+Index: linux-2.6.36/drivers/platform/x86/Kconfig
+===================================================================
+--- linux-2.6.36.orig/drivers/platform/x86/Kconfig
++++ linux-2.6.36/drivers/platform/x86/Kconfig
+@@ -639,4 +639,14 @@ config XO1_RFKILL
+ 	  Support for enabling/disabling the WLAN interface on the OLPC XO-1
+ 	  laptop.
+ 
++
++config FSAM7400
++	tristate "Software RF kill switch for Fujitsu Siemens Amilo M 7400"
++    depends on CHECK_SIGNATURE
++	default m
++
++config FSAM7440
++	tristate "Software RF kill switch for Fujitsu Siemens Amilo M 7440"
++	default m
++
+ endif # X86_PLATFORM_DEVICES
+Index: linux-2.6.36/drivers/platform/x86/Makefile
+===================================================================
+--- linux-2.6.36.orig/drivers/platform/x86/Makefile
++++ linux-2.6.36/drivers/platform/x86/Makefile
+@@ -2,6 +2,8 @@
+ # Makefile for linux/drivers/platform/x86
+ # x86 Platform-Specific Drivers
+ #
++obj-$(CONFIG_FSAM7400)		+= fsam7400.o
++obj-$(CONFIG_FSAM7440)		+= fsam7440.o
+ obj-$(CONFIG_ASUS_LAPTOP)	+= asus-laptop.o
+ obj-$(CONFIG_EEEPC_LAPTOP)	+= eeepc-laptop.o
+ obj-$(CONFIG_EEEPC_WMI)		+= eeepc-wmi.o

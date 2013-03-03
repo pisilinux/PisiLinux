@@ -1,0 +1,77 @@
+
+This adapte the code to build with 3.3 series kernels.
+
+1. kstat_cpu* -> kcpustat_cpu*[]
+
+2. *ethtool interface -> netdev->HW_FEATURES
+
+Signed-off-by: Thomas Backlund <tmb@magiea.org>
+
+
+ 3rdparty/ndiswrapper/ndis.c     |    6 ++++++
+ 3rdparty/ndiswrapper/wrapndis.c |    8 ++++++++
+ 2 files changed, 14 insertions(+)
+
+diff -Nurp linux-3.3-rc6-mga0.5/3rdparty/ndiswrapper.orig/ndis.c linux-3.3-rc6-mga0.5/3rdparty/ndiswrapper/ndis.c
+--- linux-3.3-rc6-mga0.5/3rdparty/ndiswrapper.orig/ndis.c	2012-03-04 22:29:20.000000000 +0200
++++ linux-3.3-rc6-mga0.5/3rdparty/ndiswrapper/ndis.c	2012-03-05 00:31:38.917901654 +0200
+@@ -2654,9 +2654,15 @@ wstdcall void WIN_FUNC(NdisGetCurrentPro
+ 	(ULONG *idle, ULONG *kernel_user, ULONG *index)
+ {
+ 	int cpu = smp_processor_id();
++#if LINUX_VERSION_CODE < KERNEL_VERSION( 3, 3, 0)
+ 	*idle = kstat_cpu(cpu).cpustat.idle;
+ 	*kernel_user = kstat_cpu(cpu).cpustat.system +
+ 		kstat_cpu(cpu).cpustat.user;
++#else
++	*idle = kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
++	*kernel_user = kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM] +
++		       kcpustat_cpu(cpu).cpustat[CPUTIME_USER];
++#endif
+ 	*index = cpu;
+ }
+ 
+diff -Nurp linux-3.3-rc6-mga0.5/3rdparty/ndiswrapper.orig/wrapndis.c linux-3.3-rc6-mga0.5/3rdparty/ndiswrapper/wrapndis.c
+--- linux-3.3-rc6-mga0.5/3rdparty/ndiswrapper.orig/wrapndis.c	2012-03-04 22:29:20.000000000 +0200
++++ linux-3.3-rc6-mga0.5/3rdparty/ndiswrapper/wrapndis.c	2012-03-05 00:38:20.529968747 +0200
+@@ -1675,6 +1675,7 @@ static int ndis_set_wol(struct net_devic
+ 	return 0;
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 3, 0)
+ static u32 ndis_get_tx_csum(struct net_device *dev)
+ {
+ 	struct ndis_device *wnd = netdev_priv(dev);
+@@ -1735,18 +1736,21 @@ static int ndis_set_sg(struct net_device
+ 	else
+ 		return -EOPNOTSUPP;
+ }
++#endif
+ 
+ static struct ethtool_ops ndis_ethtool_ops = {
+ 	.get_drvinfo	= ndis_get_drvinfo,
+ 	.get_link	= ndis_get_link,
+ 	.get_wol	= ndis_get_wol,
+ 	.set_wol	= ndis_set_wol,
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 3, 0)
+ 	.get_tx_csum	= ndis_get_tx_csum,
+ 	.get_rx_csum	= ndis_get_rx_csum,
+ 	.set_tx_csum	= ndis_set_tx_csum,
+ 	.set_rx_csum	= ndis_set_rx_csum,
+ 	.get_sg		= ndis_get_sg,
+ 	.set_sg		= ndis_set_sg,
++#endif
+ };
+ 
+ static int notifier_event(struct notifier_block *notifier, unsigned long event,
+@@ -1837,6 +1841,10 @@ static NDIS_STATUS ndis_start_device(str
+ 		NDIS_PACKET_TYPE_BROADCAST | NDIS_PACKET_TYPE_MULTICAST;
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 29)
+ 	net_dev->netdev_ops = &ndis_netdev_ops;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 3, 0)
++	net_dev->hw_features |= NETIF_F_SG | NETIF_F_IP_CSUM |
++				NETIF_F_RXCSUM;
++#endif
+ #else
+ 	net_dev->init = ndis_net_dev_init;
+ 	net_dev->uninit = ndis_net_dev_uninit;
