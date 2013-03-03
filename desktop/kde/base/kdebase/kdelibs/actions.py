@@ -14,7 +14,7 @@ NoStrip=["/usr/share"]
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure("-DKDE_DISTRIBUTION_TEXT=\"Pardus\" \
+    kde4.configure("-DKDE_DISTRIBUTION_TEXT=\"PisiLinux\" \
                     -DCMAKE_SKIP_RPATH=ON \
                     -DWITH_FAM=ON \
                     -DWITH_HUpnp=ON")

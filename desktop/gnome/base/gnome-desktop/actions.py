@@ -13,7 +13,7 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-scrollkeeper \
                          --enable-gtk-doc \
-                         --with-gnome-distributor=\"Pardus\" \
+                         --with-gnome-distributor=\"PisiLinux\" \
                          --with-pnp-ids-path=%s/misc/pnp.ids" % get.dataDIR())
 
 def build():

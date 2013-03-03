@@ -16,7 +16,7 @@ def setup():
                          --disable-scrollkeeper\
                          --enable-introspection=yes \
                          --libexecdir=/usr/lib/gnome-desktop-3.0 \
-                         --with-gnome-distributor=Pardus")
+                         --with-gnome-distributor=PisiLinux")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
