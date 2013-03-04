@@ -17,10 +17,10 @@ ERR_INSMOD = _({"en": "Failed probing module %s",
 PROCNFSD_MOUNTPOINT = "/proc/fs/nfsd"
 RQUOTAD_PATH = "/usr/sbin/rpc.rquotad"
 
-IDMAPD_PIDFILE = "/var/run/rpc.idmapd.pid"
-SVCGSSD_PIDFILE = "/var/run/rpc.svcgssd.pid"
-RQUOTAD_PIDFILE = "/var/run/rpc.rquotad.pid"
-MOUNTD_PIDFILE = "/var/run/rpc.mountd.pid"
+IDMAPD_PIDFILE = "/run/rpc.idmapd.pid"
+SVCGSSD_PIDFILE = "/run/rpc.svcgssd.pid"
+RQUOTAD_PIDFILE = "/run/rpc.rquotad.pid"
+MOUNTD_PIDFILE = "/run/rpc.mountd.pid"
 
 # Parse the fstab file and determine whether we need quotad or not by searching
 # mount option quota in any mount entry.

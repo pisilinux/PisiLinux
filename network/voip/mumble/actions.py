@@ -51,7 +51,7 @@ def install():
 
     pisitools.dodir("/var/lib/mumble-server")
     pisitools.dodir("/var/log/mumble-server")
-    pisitools.dodir("/var/run/mumble-server")
+    pisitools.dodir("/run/mumble-server")
 
     pisitools.doman("man/*")
     pisitools.dodoc("CHANGES", "LICENSE", "README*", "scripts/weblist*")

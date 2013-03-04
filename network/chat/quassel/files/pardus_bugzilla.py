@@ -2,7 +2,7 @@
 
 import sys
 
-bugSearchURL = "http://hata.pardus.org.tr/buglist.cgi?quicksearch="
+bugSearchURL = "http://bugs.pisilinux.org/index.php?show_task="
 
 print bugSearchURL + sys.argv[1]
 

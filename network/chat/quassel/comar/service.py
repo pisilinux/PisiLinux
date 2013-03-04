@@ -5,7 +5,7 @@ serviceDesc = _({"en": "Distributed IRC Core",
                  "tr": "Dağıtımlı IRC Çekirdeği"})
 serviceDefault = "off"
 
-pidfile = "/var/run/quasselcore.pid"
+pidfile = "/run/quasselcore.pid"
 datadir = "/var/cache/quassel"
 
 @synchronized

@@ -22,4 +22,4 @@ def reload():
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/avahi-daemon/pid")
+    return isServiceRunning("/run/avahi-daemon/pid")

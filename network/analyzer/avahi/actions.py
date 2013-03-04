@@ -43,7 +43,7 @@ def install():
     # Remove example
     pisitools.remove("/etc/avahi/services/sftp-ssh.service")
 
-    pisitools.dodir("/var/run/avahi-daemon")
+    pisitools.dodir("/run/avahi-daemon")
     pisitools.dodir("/var/lib/avahi-autoipd")
 
     pisitools.dodoc("docs/AUTHORS", "docs/README", "docs/TODO")

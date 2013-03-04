@@ -5,7 +5,7 @@ import os
 import shutil
 
 ownerships = {
-        "/var/run/avahi-daemon"         : "avahi:avahi",
+        "/run/avahi-daemon"         : "avahi:avahi",
     }
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):

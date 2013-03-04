@@ -10,13 +10,13 @@ from comar.service import *
 def start():
     startService(command="/usr/bin/rsync",
                  args="--daemon %s" % config.get("RSYNC_OPTS", ""),
-                 pidfile="/var/run/rsyncd.pid",
+                 pidfile="/run/rsyncd.pid",
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/rsyncd.pid",
+    stopService(pidfile="/run/rsyncd.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/rsyncd.pid")
+    return isServiceRunning("/run/rsyncd.pid")

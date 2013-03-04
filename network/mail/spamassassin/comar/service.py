@@ -10,14 +10,14 @@ serviceConf = "spamd"
 @synchronized
 def start():
     startService(command="/usr/bin/spamd",
-                 args="-d -r %s %s %s" % (config.get("PIDFILE", "/var/run/spamd.pid"), config.get("PARAMS",""), config.get("EXTRA","")),
+                 args="-d -r %s %s %s" % (config.get("PIDFILE", "/run/spamd.pid"), config.get("PARAMS",""), config.get("EXTRA","")),
                  nice = int(config.get("NICELEVEL","-0")),
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(config.get("PIDFILE", "/var/run/spamd.pid"),
+    stopService(config.get("PIDFILE", "/run/spamd.pid"),
                 donotify=True)
 
 def status():
-    return isServiceRunning(config.get("PIDFILE", "/var/run/spamd.pid"))
+    return isServiceRunning(config.get("PIDFILE", "/run/spamd.pid"))

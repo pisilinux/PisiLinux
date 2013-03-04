@@ -6,7 +6,7 @@ serviceType="server"
 serviceDesc = _({"en": "Mumble VoIP Server",
                  "tr": "Mumble VoIP Sunucusu"})
 
-PIDFILE = "/var/run/murmurd.pid"
+PIDFILE = "/run/murmurd.pid"
 INIFILE = "/etc/mumble-server.ini"
 
 @synchronized

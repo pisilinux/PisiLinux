@@ -16,7 +16,7 @@ def start():
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/ntop.pid")
+    stopService(pidfile="/run/ntop.pid")
 
 def status():
-    return isServiceRunning("/var/run/ntop.pid")
+    return isServiceRunning("/run/ntop.pid")

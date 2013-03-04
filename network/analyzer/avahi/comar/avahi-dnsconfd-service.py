@@ -5,7 +5,7 @@ serviceType="server"
 serviceDesc = _({"en": "Avahi DNS Configuration Daemon",
                  "tr": "Avahi DNS Yapılandırma Hizmeti"})
 
-PIDFILE = "/var/run/avahi-dnsconfd.pid"
+PIDFILE = "/run/avahi-dnsconfd.pid"
 DAEMON = "/usr/sbin/avahi-dnsconfd"
 
 @synchronized

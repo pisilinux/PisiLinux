@@ -19,9 +19,9 @@ ERR_RMMOD = _({"en": "Failed removing module %s",
 
 PIPEFS_MOUNTPOINT = "/var/lib/nfs/rpc_pipefs"
 
-STATD_PIDFILE = "/var/run/rpc.statd.pid"
-IDMAPD_PIDFILE = "/var/run/rpc.idmapd.pid"
-GSSD_PIDFILE = "/var/run/rpc.gssd.pid"
+STATD_PIDFILE = "/run/rpc.statd.pid"
+IDMAPD_PIDFILE = "/run/rpc.idmapd.pid"
+GSSD_PIDFILE = "/run/rpc.gssd.pid"
 
 # Parse the fstab file and determine whether we need gssd or not, by searching
 # mount option sec=krb* in nfs mount entries.
