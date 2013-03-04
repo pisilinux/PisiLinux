@@ -41,7 +41,7 @@ def setup():
                          --enable-as-needed \
                          --without-root-access \
                          --enable-mfd-rewrites \
-                         --with-temp-file-pattern="/var/run/net-snmp/snmp-tmp-XXXXXX" \
+                         --with-temp-file-pattern="/run/net-snmp/snmp-tmp-XXXXXX" \
                          --enable-local-smux' % MIBS)
 
 def build():

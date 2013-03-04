@@ -13,14 +13,14 @@ serviceDefault = "on"
 def start():
     loadEnvironment()
     startService(command="/usr/sbin/connmand",
-                 pidfile="/var/run/connman/connman.pid",
+                 pidfile="/run/connman/connman.pid",
                  donotify=True)
-    os.system("pidof -o %PPID /usr/sbin/connmand > /var/run/connman/connman.pid")
+    os.system("pidof -o %PPID /usr/sbin/connmand > /run/connman/connman.pid")
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/connman/connman.pid",
+    stopService(pidfile="/run/connman/connman.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/connman/connman.pid")
+    return isServiceRunning("/run/connman/connman.pid")

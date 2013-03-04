@@ -52,7 +52,7 @@ def start():
 
     startService(command="/usr/sbin/dnsmasq",
                  args="--enable-dbus",
-                 pidfile="/var/run/dnsmasq.pid",
+                 pidfile="/run/dnsmasq.pid",
                  donotify=True)
 
 @synchronized
@@ -60,8 +60,8 @@ def stop():
     removeLocalNameServerFromResolvConf("/etc/resolv.conf")
     removeLocalNameServerFromResolvConf("/etc/resolv.default.conf")
 
-    stopService(pidfile="/var/run/dnsmasq.pid",
+    stopService(pidfile="/run/dnsmasq.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/dnsmasq.pid")
+    return isServiceRunning("/run/dnsmasq.pid")

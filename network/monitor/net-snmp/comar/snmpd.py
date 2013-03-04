@@ -6,7 +6,7 @@ serviceDesc = _({"en": "Simple Network Management Protocol (SNMP) Daemon",
                  "tr": "Simple Network Management Protocol (SNMP) Servisi"})
 serviceConf = "snmpd"
 
-pidfile = "/var/run/snmpd.pid"
+pidfile = "/run/snmpd.pid"
 
 @synchronized
 def start():
