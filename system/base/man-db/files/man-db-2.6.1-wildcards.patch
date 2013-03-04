@@ -1,0 +1,265 @@
+diff -up man-db-2.6.2/src/globbing.c.wildcards man-db-2.6.2/src/globbing.c
+--- man-db-2.6.2/src/globbing.c.wildcards	2010-09-26 23:08:14.000000000 +0200
++++ man-db-2.6.2/src/globbing.c	2012-07-20 19:18:20.000000000 +0200
+@@ -427,3 +427,30 @@ char **look_for_file (const char *hier,
+ 	else
+ 		return gbuf.gl_pathv;
+ }
++
++char **expand_path (const char *path)
++{
++	int res = 0;
++	char **result = NULL;
++	glob_t globbuf;
++
++	res = glob (path, 0, NULL, &globbuf);
++	/* if glob failed, return the given path */
++	if (res != 0) {
++		result = (char **) xmalloc (2 * sizeof(char **));
++		result[0] = xstrndup (path, strlen(path));
++		result[1] = NULL;
++		return result;
++	}
++
++	result = (char **) xmalloc ((globbuf.gl_pathc + 1) * sizeof(char **));
++	size_t i;
++	for (i = 0; i < globbuf.gl_pathc; i++) {
++		result[i] = xstrndup (globbuf.gl_pathv[i], strlen (globbuf.gl_pathv[i]));
++	}
++	result[globbuf.gl_pathc] = NULL;
++
++	globfree (&globbuf);
++
++	return result;
++}
+diff -up man-db-2.6.2/src/globbing.h.wildcards man-db-2.6.2/src/globbing.h
+--- man-db-2.6.2/src/globbing.h.wildcards	2008-12-11 00:06:18.000000000 +0100
++++ man-db-2.6.2/src/globbing.h	2012-07-20 19:18:20.000000000 +0200
+@@ -29,3 +29,6 @@ enum look_for_file_opts {
+ /* globbing.c */
+ extern char **look_for_file (const char *hier, const char *sec,
+ 			     const char *unesc_name, int cat, int opts);
++
++/* Expand path with wildcards into list of all existing directories. */
++extern char **expand_path (const char *path);
+diff -up man-db-2.6.2/src/Makefile.am.wildcards man-db-2.6.2/src/Makefile.am
+--- man-db-2.6.2/src/Makefile.am.wildcards	2012-02-05 14:25:20.000000000 +0100
++++ man-db-2.6.2/src/Makefile.am	2012-07-20 19:18:20.000000000 +0200
+@@ -72,6 +72,8 @@ zsoelim_LDADD = $(LIBMAN) $(libpipeline_
+ accessdb_SOURCES = \
+ 	accessdb.c
+ catman_SOURCES = \
++	globbing.c \
++	globbing.h \
+ 	catman.c \
+ 	manp.c \
+ 	manp.h
+@@ -140,10 +142,14 @@ mandb_SOURCES = \
+ 	ult_src.c \
+ 	ult_src.h
+ manpath_SOURCES = \
++	globbing.c \
++	globbing.h \
+ 	manp.c \
+ 	manp.h \
+ 	manpath.c
+ whatis_SOURCES = \
++	globbing.c \
++	globbing.h \
+ 	manconv.c \
+ 	manconv.h \
+ 	manp.c \
+diff -up man-db-2.6.2/src/Makefile.in.wildcards man-db-2.6.2/src/Makefile.in
+--- man-db-2.6.2/src/Makefile.in.wildcards	2012-06-18 14:39:42.000000000 +0200
++++ man-db-2.6.2/src/Makefile.in	2012-07-20 19:20:29.000000000 +0200
+@@ -251,7 +251,7 @@ accessdb_DEPENDENCIES = $(am__DEPENDENCI
+ AM_V_lt = $(am__v_lt_@AM_V@)
+ am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
+ am__v_lt_0 = --silent
+-am_catman_OBJECTS = catman.$(OBJEXT) manp.$(OBJEXT)
++am_catman_OBJECTS = globbing.$(OBJEXT) catman.$(OBJEXT) manp.$(OBJEXT)
+ catman_OBJECTS = $(am_catman_OBJECTS)
+ catman_DEPENDENCIES = $(am__DEPENDENCIES_3) $(am__DEPENDENCIES_2)
+ am_globbing_OBJECTS = globbing.$(OBJEXT) globbing_test.$(OBJEXT)
+@@ -282,10 +282,10 @@ am_mandb_OBJECTS = check_mandirs.$(OBJEX
+ mandb_OBJECTS = $(am_mandb_OBJECTS)
+ mandb_DEPENDENCIES = $(am__DEPENDENCIES_3) $(am__DEPENDENCIES_2) \
+ 	$(am__DEPENDENCIES_2)
+-am_manpath_OBJECTS = manp.$(OBJEXT) manpath.$(OBJEXT)
++am_manpath_OBJECTS = globbing.$(OBJEXT) manp.$(OBJEXT) manpath.$(OBJEXT)
+ manpath_OBJECTS = $(am_manpath_OBJECTS)
+ manpath_DEPENDENCIES = $(am__DEPENDENCIES_1)
+-am_whatis_OBJECTS = manconv.$(OBJEXT) manp.$(OBJEXT) whatis.$(OBJEXT)
++am_whatis_OBJECTS = globbing.$(OBJEXT) manconv.$(OBJEXT) manp.$(OBJEXT) whatis.$(OBJEXT)
+ whatis_OBJECTS = $(am_whatis_OBJECTS)
+ whatis_DEPENDENCIES = $(am__DEPENDENCIES_3) $(am__DEPENDENCIES_2) \
+ 	$(am__DEPENDENCIES_2)
+@@ -1340,6 +1340,8 @@ accessdb_SOURCES = \
+ 
+ catman_SOURCES = \
+ 	catman.c \
++	globbing.c \
++	globbing.h \
+ 	manp.c \
+ 	manp.h
+ 
+@@ -1413,11 +1415,15 @@ mandb_SOURCES = \
+ 	ult_src.h
+ 
+ manpath_SOURCES = \
++	globbing.c \
++	globbing.h \
+ 	manp.c \
+ 	manp.h \
+ 	manpath.c
+ 
+ whatis_SOURCES = \
++	globbing.c \
++	globbing.h \
+ 	manconv.c \
+ 	manconv.h \
+ 	manp.c \
+diff -up man-db-2.6.2/src/manp.c.wildcards man-db-2.6.2/src/manp.c
+--- man-db-2.6.2/src/manp.c.wildcards	2012-02-05 14:18:59.000000000 +0100
++++ man-db-2.6.2/src/manp.c	2012-07-20 19:18:20.000000000 +0200
+@@ -75,6 +75,7 @@
+ #endif
+ 
+ #include "manp.h"
++#include "globbing.h"
+ 
+ struct list {
+ 	char *key;
+@@ -1035,32 +1036,45 @@ char *get_manpath_from_path (const char
+ static void add_dir_to_list (char **lp, const char *dir)
+ {
+ 	int status;
+-	int pos = 0;
+-
+-	while (*lp != NULL) {
+-		if (pos > MAXDIRS - 1)
+-			gripe_overlong_list ();
+-		if (!strcmp (*lp, dir)) {
+-			debug ("%s is already in the manpath\n", dir);
+-			return;
++	int pos = 0, i = 0;
++	char *d = NULL;
++	char **expanded_dirs = NULL;
++
++	expanded_dirs = expand_path (dir);
++	for (i = 0; expanded_dirs[i] != NULL; i++) {
++		d = expanded_dirs[i];
++
++		while (*lp != NULL) {
++			if (pos > MAXDIRS - 1)
++				gripe_overlong_list ();
++			if (!strcmp (*lp, d)) {
++				debug ("%s is already in the manpath\n", d);
++				return;
++			}
++			lp++;
++			pos++;
+ 		}
+-		lp++;
+-		pos++;
+-	}
+ 
+-	/* Not found -- add it. */
++		/* Not found -- add it. */
++
++		status = is_directory (d);
+ 
+-	status = is_directory (dir);
++		if (status < 0)
++			gripe_stat_file (d);
++		else if (status == 0)
++			gripe_not_directory (d);
++		else if (status == 1) {
++			debug ("adding %s to manpath\n", d);
+ 
+-	if (status < 0)
+-		gripe_stat_file (dir);
+-	else if (status == 0)
+-		gripe_not_directory (dir);
+-	else if (status == 1) {
+-		debug ("adding %s to manpath\n", dir);
++			*lp = xstrdup (d);
++		}
+ 
+-		*lp = xstrdup (dir);
++		free (d);
+ 	}
++
++	/* free also the last NULL pointer */
++	free (expanded_dirs[i]);
++	free (expanded_dirs);
+ }
+ 
+ /* path does not exist in config file: check to see if path/../man,
+@@ -1104,33 +1118,47 @@ static inline char *has_mandir (const ch
+ 
+ static char **add_dir_to_path_list (char **mphead, char **mp, const char *p)
+ {
+-	int status;
++	int status, i = 0;
+ 	char *cwd;
++	char *d = NULL;
++	char **expanded_dirs = NULL;
+ 
+ 	if (mp - mphead > MAXDIRS - 1)
+ 		gripe_overlong_list ();
+ 
+-	status = is_directory (p);
+-
+-	if (status < 0)
+-		gripe_stat_file (p);
+-	else if (status == 0)
+-		gripe_not_directory (p);
+-	else {
+-		/* deal with relative paths */
++	expanded_dirs = expand_path (p);
++	for (i = 0; expanded_dirs[i] != NULL; i++) {
++		d = expanded_dirs[i];
++
++		status = is_directory (d);
++
++		if (status < 0)
++			gripe_stat_file (d);
++		else if (status == 0)
++			gripe_not_directory (d);
++		else {
++			/* deal with relative paths */
++
++			if (*d != '/') {
++				cwd = xgetcwd ();
++				if (!cwd)
++					error (FATAL, errno,
++						   _("can't determine current directory"));
++				*mp = appendstr (cwd, "/", d, NULL);
++			} else
++				*mp = xstrdup (d);
+ 
+-		if (*p != '/') {
+-			cwd = xgetcwd ();
+-			if (!cwd)
+-				error (FATAL, errno,
+-				       _("can't determine current directory"));
+-			*mp = appendstr (cwd, "/", p, NULL);
+-		} else 
+-			*mp = xstrdup (p);
++			debug ("adding %s to manpathlist\n", *mp);
++			mp++;
++		}
+ 
+-		debug ("adding %s to manpathlist\n", *mp);
+-		mp++;
++		free (d);
+ 	}
++
++	/* free also the last NULL pointer */
++	free (expanded_dirs[i]);
++	free (expanded_dirs);
++
+ 	return mp;
+ }
+ 

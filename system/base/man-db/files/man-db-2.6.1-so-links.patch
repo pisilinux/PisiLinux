@@ -1,0 +1,84 @@
+diff -up man-db-2.6.2/src/Makefile.am.so-links man-db-2.6.2/src/Makefile.am
+--- man-db-2.6.2/src/Makefile.am.so-links	2012-07-20 19:21:13.000000000 +0200
++++ man-db-2.6.2/src/Makefile.am	2012-07-20 19:21:13.000000000 +0200
+@@ -87,6 +87,8 @@ lexgrog_SOURCES = \
+ 	descriptions.h \
+ 	filenames.c \
+ 	filenames.h \
++	globbing.c \
++	globbing.h \
+ 	lexgrog.l \
+ 	lexgrog_test.c \
+ 	manconv.c \
+diff -up man-db-2.6.2/src/Makefile.in.so-links man-db-2.6.2/src/Makefile.in
+--- man-db-2.6.2/src/Makefile.in.so-links	2012-07-20 19:21:13.000000000 +0200
++++ man-db-2.6.2/src/Makefile.in	2012-07-20 19:21:39.000000000 +0200
+@@ -257,7 +257,7 @@ catman_DEPENDENCIES = $(am__DEPENDENCIES
+ am_globbing_OBJECTS = globbing.$(OBJEXT) globbing_test.$(OBJEXT)
+ globbing_OBJECTS = $(am_globbing_OBJECTS)
+ globbing_DEPENDENCIES = $(am__DEPENDENCIES_1)
+-am_lexgrog_OBJECTS = compression.$(OBJEXT) descriptions.$(OBJEXT) \
++am_lexgrog_OBJECTS = globbing.$(OBJEXT) compression.$(OBJEXT) descriptions.$(OBJEXT) \
+ 	filenames.$(OBJEXT) lexgrog.$(OBJEXT) lexgrog_test.$(OBJEXT) \
+ 	manconv.$(OBJEXT) manconv_client.$(OBJEXT) ult_src.$(OBJEXT)
+ lexgrog_OBJECTS = $(am_lexgrog_OBJECTS)
+@@ -1356,6 +1356,8 @@ lexgrog_SOURCES = \
+ 	descriptions.h \
+ 	filenames.c \
+ 	filenames.h \
++	globbing.c \
++	globbing.h \
+ 	lexgrog.l \
+ 	lexgrog_test.c \
+ 	manconv.c \
+diff -up man-db-2.6.2/src/ult_src.c.so-links man-db-2.6.2/src/ult_src.c
+--- man-db-2.6.2/src/ult_src.c.so-links	2012-06-18 04:28:56.000000000 +0200
++++ man-db-2.6.2/src/ult_src.c	2012-07-20 19:21:13.000000000 +0200
+@@ -59,6 +59,8 @@
+ #include <unistd.h>
+ 
+ #include "canonicalize.h"
++#include "dirname.h"
++#include "globbing.h"
+ 
+ #include "gettext.h"
+ #define _(String) gettext (String)
+@@ -343,6 +345,38 @@ const char *ult_src (const char *name, c
+ 				free (base);
+ 				base = appendstr (NULL, path, "/", include,
+ 						  NULL);
++
++				/* If the original path from above doesn't exist, try to create
++				 * new path as if the "include" was relative to the current
++				 * man page.
++				 */
++				if (access (base, F_OK) != 0) {
++					char *dirname = mdir_name (name);
++					char *tempFile = appendstr (NULL, dirname, "/", include,
++							NULL);
++					free (dirname);
++					if (access (tempFile, F_OK) == 0) {
++						free (base);
++						base = canonicalize_filename_mode (tempFile,
++								CAN_EXISTING);
++					} else {
++						char *tempFileAsterisk = appendstr (NULL, tempFile,
++								"*", NULL);
++						char **possibleFiles = expand_path (tempFileAsterisk);
++						free (tempFileAsterisk);
++						if (access (possibleFiles[0], F_OK) == 0) {
++							free (base);
++							base = canonicalize_filename_mode (possibleFiles[0],
++									CAN_EXISTING);
++						}
++						int i;
++						for (i = 0; possibleFiles[i] != NULL; i++) {
++							free (possibleFiles[i]);
++						}
++						free (possibleFiles);
++					}
++					free (tempFile);
++				}
+ 				free (include);
+ 
+ 				debug ("ult_src: points to %s\n", base);

@@ -1,0 +1,123 @@
+diff -upr man-db-2.6.2.orig/src/check_mandirs.c man-db-2.6.2/src/check_mandirs.c
+--- man-db-2.6.2.orig/src/check_mandirs.c	2011-07-09 20:53:38.000000000 +0200
++++ man-db-2.6.2/src/check_mandirs.c	2012-07-31 13:05:45.967640117 +0200
+@@ -190,8 +190,7 @@ void test_manfile (const char *file, con
+ 			   comp extensions */
+ 			abs_filename = make_filename (path, NULL,
+ 						      exists, "man");
+-			debug ("test_manfile(): stat %s\n", abs_filename);
+-			if (stat (abs_filename, &physical) == -1) {
++			if (abs_filename == NULL || stat (abs_filename, &physical) == -1) {
+ 				if (!opt_test)
+ 					dbdelete (manpage_base, exists);
+ 			} else {
+diff -upr man-db-2.6.2.orig/src/filenames.c man-db-2.6.2/src/filenames.c
+--- man-db-2.6.2.orig/src/filenames.c	2011-10-09 01:19:00.000000000 +0200
++++ man-db-2.6.2/src/filenames.c	2012-07-31 12:31:10.436885216 +0200
+@@ -27,6 +27,7 @@
+ 
+ #include <string.h>
+ #include <stdlib.h>
++#include <unistd.h>
+ 
+ #include "xvasprintf.h"
+ 
+@@ -61,6 +62,11 @@ char *make_filename (const char *path, c
+ 	if (in->comp && *in->comp != '-')	/* Is there an extension? */
+ 		file = appendstr (file, ".", in->comp, NULL);
+ 
++	if (access (file, R_OK) != 0) {
++		free (file);
++		return NULL;
++	}
++
+ 	return file;
+ }
+ 
+diff -upr man-db-2.6.2.orig/src/man.c man-db-2.6.2/src/man.c
+--- man-db-2.6.2.orig/src/man.c	2012-05-15 01:24:17.000000000 +0200
++++ man-db-2.6.2/src/man.c	2012-07-31 13:04:48.629069419 +0200
+@@ -3103,6 +3103,9 @@ static int add_candidate (struct candida
+ 			name = req_name;
+ 
+ 		filename = make_filename (path, name, source, cat ? "cat" : "man");
++		if (filename == NULL) {
++			return 0;
++		}
+ 		ult = ult_src (filename, path, NULL,
+ 			       get_ult_flags (from_db, source->id), NULL);
+ 		free (filename);
+@@ -3309,6 +3312,9 @@ static int display_filesystem (struct ca
+ {
+ 	char *filename = make_filename (candp->path, NULL, candp->source,
+ 					candp->cat ? "cat" : "man");
++	if (filename == NULL) {
++		return 0;
++	}
+ 	/* source->name is never NULL thanks to add_candidate() */
+ 	char *title = appendstr (NULL, candp->source->name,
+ 				 "(", candp->source->ext, ")", NULL);
+@@ -3392,14 +3398,14 @@ static int display_database (struct cand
+ 
+ 	if (in->id < STRAY_CAT) {	/* There should be a src page */
+ 		file = make_filename (candp->path, name, in, "man");
+-		debug ("Checking physical location: %s\n", file);
++		if (file != NULL) {
++			debug ("Checking physical location: %s\n", file);
+ 
+-		if (access (file, R_OK) == 0) {
+ 			const char *man_file;
+ 			char *cat_file;
+ 
+ 			man_file = ult_src (file, candp->path, NULL,
+-					    get_ult_flags (1, in->id), NULL);
++						get_ult_flags (1, in->id), NULL);
+ 			if (man_file == NULL) {
+ 				free (title);
+ 				return found; /* zero */
+@@ -3416,7 +3422,7 @@ static int display_database (struct cand
+ 			free (lang);
+ 			lang = NULL;
+ 		} /* else {drop through to the bottom and return 0 anyway} */
+-	} else 
++	} else
+ 
+ #endif /* NROFF_MISSING */
+ 
+@@ -3441,9 +3447,9 @@ static int display_database (struct cand
+ 		}
+ 
+ 		file = make_filename (candp->path, name, in, "cat");
+-		debug ("Checking physical location: %s\n", file);
+-
+-		if (access (file, R_OK) != 0) {
++		if (file != NULL) {
++			debug ("Checking physical location: %s\n", file);
++		} else {
+ 			char *catpath;
+ 			catpath = get_catpath (candp->path,
+ 					       global_manpath ? SYSTEM_CAT
+@@ -3453,10 +3459,10 @@ static int display_database (struct cand
+ 				file = make_filename (catpath, name,
+ 						      in, "cat");
+ 				free (catpath);
+-				debug ("Checking physical location: %s\n",
+-				       file);
+-
+-				if (access (file, R_OK) != 0) {
++				if (file != NULL) {
++					debug ("Checking physical location: %s\n",
++						   file);
++				} else {
+ 					/* don't delete here, 
+ 					   return==0 will do that */
+ 					free (title);
+@@ -3520,6 +3526,8 @@ static int maybe_update_file (const char
+ 		real_name = name;
+ 
+ 	file = make_filename (manpath, real_name, info, "man");
++	if (file == NULL)
++		return 0;
+ 	if (lstat (file, &buf) != 0)
+ 		return 0;
+ 	if (buf.st_mtime == info->_st_mtime)
