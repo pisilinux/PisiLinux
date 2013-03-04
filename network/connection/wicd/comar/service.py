@@ -11,13 +11,13 @@ serviceDefault = "on"
 def start():
     loadEnvironment()
     startService(command="/usr/sbin/wicd",
-                 pidfile="/var/run/wicd/wicd.pid",
+                 pidfile="/run/wicd/wicd.pid",
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/wicd/wicd.pid",
+    stopService(pidfile="/run/wicd/wicd.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/wicd/wicd.pid")
+    return isServiceRunning("/run/wicd/wicd.pid")

@@ -6,7 +6,7 @@ serviceDefault = "off" #NM starts wpa_supp automatically. Use at your own risk i
 serviceDesc = _({"en": "WPA Daemon",
                  "tr": "WPA Hizmeti"})
 
-PIDFILE = "/var/run/wpa_supplicant.pid"
+PIDFILE = "/run/wpa_supplicant.pid"
 
 @synchronized
 def start():
