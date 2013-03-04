@@ -28,7 +28,8 @@ def check():
     # remove sandbox violating test
     for d in ("f_ext_journal", "t_ext_jnl_rm"):
         shelltools.unlinkDir("%s/e2fsprogs-%s/tests/%s/" % (get.workDIR(), get.srcVERSION(), d))
-    autotools.make("check")
+    #In chroot env. /dev should be mounted to pass all tests, that's all :)
+    autotools.make("-j1 check")
 
 def install():
     autotools.rawInstall("install install-libs LDCONFIG=/bin/true \
