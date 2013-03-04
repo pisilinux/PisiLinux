@@ -8,7 +8,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
-WorkDir = "boost_1_52_0"
 binDir = "bin.linuxx86"
 
 #def setup():
