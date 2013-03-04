@@ -14,7 +14,7 @@ NoStrip = "/"
 Name = "7u%s" % get.srcVERSION().split("p")[1]
 Arch = "x64" if get.ARCH() == "x86_64" else "i586"
 Archive = "jdk-%s-linux-%s.tar.gz" % (Name, Arch)
-Url = "http://download.oracle.com/otn-pub/java/jdk/%s-b21/%s" % (Name, Archive)
+Url = "http://download.oracle.com/otn-pub/java/jdk/%s-b02/%s" % (Name, Archive)
 def setup():
     if not shelltools.isFile(Archive):
         shelltools.system('/usr/bin/curl -fLC - --retry 3 --retry-delay 3 -o %s %s  --header "Cookie:oraclelicensejdk-%s-oth-JPR=accept-securebackup-cookie;gpw_e24=http://edelivery.oracle.com"' % (Archive, Url, Name))
