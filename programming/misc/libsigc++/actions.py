@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     # dont waste time building examples, docs and tests
-    pisitools.dosed("Makefile.in", "tests docs examples ")
+    pisitools.dosed("Makefile.in", " tests examples docs")
 
     autotools.configure("--disable-static")
 
