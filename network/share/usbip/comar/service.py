@@ -7,7 +7,7 @@ serviceDesc = _({"en": "USB over IP daemon",
                  "tr": "IP üzerinden USB hizmeti"})
 serviceDefault = "off"
 
-PIDFILE = "/var/run/usbipd.pid"
+PIDFILE = "/run/usbipd.pid"
 
 MSG_MODULE_ERROR = _({
         "en" : "The kernel module usbip.ko can not be loaded.",
