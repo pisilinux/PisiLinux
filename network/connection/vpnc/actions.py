@@ -16,6 +16,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s PREFIX=/usr" % get.installDIR())
 
-    pisitools.dodir("/var/run/vpnc")
+    pisitools.dodir("/run/vpnc")
 
     pisitools.dodoc("README")

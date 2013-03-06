@@ -6,7 +6,7 @@ serviceDefault = "off"
 serviceDesc = _({"en": "Privoxy Proxy Server",
                  "tr": "Privoxy Vekil Sunucusu"})
 
-PIDFILE = "/var/run/privoxy.pid"
+PIDFILE = "/run/privoxy.pid"
 
 @synchronized
 def start():

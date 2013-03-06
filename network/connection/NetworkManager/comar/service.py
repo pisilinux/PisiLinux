@@ -12,7 +12,7 @@ MSG_BACKEND_WARNING = _({
                         "tr" : "NetworkManager öntanımlı olarak etkin değil. /etc/conf.d/NetworkManager dosyasından bu ayarı değiştirebilirsiniz."
                         })
 
-PIDFILE="/var/run/NetworkManager/NetworkManager.pid"
+PIDFILE="/run/NetworkManager/NetworkManager.pid"
 USETHIS=eval(config.get("DEFAULT", "True"))
 
 @synchronized
