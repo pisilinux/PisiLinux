@@ -39,15 +39,15 @@ def start():
 
     startService(command="/usr/bin/timidity",
                  args="-iA %s" % config.get("TIMIDITY_OPTS", ""),
-                 pidfile="/var/run/timidity.pid",
+                 pidfile="/run/timidity.pid",
                  makepid=True,
                  detach=True,
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/timidity.pid",
+    stopService(pidfile="/run/timidity.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/timidity.pid")
+    return isServiceRunning("/run/timidity.pid")

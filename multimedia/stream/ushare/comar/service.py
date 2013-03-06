@@ -6,7 +6,7 @@ serviceDesc = _({"en": "uShare UPnP A/V Media Server",
                  "tr": "uShare UPnP Ses/Görüntü Ortam Sunucu"})
 serviceDefault = "off"
 
-pidfile = "/var/run/ushare.pid"
+pidfile = "/run/ushare.pid"
 command = "/usr/bin/ushare"
 
 def check_ushare_dir():

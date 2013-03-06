@@ -11,19 +11,19 @@ def start():
     startService(command="/usr/bin/git",
                  args="daemon \
                        --base-path=/pub/scm \
-                       --pid-file=/var/run/git-daemon.pid \
+                       --pid-file=/run/git-daemon.pid \
                        --user-path=public_git \
                        --detach \
                        --export-all \
                        --syslog \
                        --verbose %s" % config.get("GITDAEMON_OPTS"),
-                 pidfile="/var/run/git-daemon.pid",
+                 pidfile="/run/git-daemon.pid",
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/git-daemon.pid",
+    stopService(pidfile="/run/git-daemon.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/git-daemon.pid")
+    return isServiceRunning("/run/git-daemon.pid")

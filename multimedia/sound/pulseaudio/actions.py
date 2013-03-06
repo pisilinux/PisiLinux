@@ -79,7 +79,7 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # Needed for service.py
-    pisitools.dodir("/var/run/pulse")
+    pisitools.dodir("/run/pulse")
     pisitools.dodir("/var/lib/pulse")
 
     # HAL is no longer supported by default

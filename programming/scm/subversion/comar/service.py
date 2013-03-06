@@ -5,7 +5,7 @@ serviceDesc = _({"en": "SVN Server",
                  "tr": "SVN Sunucusu"})
 serviceConf = "svnserve"
 
-PIDFILE = "/var/run/svn/svnserve.pid"
+PIDFILE = "/run/svn/svnserve.pid"
 
 # Note that "/etc/conf.d/svnserve" passes --root=/var/svn by default
 

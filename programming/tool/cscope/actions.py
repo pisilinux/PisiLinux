@@ -15,7 +15,7 @@ def build():
 
 def install():
     autotools.install()
-    pisitools.dodir("/var/run/cs")
+    pisitools.dodir("/run/cs")
     pisitools.dobin("contrib/xcscope/cscope-indexer")
 
     # emacs integration

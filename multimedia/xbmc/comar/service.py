@@ -6,7 +6,7 @@ serviceDefault = "off"
 serviceDesc = _({"en": "XBMC Daemon",
                  "tr": "XBMC Hizmeti"})
 
-pidfile = "/var/run/xbmc.pid"
+pidfile = "/run/xbmc.pid"
 
 @synchronized
 def start():

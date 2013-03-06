@@ -35,7 +35,7 @@ def start():
     #FIXME: -u omni is needed?
     ret = startService(command="/usr/bin/omniNames",
             args=options,
-            pidfile="/var/run/omniNames.pid",
+            pidfile="/run/omniNames.pid",
             makepid=True,
             detach=True)
 
@@ -55,10 +55,10 @@ def start():
         fail(err)
 
 def stop():
-    ret = stopService(pidfile="/var/run/omniNames.pid", donotify=True)
+    ret = stopService(pidfile="/run/omniNames.pid", donotify=True)
 
     if os.access(keyFile, os.F_OK):
         os.unlink(keyFile)
 
 def status():
-    return isServiceRunning("/var/run/omniNames.pid")
+    return isServiceRunning("/run/omniNames.pid")

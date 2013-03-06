@@ -7,7 +7,7 @@ serviceDesc = _({
 })
 serviceDefault = "on"
 
-pidFile = "/var/run/dm.pid"
+pidFile = "/run/dm.pid"
 
 @synchronized
 def start(boot=False):
