@@ -10,21 +10,21 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.dosed("Makefile", "static", "dynamic")
+    pisitools.dosed("src/Makefile", "static", "dynamic")
 
 def build():
     shelltools.cd("src/libXNVCtrl")
+    autotools.make('clean')
     autotools.make('CDEBUGFLAGS="-fPIC %s" CC="%s" libXNVCtrl.a' % (get.CFLAGS(), get.CC()))
 
     shelltools.cd("%s/%s" % (get.workDIR(), get.srcDIR()))
-    autotools.make('CC="%s" STRIP_CMD="/bin/true"' % get.CC())
+    autotools.make('CC="%s"  LD="%s" STRIP_CMD="/bin/true" NV_VERBOSE=1' % (get.CC(), get.LDFLAGS()))
 
 def install():
     pisitools.dodir("/usr/bin")
-    autotools.install("ROOT=%s" % get.installDIR())
+    autotools.install("DESTDIR=%s PREFIX=/usr" % get.installDIR())
 
-    #pisitools.insinto("src/libXNVCtrl/libXNVCtrl.a" , "/usr/lib/static")
-    #pisitools.insinto("src/libXNVCtrl/NVCtrl.h" , "/usr/include/NVCtrl")
-    #pisitools.insinto("src/libXNVCtrl/NVCtrlLib.h" , "/usr/include/NVCtrl")
+    #pisitools.insinto("/usr/lib/static", "src/libXNVCtrl/libXNVCtrl.a")
+    #pisitools.insinto("/usr/include/NVCtrl", "src/libXNVCtrl/*.h")
 
     pisitools.dodoc("COPYING", "doc/*.txt")
