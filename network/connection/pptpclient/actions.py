@@ -16,8 +16,8 @@ def build():
 def install():
     autotools.install("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodir("/var/run/pptp")
-    shelltools.chmod("%s/var/run/pptp" % get.installDIR(), 0750)
+    pisitools.dodir("/run/pptp")
+    shelltools.chmod("%s/run/pptp" % get.installDIR(), 0750)
     pisitools.dodoc("AUTHORS", "COPYING", "ChangeLog", "DEVELOPERS",
         "NEWS", "README", "TODO", "USING")
 

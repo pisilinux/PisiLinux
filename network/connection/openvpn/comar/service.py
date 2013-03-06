@@ -8,7 +8,7 @@ serviceDesc = _({"en": "OpenVPN",
 
 
 OPENVPN = "/usr/sbin/openvpn"
-PIDDIR = "/var/run/openvpn"
+PIDDIR = "/run/openvpn"
 WORKDIR = "/etc/openvpn"
 PIDFILE = ""
 

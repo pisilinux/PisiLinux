@@ -41,7 +41,7 @@ def install():
         pisitools.insinto("/%s/openvpn/%s" % (get.dataDIR(), val), "%s/*" % val)
 
     pisitools.dodir("/etc/openvpn")
-    pisitools.dodir("/var/run/openvpn")
+    pisitools.dodir("/run/openvpn")
 
     pisitools.dodoc("AUTHORS", "COPYING", "COPYRIGHT.GPL", "ChangeLog", "README")
 
