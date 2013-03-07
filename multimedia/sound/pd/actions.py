@@ -9,23 +9,19 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir="%s-%s%s" % (get.srcNAME(), get.srcVERSION()[:-2], get.srcVERSION()[-2:].replace(".", "-"))
+WorkDir = "pd-extended/pd"
 
 def setup():
-    shelltools.cd("src")
-    autotools.autoreconf("-fi")
+    shelltools.system("./autogen.sh")
     autotools.configure("--enable-jack \
                          --enable-alsa \
                          --enable-fftw \
-                         --enable-portaudio \
-                         --enable-portmidi")
+                         --enable-portaudio")
 
 def build():
-    shelltools.cd("src")
     autotools.make()
 
 def install():
-    shelltools.cd("src")
     autotools.install()
 
-    pisitools.dodoc("../LICENSE.txt", "../README.txt", "*.txt")
+    pisitools.dodoc("*.txt")
