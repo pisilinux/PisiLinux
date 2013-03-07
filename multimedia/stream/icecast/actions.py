@@ -32,12 +32,12 @@ def install():
 
     #Create Log Dir
     pisitools.dodir("/var/log/icecast")
-    pisitools.dodir("/var/run/icecast")
+    pisitools.dodir("/run/icecast")
 
     #Correct permissions
     shelltools.chmod("%s/var/log/icecast" % get.installDIR(), 0755 )
     shelltools.chmod("%s/etc/icecast/icecast.xml" % get.installDIR(),  0640)
-    shelltools.chmod("%s/var/run/icecast" % get.installDIR(), 0755)
+    shelltools.chmod("%s/run/icecast" % get.installDIR(), 0755)
 
     pisitools.insinto("/usr/share/pixmaps", "web/icecast.png")
 

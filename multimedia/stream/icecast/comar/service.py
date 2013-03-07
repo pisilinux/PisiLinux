@@ -11,16 +11,16 @@ serviceDesc = _({"en": "Icecast Daemon",
 def start():
     startService(command="/usr/bin/icecast",
                  args="-c /etc/icecast/icecast.xml",
-                 pidfile="/var/run/icecast/icecast.pid",
+                 pidfile="/run/icecast/icecast.pid",
                  donotify=True,
                  detach=True)
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/icecast/icecast.pid",
+    stopService(pidfile="/run/icecast/icecast.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/icecast/icecast.pid")
+    return isServiceRunning("/run/icecast/icecast.pid")
 
 def reload():
     stopService(command="/usr/bin/icecast",

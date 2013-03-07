@@ -4,7 +4,7 @@
 import os
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
-    for d in ["/var/lib/mpd", "/var/lib/mpd/playlists", "/var/log/mpd", "/var/run/mpd", "/var/db/mpd", "/var/state/mpd"]:
+    for d in ["/var/lib/mpd", "/var/lib/mpd/playlists", "/var/log/mpd", "/run/mpd", "/var/db/mpd", "/var/state/mpd"]:
         if not os.path.exists(d):
             os.mkdir(d)
             # $ id nobody

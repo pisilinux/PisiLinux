@@ -29,7 +29,7 @@ def build():
     autotools.make()
 
 def install():
-    for dirs in ("/var/run/mediatomb", "/var/lib/mediatomb", "/var/log/mediatomb"):
+    for dirs in ("/run/mediatomb", "/var/lib/mediatomb", "/var/log/mediatomb"):
          pisitools.dodir(dirs)
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 

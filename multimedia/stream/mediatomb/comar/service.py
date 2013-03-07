@@ -13,14 +13,14 @@ def start():
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/mediatomb/mediatomb.pid",
+    stopService(pidfile="/run/mediatomb/mediatomb.pid",
                 donotify=True)
 
     try:
-        os.unlink("/var/run/mediatomb/mediatomb.pid")
+        os.unlink("/run/mediatomb/mediatomb.pid")
     except:
         pass
 
 def status():
-    return isServiceRunning("/var/run/mediatomb/mediatomb.pid")
+    return isServiceRunning("/run/mediatomb/mediatomb.pid")
 
