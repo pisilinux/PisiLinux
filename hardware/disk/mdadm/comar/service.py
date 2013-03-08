@@ -29,14 +29,14 @@ def check():
 def start():
     check()
     startService(command="/sbin/mdadm",
-                 args="--monitor --scan --daemonise --pid-file /var/run/mdadm.pid %s" % config.get("MDADM_OPTS"),
-                 pidfile="/var/run/mdadm.pid",
+                 args="--monitor --scan --daemonise --pid-file /run/mdadm.pid %s" % config.get("MDADM_OPTS"),
+                 pidfile="/run/mdadm.pid",
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/mdadm.pid",
+    stopService(pidfile="/run/mdadm.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/mdadm.pid")
+    return isServiceRunning("/run/mdadm.pid")

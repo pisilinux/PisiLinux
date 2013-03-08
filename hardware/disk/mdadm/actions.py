@@ -19,7 +19,7 @@ def builddiet():
     pisitools.insinto("/sbin", "mdassemble.static")
 
 def build():
-    pisitools.dosed("Makefile","/run/mdadm","/var/run/mdadm")
+    pisitools.dosed("Makefile","/run/mdadm","/run/mdadm")
     # Not sure about MDASSEMBLE_AUTO=1. Need to investigate.
     autotools.make("SYSCONFDIR=/%s MDASSEMBLE_AUTO=1 mdassemble mdadm mdmon" % get.confDIR())
 
