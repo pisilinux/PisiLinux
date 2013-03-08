@@ -7,7 +7,7 @@ serviceDesc = _({"en": "Automount filesystems on demand",
                  "tr": "Dosya sistemi otomatik bağlayıcı"})
 serviceConf = "autofs"
 
-PIDFILE = "/var/run/autofs/autofs.pid"
+PIDFILE = "/run/autofs/autofs.pid"
 AUTOMOUNT = "/usr/sbin/automount"
 
 @synchronized

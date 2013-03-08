@@ -16,8 +16,8 @@ def setup():
                          --with-sasl=yes \
                          --with-systemd \
                          --without-hesiod \
-                         --with-fifodir=/var/run/autofs \
-                         --with-flagdir=/var/run/autofs \
+                         --with-fifodir=/run/autofs \
+                         --with-flagdir=/run/autofs \
                          --with-libtirpc")
 
 def build():
