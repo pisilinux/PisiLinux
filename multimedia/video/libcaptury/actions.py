@@ -8,8 +8,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir=get.srcNAME()
-
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-static")
