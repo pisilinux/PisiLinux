@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    qt4.configure(parameters="LIBDIR=/lib")
+    qt4.configure(parameters="LIBDIR=/usr/lib")
 
 def build():
     qt4.make()
