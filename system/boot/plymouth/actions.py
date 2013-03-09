@@ -19,7 +19,7 @@ def setup():
     # Disable nouveau drm renderer as it causes hangs when starting X server
     autotools.configure("--enable-tracing \
                          --with-logo=%s \
-                         --with-release-file=/etc/pardus-release \
+                         --with-release-file=/etc/pisilinux-release \
                          --with-background-color=0x000000 \
                          --with-background-end-color-stop=0x000000 \
                          --with-background-start-color-stop=0x000000 \

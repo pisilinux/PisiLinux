@@ -14,7 +14,7 @@ def setup():
     shelltools.export("PATH", "%s:/opt/sun-jdk/bin" % os.environ.get("PATH"))
     shelltools.system("./bootstrap")
     pisitools.dosed("configure", "-ldts" , "-ldca")
-    pisitools.dosed("xbmc/utils/SystemInfo.cpp","lsb_release -d","cat /etc/pardus-release")
+    pisitools.dosed("xbmc/utils/SystemInfo.cpp","lsb_release -d","cat /etc/pisilinux-release")
     autotools.rawConfigure("--disable-ccache \
                             --disable-optimizations \
                             --disable-avahi \
