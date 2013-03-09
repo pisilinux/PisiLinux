@@ -13,7 +13,7 @@ def start():
     oneshot = config.get("ONESHOT")
     affinity = config.get("IRQ_AFFINITY_MASK")
 
-    if oneshot == "yes" and os.path.exists("/var/run/irqbalance.pid"):
+    if oneshot == "yes" and os.path.exists("/run/irqbalance.pid"):
         return
 
     if oneshot == "yes":
@@ -41,4 +41,4 @@ def ready():
         start()
 
 def status():
-    return isServiceRunning("/var/run/irqbalance.pid")
+    return isServiceRunning("/run/irqbalance.pid")

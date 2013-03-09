@@ -12,7 +12,7 @@ def start():
     startService(command="/usr/bin/smsd",
                  args="%s --logfile %s" % (config.get("SMSD_OPTS", ""),
                                            config.get("SMSD_LOG", "/var/log/smsd.log")),
-                 pidfile="/var/run/smsd.pid",
+                 pidfile="/run/smsd.pid",
                  detach=True)
 
 @synchronized

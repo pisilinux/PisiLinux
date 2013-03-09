@@ -24,12 +24,12 @@ def start():
 
         startService(command="/usr/sbin/irattach",
                      args=" ".join(args),
-                     pidfile="/var/run/irattach.pid",
+                     pidfile="/run/irattach.pid",
                      donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/irattach.pid")
+    stopService(pidfile="/run/irattach.pid")
 
 def status():
-    return isServiceRunning("/var/run/irattach.pid")
+    return isServiceRunning("/run/irattach.pid")

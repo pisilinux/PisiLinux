@@ -11,7 +11,7 @@ serviceDefault = "off"
 
 NBDBIN = "/usr/bin/nbd-server"
 NBDCONF = "/etc/nbd-server/config"
-PIDFILE = "/var/run/nbd-server.pid"
+PIDFILE = "/run/nbd-server.pid"
 
 @synchronized
 def start():

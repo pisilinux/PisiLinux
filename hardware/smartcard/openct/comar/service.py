@@ -20,4 +20,4 @@ def stop():
 
 def status():
     import os.path
-    return os.path.exists("/var/run/openct/status")
+    return os.path.exists("/run/openct/status")
