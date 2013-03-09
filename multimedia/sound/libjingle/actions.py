@@ -6,9 +6,14 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.touch("NEWS")
+    shelltools.touch("ChangeLog")
+    shelltools.unlink("talk/base/time.h")
+    autotools.autoreconf("-i")
     autotools.configure("--disable-static")
 
 def build():
@@ -17,4 +22,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README", "DOCUMENTATION")
+    pisitools.dodoc("AUTHORS", "CHANGELOG", "COPYING", "README")
