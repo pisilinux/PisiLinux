@@ -14,7 +14,7 @@ MSG_NOTPM   = _({"en": "Failed starting trousers",
                 })
 
 TCSD = "/usr/sbin/tcsd"
-PID_FILE = "/var/run/tcsd.pid"
+PID_FILE = "/run/tcsd.pid"
 DRIVER_DIR = "/lib/modules/%s/kernel/drivers/char/tpm"
 
 def load_drivers():

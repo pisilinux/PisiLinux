@@ -5,7 +5,7 @@ serviceDesc = _({"en": "S.M.A.R.T. monitoring daemon",
                  "tr": "S.M.A.R.T. disk izleme hizmeti"})
 
 serviceConf = "smartd"
-PIDFILE = "/var/run/smartd.pid"
+PIDFILE = "/run/smartd.pid"
 
 
 @synchronized

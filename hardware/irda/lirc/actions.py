@@ -40,7 +40,7 @@ def install():
     pisitools.dobin("contrib/irman2lirc")
 
     # needed for lircd pid
-    pisitools.dodir("/var/run/lirc")
+    pisitools.dodir("/run/lirc")
 
     # example configs
     pisitools.insinto("/etc", "contrib/lircd.conf", "lircd.conf")

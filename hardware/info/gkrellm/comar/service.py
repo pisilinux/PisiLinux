@@ -8,14 +8,14 @@ serviceDesc = _({"en": "GNU Krell Monitor Daemon",
 @synchronized
 def start():
     startService(command="/usr/bin/gkrellmd",
-                 pidfile="/var/run/gkrellmd.pid",
+                 pidfile="/run/gkrellmd.pid",
                  makepid=True,
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/gkrellmd.pid",
+    stopService(pidfile="/run/gkrellmd.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/gkrellmd.pid")
+    return isServiceRunning("/run/gkrellmd.pid")

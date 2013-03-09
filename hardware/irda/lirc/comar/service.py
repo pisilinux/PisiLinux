@@ -6,7 +6,7 @@ serviceDefault = "off"
 serviceDesc = _({"en": "InfraRed Controller Manager",
                  "tr": "Kızılötesi Denetleyici Yöneticisi"})
 
-lircdpid = "/var/run/lirc/lircd.pid"
+lircdpid = "/run/lirc/lircd.pid"
 
 @synchronized
 def start():

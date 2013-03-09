@@ -31,8 +31,8 @@ def install():
     # udev support
     pisitools.insinto("/lib/udev/rules.d/", "etc/openct.udev", "95-openct.rules")
 
-    pisitools.dodir("/var/run/openct")
-    shelltools.chmod("%s/var/run/openct" % get.installDIR(), 0755)
+    pisitools.dodir("/run/openct")
+    shelltools.chmod("%s/run/openct" % get.installDIR(), 0755)
 
     pisitools.remove("/usr/lib/openct-ifd.so")
 
