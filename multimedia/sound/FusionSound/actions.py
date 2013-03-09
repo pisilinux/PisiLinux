@@ -8,12 +8,12 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "core/FusionSound.git/"
-KeepSpecial = ["libtool"]
-
 def setup():
-    autotools.autoreconf("-fi")
-    autotools.configure()
+    autotools.configure("--without-examples \
+                         --without-timidity \
+                         --with-playlist \
+                         --without-lite \
+                         --with-wave")
 
 def build():
     autotools.make()
