@@ -12,8 +12,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-WorkDir = "libdvdread"
-
 def setup():
     libtools.libtoolize("--force --install")
     autotools.autoreconf("-vfi")
