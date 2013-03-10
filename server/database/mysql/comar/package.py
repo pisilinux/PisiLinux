@@ -42,16 +42,16 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                                  -e \"%s\"" % sql)
 
         # Generate timezones
-        os.system("/usr/bin/mysql_tzinfo_to_sql /usr/share/zoneinfo > /tmp/pardus.sql")
+        os.system("/usr/bin/mysql_tzinfo_to_sql /usr/share/zoneinfo > /tmp/pisilinux.sql")
 
         # Generate help tables
-        os.system("/bin/cat /usr/share/mysql/fill_help_tables.sql >> /tmp/pardus.sql")
+        os.system("/bin/cat /usr/share/mysql/fill_help_tables.sql >> /tmp/pisilinux.sql")
 
         # Load generated SQL script
         os.system('/usr/bin/mysql --socket=/run/mysqld/mysqld.sock \
                                   -hlocalhost \
                                   -uroot \
-                                  mysql < %s' % '/tmp/pardus.sql')
+                                  mysql < %s' % '/tmp/pisilinux.sql')
 
         # Stop MySQL
         if os.path.exists(PIDFILE):
@@ -61,4 +61,4 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                 pass
 
         # Remove temporary SQL script
-        os.unlink("/tmp/pardus.sql")
+        os.unlink("/tmp/pisilinux.sql")
