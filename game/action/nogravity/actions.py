@@ -12,20 +12,13 @@ from pisi.actionsapi import get
 #  cvs -d:pserver:anonymous@nogravity.cvs.sourceforge.net:/cvsroot/nogravity login
 #  cvs -z3 -d:pserver:anonymous@nogravity.cvs.sourceforge.net:/cvsroot/nogravity co -P nogravity
 
-WorkDir = "nogravity"
-
 def setup():
-    shelltools.export("LDFLAGS", "%s -lpng14 -lz" % get.LDFLAGS())
-    shelltools.export("CFLAGS", "%s -I/usr/include/libpng14" % get.CFLAGS())
     shelltools.cd("src/Linux")
     shelltools.system("./bootstrap")
     autotools.configure("--enable-sound=sdl_mixer \
-                         --disable-dependency-tracking \
                          --disable-opengl")
 
 def build():
-    shelltools.export("LDFLAGS", "%s -lpng14 -lz" % get.LDFLAGS())
-    shelltools.export("CFLAGS", "%s -I/usr/include/libpng14" % get.CFLAGS())
     shelltools.cd("src/Linux")
     autotools.make()
 
