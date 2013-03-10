@@ -17,6 +17,7 @@ def setup():
                          --enable-smime=yes \
                          --enable-gnome-keyring=yes \
                          --with-krb5=/usr \
+                         --disable-uoa \
                          --with-libdb=/usr \
                          --enable-calendar=yes")
 
