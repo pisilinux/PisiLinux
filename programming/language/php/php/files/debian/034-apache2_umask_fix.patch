@@ -1,0 +1,50 @@
+Description: Save and restore umask across requests correctly.
+ .
+ Check if this is still an issue not addressed by upstream in some
+ other way already.
+Origin: other
+Bug-Debian: http://bugs.debian.org/286225
+Forwarded: no
+Last-Update: 2010-01-18
+
+--- a/sapi/apache2handler/sapi_apache2.c
++++ b/sapi/apache2handler/sapi_apache2.c
+@@ -468,6 +468,19 @@ static apr_status_t php_server_context_c
+ 	return APR_SUCCESS;
+ }
+ 
++static int saved_umask;
++
++static void php_save_umask(void)
++{
++	saved_umask = umask(077);
++	umask(saved_umask);
++}
++
++static void php_restore_umask(void)
++{
++	umask(saved_umask);
++}
++
+ static int php_apache_request_ctor(request_rec *r, php_struct *ctx TSRMLS_DC)
+ {
+ 	char *content_length;
+@@ -658,6 +671,8 @@ zend_first_try {
+ 	} else {
+ 		zend_file_handle zfd;
+ 
++		php_save_umask();
++
+ 		zfd.type = ZEND_HANDLE_FILENAME;
+ 		zfd.filename = (char *) r->filename;
+ 		zfd.free_filename = 0;
+@@ -669,6 +684,9 @@ zend_first_try {
+ 			zend_execute_scripts(ZEND_INCLUDE TSRMLS_CC, NULL, 1, &zfd);
+ 		}
+ 
++		php_restore_umask();
++
++
+ 		apr_table_set(r->notes, "mod_php_memory_usage",
+ 			apr_psprintf(ctx->r->pool, "%zu", zend_memory_peak_usage(1 TSRMLS_CC)));
+ 	}
