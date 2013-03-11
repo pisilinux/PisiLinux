@@ -81,6 +81,7 @@ def setup():
                       --with-system-tzdata=/usr/share/zoneinfo \
                       --with-mcrypt=/usr/bin/mcrypt \
                       --with-imap=shared \
+                      --with-openssl=shared \
                       --with-imap-ssl"
 
     # Enable FastCGI, needs Apache disabled
