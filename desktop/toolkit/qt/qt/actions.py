@@ -37,6 +37,7 @@ def setup():
 
     shelltools.export("CFLAGS", filteredCFLAGS)
     shelltools.export("CXXFLAGS", filteredCXXFLAGS)
+    #check that dosed commands without releated patches
     pisitools.dosed("mkspecs/common/gcc-base-unix.conf", "\-Wl,\-rpath,")
     pisitools.dosed("mkspecs/common/gcc-base.conf", "\-O2", filteredCFLAGS)
     pisitools.dosed("mkspecs/common/gcc-base.conf", "^(QMAKE_LFLAGS\s+\+=)", r"\1 %s" % get.LDFLAGS())
