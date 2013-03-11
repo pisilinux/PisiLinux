@@ -21,8 +21,8 @@ def setup():
     # Set job count for make
     pisitools.dosed(".mozconfig", "%%JOBS%%", get.makeJOBS())
 
-    pisitools.dosed(".pardus-default-prefs.js", "DISTRIB_ID", get.lsbINFO()["DISTRIB_ID"])
-    pisitools.dosed(".pardus-default-prefs.js", "DISTRIB_RELEASE", get.lsbINFO()["DISTRIB_RELEASE"])
+    pisitools.dosed(".pisilinux-default-prefs.js", "DISTRIB_ID", get.lsbINFO()["DISTRIB_ID"])
+    pisitools.dosed(".pisilinux-default-prefs.js", "DISTRIB_RELEASE", get.lsbINFO()["DISTRIB_RELEASE"])
 
 def build():
     autotools.make("-f client.mk build")
