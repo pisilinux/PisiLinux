@@ -76,7 +76,7 @@ def install():
     pisitools.remove("/usr/share/mysql/binary-configure")
     pisitools.remove("/usr/share/mysql/mysql-log-rotate")
     pisitools.remove("/usr/share/mysql/my-*.cnf")
-    pisitools.remove("/usr/share/mysql/config.*")
+    #pisitools.remove("/usr/share/mysql/config.*")
     #pisitools.removeDir("/usr/share/aclocal")
 
     # Move libs to /usr/lib
