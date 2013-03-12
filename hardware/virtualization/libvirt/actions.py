@@ -14,7 +14,7 @@ def setup():
     autotools.autoreconf("-vfi")
 
     autotools.configure("--with-init-script=none \
-                         --with-remote-pid-file=/var/run/libvirtd.pid \
+                         --with-remote-pid-file=/run/libvirtd.pid \
                          --with-qemu-user=qemu \
                          --with-qemu-group=qemu \
                          --with-lxc \

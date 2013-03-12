@@ -15,7 +15,7 @@ def setup():
                          --disable-gtk-doc \
                          --without-hal \
                          --without-mono \
-                         --with-temp-mount-dir=/var/run/libgpod \
+                         --with-temp-mount-dir=/run/libgpod \
                          --enable-udev \
                          --with-html-dir=/usr/share/doc/%s/html" % get.srcNAME())
 
@@ -26,6 +26,6 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # For temporary mounts
-    pisitools.dodir("/var/run/libgpod")
+    pisitools.dodir("/run/libgpod")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README*")

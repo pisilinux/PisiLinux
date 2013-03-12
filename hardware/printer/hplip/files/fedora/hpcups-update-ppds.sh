@@ -20,7 +20,7 @@
 
 ## Purpose: Update hpcups PPDs when necessary.
 
-sock=/var/run/cups/cups.sock
+sock=/run/cups/cups.sock
 running=$(LC_ALL=C lpstat -h "$sock" -r 2>/dev/null)
 if [ "$?" -ne 0 ]
 then

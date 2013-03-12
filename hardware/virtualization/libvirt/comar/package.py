@@ -22,8 +22,8 @@ permissions = {
                 "/var/lib/libvirt/dnsmasq"              :   ["0755", "root:root"],
                 "/var/cache/libvirt/qemu"               :   ["0750", "qemu:qemu"],
                 "/var/cache/libvirt"                    :   ["0700", "root:root"],
-                "/var/run/libvirt/qemu"                 :   ["0700", "qemu:qemu"],
-                "/var/run/libvirt/uml"                  :   ["0700", "root:root"],
+                "/run/libvirt/qemu"                 :   ["0700", "qemu:qemu"],
+                "/run/libvirt/uml"                  :   ["0700", "root:root"],
                 "/usr/libexec/libvirt_proxy"            :   ["4755", "root:root"],
             }
 

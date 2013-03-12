@@ -5,15 +5,15 @@ serviceDefault = "on"
 serviceDesc = _({"en": "PC/SC SmartCard Reader Service",
                  "tr": "PC/SC Akıllı Kart Okuyucu Servisi"})
 
-PIDFILE = "/var/run/pcscd/pcscd.pid"
+PIDFILE = "/run/pcscd/pcscd.pid"
 
 @synchronized
 def start():
     # pcscd wont start if these exist
     import os
     try:
-        os.unlink("/var/run/pcscd/pcscd.comm")
-        os.unlink("/var/run/pcscd/pcscd.pub")
+        os.unlink("/run/pcscd/pcscd.comm")
+        os.unlink("/run/pcscd/pcscd.pub")
     except OSError:
         pass
 

@@ -66,6 +66,9 @@ def setup():
 
     autotools.autoconf()
 
+    # workaround for pkg-config 0.28
+    pisitools.dosed("configure", " && test -n \"\$OPENSSL_INCS\"")
+
     common_options = "--sysconfdir=/etc \
                       --cache-file=./config.cache \
                       --with-zlib-dir=/usr/lib \
