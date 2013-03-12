@@ -76,7 +76,7 @@ def install():
     pisitools.insinto("/usr/lib/MozillaThunderbird/extensions", "./langpack-tb/*")
    
    # Install default-prefs.js
-    pisitools.insinto("%s/defaults/pref" % MOZAPPDIR, ".pardus-default-prefs.js", "all-pardus.js")
+    pisitools.insinto("%s/defaults/pref" % MOZAPPDIR, ".pisilinux-default-prefs.js", "all-pisilinux.js")
     
     # Empty fake files to get Turkish spell check support working
     #pisitools.dodir("%s/extensions/langpack-tr@thunderbird.mozilla.org/dictionaries" % MOZAPPDIR)
