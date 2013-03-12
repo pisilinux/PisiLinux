@@ -27,6 +27,6 @@ def install():
 
     # Create some initial directories
     for d in ("locks", "storage"):
-        pisitools.dodir("/var/run/pm-utils/%s" % d)
+        pisitools.dodir("/run/pm-utils/%s" % d)
 
     pisitools.dodoc("COPYING", "ChangeLog", "AUTHORS")

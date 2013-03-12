@@ -6,7 +6,7 @@ serviceDesc = _({"en": "ACPI Daemon",
                  "tr": "ACPI Hizmeti"})
 serviceDefault = "on"
 
-PIDFILE = "/var/run/acpid.pid"
+PIDFILE = "/run/acpid.pid"
 
 MSG_NO_PIDFILE = _({
                     "en" : "Could not reload acpid daemon as the PID file %s does not exist." % PIDFILE,
