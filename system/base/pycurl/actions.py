@@ -9,8 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def install():
+    # no static libs
+    pisitools.dosed("setup.py", ", \"--static-libs\"")
+
     pythonmodules.install()
 
     pisitools.removeDir("/usr/share/doc")
-    
+
     pisitools.dodoc("ChangeLog", "COPYING*", "README", "TODO")

@@ -1,0 +1,160 @@
+From 4a377e2d60fb903e91a370595a6ea22cb7ee0e0e Mon Sep 17 00:00:00 2001
+From: zanee <zanee>
+Date: Wed, 28 Apr 2010 16:02:41 +0000
+Subject: [PATCH 3/5 v2] Fixes refcount bug and provides better organization of PyCurl object. Submitted by dbprice1.
+
+https://sourceforge.net/tracker/?func=detail&aid=2893665&group_id=28236&atid=392777
+
+Signed-off-by: Kamil Dudka <kdudka@redhat.com>
+---
+ src/pycurl.c |   88 +++++++++++++++++++++++++++++++++++++--------------------
+ 1 files changed, 57 insertions(+), 31 deletions(-)
+
+diff --git a/src/pycurl.c b/src/pycurl.c
+index 6de1514..32c7ca5 100644
+--- a/src/pycurl.c
++++ b/src/pycurl.c
+@@ -1,4 +1,4 @@
+-/* $Id: pycurl.c,v 1.148 2008/09/29 10:56:57 kjetilja Exp $ */
++/* $Id: pycurl.c,v 1.149 2010/04/28 16:02:41 zanee Exp $ */
+ 
+ /* PycURL -- cURL Python module
+  *
+@@ -739,64 +739,80 @@ util_curl_new(void)
+     return self;
+ }
+ 
+-
+-/* constructor - this is a module-level function returning a new instance */
+-static CurlObject *
+-do_curl_new(PyObject *dummy)
++/* initializer - used to intialize curl easy handles for use with pycurl */
++static int
++util_curl_init(CurlObject *self)
+ {
+-    CurlObject *self = NULL;
+     int res;
+     char *s = NULL;
+ 
+-    UNUSED(dummy);
+-
+-    /* Allocate python curl object */
+-    self = util_curl_new();
+-    if (self == NULL)
+-        return NULL;
+-
+-    /* Initialize curl handle */
+-    self->handle = curl_easy_init();
+-    if (self->handle == NULL)
+-        goto error;
+-
+     /* Set curl error buffer and zero it */
+     res = curl_easy_setopt(self->handle, CURLOPT_ERRORBUFFER, self->error);
+-    if (res != CURLE_OK)
+-        goto error;
++    if (res != CURLE_OK) {
++        return (-1);
++    }
+     memset(self->error, 0, sizeof(self->error));
+ 
+     /* Set backreference */
+     res = curl_easy_setopt(self->handle, CURLOPT_PRIVATE, (char *) self);
+-    if (res != CURLE_OK)
+-        goto error;
++    if (res != CURLE_OK) {
++        return (-1);
++    }
+ 
+     /* Enable NOPROGRESS by default, i.e. no progress output */
+     res = curl_easy_setopt(self->handle, CURLOPT_NOPROGRESS, (long)1);
+-    if (res != CURLE_OK)
+-        goto error;
++    if (res != CURLE_OK) {
++        return (-1);
++    }
+ 
+     /* Disable VERBOSE by default, i.e. no verbose output */
+     res = curl_easy_setopt(self->handle, CURLOPT_VERBOSE, (long)0);
+-    if (res != CURLE_OK)
+-        goto error;
++    if (res != CURLE_OK) {
++        return (-1);
++    }
+ 
+     /* Set FTP_ACCOUNT to NULL by default */
+     res = curl_easy_setopt(self->handle, CURLOPT_FTP_ACCOUNT, NULL);
+-    if (res != CURLE_OK)
+-        goto error;
++    if (res != CURLE_OK) {
++        return (-1);
++    }
+ 
+     /* Set default USERAGENT */
+     s = (char *) malloc(7 + strlen(LIBCURL_VERSION) + 1);
+-    if (s == NULL)
+-        goto error;
++    if (s == NULL) {
++        return (-1);
++    }
+     strcpy(s, "PycURL/"); strcpy(s+7, LIBCURL_VERSION);
+     res = curl_easy_setopt(self->handle, CURLOPT_USERAGENT, (char *) s);
+     if (res != CURLE_OK) {
+         free(s);
+-        goto error;
++        return (-1);
+     }
++    return (0);
++}
++
++/* constructor - this is a module-level function returning a new instance */
++static CurlObject *
++do_curl_new(PyObject *dummy)
++{
++    CurlObject *self = NULL;
++    int res;
++
++    UNUSED(dummy);
++
++    /* Allocate python curl object */
++    self = util_curl_new();
++    if (self == NULL)
++        return NULL;
++
++    /* Initialize curl handle */
++    self->handle = curl_easy_init();
++    if (self->handle == NULL)
++        goto error;
+ 
++    res = util_curl_init(self);
++    if (res < 0)
++            goto error;
+     /* Success - return new object */
+     return self;
+ 
+@@ -1404,6 +1420,8 @@ verbose_error:
+ static PyObject*
+ do_curl_reset(CurlObject *self)
+ {
++    int res;
++
+     curl_easy_reset(self->handle);
+ 
+     /* Decref callbacks and file handles */
+@@ -1421,6 +1439,14 @@ do_curl_reset(CurlObject *self)
+     SFREE(self->postquote);
+     SFREE(self->prequote);
+ #undef SFREE
++    res = util_curl_init(self);
++    if (res < 0) {
++        Py_DECREF(self);    /* this also closes self->handle */
++        PyErr_SetString(ErrorObject, "resetting curl failed");
++        return NULL;
++    }
++
++    Py_INCREF(Py_None);
+     return Py_None;
+ }
+ 
+-- 
+1.7.1
+

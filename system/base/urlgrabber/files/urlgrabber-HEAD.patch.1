@@ -1,0 +1,2383 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..1ffe416
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,7 @@
++*.py[co]
++MANIFEST
++dist
++build
++*.kdev*
++*.kateproject
++ipython.log*
+diff --git a/scripts/urlgrabber b/scripts/urlgrabber
+index 518e512..07881b3 100644
+--- a/scripts/urlgrabber
++++ b/scripts/urlgrabber
+@@ -115,6 +115,7 @@ options:
+                     including quotes in the case of strings.
+                     e.g.  --user_agent='"foobar/2.0"'
+ 
++  --output FILE
+   -o FILE           write output to FILE, otherwise the basename of the
+                     url will be used
+   -O                print the names of saved files to STDOUT
+@@ -170,12 +171,17 @@ class client_options:
+         return ug_options, ug_defaults
+ 
+     def process_command_line(self):
+-        short_options = 'vd:hoOpD'
++        short_options = 'vd:ho:OpD'
+         long_options = ['profile', 'repeat=', 'verbose=',
+-                        'debug=', 'help', 'progress']
++                        'debug=', 'help', 'progress', 'output=']
+         ug_long = [ o + '=' for o in self.ug_options ]
+-        optlist, args = getopt.getopt(sys.argv[1:], short_options,
+-                                      long_options + ug_long)
++        try:
++            optlist, args = getopt.getopt(sys.argv[1:], short_options,
++                                          long_options + ug_long)
++        except getopt.GetoptError, e:
++            print >>sys.stderr, "Error:", e
++            self.help([], ret=1)
++
+         self.verbose = 0
+         self.debug = None
+         self.outputfile = None
+@@ -193,6 +199,7 @@ class client_options:
+             if o == '--verbose': self.verbose = v
+             if o == '-v':        self.verbose += 1
+             if o == '-o':        self.outputfile = v
++            if o == '--output':  self.outputfile = v
+             if o == '-p' or o == '--progress': self.progress = 1
+             if o == '-d' or o == '--debug': self.debug = v
+             if o == '--profile': self.profile = 1
+@@ -222,7 +229,7 @@ class client_options:
+             print "ERROR: cannot use -o when grabbing multiple files"
+             sys.exit(1)
+ 
+-    def help(self, args):
++    def help(self, args, ret=0):
+         if not args:
+             print MAINHELP
+         else:
+@@ -234,7 +241,7 @@ class client_options:
+                     self.help_ug_option(a)
+                 else:
+                     print 'ERROR: no help on command "%s"' % a
+-        sys.exit(0)
++        sys.exit(ret)
+ 
+     def help_doc(self):
+         print __doc__
+@@ -294,6 +301,7 @@ class ugclient:
+                 if self.op.localfile: print f
+             except URLGrabError, e:
+                 print e
++                sys.exit(1)
+         
+     def set_debug_logger(self, dbspec):
+         try:
+diff --git a/scripts/urlgrabber-ext-down b/scripts/urlgrabber-ext-down
+new file mode 100755
+index 0000000..3dafb12
+--- /dev/null
++++ b/scripts/urlgrabber-ext-down
+@@ -0,0 +1,75 @@
++#! /usr/bin/python
++#  A very simple external downloader
++#  Copyright 2011-2012 Zdenek Pavlas
++
++#   This library is free software; you can redistribute it and/or
++#   modify it under the terms of the GNU Lesser General Public
++#   License as published by the Free Software Foundation; either
++#   version 2.1 of the License, or (at your option) any later version.
++#
++#   This library is distributed in the hope that it will be useful,
++#   but WITHOUT ANY WARRANTY; without even the implied warranty of
++#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++#   Lesser General Public License for more details.
++#
++#   You should have received a copy of the GNU Lesser General Public
++#   License along with this library; if not, write to the
++#      Free Software Foundation, Inc.,
++#      59 Temple Place, Suite 330,
++#      Boston, MA  02111-1307  USA
++
++import time, os, errno, sys
++from urlgrabber.grabber import \
++    _readlines, URLGrabberOptions, _loads, \
++    PyCurlFileObject, URLGrabError
++
++def write(fmt, *arg):
++    try: os.write(1, fmt % arg)
++    except OSError, e:
++        if e.args[0] != errno.EPIPE: raise
++        sys.exit(1)
++
++class ProxyProgress:
++    def start(self, *d1, **d2):
++        self.next_update = 0
++    def update(self, _amount_read):
++        t = time.time()
++        if t < self.next_update: return
++        self.next_update = t + 0.31
++        write('%d %d\n', self._id, _amount_read)
++
++def main():
++    import signal
++    signal.signal(signal.SIGINT, lambda n, f: sys.exit(1))
++    cnt = 0
++    while True:
++        lines = _readlines(0)
++        if not lines: break
++        for line in lines:
++            cnt += 1
++            opts = URLGrabberOptions()
++            opts._id = cnt
++            for k in line.split(' '):
++                k, v = k.split('=', 1)
++                setattr(opts, k, _loads(v))
++            if opts.progress_obj:
++                opts.progress_obj = ProxyProgress()
++                opts.progress_obj._id = cnt
++
++            dlsz = dltm = 0
++            try:
++                fo = PyCurlFileObject(opts.url, opts.filename, opts)
++                fo._do_grab()
++                fo.fo.close()
++                size = fo._amount_read
++                if fo._tm_last:
++                    dlsz = fo._tm_last[0] - fo._tm_first[0]
++                    dltm = fo._tm_last[1] - fo._tm_first[1]
++                ug_err = 'OK'
++            except URLGrabError, e:
++                size = 0
++                ug_err = '%d %s' % e.args
++            write('%d %d %d %.3f %s\n', opts._id, size, dlsz, dltm, ug_err)
++
++if __name__ == '__main__':
++    main()
+diff --git a/setup.py b/setup.py
+index d0b87b8..bfa4a18 100644
+--- a/setup.py
++++ b/setup.py
+@@ -15,8 +15,10 @@ url = _urlgrabber.__url__
+ packages = ['urlgrabber']
+ package_dir = {'urlgrabber':'urlgrabber'}
+ scripts = ['scripts/urlgrabber']
+-data_files = [('share/doc/' + name + '-' + version,
+-               ['README','LICENSE', 'TODO', 'ChangeLog'])]
++data_files = [
++    ('share/doc/' + name + '-' + version, ['README','LICENSE', 'TODO', 'ChangeLog']),
++    ('libexec', ['scripts/urlgrabber-ext-down']),
++]
+ options = { 'clean' : { 'all' : 1 } }
+ classifiers = [
+         'Development Status :: 4 - Beta',
+diff --git a/test/base_test_code.py b/test/base_test_code.py
+index 50c6348..5fb43f9 100644
+--- a/test/base_test_code.py
++++ b/test/base_test_code.py
+@@ -1,6 +1,6 @@
+ from munittest import *
+ 
+-base_http = 'http://www.linux.duke.edu/projects/urlgrabber/test/'
++base_http = 'http://urlgrabber.baseurl.org/test/'
+ base_ftp  = 'ftp://localhost/test/'
+ 
+ # set to a proftp server only. we're working around a couple of
+diff --git a/test/test_mirror.py b/test/test_mirror.py
+index 70fe069..cb63a41 100644
+--- a/test/test_mirror.py
++++ b/test/test_mirror.py
+@@ -28,7 +28,7 @@ import os
+ import string, tempfile, random, cStringIO, os
+ 
+ import urlgrabber.grabber
+-from urlgrabber.grabber import URLGrabber, URLGrabError
++from urlgrabber.grabber import URLGrabber, URLGrabError, URLGrabberOptions
+ import urlgrabber.mirror
+ from urlgrabber.mirror import MirrorGroup, MGRandomStart, MGRandomOrder
+ 
+@@ -106,6 +106,9 @@ class CallbackTests(TestCase):
+         self.g  = URLGrabber()
+         fullmirrors = [base_mirror_url + m + '/' for m in \
+                        (bad_mirrors + good_mirrors)]
++        if hasattr(urlgrabber.grabber, '_TH'):
++            # test assumes mirrors are not re-ordered
++            urlgrabber.grabber._TH.hosts.clear()
+         self.mg = MirrorGroup(self.g, fullmirrors)
+     
+     def test_failure_callback(self):
+@@ -168,6 +171,7 @@ class FakeGrabber:
+         self.resultlist = resultlist or []
+         self.index = 0
+         self.calls = []
++        self.opts = URLGrabberOptions()
+         
+     def urlgrab(self, url, filename=None, **kwargs):
+         self.calls.append( (url, filename) )
+diff --git a/urlgrabber/byterange.py b/urlgrabber/byterange.py
+index 3e5f3b7..8eeaeda 100644
+--- a/urlgrabber/byterange.py
++++ b/urlgrabber/byterange.py
+@@ -68,7 +68,7 @@ class HTTPRangeHandler(urllib2.BaseHandler):
+     
+     def http_error_416(self, req, fp, code, msg, hdrs):
+         # HTTP's Range Not Satisfiable error
+-        raise RangeError('Requested Range Not Satisfiable')
++        raise RangeError(9, 'Requested Range Not Satisfiable')
+ 
+ class HTTPSRangeHandler(HTTPRangeHandler):
+     """ Range Header support for HTTPS. """
+@@ -208,7 +208,7 @@ class RangeableFileObject:
+                 bufsize = offset - pos
+             buf = self.fo.read(bufsize)
+             if len(buf) != bufsize:
+-                raise RangeError('Requested Range Not Satisfiable')
++                raise RangeError(9, 'Requested Range Not Satisfiable')
+             pos+= bufsize
+ 
+ class FileRangeHandler(urllib2.FileHandler):
+@@ -238,7 +238,7 @@ class FileRangeHandler(urllib2.FileHandler):
+             (fb,lb) = brange
+             if lb == '': lb = size
+             if fb < 0 or fb > size or lb > size:
+-                raise RangeError('Requested Range Not Satisfiable')
++                raise RangeError(9, 'Requested Range Not Satisfiable')
+             size = (lb - fb)
+             fo = RangeableFileObject(fo, (fb,lb))
+         headers = mimetools.Message(StringIO(
+@@ -318,12 +318,12 @@ class FTPRangeHandler(urllib2.FTPHandler):
+                 (fb,lb) = range_tup
+                 if lb == '': 
+                     if retrlen is None or retrlen == 0:
+-                        raise RangeError('Requested Range Not Satisfiable due to unobtainable file length.')
++                        raise RangeError(9, 'Requested Range Not Satisfiable due to unobtainable file length.')
+                     lb = retrlen
+                     retrlen = lb - fb
+                     if retrlen < 0:
+                         # beginning of range is larger than file
+-                        raise RangeError('Requested Range Not Satisfiable')
++                        raise RangeError(9, 'Requested Range Not Satisfiable')
+                 else:
+                     retrlen = lb - fb
+                     fp = RangeableFileObject(fp, (0,retrlen))
+@@ -458,6 +458,6 @@ def range_tuple_normalize(range_tup):
+     # check if range is over the entire file
+     if (fb,lb) == (0,''): return None
+     # check that the range is valid
+-    if lb < fb: raise RangeError('Invalid byte range: %s-%s' % (fb,lb))
++    if lb < fb: raise RangeError(9, 'Invalid byte range: %s-%s' % (fb,lb))
+     return (fb,lb)
+ 
+diff --git a/urlgrabber/grabber.py b/urlgrabber/grabber.py
+index e090e90..1afb2c5 100644
+--- a/urlgrabber/grabber.py
++++ b/urlgrabber/grabber.py
+@@ -49,11 +49,26 @@ GENERAL ARGUMENTS (kwargs)
+   progress_obj = None
+ 
+     a class instance that supports the following methods:
+-      po.start(filename, url, basename, length, text)
++      po.start(filename, url, basename, size, now, text)
+       # length will be None if unknown
+       po.update(read) # read == bytes read so far
+       po.end()
+ 
++  multi_progress_obj = None
++
++    a class instance that supports the following methods:
++      mo.start(total_files, total_size)
++      mo.newMeter() => meter
++      mo.removeMeter(meter)
++      mo.end()
++
++   The 'meter' object is similar to progress_obj, but multiple
++   instances may be created and updated at the same time.
++
++   When downloading multiple files in parallel and multi_progress_obj
++   is None progress_obj is used in compatibility mode: finished files
++   are shown but there's no in-progress display.
++
+   text = None
+   
+     specifies alternative text to be passed to the progress meter
+@@ -68,14 +83,14 @@ GENERAL ARGUMENTS (kwargs)
+     (which can be set on default_grabber.throttle) is used. See
+     BANDWIDTH THROTTLING for more information.
+ 
+-  timeout = None
++  timeout = 300
+ 
+-    a positive float expressing the number of seconds to wait for socket
+-    operations. If the value is None or 0.0, socket operations will block
+-    forever. Setting this option causes urlgrabber to call the settimeout
+-    method on the Socket object used for the request. See the Python
+-    documentation on settimeout for more information.
+-    http://www.python.org/doc/current/lib/socket-objects.html
++    a positive integer expressing the number of seconds to wait before
++    timing out attempts to connect to a server. If the value is None
++    or 0, connection attempts will not time out. The timeout is passed
++    to the underlying pycurl object as its CONNECTTIMEOUT option, see
++    the curl documentation on CURLOPT_CONNECTTIMEOUT for more information.
++    http://curl.haxx.se/libcurl/c/curl_easy_setopt.html#CURLOPTCONNECTTIMEOUT
+ 
+   bandwidth = 0
+ 
+@@ -143,8 +158,12 @@ GENERAL ARGUMENTS (kwargs)
+     note that proxy authentication information may be provided using
+     normal URL constructs:
+       proxies={ 'http' : 'http://user:host@foo:3128' }
+-    Lastly, if proxies is None, the default environment settings will
+-    be used.
++
++  libproxy = False
++
++    Use the libproxy module (if installed) to find proxies.
++    The libproxy code is only used if the proxies dictionary
++    does not provide any proxies.
+ 
+   prefix = None
+ 
+@@ -198,6 +217,12 @@ GENERAL ARGUMENTS (kwargs)
+     control, you should probably subclass URLParser and pass it in via
+     the 'urlparser' option.
+ 
++  username = None
++    username to use for simple http auth - is automatically quoted for special characters
++
++  password = None
++    password to use for simple http auth - is automatically quoted for special characters
++
+   ssl_ca_cert = None
+ 
+     this option can be used if M2Crypto is available and will be
+@@ -211,43 +236,75 @@ GENERAL ARGUMENTS (kwargs)
+     No-op when using the curl backend (default)
+    
+ 
+-  self.ssl_verify_peer = True 
++  ssl_verify_peer = True
+ 
+     Check the server's certificate to make sure it is valid with what our CA validates
+   
+-  self.ssl_verify_host = True
++  ssl_verify_host = True
+ 
+     Check the server's hostname to make sure it matches the certificate DN
+ 
+-  self.ssl_key = None
++  ssl_key = None
+ 
+     Path to the key the client should use to connect/authenticate with
+ 
+-  self.ssl_key_type = 'PEM' 
++  ssl_key_type = 'PEM'
+ 
+     PEM or DER - format of key
+      
+-  self.ssl_cert = None
++  ssl_cert = None
+ 
+     Path to the ssl certificate the client should use to to authenticate with
+ 
+-  self.ssl_cert_type = 'PEM' 
++  ssl_cert_type = 'PEM'
+ 
+     PEM or DER - format of certificate
+     
+-  self.ssl_key_pass = None 
++  ssl_key_pass = None
+ 
+     password to access the ssl_key
+     
+-  self.size = None
++  size = None
+ 
+     size (in bytes) or Maximum size of the thing being downloaded. 
+     This is mostly to keep us from exploding with an endless datastream
+   
+-  self.max_header_size = 2097152 
++  max_header_size = 2097152
+ 
+     Maximum size (in bytes) of the headers.
+     
++  ip_resolve = 'whatever'
++
++    What type of name to IP resolving to use, default is to do both IPV4 and
++    IPV6.
++
++  async = (key, limit)
++
++    When this option is set, the urlgrab() is not processed immediately
++    but queued.  parallel_wait() then processes grabs in parallel, limiting
++    the numer of connections in each 'key' group to at most 'limit'.
++
++  max_connections
++
++    The global connection limit.
++
++  timedhosts
++
++    The filename of the host download statistics.  If defined, urlgrabber
++    will update the stats at the end of every download.  At the end of
++    parallel_wait(), the updated stats are saved.  If synchronous grabs
++    are used, you should call th_save().
++
++  default_speed, half_life
++
++    These options only affect the async mirror selection code.
++    The default_speed option sets the speed estimate for mirrors
++    we have never downloaded from, and defaults to 1 MBps.
++
++    The speed estimate also drifts exponentially from the speed
++    actually measured to the default speed, with default
++    period of 30 days.
++
+ 
+ RETRY RELATED ARGUMENTS
+ 
+@@ -328,6 +385,15 @@ RETRY RELATED ARGUMENTS
+     but it cannot (without severe trickiness) prevent the exception
+     from being raised.
+ 
++  failfunc = None
++
++    The callback that gets called when urlgrab request fails.
++    If defined, urlgrab() calls it instead of raising URLGrabError.
++    Callback syntax is identical to failure_callback.
++
++    Contrary to failure_callback, it's called only once.  It's primary
++    purpose is to use urlgrab() without a try/except block.
++
+   interrupt_callback = None
+ 
+     This callback is called if KeyboardInterrupt is received at any
+@@ -420,6 +486,7 @@ import time
+ import string
+ import urllib
+ import urllib2
++from httplib import responses
+ import mimetools
+ import thread
+ import types
+@@ -428,9 +495,17 @@ import pycurl
+ from ftplib import parse150
+ from StringIO import StringIO
+ from httplib import HTTPException
+-import socket
++import socket, select, fcntl
+ from byterange import range_tuple_normalize, range_tuple_to_header, RangeError
+ 
++try:
++    import xattr
++    if not hasattr(xattr, 'set'):
++        xattr = None # This is a "newer" API.
++except ImportError:
++    xattr = None
++
++
+ ########################################################################
+ #                     MODULE INITIALIZATION
+ ########################################################################
+@@ -439,6 +514,12 @@ try:
+ except:
+     __version__ = '???'
+ 
++try:
++    # this part isn't going to do much - need to talk to gettext
++    from i18n import _
++except ImportError, msg:
++    def _(st): return st
++    
+ ########################################################################
+ # functions for debugging output.  These functions are here because they
+ # are also part of the module initialization.
+@@ -504,6 +585,7 @@ def _init_default_logger(logspec=None):
+         else:  handler = logging.FileHandler(filename)
+         handler.setFormatter(formatter)
+         DBOBJ = logging.getLogger('urlgrabber')
++        DBOBJ.propagate = False
+         DBOBJ.addHandler(handler)
+         DBOBJ.setLevel(level)
+     except (KeyError, ImportError, ValueError):
+@@ -512,8 +594,8 @@ def _init_default_logger(logspec=None):
+ 
+ def _log_package_state():
+     if not DEBUG: return
+-    DEBUG.info('urlgrabber version  = %s' % __version__)
+-    DEBUG.info('trans function "_"  = %s' % _)
++    DEBUG.debug('urlgrabber version  = %s' % __version__)
++    DEBUG.debug('trans function "_"  = %s' % _)
+         
+ _init_default_logger()
+ _log_package_state()
+@@ -527,6 +609,29 @@ def _(st):
+ #                 END MODULE INITIALIZATION
+ ########################################################################
+ 
++########################################################################
++#                 UTILITY FUNCTIONS
++########################################################################
++
++# These functions are meant to be utilities for the urlgrabber library to use.
++
++def _to_utf8(obj, errors='replace'):
++    '''convert 'unicode' to an encoded utf-8 byte string '''
++    # stolen from yum.i18n
++    if isinstance(obj, unicode):
++        obj = obj.encode('utf-8', errors)
++    return obj
++
++def exception2msg(e):
++    try:
++        return str(e)
++    except UnicodeEncodeError:
++        # always use byte strings
++        return unicode(e).encode('utf8')
++
++########################################################################
++#                 END UTILITY FUNCTIONS
++########################################################################
+ 
+ 
+ class URLGrabError(IOError):
+@@ -662,6 +767,7 @@ class URLParser:
+           opts.quote = 0     --> do not quote it
+           opts.quote = None  --> guess
+         """
++        url = _to_utf8(url)
+         quote = opts.quote
+         
+         if opts.prefix:
+@@ -768,6 +874,41 @@ class URLGrabberOptions:
+         else: # throttle is a float
+             return self.bandwidth * self.throttle
+         
++    def find_proxy(self, url, scheme):
++        """Find the proxy to use for this URL.
++        Use the proxies dictionary first, then libproxy.
++        """
++        self.proxy = None
++        if scheme not in ('ftp', 'http', 'https'):
++            return
++
++        if self.proxies:
++            proxy = self.proxies.get(scheme)
++            if proxy is None:
++                if scheme == 'http':
++                    proxy = self.proxies.get('https')
++                elif scheme == 'https':
++                    proxy = self.proxies.get('http')
++            if proxy == '_none_':
++                proxy = ''
++            self.proxy = proxy
++            return
++
++        if self.libproxy:
++            global _libproxy_cache
++            if _libproxy_cache is None:
++                try:
++                    import libproxy
++                    _libproxy_cache = libproxy.ProxyFactory()
++                except:
++                    _libproxy_cache = False
++            if _libproxy_cache:
++                for proxy in _libproxy_cache.getProxies(url):
++                    if proxy.startswith('http://'):
++                        if DEBUG: DEBUG.info('using proxy "%s" for url %s' % (proxy, url))
++                        self.proxy = proxy
++                        break
++
+     def derive(self, **kwargs):
+         """Create a derived URLGrabberOptions instance.
+         This method creates a new instance and overrides the
+@@ -791,30 +932,37 @@ class URLGrabberOptions:
+         provided here.
+         """
+         self.progress_obj = None
++        self.multi_progress_obj = None
+         self.throttle = 1.0
+         self.bandwidth = 0
+         self.retry = None
+         self.retrycodes = [-1,2,4,5,6,7]
+         self.checkfunc = None
++        self.failfunc = _do_raise
+         self.copy_local = 0
+         self.close_connection = 0
+         self.range = None
+         self.user_agent = 'urlgrabber/%s' % __version__
++        self.ip_resolve = None
+         self.keepalive = 1
+         self.proxies = None
++        self.libproxy = False
++        self.proxy = None
+         self.reget = None
+         self.failure_callback = None
+         self.interrupt_callback = None
+         self.prefix = None
+         self.opener = None
+         self.cache_openers = True
+-        self.timeout = None
++        self.timeout = 300
+         self.text = None
+         self.http_headers = None
+         self.ftp_headers = None
+         self.data = None
+         self.urlparser = URLParser()
+         self.quote = None
++        self.username = None
++        self.password = None
+         self.ssl_ca_cert = None # sets SSL_CAINFO - path to certdb
+         self.ssl_context = None # no-op in pycurl
+         self.ssl_verify_peer = True # check peer's cert for authenticityb
+@@ -827,6 +975,12 @@ class URLGrabberOptions:
+         self.size = None # if we know how big the thing we're getting is going
+                          # to be. this is ultimately a MAXIMUM size for the file
+         self.max_header_size = 2097152 #2mb seems reasonable for maximum header size
++        self.async = None # blocking by default
++        self.mirror_group = None
++        self.max_connections = 5
++        self.timedhosts = None
++        self.half_life = 30*24*60*60 # 30 days
++        self.default_speed = 1e6 # 1 MBit
+         
+     def __repr__(self):
+         return self.format()
+@@ -846,7 +1000,18 @@ class URLGrabberOptions:
+         s = s + indent + '}'
+         return s
+ 
+-class URLGrabber:
++def _do_raise(obj):
++    raise obj.exception
++
++def _run_callback(cb, obj):
++    if not cb:
++        return
++    if callable(cb):
++        return cb(obj)
++    cb, arg, karg = cb
++    return cb(obj, *arg, **karg)
++
++class URLGrabber(object):
+     """Provides easy opening of URLs with a variety of options.
+     
+     All options are specified as kwargs. Options may be specified when
+@@ -872,7 +1037,6 @@ class URLGrabber:
+             # beware of infinite loops :)
+             tries = tries + 1
+             exception = None
+-            retrycode = None
+             callback  = None
+             if DEBUG: DEBUG.info('attempt %i/%s: %s',
+                                  tries, opts.retry, args[0])
+@@ -883,54 +1047,62 @@ class URLGrabber:
+             except URLGrabError, e:
+                 exception = e
+                 callback = opts.failure_callback
+-                retrycode = e.errno
+             except KeyboardInterrupt, e:
+                 exception = e
+                 callback = opts.interrupt_callback
++                if not callback:
++                    raise
+ 
+             if DEBUG: DEBUG.info('exception: %s', exception)
+             if callback:
+                 if DEBUG: DEBUG.info('calling callback: %s', callback)
+-                cb_func, cb_args, cb_kwargs = self._make_callback(callback)
+                 obj = CallbackObject(exception=exception, url=args[0],
+                                      tries=tries, retry=opts.retry)
+-                cb_func(obj, *cb_args, **cb_kwargs)
++                _run_callback(callback, obj)
+ 
+             if (opts.retry is None) or (tries == opts.retry):
+                 if DEBUG: DEBUG.info('retries exceeded, re-raising')
+                 raise
+ 
++            retrycode = getattr(exception, 'errno', None)
+             if (retrycode is not None) and (retrycode not in opts.retrycodes):
+                 if DEBUG: DEBUG.info('retrycode (%i) not in list %s, re-raising',
+                                      retrycode, opts.retrycodes)
+                 raise
+     
+-    def urlopen(self, url, **kwargs):
++    def urlopen(self, url, opts=None, **kwargs):
+         """open the url and return a file object
+         If a progress object or throttle value specified when this 
+         object was created, then  a special file object will be 
+         returned that supports them. The file object can be treated 
+         like any other file object.
+         """
+-        opts = self.opts.derive(**kwargs)
++        url = _to_utf8(url)
++        opts = (opts or self.opts).derive(**kwargs)
+         if DEBUG: DEBUG.debug('combined options: %s' % repr(opts))
+         (url,parts) = opts.urlparser.parse(url, opts) 
++        opts.find_proxy(url, parts[0])
+         def retryfunc(opts, url):
+             return PyCurlFileObject(url, filename=None, opts=opts)
+         return self._retry(opts, retryfunc, url)
+     
+-    def urlgrab(self, url, filename=None, **kwargs):
++    def urlgrab(self, url, filename=None, opts=None, **kwargs):
+         """grab the file at <url> and make a local copy at <filename>
+         If filename is none, the basename of the url is used.
+         urlgrab returns the filename of the local file, which may be 
+         different from the passed-in filename if copy_local == 0.
+         """
+-        opts = self.opts.derive(**kwargs)
++        url = _to_utf8(url)
++        opts = (opts or self.opts).derive(**kwargs)
+         if DEBUG: DEBUG.debug('combined options: %s' % repr(opts))
+         (url,parts) = opts.urlparser.parse(url, opts) 
+         (scheme, host, path, parm, query, frag) = parts
++        opts.find_proxy(url, scheme)
+         if filename is None:
+             filename = os.path.basename( urllib.unquote(path) )
++            if not filename:
++                # This is better than nothing.
++                filename = 'index.html'
+         if scheme == 'file' and not opts.copy_local:
+             # just return the name of the local file - don't make a 
+             # copy currently
+@@ -950,41 +1122,51 @@ class URLGrabber:
+ 
+             elif not opts.range:
+                 if not opts.checkfunc is None:
+-                    cb_func, cb_args, cb_kwargs = \
+-                       self._make_callback(opts.checkfunc)
+-                    obj = CallbackObject()
+-                    obj.filename = path
+-                    obj.url = url
+-                    apply(cb_func, (obj, )+cb_args, cb_kwargs)        
++                    obj = CallbackObject(filename=path, url=url)
++                    _run_callback(opts.checkfunc, obj)
+                 return path
+         
++        if opts.async:
++            opts.url = url
++            opts.filename = filename
++            opts.size = int(opts.size or 0)
++            _async_queue.append(opts)
++            return filename
++
+         def retryfunc(opts, url, filename):
+             fo = PyCurlFileObject(url, filename, opts)
+             try:
+                 fo._do_grab()
++                if fo._tm_last:
++                    dlsz = fo._tm_last[0] - fo._tm_first[0]
++                    dltm = fo._tm_last[1] - fo._tm_first[1]
++                    _TH.update(url, dlsz, dltm, None)
+                 if not opts.checkfunc is None:
+-                    cb_func, cb_args, cb_kwargs = \
+-                             self._make_callback(opts.checkfunc)
+-                    obj = CallbackObject()
+-                    obj.filename = filename
+-                    obj.url = url
+-                    apply(cb_func, (obj, )+cb_args, cb_kwargs)
++                    obj = CallbackObject(filename=filename, url=url)
++                    _run_callback(opts.checkfunc, obj)
+             finally:
+                 fo.close()
+             return filename
+         
+-        return self._retry(opts, retryfunc, url, filename)
++        try:
++            return self._retry(opts, retryfunc, url, filename)
++        except URLGrabError, e:
++            _TH.update(url, 0, 0, e)
++            opts.exception = e
++            return _run_callback(opts.failfunc, opts)
+     
+-    def urlread(self, url, limit=None, **kwargs):
++    def urlread(self, url, limit=None, opts=None, **kwargs):
+         """read the url into a string, up to 'limit' bytes
+         If the limit is exceeded, an exception will be thrown.  Note
+         that urlread is NOT intended to be used as a way of saying 
+         "I want the first N bytes" but rather 'read the whole file 
+         into memory, but don't use too much'
+         """
+-        opts = self.opts.derive(**kwargs)
++        url = _to_utf8(url)
++        opts = (opts or self.opts).derive(**kwargs)
+         if DEBUG: DEBUG.debug('combined options: %s' % repr(opts))
+         (url,parts) = opts.urlparser.parse(url, opts) 
++        opts.find_proxy(url, parts[0])
+         if limit is not None:
+             limit = limit + 1
+             
+@@ -1000,12 +1182,8 @@ class URLGrabber:
+                 else: s = fo.read(limit)
+ 
+                 if not opts.checkfunc is None:
+-                    cb_func, cb_args, cb_kwargs = \
+-                             self._make_callback(opts.checkfunc)
+-                    obj = CallbackObject()
+-                    obj.data = s
+-                    obj.url = url
+-                    apply(cb_func, (obj, )+cb_args, cb_kwargs)
++                    obj = CallbackObject(data=s, url=url)
++                    _run_callback(opts.checkfunc, obj)
+             finally:
+                 fo.close()
+             return s
+@@ -1020,6 +1198,7 @@ class URLGrabber:
+         return s
+         
+     def _make_callback(self, callback_obj):
++        # not used, left for compatibility
+         if callable(callback_obj):
+             return callback_obj, (), {}
+         else:
+@@ -1030,7 +1209,7 @@ class URLGrabber:
+ default_grabber = URLGrabber()
+ 
+ 
+-class PyCurlFileObject():
++class PyCurlFileObject(object):
+     def __init__(self, url, filename, opts):
+         self.fo = None
+         self._hdr_dump = ''
+@@ -1052,10 +1231,13 @@ class PyCurlFileObject():
+         self._reget_length = 0
+         self._prog_running = False
+         self._error = (None, None)
+-        self.size = None
++        self.size = 0
++        self._hdr_ended = False
++        self._tm_first = None
++        self._tm_last = None
+         self._do_open()
+         
+-        
++
+     def __getattr__(self, name):
+         """This effectively allows us to wrap at the instance level.
+         Any attribute not found in _this_ object will be searched for
+@@ -1067,6 +1249,12 @@ class PyCurlFileObject():
+ 
+     def _retrieve(self, buf):
+         try:
++            tm = self._amount_read + len(buf), time.time()
++            if self._tm_first is None:
++                self._tm_first = tm
++            else:
++                self._tm_last = tm
++
+             if not self._prog_running:
+                 if self.opts.progress_obj:
+                     size  = self.size + self._reget_length
+@@ -1079,15 +1267,24 @@ class PyCurlFileObject():
+                     self.opts.progress_obj.update(self._amount_read)
+ 
+             self._amount_read += len(buf)
+-            self.fo.write(buf)
++            try:
++                self.fo.write(buf)
++            except IOError, e:
++                self._cb_error = URLGrabError(16, exception2msg(e))
++                return -1
+             return len(buf)
+         except KeyboardInterrupt:
+             return -1
+             
+     def _hdr_retrieve(self, buf):
++        if self._hdr_ended:
++            self._hdr_dump = ''
++            self.size = 0
++            self._hdr_ended = False
++
+         if self._over_max_size(cur=len(self._hdr_dump), 
+                                max_size=self.opts.max_header_size):
+-            return -1            
++            return -1
+         try:
+             self._hdr_dump += buf
+             # we have to get the size before we do the progress obj start
+@@ -1104,7 +1301,17 @@ class PyCurlFileObject():
+                     s = parse150(buf)
+                 if s:
+                     self.size = int(s)
+-            
++                    
++            if buf.lower().find('location') != -1:
++                location = ':'.join(buf.split(':')[1:])
++                location = location.strip()
++                self.scheme = urlparse.urlsplit(location)[0]
++                self.url = location
++                
++            if len(self._hdr_dump) != 0 and buf == '\r\n':
++                self._hdr_ended = True
++                if DEBUG: DEBUG.debug('header ended:')
++                
+             return len(buf)
+         except KeyboardInterrupt:
+             return pycurl.READFUNC_ABORT
+@@ -1113,8 +1320,10 @@ class PyCurlFileObject():
+         if self._parsed_hdr:
+             return self._parsed_hdr
+         statusend = self._hdr_dump.find('\n')
++        statusend += 1 # ridiculous as it may seem.
+         hdrfp = StringIO()
+         hdrfp.write(self._hdr_dump[statusend:])
++        hdrfp.seek(0)
+         self._parsed_hdr =  mimetools.Message(hdrfp)
+         return self._parsed_hdr
+     
+@@ -1127,6 +1336,9 @@ class PyCurlFileObject():
+         if not opts:
+             opts = self.opts
+ 
++        # keepalives
++        if not opts.keepalive:
++            self.curl_obj.setopt(pycurl.FORBID_REUSE, 1)
+ 
+         # defaults we're always going to set
+         self.curl_obj.setopt(pycurl.NOPROGRESS, False)
+@@ -1136,11 +1348,21 @@ class PyCurlFileObject():
+         self.curl_obj.setopt(pycurl.PROGRESSFUNCTION, self._progress_update)
+         self.curl_obj.setopt(pycurl.FAILONERROR, True)
+         self.curl_obj.setopt(pycurl.OPT_FILETIME, True)
++        self.curl_obj.setopt(pycurl.FOLLOWLOCATION, True)
+         
+-        if DEBUG:
++        if DEBUG and DEBUG.level <= 10:
+             self.curl_obj.setopt(pycurl.VERBOSE, True)
+         if opts.user_agent:
+             self.curl_obj.setopt(pycurl.USERAGENT, opts.user_agent)
++        if opts.ip_resolve:
++            # Default is: IPRESOLVE_WHATEVER
++            ipr = opts.ip_resolve.lower()
++            if ipr == 'whatever': # Do we need this?
++                self.curl_obj.setopt(pycurl.IPRESOLVE,pycurl.IPRESOLVE_WHATEVER)
++            if ipr == 'ipv4':
++                self.curl_obj.setopt(pycurl.IPRESOLVE, pycurl.IPRESOLVE_V4)
++            if ipr == 'ipv6':
++                self.curl_obj.setopt(pycurl.IPRESOLVE, pycurl.IPRESOLVE_V6)
+         
+         # maybe to be options later
+         self.curl_obj.setopt(pycurl.FOLLOWLOCATION, True)
+@@ -1148,9 +1370,11 @@ class PyCurlFileObject():
+         
+         # timeouts
+         timeout = 300
+-        if opts.timeout:
+-            timeout = int(opts.timeout)
+-            self.curl_obj.setopt(pycurl.CONNECTTIMEOUT, timeout)
++        if hasattr(opts, 'timeout'):
++            timeout = int(opts.timeout or 0)
++        self.curl_obj.setopt(pycurl.CONNECTTIMEOUT, timeout)
++        self.curl_obj.setopt(pycurl.LOW_SPEED_LIMIT, 1000)
++        self.curl_obj.setopt(pycurl.LOW_SPEED_TIME, timeout)
+ 
+         # ssl options
+         if self.scheme == 'https':
+@@ -1158,13 +1382,16 @@ class PyCurlFileObject():
+                 self.curl_obj.setopt(pycurl.CAPATH, opts.ssl_ca_cert)
+                 self.curl_obj.setopt(pycurl.CAINFO, opts.ssl_ca_cert)
+             self.curl_obj.setopt(pycurl.SSL_VERIFYPEER, opts.ssl_verify_peer)
+-            self.curl_obj.setopt(pycurl.SSL_VERIFYHOST, opts.ssl_verify_host)
++            if opts.ssl_verify_host: # 1 is meaningless to curl
++                self.curl_obj.setopt(pycurl.SSL_VERIFYHOST, 2)
+             if opts.ssl_key:
+                 self.curl_obj.setopt(pycurl.SSLKEY, opts.ssl_key)
+             if opts.ssl_key_type:
+                 self.curl_obj.setopt(pycurl.SSLKEYTYPE, opts.ssl_key_type)
+             if opts.ssl_cert:
+                 self.curl_obj.setopt(pycurl.SSLCERT, opts.ssl_cert)
++                # if we have a client side cert - turn off reuse b/c nss is odd
++                self.curl_obj.setopt(pycurl.FORBID_REUSE, 1)
+             if opts.ssl_cert_type:                
+                 self.curl_obj.setopt(pycurl.SSLCERTTYPE, opts.ssl_cert_type)
+             if opts.ssl_key_pass:
+@@ -1187,28 +1414,28 @@ class PyCurlFileObject():
+         if hasattr(opts, 'raw_throttle') and opts.raw_throttle():
+             self.curl_obj.setopt(pycurl.MAX_RECV_SPEED_LARGE, int(opts.raw_throttle()))
+             
+-        # proxy settings
+-        if opts.proxies:
+-            for (scheme, proxy) in opts.proxies.items():
+-                if self.scheme in ('ftp'): # only set the ftp proxy for ftp items
+-                    if scheme not in ('ftp'):
+-                        continue
+-                    else:
+-                        if proxy == '_none_': proxy = ""
+-                        self.curl_obj.setopt(pycurl.PROXY, proxy)
+-                elif self.scheme in ('http', 'https'):
+-                    if scheme not in ('http', 'https'):
+-                        continue
+-                    else:
+-                        if proxy == '_none_': proxy = ""
+-                        self.curl_obj.setopt(pycurl.PROXY, proxy)
+-            
+-        # FIXME username/password/auth settings
++        # proxy
++        if opts.proxy is not None:
++            self.curl_obj.setopt(pycurl.PROXY, opts.proxy)
++            auth = pycurl.HTTPAUTH_ANY
++            if pycurl.version_info()[2] < (7 << 16 | 28 << 8 | 0):
++                # BZ 769254: work around a bug in curl < 7.28.0
++                auth &= ~pycurl.HTTPAUTH_GSSNEGOTIATE
++            self.curl_obj.setopt(pycurl.PROXYAUTH, auth)
++
++        if opts.username and opts.password:
++            if self.scheme in ('http', 'https'):
++                self.curl_obj.setopt(pycurl.HTTPAUTH, pycurl.HTTPAUTH_ANY)
++
++            if opts.username and opts.password:
++                # apparently when applying them as curlopts they do not require quoting of any kind
++                userpwd = '%s:%s' % (opts.username, opts.password)
++                self.curl_obj.setopt(pycurl.USERPWD, userpwd)
+ 
+         #posts - simple - expects the fields as they are
+         if opts.data:
+             self.curl_obj.setopt(pycurl.POST, True)
+-            self.curl_obj.setopt(pycurl.POSTFIELDS, self._to_utf8(opts.data))
++            self.curl_obj.setopt(pycurl.POSTFIELDS, _to_utf8(opts.data))
+             
+         # our url
+         self.curl_obj.setopt(pycurl.URL, self.url)
+@@ -1228,39 +1455,26 @@ class PyCurlFileObject():
+             
+             code = self.http_code
+             errcode = e.args[0]
++            errurl = urllib.unquote(self.url)
++            
+             if self._error[0]:
+                 errcode = self._error[0]
+                 
+-            if errcode == 23 and code >= 200 and code < 299:
+-                err = URLGrabError(15, _('User (or something) called abort %s: %s') % (self.url, e))
+-                err.url = self.url
+-                
++            if errcode == 23 and 200 <= code <= 299:
+                 # this is probably wrong but ultimately this is what happens
+                 # we have a legit http code and a pycurl 'writer failed' code
+                 # which almost always means something aborted it from outside
+                 # since we cannot know what it is -I'm banking on it being
+                 # a ctrl-c. XXXX - if there's a way of going back two raises to 
+                 # figure out what aborted the pycurl process FIXME
+-                raise KeyboardInterrupt
++                raise getattr(self, '_cb_error', KeyboardInterrupt)
+             
+             elif errcode == 28:
+-                err = URLGrabError(12, _('Timeout on %s: %s') % (self.url, e))
+-                err.url = self.url
+-                raise err
+-            elif errcode == 35:
+-                msg = _("problem making ssl connection")
+-                err = URLGrabError(14, msg)
+-                err.url = self.url
+-                raise err
+-            elif errcode == 37:
+-                msg = _("Could not open/read %s") % (self.url)
+-                err = URLGrabError(14, msg)
+-                err.url = self.url
++                err = URLGrabError(12, _('Timeout on %s: %s') % (errurl, e))
++                err.url = errurl
+                 raise err
+                 
+             elif errcode == 42:
+-                err = URLGrabError(15, _('User (or something) called abort %s: %s') % (self.url, e))
+-                err.url = self.url
+                 # this is probably wrong but ultimately this is what happens
+                 # we have a legit http code and a pycurl 'writer failed' code
+                 # which almost always means something aborted it from outside
+@@ -1269,40 +1483,76 @@ class PyCurlFileObject():
+                 # figure out what aborted the pycurl process FIXME
+                 raise KeyboardInterrupt
+                 
+-            elif errcode == 58:
+-                msg = _("problem with the local client certificate")
+-                err = URLGrabError(14, msg)
+-                err.url = self.url
+-                raise err
++            else:
++                pyerr2str = { 5 : _("Couldn't resolve proxy"),
++                              6 : _("Couldn't resolve host"),
++                              7 : _("Couldn't connect"),
++                              8 : _("Bad reply to FTP server"),
++                              9 : _("Access denied"),
++                             11 : _("Bad reply to FTP pass"),
++                             13 : _("Bad reply to FTP pasv"),
++                             14 : _("Bad reply to FTP 227"),
++                             15 : _("Couldn't get FTP host"),
++                             17 : _("Couldn't set FTP type"),
++                             18 : _("Partial file"),
++                             19 : _("FTP RETR command failed"),
++                             22 : _("HTTP returned error"),
++                             23 : _("Write error"),
++                             25 : _("Upload failed"),
++                             26 : _("Read error"),
++                             27 : _("Out of Memory"),
++                             28 : _("Operation timed out"),
++                             30 : _("FTP PORT command failed"),
++                             31 : _("FTP REST command failed"),
++                             33 : _("Range failed"),
++                             34 : _("HTTP POST failed"),
++                             35 : _("SSL CONNECT failed"),
++                             36 : _("Couldn't resume download"),
++                             37 : _("Couldn't read file"),
++                             42 : _("Aborted by callback"),
++                             47 : _("Too many redirects"),
++                             51 : _("Peer certificate failed verification"),
++                             52 : _("Got nothing: SSL certificate expired?"),
++                             53 : _("SSL engine not found"),
++                             54 : _("SSL engine set failed"),
++                             55 : _("Network error send()"),
++                             56 : _("Network error recv()"),
++                             58 : _("Local certificate failed"),
++                             59 : _("SSL set cipher failed"),
++                             60 : _("Local CA certificate failed"),
++                             61 : _("HTTP bad transfer encoding"),
++                             63 : _("Maximum file size exceeded"),
++                             64 : _("FTP SSL failed"),
++                             67 : _("Authentication failure"),
++                             70 : _("Out of disk space on server"),
++                             73 : _("Remove file exists"),
++                              }
++                errstr = str(e.args[1]) or pyerr2str.get(errcode, '<Unknown>')
++                if code and not 200 <= code <= 299:
++                    msg = '%s Error %d - %s' % (self.scheme.upper(), code,
++                                                self.scheme in ('http', 'https')
++                                                and responses.get(code) or errstr)
++                else:
++                    msg = 'curl#%s - "%s"' % (errcode, errstr)
++                    code = errcode
+ 
+-            elif errcode == 60:
+-                msg = _("client cert cannot be verified or client cert incorrect")
+                 err = URLGrabError(14, msg)
+-                err.url = self.url
++                err.url = errurl
++                err.code = code
+                 raise err
+-            
+-            elif errcode == 63:
+-                if self._error[1]:
+-                    msg = self._error[1]
+-                else:
+-                    msg = _("Max download size exceeded on %s") % (self.url)
++
++        else:
++            if self._error[1]:
++                msg = self._error[1]
+                 err = URLGrabError(14, msg)
+-                err.url = self.url
++                err.url = urllib.unquote(self.url)
+                 raise err
+-                    
+-            elif str(e.args[1]) == '' and self.http_code != 0: # fake it until you make it
+-                msg = 'HTTP Error %s : %s ' % (self.http_code, self.url)
+-            else:
+-                msg = 'PYCURL ERROR %s - "%s"' % (errcode, str(e.args[1]))
+-                code = errcode
+-            err = URLGrabError(14, msg)
+-            err.code = code
+-            err.exception = e
+-            raise err
+ 
+     def _do_open(self):
+         self.curl_obj = _curl_cache
+-        self.curl_obj.reset() # reset all old settings away, just in case
++        # reset() clears PYCURL_ERRORBUFFER, and there's no way
++        # to reinitialize it, so better don't do that.  BZ 896025
++        #self.curl_obj.reset() # reset all old settings away, just in case
+         # setup any ranges
+         self._set_opts()
+         self._do_grab()
+@@ -1333,7 +1583,11 @@ class PyCurlFileObject():
+                 
+         if self.opts.range:
+             rt = self.opts.range
+-            if rt[0]: rt = (rt[0] + reget_length, rt[1])
++            
++            if rt[0] is None:
++                rt = (0, rt[1])
++            rt = (rt[0] + reget_length, rt[1])
++            
+ 
+         if rt:
+             header = range_tuple_to_header(rt)
+@@ -1434,21 +1688,46 @@ class PyCurlFileObject():
+             #fh, self._temp_name = mkstemp()
+             #self.fo = open(self._temp_name, 'wb')
+ 
+-            
+-        self._do_perform()
+-        
+-
+-
++        try:            
++            self._do_perform()
++        except URLGrabError, e:
++            self.fo.flush()
++            self.fo.close()
++            raise e
++    
+         if _was_filename:
+             # close it up
+             self.fo.flush()
+             self.fo.close()
++
++            # Set the URL where we got it from:
++            if xattr is not None:
++                # See: http://www.freedesktop.org/wiki/CommonExtendedAttributes
++                try:
++                    xattr.set(self.filename, 'user.xdg.origin.url', self.url)
++                except:
++                    pass # URL too long. = IOError ... ignore everything.
++
+             # set the time
+             mod_time = self.curl_obj.getinfo(pycurl.INFO_FILETIME)
+             if mod_time != -1:
+-                os.utime(self.filename, (mod_time, mod_time))
++                try:
++                    os.utime(self.filename, (mod_time, mod_time))
++                except OSError, e:
++                    err = URLGrabError(16, _(\
++                      'error setting timestamp on file %s from %s, OSError: %s') 
++                              % (self.filename, self.url, e))
++                    err.url = self.url
++                    raise err
+             # re open it
+-            self.fo = open(self.filename, 'r')
++            try:
++                self.fo = open(self.filename, 'r')
++            except IOError, e:
++                err = URLGrabError(16, _(\
++                  'error opening file from %s, IOError: %s') % (self.url, e))
++                err.url = self.url
++                raise err
++                
+         else:
+             #self.fo = open(self._temp_name, 'r')
+             self.fo.seek(0)
+@@ -1526,17 +1805,20 @@ class PyCurlFileObject():
+             if self._prog_running:
+                 downloaded += self._reget_length
+                 self.opts.progress_obj.update(downloaded)
+-        except KeyboardInterrupt:
++        except (KeyboardInterrupt, IOError):
+             return -1
+     
+     def _over_max_size(self, cur, max_size=None):
+ 
+         if not max_size:
+-            max_size = self.size
+-        if self.opts.size: # if we set an opts size use that, no matter what
+-            max_size = self.opts.size
++            if not self.opts.size:
++                max_size = self.size
++            else:
++                max_size = self.opts.size
++
+         if not max_size: return False # if we have None for all of the Max then this is dumb
+-        if cur > max_size + max_size*.10:
++
++        if cur > int(float(max_size) * 1.10):
+ 
+             msg = _("Downloaded more than max size for %s: %s > %s") \
+                         % (self.url, cur, max_size)
+@@ -1544,13 +1826,6 @@ class PyCurlFileObject():
+             return True
+         return False
+         
+-    def _to_utf8(self, obj, errors='replace'):
+-        '''convert 'unicode' to an encoded utf-8 byte string '''
+-        # stolen from yum.i18n
+-        if isinstance(obj, unicode):
+-            obj = obj.encode('utf-8', errors)
+-        return obj
+-        
+     def read(self, amt=None):
+         self._fill_buffer(amt)
+         if amt is None:
+@@ -1582,9 +1857,21 @@ class PyCurlFileObject():
+             self.opts.progress_obj.end(self._amount_read)
+         self.fo.close()
+         
+-
++    def geturl(self):
++        """ Provide the geturl() method, used to be got from
++            urllib.addinfourl, via. urllib.URLopener.* """
++        return self.url
++        
+ _curl_cache = pycurl.Curl() # make one and reuse it over and over and over
+ 
++def reset_curl_obj():
++    """To make sure curl has reread the network/dns info we force a reload"""
++    global _curl_cache
++    _curl_cache.close()
++    _curl_cache = pycurl.Curl()
++
++_libproxy_cache = None
++    
+ 
+ #####################################################################
+ # DEPRECATED FUNCTIONS
+@@ -1621,6 +1908,480 @@ def retrygrab(url, filename=None, copy_local=0, close_connection=0,
+ 
+         
+ #####################################################################
++#  Serializer + parser: A replacement of the rather bulky Json code.
++#
++# - handles basic python literals, lists and tuples.
++# - serialized strings never contain ' ' or '\n'
++#
++#####################################################################
++
++_quoter_map = {}
++for c in '%[(,)] \n':
++    _quoter_map[c] = '%%%02x' % ord(c)
++del c
++
++def _dumps(v):
++    if v is None: return 'None'
++    if v is True: return 'True'
++    if v is False: return 'False'
++    if type(v) in (int, long, float):
++        return str(v)
++    if type(v) == unicode:
++        v = v.encode('UTF8')
++    if type(v) == str:
++        def quoter(c): return _quoter_map.get(c, c)
++        return "'%s'" % ''.join(map(quoter, v))
++    if type(v) == tuple:
++        return "(%s)" % ','.join(map(_dumps, v))
++    if type(v) == list:
++        return "[%s]" % ','.join(map(_dumps, v))
++    raise TypeError, 'Can\'t serialize %s' % v
++
++def _loads(s):
++    def decode(v):
++        if v == 'None': return None
++        if v == 'True': return True
++        if v == 'False': return False
++        try: return int(v)
++        except ValueError: pass
++        try: return float(v)
++        except ValueError: pass
++        if len(v) >= 2 and v[0] == v[-1] == "'":
++            ret = []; i = 1
++            while True:
++                j = v.find('%', i)
++                ret.append(v[i:j]) # skips the final "'"
++                if j == -1: break
++                ret.append(chr(int(v[j + 1:j + 3], 16)))
++                i = j + 3
++            v = ''.join(ret)
++        return v
++    stk = None
++    l = []
++    i = j = 0
++    while True:
++        if j == len(s) or s[j] in ',)]':
++            if j > i:
++                l.append(decode(s[i:j]))
++            if j == len(s): break
++            if s[j] in ')]':
++                if s[j] == ')':
++                    l = tuple(l)
++                stk[0].append(l)
++                l, stk = stk
++            i = j = j + 1
++        elif s[j] in '[(':
++            stk = l, stk
++            l = []
++            i = j = j + 1
++        else:
++            j += 1 # safe because '[(,)]' are quoted
++    if stk: raise ValueError
++    if len(l) == 1: l = l[0]
++    return l
++
++
++#####################################################################
++#  External downloader process
++#####################################################################
++
++def _readlines(fd):
++    buf = os.read(fd, 4096)
++    if not buf: return None
++    # whole lines only, no buffering
++    while buf[-1] != '\n':
++        buf += os.read(fd, 4096)
++    return buf[:-1].split('\n')
++
++import subprocess
++
++class _ExternalDownloader:
++    def __init__(self):
++        self.popen = subprocess.Popen(
++            '/usr/libexec/urlgrabber-ext-down',
++            stdin = subprocess.PIPE,
++            stdout = subprocess.PIPE,
++        )
++        self.stdin  = self.popen.stdin.fileno()
++        self.stdout = self.popen.stdout.fileno()
++        self.running = {}
++        self.cnt = 0
++
++    # list of options we pass to downloader
++    _options = (
++        'url', 'filename',
++        'timeout', 'close_connection', 'keepalive',
++        'throttle', 'bandwidth', 'range', 'reget',
++        'user_agent', 'http_headers', 'ftp_headers',
++        'proxy', 'prefix', 'username', 'password',
++        'ssl_ca_cert',
++        'ssl_cert', 'ssl_cert_type',
++        'ssl_key', 'ssl_key_type',
++        'ssl_key_pass',
++        'ssl_verify_peer', 'ssl_verify_host',
++        'size', 'max_header_size', 'ip_resolve',
++    )
++
++    def start(self, opts):
++        arg = []
++        for k in self._options:
++            v = getattr(opts, k)
++            if v is None: continue
++            arg.append('%s=%s' % (k, _dumps(v)))
++        if opts.progress_obj and opts.multi_progress_obj:
++            arg.append('progress_obj=True')
++        arg = ' '.join(arg)
++        if DEBUG: DEBUG.info('attempt %i/%s: %s', opts.tries, opts.retry, opts.url)
++
++        self.cnt += 1
++        self.running[self.cnt] = opts
++        os.write(self.stdin, arg +'\n')
++
++    def perform(self):
++        ret = []
++        lines = _readlines(self.stdout)
++        if not lines:
++            if DEBUG: DEBUG.info('downloader died')
++            raise KeyboardInterrupt
++        for line in lines:
++            # parse downloader output
++            line = line.split(' ', 5)
++            _id, size = map(int, line[:2])
++            if len(line) == 2:
++                self.running[_id]._progress.update(size)
++                continue
++            # job done
++            opts = self.running.pop(_id)
++            if line[4] == 'OK':
++                ug_err = None
++                if DEBUG: DEBUG.info('success')
++            else:
++                ug_err = URLGrabError(int(line[4]), line[5])
++                if DEBUG: DEBUG.info('failure: %s', ug_err)
++            _TH.update(opts.url, int(line[2]), float(line[3]), ug_err, opts.async[0])
++            ret.append((opts, size, ug_err))
++        return ret
++
++    def abort(self):
++        self.popen.stdin.close()
++        self.popen.stdout.close()
++        self.popen.wait()
++
++class _ExternalDownloaderPool:
++    def __init__(self):
++        self.epoll = select.epoll()
++        self.running = {}
++        self.cache = {}
++
++    def start(self, opts):
++        host = urlparse.urlsplit(opts.url).netloc
++        dl = self.cache.pop(host, None)
++        if not dl:
++            dl = _ExternalDownloader()
++            fl = fcntl.fcntl(dl.stdin, fcntl.F_GETFD)
++            fcntl.fcntl(dl.stdin, fcntl.F_SETFD, fl | fcntl.FD_CLOEXEC)
++        self.epoll.register(dl.stdout, select.EPOLLIN)
++        self.running[dl.stdout] = dl
++        dl.start(opts)
++
++    def perform(self):
++        ret = []
++        for fd, event in self.epoll.poll():
++            if event & select.EPOLLHUP:
++                if DEBUG: DEBUG.info('downloader died')
++                raise KeyboardInterrupt
++            assert event & select.EPOLLIN
++            done = self.running[fd].perform()
++            if not done: continue
++            assert len(done) == 1
++            ret.extend(done)
++
++            # dl finished, move it to the cache
++            host = urlparse.urlsplit(done[0][0].url).netloc
++            if host in self.cache: self.cache[host].abort()
++            self.epoll.unregister(fd)
++            self.cache[host] = self.running.pop(fd)
++        return ret
++
++    def abort(self):
++        for dl in self.running.values():
++            self.epoll.unregister(dl.stdout)
++            dl.abort()
++        for dl in self.cache.values():
++            dl.abort()
++
++
++#####################################################################
++#  High level async API
++#####################################################################
++
++_async_queue = []
++
++def parallel_wait(meter=None):
++    '''Process queued requests in parallel.
++    '''
++
++    # calculate total sizes
++    meters = {}
++    for opts in _async_queue:
++        if opts.progress_obj and opts.multi_progress_obj:
++            count, total = meters.get(opts.multi_progress_obj) or (0, 0)
++            meters[opts.multi_progress_obj] = count + 1, total + opts.size
++
++    # start multi-file meters
++    for meter in meters:
++        count, total = meters[meter]
++        meter.start(count, total)
++
++    dl = _ExternalDownloaderPool()
++    host_con = {} # current host connection counts
++
++    def start(opts, tries):
++        opts.tries = tries
++        try:
++            dl.start(opts)
++        except OSError, e:
++            # can't spawn downloader, give up immediately
++            opts.exception = URLGrabError(5, exception2msg(e))
++            _run_callback(opts.failfunc, opts)
++            return
++
++        key, limit = opts.async
++        host_con[key] = host_con.get(key, 0) + 1
++        if opts.progress_obj:
++            if opts.multi_progress_obj:
++                opts._progress = opts.multi_progress_obj.newMeter()
++                opts._progress.start(text=opts.text)
++            else:
++                opts._progress = time.time() # no updates
++
++    def perform():
++        for opts, size, ug_err in dl.perform():
++            key, limit = opts.async
++            host_con[key] -= 1
++
++            if ug_err is None:
++                if opts.checkfunc:
++                    try: _run_callback(opts.checkfunc, opts)
++                    except URLGrabError, ug_err: pass
++
++            if opts.progress_obj:
++                if opts.multi_progress_obj:
++                    if ug_err:
++                        opts._progress.failure(None)
++                    else:
++                        opts.multi_progress_obj.re.total += size - opts.size # correct totals
++                        opts._progress.end(size)
++                    opts.multi_progress_obj.removeMeter(opts._progress)
++                else:
++                    opts.progress_obj.start(text=opts.text, now=opts._progress)
++                    opts.progress_obj.update(size)
++                    opts.progress_obj.end(size)
++                del opts._progress
++
++            if ug_err is None:
++                continue
++
++            retry = opts.retry or 0
++            if opts.failure_callback:
++                opts.exception = ug_err
++                try: _run_callback(opts.failure_callback, opts)
++                except URLGrabError, ug_err:
++                    retry = 0 # no retries
++            if opts.tries < retry and ug_err.errno in opts.retrycodes:
++                start(opts, opts.tries + 1) # simple retry
++                continue
++
++            if opts.mirror_group:
++                mg, errors, failed, removed = opts.mirror_group
++                errors.append((opts.url, exception2msg(ug_err)))
++                failed[key] = failed.get(key, 0) + 1
++                opts.mirror = key
++                opts.exception = ug_err
++                action = mg.default_action or {}
++                if mg.failure_callback:
++                    opts.tries = len(errors)
++                    action = dict(action) # update only the copy
++                    action.update(_run_callback(mg.failure_callback, opts))
++                if not action.get('fail', 0):
++                    # mask this mirror and retry
++                    if action.get('remove', 1):
++                        removed.add(key)
++                    _async_queue.append(opts)
++                    continue
++                # fail=1 from callback
++                ug_err.errors = errors
++
++            # urlgrab failed
++            opts.exception = ug_err
++            _run_callback(opts.failfunc, opts)
++
++    try:
++        idx = 0
++        while True:
++            if idx >= len(_async_queue):
++                # the queue is empty
++                if not dl.running: break
++                # pending dl may extend it
++                perform()
++                continue
++
++            # handle next request
++            opts = _async_queue[idx]
++            idx += 1
++
++            # check global limit
++            while len(dl.running) >= default_grabber.opts.max_connections:
++                perform()
++            if DEBUG:
++                DEBUG.info('max_connections: %d/%d', len(dl.running), default_grabber.opts.max_connections)
++
++            if opts.mirror_group:
++                mg, errors, failed, removed = opts.mirror_group
++
++                # find the best mirror
++                best = None
++                best_speed = None
++                for mirror in mg.mirrors:
++                    key = mirror['mirror']
++                    if key in removed: continue
++
++                    # estimate mirror speed
++                    speed, fail = _TH.estimate(key)
++                    speed /= 1 + host_con.get(key, 0)
++
++                    # order by: least failures, private flag, best speed
++                    # ignore 'private' flag if there were failures
++                    private = not fail and mirror.get('kwargs', {}).get('private', False)
++                    speed = -failed.get(key, 0), private, speed
++                    if best is None or speed > best_speed:
++                        best = mirror
++                        best_speed = speed
++
++                if best is None:
++                    opts.exception = URLGrabError(256, _('No more mirrors to try.'))
++                    opts.exception.errors = errors
++                    _run_callback(opts.failfunc, opts)
++                    continue
++
++                # update the grabber object, apply mirror kwargs
++                grabber = best.get('grabber') or mg.grabber
++                opts.delegate = grabber.opts.derive(**best.get('kwargs', {}))
++
++                # update the current mirror and limit
++                key = best['mirror']
++                limit = best.get('kwargs', {}).get('max_connections', 2)
++                opts.async = key, limit
++
++                # update URL and proxy
++                url = mg._join_url(key, opts.relative_url)
++                url, parts = opts.urlparser.parse(url, opts)
++                opts.find_proxy(url, parts[0])
++                opts.url = url
++
++            # check host limit, then start
++            key, limit = opts.async
++            while host_con.get(key, 0) >= limit:
++                perform()
++            if DEBUG:
++                DEBUG.info('max_connections(%s): %d/%d', key, host_con.get(key, 0), limit)
++
++            start(opts, 1)
++    except IOError, e:
++        if e.errno != 4: raise
++        raise KeyboardInterrupt
++
++    finally:
++        dl.abort()
++        for meter in meters:
++            meter.end()
++        del _async_queue[:]
++        _TH.save()
++
++
++#####################################################################
++#  Host bandwidth estimation
++#####################################################################
++
++class _TH:
++    hosts = {}
++    dirty = None
++
++    @staticmethod
++    def load():
++        filename = default_grabber.opts.timedhosts
++        if filename and _TH.dirty is None:
++            try:
++                for line in open(filename):
++                    host, speed, fail, ts = line.rsplit(' ', 3)
++                    _TH.hosts[host] = int(speed), int(fail), int(ts)
++            except IOError: pass
++            _TH.dirty = False
++
++    @staticmethod
++    def save():
++        filename = default_grabber.opts.timedhosts
++        if filename and _TH.dirty is True:
++            tmp = '%s.%d' % (filename, os.getpid())
++            try:
++                f = open(tmp, 'w')
++                for host in _TH.hosts:
++                    f.write(host + ' %d %d %d\n' % _TH.hosts[host])
++                f.close()
++                os.rename(tmp, filename)
++            except IOError: pass
++            _TH.dirty = False
++
++    @staticmethod
++    def update(url, dl_size, dl_time, ug_err, baseurl=None):
++        # Use hostname from URL.  If it's a file:// URL, use baseurl.
++        # If no baseurl, do not update timedhosts.
++        host = urlparse.urlsplit(url).netloc.split('@')[-1] or baseurl
++        if not host: return
++
++        _TH.load()
++        speed, fail, ts = _TH.hosts.get(host) or (0, 0, 0)
++        now = time.time()
++
++        if ug_err is None:
++            # defer first update if the file was small.  BZ 851178.
++            if not ts and dl_size < 1e6: return
++            # clamp timestamps from the future.  BZ 894630.
++            if ts > now: ts = now
++
++            # k1: the older, the less useful
++            # k2: <500ms readings are less reliable
++            # speeds vary, use 10:1 smoothing
++            k1 = 2**((ts - now) / default_grabber.opts.half_life)
++            k2 = min(dl_time / .500, 1.0) / 10
++            if k2 > 0:
++                speed = (k1 * speed + k2 * dl_size / dl_time) / (k1 + k2)
++            fail = 0
++        elif getattr(ug_err, 'code', None) == 404:
++            fail = 0 # alive, at least
++        else:
++            fail += 1 # seems dead
++
++        _TH.hosts[host] = speed, fail, now
++        _TH.dirty = True
++
++    @staticmethod
++    def estimate(baseurl):
++        _TH.load()
++
++        # Use just the hostname, unless it's a file:// baseurl.
++        host = urlparse.urlsplit(baseurl).netloc.split('@')[-1] or baseurl
++
++        default_speed = default_grabber.opts.default_speed
++        try: speed, fail, ts = _TH.hosts[host]
++        except KeyError: return default_speed, 0
++
++        speed *= 2**-fail
++        k = 2**((ts - time.time()) / default_grabber.opts.half_life)
++        speed = k * speed + (1 - k) * default_speed
++        return speed, fail
++
++#####################################################################
+ #  TESTING
+ def _main_test():
+     try: url, filename = sys.argv[1:3]
+diff --git a/urlgrabber/mirror.py b/urlgrabber/mirror.py
+index dad410b..7975f1b 100644
+--- a/urlgrabber/mirror.py
++++ b/urlgrabber/mirror.py
+@@ -76,6 +76,9 @@ CUSTOMIZATION
+        'grabber' is omitted, the default grabber will be used.  If
+        kwargs are omitted, then (duh) they will not be used.
+ 
++       kwarg 'max_connections' limits the number of concurrent
++       connections to this mirror.
++
+     3) Pass keyword arguments when instantiating the mirror group.
+        See, for example, the failure_callback argument.
+ 
+@@ -87,10 +90,14 @@ CUSTOMIZATION
+ """
+ 
+ 
++import sys
+ import random
+ import thread  # needed for locking to make this threadsafe
+ 
+-from grabber import URLGrabError, CallbackObject, DEBUG
++from grabber import URLGrabError, CallbackObject, DEBUG, _to_utf8
++from grabber import _run_callback, _do_raise
++from grabber import exception2msg
++from grabber import _TH
+ 
+ def _(st): 
+     return st
+@@ -126,7 +133,9 @@ class MirrorGroup:
+         files)
+ 
+       * if the local list is ever exhausted, a URLGrabError will be
+-        raised (errno=256, no more mirrors)
++        raised (errno=256, No more mirrors).  The 'errors' attribute
++        holds a list of (full_url, errmsg) tuples.  This contains
++        all URLs tried and the corresponding error messages.
+ 
+     OPTIONS
+ 
+@@ -153,7 +162,8 @@ class MirrorGroup:
+ 
+         The 'fail' option will cause immediate failure by re-raising
+         the exception and no further attempts to get the current
+-        download.
++        download.  As in the "No more mirrors" case, the 'errors'
++        attribute is set in the exception object.
+ 
+         This dict can be set at instantiation time,
+           mg = MirrorGroup(grabber, mirrors, default_action={'fail':1})
+@@ -184,6 +194,7 @@ class MirrorGroup:
+ 
+            obj.exception    = < exception that was raised >
+            obj.mirror       = < the mirror that was tried >
++           obj.tries        = < the number of mirror tries so far >
+            obj.relative_url = < url relative to the mirror >
+            obj.url          = < full url that failed >
+                               # .url is just the combination of .mirror
+@@ -251,6 +262,17 @@ class MirrorGroup:
+         self.default_action = None
+         self._process_kwargs(kwargs)
+ 
++        # use the same algorithm as parallel downloader to initially sort
++        # the mirror list (sort by speed, but prefer live private mirrors)
++        def estimate(m):
++            speed, fail = _TH.estimate(m['mirror'])
++            private = not fail and m.get('kwargs', {}).get('private', False)
++            return private, speed
++
++        # update the initial order.  since sorting is stable, the relative
++        # order of unknown (not used yet) hosts is retained.
++        self.mirrors.sort(key=estimate, reverse=True)
++
+     # if these values are found in **kwargs passed to one of the urlXXX
+     # methods, they will be stripped before getting passed on to the
+     # grabber
+@@ -263,7 +285,8 @@ class MirrorGroup:
+     def _parse_mirrors(self, mirrors):
+         parsed_mirrors = []
+         for m in mirrors:
+-            if type(m) == type(''): m = {'mirror': m}
++            if isinstance(m, basestring):
++                m = {'mirror': _to_utf8(m)}
+             parsed_mirrors.append(m)
+         return parsed_mirrors
+     
+@@ -280,7 +303,9 @@ class MirrorGroup:
+         #   return a random mirror so that multiple mirrors get used
+         #   even without failures.
+         if not gr.mirrors:
+-            raise URLGrabError(256, _('No more mirrors to try.'))
++            e = URLGrabError(256, _('No more mirrors to try.'))
++            e.errors = gr.errors
++            raise e
+         return gr.mirrors[gr._next]
+ 
+     def _failure(self, gr, cb_obj):
+@@ -307,7 +332,9 @@ class MirrorGroup:
+         a.update(action)
+         action = a
+         self.increment_mirror(gr, action)
+-        if action and action.get('fail', 0): raise
++        if action and action.get('fail', 0):
++            sys.exc_info()[1].errors = gr.errors
++            raise
+ 
+     def increment_mirror(self, gr, action={}):
+         """Tell the mirror object increment the mirror index
+@@ -377,35 +404,50 @@ class MirrorGroup:
+         gr.url  = url
+         gr.kw   = dict(kw)
+         self._load_gr(gr)
++        gr.errors = []
+ 
+         for k in self.options:
+             try: del kw[k]
+             except KeyError: pass
+ 
++        tries = 0
+         while 1:
++            tries += 1
+             mirrorchoice = self._get_mirror(gr)
+             fullurl = self._join_url(mirrorchoice['mirror'], gr.url)
+-            kwargs = dict(mirrorchoice.get('kwargs', {}))
+-            kwargs.update(kw)
+             grabber = mirrorchoice.get('grabber') or self.grabber
++            # apply mirrorchoice kwargs on top of grabber.opts
++            opts = grabber.opts.derive(**mirrorchoice.get('kwargs', {}))
+             func_ref = getattr(grabber, func)
+             if DEBUG: DEBUG.info('MIRROR: trying %s -> %s', url, fullurl)
+             try:
+-                return func_ref( *(fullurl,), **kwargs )
++                return func_ref( *(fullurl,), opts=opts, **kw )
+             except URLGrabError, e:
+                 if DEBUG: DEBUG.info('MIRROR: failed')
++                gr.errors.append((fullurl, exception2msg(e)))
+                 obj = CallbackObject()
+                 obj.exception = e
+                 obj.mirror = mirrorchoice['mirror']
+                 obj.relative_url = gr.url
+                 obj.url = fullurl
++                obj.tries = tries
+                 self._failure(gr, obj)
+ 
+     def urlgrab(self, url, filename=None, **kwargs):
+         kw = dict(kwargs)
+         kw['filename'] = filename
++        if kw.get('async'):
++            # enable mirror failovers in async path
++            kw['mirror_group'] = self, [], {}, set()
++            kw['relative_url'] = url
++        else:
++            kw.pop('failfunc', None)
+         func = 'urlgrab'
+-        return self._mirror_try(func, url, kw)
++        try:
++            return self._mirror_try(func, url, kw)
++        except URLGrabError, e:
++            obj = CallbackObject(url=url, filename=filename, exception=e, **kwargs)
++            return _run_callback(kwargs.get('failfunc', _do_raise), obj)
+     
+     def urlopen(self, url, **kwargs):
+         kw = dict(kwargs)
+diff --git a/urlgrabber/progress.py b/urlgrabber/progress.py
+index dd07c6a..077fd99 100644
+--- a/urlgrabber/progress.py
++++ b/urlgrabber/progress.py
+@@ -133,8 +133,8 @@ class BaseMeter:
+         # for a real gui, you probably want to override and put a call
+         # to your mainloop iteration function here
+         if now is None: now = time.time()
+-        if (now >= self.last_update_time + self.update_period) or \
+-               not self.last_update_time:
++        if (not self.last_update_time or
++            (now >= self.last_update_time + self.update_period)):
+             self.re.update(amount_read, now)
+             self.last_amount_read = amount_read
+             self.last_update_time = now
+@@ -211,6 +211,21 @@ def text_meter_total_size(size, downloaded=0):
+ #        4. +                     ( 5, total: 32)
+ #
+ 
++def _term_add_bar(tl, bar_max_length, pc):
++    blen = bar_max_length
++    bar  = '='*int(blen * pc)
++    if (blen * pc) - int(blen * pc) >= 0.5:
++        bar += '-'
++    return tl.add(' [%-*.*s]' % (blen, blen, bar))
++
++def _term_add_end(tl, osize, size):
++    if osize is not None:
++        if size > osize: # Is ??? better? Really need something to say < vs >.
++            return tl.add(' !!! '), True
++        elif size != osize:
++            return tl.add(' ... '), True
++    return tl.add(' ' * 5), False
++
+ class TextMeter(BaseMeter):
+     def __init__(self, fo=sys.stderr):
+         BaseMeter.__init__(self)
+@@ -218,7 +233,6 @@ class TextMeter(BaseMeter):
+ 
+     def _do_update(self, amount_read, now=None):
+         etime = self.re.elapsed_time()
+-        fetime = format_time(etime)
+         fread = format_number(amount_read)
+         #self.size = None
+         if self.text is not None:
+@@ -234,16 +248,20 @@ class TextMeter(BaseMeter):
+ 
+         # Include text + ui_rate in minimal
+         tl = TerminalLine(8, 8+1+8)
++        if tl._llen > 80:
++            use_hours = True # For big screens, make it more readable.
++        else:
++            use_hours = False
+         ui_size = tl.add(' | %5sB' % fread)
+         if self.size is None:
+-            ui_time = tl.add(' %9s' % fetime)
++            ui_time = tl.add(' %9s' % format_time(etime, use_hours))
+             ui_end  = tl.add(' ' * 5)
+             ui_rate = tl.add(' %5sB/s' % ave_dl)
+             out = '%-*.*s%s%s%s%s\r' % (tl.rest(), tl.rest(), text,
+                                         ui_rate, ui_size, ui_time, ui_end)
+         else:
+             rtime = self.re.remaining_time()
+-            frtime = format_time(rtime)
++            frtime = format_time(rtime, use_hours)
+             frac = self.re.fraction_read()
+ 
+             ui_time = tl.add(' %9s' % frtime)
+@@ -259,13 +277,10 @@ class TextMeter(BaseMeter):
+             ui_rate = tl.add(' %5sB/s' % ave_dl)
+             # Make text grow a bit before we start growing the bar too
+             blen = 4 + tl.rest_split(8 + 8 + 4)
+-            bar  = '='*int(blen * frac)
+-            if (blen * frac) - int(blen * frac) >= 0.5:
+-                bar += '-'
+-            ui_bar  = tl.add(' [%-*.*s]' % (blen, blen, bar))
+-            out = '%-*.*s%s%s%s%s%s%s%s\r' % (tl.rest(), tl.rest(), text,
+-                                              ui_sofar_pc, ui_pc, ui_bar,
+-                                              ui_rate, ui_size, ui_time, ui_end)
++            ui_bar = _term_add_bar(tl, blen, frac)
++            out = '\r%-*.*s%s%s%s%s%s%s%s\r' % (tl.rest(), tl.rest(), text,
++                                                ui_sofar_pc, ui_pc, ui_bar,
++                                                ui_rate,ui_size,ui_time, ui_end)
+ 
+         self.fo.write(out)
+         self.fo.flush()
+@@ -274,7 +289,6 @@ class TextMeter(BaseMeter):
+         global _text_meter_total_size
+         global _text_meter_sofar_size
+ 
+-        total_time = format_time(self.re.elapsed_time())
+         total_size = format_number(amount_read)
+         if self.text is not None:
+             text = self.text
+@@ -282,14 +296,13 @@ class TextMeter(BaseMeter):
+             text = self.basename
+ 
+         tl = TerminalLine(8)
+-        ui_size = tl.add(' | %5sB' % total_size)
+-        ui_time = tl.add(' %9s' % total_time)
+-        not_done = self.size is not None and amount_read != self.size
+-        if not_done:
+-            ui_end  = tl.add(' ... ')
++        if tl._llen > 80:
++            use_hours = True # For big screens, make it more readable.
+         else:
+-            ui_end  = tl.add(' ' * 5)
+-
++            use_hours = False
++        ui_size = tl.add(' | %5sB' % total_size)
++        ui_time = tl.add(' %9s' % format_time(self.re.elapsed_time(),use_hours))
++        ui_end, not_done = _term_add_end(tl, self.size, amount_read)
+         out = '\r%-*.*s%s%s%s\n' % (tl.rest(), tl.rest(), text,
+                                     ui_size, ui_time, ui_end)
+         self.fo.write(out)
+@@ -331,12 +344,21 @@ class MultiFileHelper(BaseMeter):
+     def message(self, message):
+         self.master.message_meter(self, message)
+ 
++class _FakeLock:
++    def acquire(self):
++        pass
++    def release(self):
++        pass
++
+ class MultiFileMeter:
+     helperclass = MultiFileHelper
+-    def __init__(self):
++    def __init__(self, threaded=True):
+         self.meters = []
+         self.in_progress_meters = []
+-        self._lock = thread.allocate_lock()
++        if threaded:
++            self._lock = thread.allocate_lock()
++        else:
++            self._lock = _FakeLock()
+         self.update_period = 0.3 # seconds
+         
+         self.numfiles         = None
+@@ -369,6 +391,7 @@ class MultiFileMeter:
+ 
+     def end(self, now=None):
+         if now is None: now = time.time()
++        self.re.update(self._amount_read(), now)
+         self._do_end(now)
+         
+     def _do_end(self, now):
+@@ -407,8 +430,8 @@ class MultiFileMeter:
+     def update_meter(self, meter, now):
+         if not meter in self.meters:
+             raise ValueError('attempt to use orphaned meter')
+-        if (now >= self.last_update_time + self.update_period) or \
+-               not self.last_update_time:
++        if (not self.last_update_time or
++            (now >= self.last_update_time + self.update_period)):
+             self.re.update(self._amount_read(), now)
+             self.last_update_time = now
+             self._do_update_meter(meter, now)
+@@ -466,34 +489,87 @@ class MultiFileMeter:
+ 
+ 
+ class TextMultiFileMeter(MultiFileMeter):
+-    def __init__(self, fo=sys.stderr):
++    def __init__(self, fo=sys.stderr, threaded=True):
+         self.fo = fo
+-        MultiFileMeter.__init__(self)
++        MultiFileMeter.__init__(self, threaded)
++        self.index_time = self.index = 0
+ 
+     # files: ###/### ###%  data: ######/###### ###%  time: ##:##:##/##:##:##
++# New output, like TextMeter output...
++#       update: No size (minimal: 17 chars)
++#       -----------------------------------
++# (<#file>/<#tot files>): <text>            <rate> | <current size> <elapsed>
++#                          8-48            1    8  3             6 1      7-9 5
++#
++#       update: Size, All files
++#       -----------------------
++# (<#file>/<#tot files>): <text> <pc> <bar> <rate> | <size> <eta time> ETA
++#                          8-22 1 3-4 1 6-12 1   8 3     6 1       7-9 1  3 1
++#       end
++#       ---
++# <text>                                 | <file size> <file elapsed time> 
++#  8-56                                  3          6 1                 9 5
+     def _do_update_meter(self, meter, now):
+         self._lock.acquire()
+         try:
+-            format = "files: %3i/%-3i %3i%%   data: %6.6s/%-6.6s %3i%%   " \
+-                     "time: %8.8s/%8.8s"
+             df = self.finished_files
+             tf = self.numfiles or 1
+-            pf = 100 * float(df)/tf + 0.49
++            # Don't use "percent of files complete" ...
++            # pf = 100 * float(df)/tf + 0.49
+             dd = self.re.last_amount_read
+-            td = self.total_size
++            td = self.re.total
+             pd = 100 * (self.re.fraction_read() or 0) + 0.49
+             dt = self.re.elapsed_time()
+             rt = self.re.remaining_time()
+-            if rt is None: tt = None
+-            else: tt = dt + rt
+ 
+-            fdd = format_number(dd) + 'B'
+-            ftd = format_number(td) + 'B'
+-            fdt = format_time(dt, 1)
+-            ftt = format_time(tt, 1)
+-            
+-            out = '%-79.79s' % (format % (df, tf, pf, fdd, ftd, pd, fdt, ftt))
+-            self.fo.write('\r' + out)
++            frac = self.re.fraction_read() or 0
++            pf   = 100 * frac
++            ave_dl = format_number(self.re.average_rate())
++
++            # cycle through active meters
++            if now > self.index_time:
++                self.index_time = now + 1.0
++                self.index += 1
++            if self.index >= len(self.meters):
++                self.index = 0
++            meter = self.meters[self.index]
++            text = meter.text or meter.basename
++            if tf > 1:
++                text = '(%u/%u): %s' % (df+1+self.index, tf, text)
++
++            # Include text + ui_rate in minimal
++            tl = TerminalLine(8, 8+1+8)
++            if tl._llen > 80:
++                use_hours = True # For big screens, make it more readable.
++                time_len  = 9
++            else:
++                use_hours = False
++                time_len  = 7
++
++            ui_size = tl.add(' | %5sB' % format_number(dd))
++
++            if not self.re.total:
++                ui_time = tl.add(' %*s' % (time_len,format_time(dt, use_hours)))
++                ui_end  = tl.add(' ' * 5)
++                ui_rate = tl.add(' %5sB/s' % ave_dl)
++                out = '\r%-*.*s%s%s%s%s\r' % (tl.rest(), tl.rest(), text,
++                                              ui_rate, ui_size, ui_time, ui_end)
++            else:
++                ui_time = tl.add(' %*s' % (time_len,format_time(rt, use_hours)))
++                ui_end  = tl.add(' ETA ')
++
++                ui_sofar_pc = tl.add(' %i%%' % pf,
++                                     full_len=len(" (100%)"))
++                ui_rate = tl.add(' %5sB/s' % ave_dl)
++
++                # Make text grow a bit before we start growing the bar too
++                blen = 4 + tl.rest_split(8 + 8 + 4)
++                ui_bar = _term_add_bar(tl, blen, frac)
++                out = '\r%-*.*s%s%s%s%s%s%s\r' % (tl.rest(), tl.rest(), text,
++                                                  ui_sofar_pc, ui_bar,
++                                                  ui_rate, ui_size, ui_time,
++                                                  ui_end)
++            self.fo.write(out)
+             self.fo.flush()
+         finally:
+             self._lock.release()
+@@ -502,24 +578,40 @@ class TextMultiFileMeter(MultiFileMeter):
+         self._lock.acquire()
+         try:
+             format = "%-30.30s %6.6s    %8.8s    %9.9s"
+-            fn = meter.basename
++            fn = meter.text or meter.basename
+             size = meter.last_amount_read
+             fsize = format_number(size) + 'B'
+             et = meter.re.elapsed_time()
+-            fet = format_time(et, 1)
+-            frate = format_number(size / et) + 'B/s'
+-            
+-            out = '%-79.79s' % (format % (fn, fsize, fet, frate))
+-            self.fo.write('\r' + out + '\n')
++            frate = format_number(et and size / et) + 'B/s'
++            df = self.finished_files
++            tf = self.numfiles or 1
++
++            total_size = format_number(size)
++            text = meter.text or meter.basename
++            if tf > 1:
++                text = '(%u/%u): %s' % (df, tf, text)
++
++            tl = TerminalLine(8)
++            if tl._llen > 80:
++                use_hours = True # For big screens, make it more readable.
++                time_len  = 9
++            else:
++                use_hours = False
++                time_len  = 7
++            ui_size = tl.add(' | %5sB' % total_size)
++            ui_time = tl.add(' %*s' % (time_len, format_time(et, use_hours)))
++            ui_end, not_done = _term_add_end(tl, meter.size, size)
++            out = '\r%-*.*s%s%s%s\n' % (tl.rest(), tl.rest(), text,
++                                        ui_size, ui_time, ui_end)
++            self.fo.write(out)
+         finally:
+             self._lock.release()
+-        self._do_update_meter(meter, now)
+ 
+     def _do_failure_meter(self, meter, message, now):
+         self._lock.acquire()
+         try:
+             format = "%-30.30s %6.6s %s"
+-            fn = meter.basename
++            fn = meter.text or meter.basename
+             if type(message) in (type(''), type(u'')):
+                 message = message.splitlines()
+             if not message: message = ['']
+@@ -536,15 +628,6 @@ class TextMultiFileMeter(MultiFileMeter):
+             pass
+         finally:
+             self._lock.release()
+-
+-    def _do_end(self, now):
+-        self._do_update_meter(None, now)
+-        self._lock.acquire()
+-        try:
+-            self.fo.write('\n')
+-            self.fo.flush()
+-        finally:
+-            self._lock.release()
+         
+ ######################################################################
+ # support classes and functions
+@@ -658,6 +741,8 @@ def format_time(seconds, use_hours=0):
+     if seconds is None or seconds < 0:
+         if use_hours: return '--:--:--'
+         else:         return '--:--'
++    elif seconds == float('inf'):
++        return 'Infinite'
+     else:
+         seconds = int(seconds)
+         minutes = seconds / 60
+@@ -722,9 +807,77 @@ def _tst(fn, cur, tot, beg, size, *args):
+             time.sleep(delay)
+     tm.end(size)
+ 
++def _mtst(datas, *args):
++    print '-' * 79
++    tm = TextMultiFileMeter(threaded=False)
++
++    dl_sizes = {}
++
++    num = 0
++    total_size = 0
++    dl_total_size = 0
++    for data in datas:
++        dl_size = None
++        if len(data) == 2:
++            fn, size = data
++            dl_size = size
++        if len(data) == 3:
++            fn, size, dl_size = data
++        nm = tm.newMeter()
++        nm.start(fn, "http://www.example.com/path/to/fn/" + fn, fn, size,
++                 text=fn)
++        num += 1
++        assert dl_size is not None
++        dl_total_size += dl_size
++        dl_sizes[nm] = dl_size
++        if size is None or total_size is None:
++            total_size = None
++        else:
++            total_size += size
++    tm.start(num, total_size)
++
++    num = 0
++    off = 0
++    for (inc, delay) in args:
++        off += 1
++        while num < ((dl_total_size * off) / len(args)):
++            num += inc
++            for nm in tm.meters[:]:
++                if dl_sizes[nm] <= num:
++                    nm.end(dl_sizes[nm])
++                    tm.removeMeter(nm)
++                else:
++                    nm.update(num)
++            time.sleep(delay)
++    assert not tm.meters
++
+ if __name__ == "__main__":
+     # (1/2): subversion-1.4.4-7.x86_64.rpm               2.4 MB /  85 kB/s    00:28     
+     # (2/2): mercurial-0.9.5-6.fc8.x86_64.rpm            924 kB / 106 kB/s    00:08     
++    if len(sys.argv) >= 2 and sys.argv[1] == 'multi':
++        _mtst((("sm-1.0.0-1.fc8.i386.rpm", 1000),
++               ("s-1.0.1-1.fc8.i386.rpm",  5000),
++               ("m-1.0.1-2.fc8.i386.rpm", 10000)),
++              (100, 0.33), (500, 0.25), (1000, 0.1))
++
++        _mtst((("sm-1.0.0-1.fc8.i386.rpm", 1000),
++               ("s-1.0.1-1.fc8.i386.rpm",  5000),
++               ("m-1.0.1-2.fc8.i386.rpm",  None,  10000)),
++              (100, 0.33), (500, 0.25), (1000, 0.1))
++
++        _mtst((("sm-1.0.0-1.fc8.i386.rpm", 1000),
++               ("s-1.0.1-1.fc8.i386.rpm", 2500000),
++               ("m-1.0.1-2.fc8.i386.rpm", 10000)),
++              (10, 0.2), (50, 0.1), (1000, 0.1))
++
++        _mtst((("sm-1.0.0-1.fc8.i386.rpm", 1000),
++               ("s-1.0.1-1.fc8.i386.rpm",  None, 2500000),
++               ("m-1.0.1-2.fc8.i386.rpm",  None, 10000)),
++              (10, 0.2), (50, 0.1), (1000, 0.1))
++        # (10, 0.2), (100, 0.1), (100, 0.1), (100, 0.25))
++        # (10, 0.2), (100, 0.1), (100, 0.1), (100, 0.25))
++        sys.exit(0)
++
+     if len(sys.argv) >= 2 and sys.argv[1] == 'total':
+         text_meter_total_size(1000 + 10000 + 10000 + 1000000 + 1000000 +
+                               1000000 + 10000 + 10000 + 10000 + 1000000)
