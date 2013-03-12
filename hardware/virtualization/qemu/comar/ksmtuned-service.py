@@ -9,7 +9,7 @@ serviceDesc = _({"en": "Kernel Samepage Merging Tuned Daemon",
 serviceConf = "ksm"
 
 ksmtuned = "/usr/sbin/ksmtuned"
-ksmtunedpid = "/var/run/ksmtune.pid"
+ksmtunedpid = "/run/ksmtune.pid"
 
 @synchronized
 def start():

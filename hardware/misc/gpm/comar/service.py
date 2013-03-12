@@ -22,8 +22,8 @@ def start():
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/gpm.pid",
+    stopService(pidfile="/run/gpm.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/gpm.pid")
+    return isServiceRunning("/run/gpm.pid")

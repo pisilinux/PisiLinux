@@ -7,7 +7,7 @@ serviceDesc = _({"en": "libvirt virtualization API daemon",
                  "tr": "libvirt sanallaştırma hizmeti"})
 serviceDefault = "on"
 
-PIDFILE         = "/var/run/libvirtd.pid"
+PIDFILE         = "/run/libvirtd.pid"
 KRB5_KTNAME     = "/etc/libvirt/krb5.tab"
 LIBVIRTD_CONFIG = "/etc/libvirt/libvirtd.conf"
 
@@ -29,7 +29,7 @@ def start():
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/libvirtd.pid",
+    stopService(pidfile="/run/libvirtd.pid",
                 donotify=True)
     if os.path.exists(PIDFILE):
         os.unlink(PIDFILE)
