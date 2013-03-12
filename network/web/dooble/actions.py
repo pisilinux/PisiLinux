@@ -15,8 +15,10 @@ def build():
 	autotools.make()
 
 def install():
-	install_dirs = ["Icons","Images","Tab","Dooble"]
-	for i in install_dirs:
-		pisitools.insinto("/opt/dooble",i)
-	pisitools.dobin("dooble.sh")
-	pisitools.dodoc("Doc/*")
+    install_dirs = ["Icons","Images","Tab","Dooble"]
+    for i in install_dirs:
+            pisitools.insinto("/opt/dooble",i)
+    install_dirs = ["LibSpotOn/libspoton.o","LibSpotOn/libspoton.so","LibSpotOn/test"]
+    for i in install_dirs:
+            pisitools.insinto("/usr/local/dooble/Lib",i)
+    pisitools.dodoc("Doc/*")
