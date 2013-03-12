@@ -20,6 +20,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s udevrulesdir=/lib/udev/rules.d udevhelperdir=/lib/udev" % get.installDIR())
 
-    pisitools.dodir("/var/run/udev-configure-printer")
+    pisitools.dodir("/run/udev-configure-printer")
 
     pisitools.dodoc("README", "AUTHORS", "NEWS", "COPYING", "ChangeLog")
