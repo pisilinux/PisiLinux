@@ -5,7 +5,7 @@ import os
 import re
 
 ownerships = {
-        "/var/run/cups"             : "root:lp",
+        "/run/cups"             : "root:lp",
         "/var/log/cups"         : "root:lp",
     }
 

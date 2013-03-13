@@ -7,7 +7,7 @@ serviceDesc = _({"en": "CUPS Printer Server",
                  "tr": "CUPS Yazıcı Sunucusu"})
 serviceConf = "cups"
 
-PIDFILE = "/var/run/cupsd.pid"
+PIDFILE = "/run/cupsd.pid"
 
 @synchronized
 def start():
