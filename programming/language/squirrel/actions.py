@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "SQUIRREL2"
-
 def setup():
     # getting ready for autoreconf
     for f in ["NEWS", "ChangeLog", "AUTHORS"]:
