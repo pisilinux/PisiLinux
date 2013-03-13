@@ -76,6 +76,7 @@ def install():
         pisitools.removeDir("/usr/bin32")
         pisitools.removeDir("/usr/sbin32")
         pisitools.removeDir("/usr/serverbin32")
+        pisitools.removeDir("var/run")
         return
     else:
         autotools.rawInstall("BUILDROOT=%s" % get.installDIR())
