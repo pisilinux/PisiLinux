@@ -6,8 +6,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
-WorkDir = "geany-plugins-1.22"
-
 def setup():
 	autotools.rawConfigure("--prefix=/usr")
 
