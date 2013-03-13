@@ -1,0 +1,147 @@
+Description: Filter printers based on PRINTER_LIST
+Author: Julien Desfossez at Revolution Linux
+
+=== modified file 'cups-1.3.9/cups/ipp.c'
+Index: cups-1.6.0/cups/ipp.c
+===================================================================
+--- cups-1.6.0.orig/cups/ipp.c	2012-05-12 02:07:16.000000000 +0200
++++ cups-1.6.0/cups/ipp.c	2012-07-27 18:21:10.850132843 +0200
+@@ -68,6 +68,8 @@
+  *   ippNewRequest()	    - Allocate a new IPP request message.
+  *   ippRead()		    - Read data for an IPP message from a HTTP
+  *			      connection.
++ *   ippFilterPrinters()    - Filter printer list based on an environment
++ *			      variable
+  *   ippReadFile()	    - Read data for an IPP message from a file.
+  *   ippReadIO()	    - Read data for an IPP message.
+  *   ippSetBoolean()	    - Set a boolean value in an attribute.
+@@ -2348,6 +2350,120 @@
+   return (temp);
+ }
+ 
++/*
++ * 'ippFilterPrinters()' - Filter printer list based on environment variables
++ */
++ipp_state_t                         /* O - Current state */
++ippFilterPrinters(ipp_t      *ipp)  /* I - IPP data */
++{
++  char *env_printer_list = NULL;
++  char *result_printer_list;
++  char delim_printers[] = ",";
++  char **printer_list_array;
++  char *default_printer_env;
++  int printer_list_size = 0;
++  ipp_attribute_t	*filtertmpattr;
++  ipp_attribute_t	*filtertmpattr2;
++  int i = 0;
++  int j = 0;
++  int found = 0;
++  int printer_name_found = 0;
++  int len = 0;
++  int last_null = 0;
++
++  /*
++   * First we create an array from PRINTER and PRINTER_LIST
++   */
++  if(getenv("PRINTER") != NULL) {
++    default_printer_env = getenv("PRINTER");
++    printer_list_size++;
++  } else {
++    default_printer_env = (char *)malloc(sizeof(char));
++    default_printer_env = "";
++  }
++
++  env_printer_list = strdup(getenv("PRINTER_LIST"));
++  result_printer_list = strtok(env_printer_list, delim_printers);
++  while(result_printer_list) {
++    if(default_printer_env && strcasecmp(result_printer_list, default_printer_env) != 0)
++      printer_list_size++;
++    result_printer_list = strtok( NULL, delim_printers);
++  }
++
++  printer_list_array = (char **)malloc(printer_list_size * sizeof(char *));
++
++  env_printer_list = strdup(getenv("PRINTER_LIST"));
++
++  result_printer_list = strtok(env_printer_list, delim_printers);
++  while(result_printer_list) {
++    /*
++     * Don't add the default printer if it's defined
++     */
++    if(strcasecmp(result_printer_list, default_printer_env) != 0) {
++      printer_list_array[i] = (char *)malloc(sizeof(result_printer_list));
++      printer_list_array[i++] = result_printer_list;
++    }
++    result_printer_list = strtok( NULL, delim_printers);
++  }
++
++  if(strcasecmp(default_printer_env, "") != 0)
++    printer_list_array[printer_list_size-1] = default_printer_env;
++
++  // number of attributes
++  for (filtertmpattr = ipp->attrs; filtertmpattr != NULL; filtertmpattr = filtertmpattr->next) {
++    len++;
++  }
++  ipp_attribute_t* array[len];
++
++  for (filtertmpattr = ipp->attrs; filtertmpattr != NULL; filtertmpattr = filtertmpattr->next) {
++    array[j++] = filtertmpattr;
++  }
++
++  for (j=0; j<len; j++) {
++    filtertmpattr = array[j];
++    // if the current attribute is a printer_name, find it in the list
++    if ((filtertmpattr->value_tag == IPP_TAG_NAME) && 
++                   (strcasecmp(filtertmpattr->name, "printer-name") == 0)) {
++      printer_name_found = 1;
++
++      // compare the current printer with the values in the list
++      for(i = 0; i < printer_list_size; i++) {
++        if (printer_list_array[i] &&  filtertmpattr->values[0].string.text && 
++                   (strcasecmp(filtertmpattr->values[0].string.text, printer_list_array[i]) == 0)) {
++          found = 1;
++        }
++      }
++    }
++
++    // last attribute of a printer (separator) or last attribute
++    if (filtertmpattr->value_tag == IPP_TAG_ZERO || filtertmpattr->next == NULL) {
++      if(found == 0 && printer_name_found == 1) {    // not found so we remove it
++        // First printer
++        if(last_null == 0) {
++           ipp->attrs = filtertmpattr->next;
++        } else {
++           // Printer in the middle
++           (array[last_null])->next = filtertmpattr->next;
++        }
++      } else {
++        // the last known good printer
++        last_null = j;
++      }
++        printer_name_found = 0;
++        found = 0;
++    }
++  }
++
++  // remove the last IPP_TAG_ZERO if the last element in the list
++  for (filtertmpattr = ipp->attrs; filtertmpattr != NULL; filtertmpattr = filtertmpattr->next){
++    if (filtertmpattr->value_tag == IPP_TAG_ZERO && filtertmpattr->next == NULL){
++      filtertmpattr2->next = NULL;
++    }
++    filtertmpattr2 = filtertmpattr;
++  }
++  return 0;
++}
++
+ 
+ /*
+  *  'ippNewRequest()' - Allocate a new IPP request message.
+@@ -2590,6 +2706,8 @@
+ 	    */
+ 
+             DEBUG_puts("2ippReadIO: IPP_TAG_END.");
++            if(getenv("PRINTER_LIST"))
++	            ippFilterPrinters(ipp);
+ 
+ 	    ipp->state = IPP_DATA;
+ 	    break;

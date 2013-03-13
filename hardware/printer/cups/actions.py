@@ -64,7 +64,7 @@ def setup():
     autotools.configure(options)
 
 def build():
-    autotools.make("V=1")
+    autotools.make("-j1 V=1")
 
 #def check():
     #autotools.make("check")
@@ -83,6 +83,6 @@ def install():
     pisitools.dodir("/usr/share/cups/profiles")
 
     # Serial backend needs to run as root
-    shelltools.chmod("%s/usr/lib/cups/backend/serial" % get.installDIR(), 0700)
+    #shelltools.chmod("%s/usr/lib/cups/backend/serial" % get.installDIR(), 0700)
 
     pisitools.dodoc("CHANGES.txt", "CREDITS.txt", "LICENSE.txt", "README.txt")
