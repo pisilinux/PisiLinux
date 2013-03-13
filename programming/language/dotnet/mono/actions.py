@@ -16,8 +16,8 @@ shelltools.export("LC_ALL", "C")
 shelltools.export("HOME", get.workDIR())
 
 def setup():
+    shelltools.system('sed -i "/AUTOMAKE_OPTIONS = cygnus/d" runtime/Makefile.am')
     autotools.autoreconf("-fi")
-
     # Static libs should be enabled for mono compiler
     autotools.configure("--enable-parallel-mark \
                          --with-profile4=yes \
@@ -36,7 +36,7 @@ def setup():
 
 def build():
     shelltools.export("MONO_SHARED_DIR", get.curDIR())
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
