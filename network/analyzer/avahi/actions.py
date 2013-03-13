@@ -47,3 +47,5 @@ def install():
     pisitools.dodir("/var/lib/avahi-autoipd")
 
     pisitools.dodoc("docs/AUTHORS", "docs/README", "docs/TODO")
+    
+    pisitools.removeDir("var/run")
