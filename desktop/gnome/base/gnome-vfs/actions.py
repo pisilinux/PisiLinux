@@ -20,7 +20,7 @@ def setup():
                          --with-hal-eject=/usr/bin/eject")
 
 def build():
-    #shelltools.export("GCONF_DISABLE_MAKEFILE_SCHEMA_INSTALL", "1")
+    shelltools.export("GCONF_DISABLE_MAKEFILE_SCHEMA_INSTALL", "1")
     autotools.make()
 
 def install():
