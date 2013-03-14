@@ -7,24 +7,19 @@
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import kde4
-from pisi.actionsapi import qt4
 from pisi.actionsapi import get
-
-import os
 
 params = "-DLIB_SUFFIX=32 \
           -DQT_LIBRARY_DIR=/usr/lib32 \
+          -DCMAKE_SKIP_RPATH:BOOL=YES \
           -DQZeitgeist_DIR=/usr/lib32/cmake/QZeitgeist \
           -DQT_PLUGINS_DIR=/usr/lib32/qt4/plugins \
           -DQT_IMPORTS_DIR=/usr/lib32/qt4/imports" if get.buildTYPE() == "emul32" else ""
 
 if get.buildTYPE() == "emul32": shelltools.export("CMAKE_LIBRARY_PATH", "/usr/lib32")
 
-WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION().partition("_")[0])
-
 def setup():
-    cmaketools.configure('-DCMAKE_SKIP_RPATH:BOOL=YES %s' % params)
+    cmaketools.configure( params)
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
