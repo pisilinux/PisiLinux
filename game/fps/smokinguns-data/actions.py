@@ -9,8 +9,6 @@ from pisi.actionsapi import shelltools
 
 import os
 
-WorkDir = "Smokin\' Guns"
-
 NoStrip = "/"
 
 datadir = "/usr/share/smokinguns"
@@ -26,6 +24,5 @@ def install():
     for dir in ["baseq3", "smokinguns"]:
         fixperms(dir)
         pisitools.insinto(datadir, dir)
-
-    pisitools.dohtml("manual/*")
+        
     pisitools.dodoc("*.txt")
