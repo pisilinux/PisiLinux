@@ -9,17 +9,19 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-
 shelltools.export("HOME", get.workDIR())
 NoStrip=["/usr/share"]
 
+libsuffix = "-DLIB_SUFFIX=32" if get.buildTYPE() == "emul32" else ""
+
 def setup():
-    cmaketools.configure()
+    cmaketools.configure(libsuffix)
 
 def build():
     cmaketools.make()
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+    if get.buildTYPE() == "emul32": return
 
     pisitools.dodoc("COPYING", "README")
