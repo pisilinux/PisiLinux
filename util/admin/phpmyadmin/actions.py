@@ -13,4 +13,4 @@ def install():
     pisitools.insinto("/usr/share/phpmyadmin", "*")
 
     pisitools.dohtml("*")
-    pisitools.dodoc("ChangeLog","CREDITS","Documentation.txt","LICENSE","README")
+    pisitools.dodoc("ChangeLog","Documentation.txt","LICENSE","README")
