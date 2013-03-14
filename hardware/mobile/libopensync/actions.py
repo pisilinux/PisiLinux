@@ -17,9 +17,6 @@ def setup():
 
     autotools.autoreconf("-fi")
 
-    #Do not create pyo/pyc
-    pisitools.dosed("wrapper/Makefile.in", "^py_compile.*=.*", "py_compile = /bin/true")
-
     autotools.configure("--enable-python --disable-debug --enable-engine --enable-tools")
 
 def build():
