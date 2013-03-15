@@ -9,9 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("./autogen.sh")
-
     autotools.autoreconf("-vif")
+    shelltools.system("./autogen.sh")
+    
     autotools.configure("--with-tests")
 
 def build():
