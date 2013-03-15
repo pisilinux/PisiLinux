@@ -7,7 +7,7 @@ serviceDesc = _({"en": "BIND Daemon",
                  "tr": "BIND Servisi"})
 serviceConf = "named"
 
-PIDFILE = "/run/named/named.pid"
+PIDFILE = "/var/run/named/named.pid"
 
 @synchronized
 def start():

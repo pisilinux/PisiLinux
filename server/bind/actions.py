@@ -1,8 +1,10 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
-# Licensed under the GNU General Public License, version 3.
-# See the file http://www.gnu.org/licenses/gpl.txt
+# Copyright 2007-2010 TUBITAK/UEKAE
+# Copyleft 2012 Pardus ANKA Community
+# Licensed under the GNU General Public License, version 2.
+# See the file http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import libtools
@@ -55,14 +57,14 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # Prepare chroot jail
-    for d in ("dev", "etc/bind", "etc/pki/dnssec-keys", "lib/bind", "var/tmp", "var/log", "run/named", "var/named"):
+    for d in ("dev", "etc/bind", "etc/pki/dnssec-keys", "lib/bind", "var/tmp", "var/log", "var/run/named", "var/named"):
         pisitools.dodir("%s/%s" % (CHROOT, d))
 
     # At least drop a file in it
     shelltools.echo("%s%s/README" % (get.installDIR(), CHROOT), "Chroot jail for named")
 
     # Create directories
-    pisitools.dodir("/run/named")
+    pisitools.dodir("/var/run/named")
     for d in ("pri", "sec", "slaves", "data", "dynamic"):
         pisitools.dodir("%s/%s" % (BINDDIR, d))
 

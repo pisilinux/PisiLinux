@@ -8,7 +8,7 @@ serviceDesc = _({"en": "BIND Daemon (chroot)",
 serviceConf = "named"
 
 chrootDir = "/var/named/chroot"
-PIDFILE = "%s/run/named/named.pid" % chrootDir
+PIDFILE = "%s/var/run/named/named.pid" % chrootDir
 
 @synchronized
 def start():
