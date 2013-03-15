@@ -11,9 +11,7 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
 def setup():
-    for i in shelltools.ls("."):
-        if shelltools.isDirectory(i) and shelltools.isFile("%s/Makefile.am" % i):
-            pisitools.dosed("%s/Makefile.am" % i, "-Werror")
+    pisitools.dosed(".", "-Werror", namePattern = "^Makefile.am$", level = 1)
 
     autotools.autoreconf("-fi")
 
