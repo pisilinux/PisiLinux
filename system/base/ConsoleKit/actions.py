@@ -23,9 +23,9 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s/" % get.installDIR())
 
-    pisitools.dodir("/run/ConsoleKit")
+    pisitools.dodir("/var/run/ConsoleKit")
 
     # pam_console-compat
-    pisitools.dodir("/run/console")
+    pisitools.dodir("/var/run/console")
 
     pisitools.dodoc("AUTHORS","ChangeLog","README", "COPYING", "HACKING", "NEWS", "TODO")
