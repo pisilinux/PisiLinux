@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "dmraid/%s" % get.srcVERSION().replace("_", ".")
+WorkDir = "dmraid/1.0.0.rc16-3/dmraid/"
 
 def builddiet():
     autotools.make("distclean")
