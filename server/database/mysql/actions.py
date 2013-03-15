@@ -1,8 +1,10 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
-# Licensed under the GNU General Public License, version 3.
-# See the file http://www.gnu.org/licenses/gpl.txt
+# Copyleft 2012 Pardus ANKA Community
+# Copyright 2005-2011 TUBITAK/UEAKE
+# Licensed under the GNU General Public License, version 2.
+# See the file http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
@@ -76,7 +78,7 @@ def install():
     pisitools.remove("/usr/share/mysql/binary-configure")
     pisitools.remove("/usr/share/mysql/mysql-log-rotate")
     pisitools.remove("/usr/share/mysql/my-*.cnf")
-    #pisitools.remove("/usr/share/mysql/config.*")
+    pisitools.remove("/usr/share/mysql/config.*")
     #pisitools.removeDir("/usr/share/aclocal")
 
     # Move libs to /usr/lib
