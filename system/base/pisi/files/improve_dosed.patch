@@ -1,0 +1,61 @@
+--- pisi/actionsapi/pisitools.py~	2013-03-13 09:17:33.000000000 +0100
++++ pisi/actionsapi/pisitools.py	2013-03-14 18:16:30.029525809 +0100
+@@ -187,27 +187,51 @@
+     except OSError, e:
+         error(_('ActionsAPI [rename]: %s: %s') % (e, sourceFile))
+ 
+-def dosed(sourceFiles, findPattern, replacePattern = ''):
+-    '''replaces patterns in sourceFiles'''
++def dosed(sources, findPattern, replacePattern = '', namePattern = '', deleteLine = False, level = -1):
++    '''replaces patterns in sources'''
+ 
+     ''' example call: pisitools.dosed("/etc/passwd", "caglar", "cem")'''
+     ''' example call: pisitools.dosed("/etc/passwd", "caglar")'''
+     ''' example call: pisitools.dosed("/etc/pass*", "caglar")'''
+     ''' example call: pisitools.dosed("Makefile", "(?m)^(HAVE_PAM=.*)no", r"\1yes")'''
++    ''' example call: pisitools.dosed("./", "^(CFLAGS) =", r"\1 +=", "Makefile", level = 1)
++        will change: ./Makefile and ./*/Makefile'''
++    ''' example call: pisitools.dosed("./", "^\s*g_type_init\(\)", namePattern = ".*.c", deleteLine = True)
++        will change: delete lines which contains "g_type_init()" for all *.c files in ./ directory tree'''
++
++    def get_files(path, pattern, level):
++        res = []
++        if path.endswith("/"): path = path[:-1]
++        for root, dirs, files in os.walk(path):
++            currentLevel = len(root.split("/")) - len(path.split("/"))
++            if not level == -1 and currentLevel > level: continue
++            for f in files:
++                if re.search(pattern, f):
++                    res.append("%s/%s" % (root, f))
++        return res
+ 
+     backupExtension = ".pisi-backup"
+-    sourceFilesGlob = glob.glob(sourceFiles)
++    sourceFiles = []
++    sourcesGlob = glob.glob(sources)
++    
++    for source in sourcesGlob:
++        if os.path.isdir(source):
++            sourceFiles.extend(get_files(source, namePattern, level))
++        else:
++            sourceFiles.append(source)
+ 
+     #if there is no match, raise exception
+-    if len(sourceFilesGlob) == 0:
+-        raise FileError(_('No such file matching pattern: "%s". \'dosed\' operation failed.') % sourceFiles)
++    if len(sourceFiles) == 0:
++        raise FileError(_('No such file matching pattern: "%s". \'dosed\' operation failed.') % namePattern if namePattern else sources)
+ 
+-    for sourceFile in sourceFilesGlob:
++    print("dosed tries to change:\n  %s" % "\n  ".join(sourceFiles))
++    for sourceFile in sourceFiles:
+         if can_access_file(sourceFile):
+             backupFile = "%s%s" % (sourceFile, backupExtension)
+             for line in fileinput.input(sourceFile, inplace = 1, backup = backupExtension):
+                 #FIXME: In-place filtering is disabled when standard input is read
+-                line = re.sub(findPattern, replacePattern, line)
++                if re.search(findPattern, line):
++                    line = "" if deleteLine else re.sub(findPattern, replacePattern, line)  
+                 sys.stdout.write(line)
+             if can_access_file(backupFile):
+                 # By default, filecmp.cmp() compares two files by looking file sizes.
