@@ -17,6 +17,7 @@ shelltools.export("CXXFLAGS", get.CXXFLAGS().replace("-ggdb3", "-g"))
 shelltools.export("ARCH_FLAGS", get.CXXFLAGS())
 shelltools.export("LINKFLAGSOPTIMIZE", get.LDFLAGS())
 shelltools.export("PYTHON", get.curPYTHON())
+shelltools.export("LC_ALL", "C")
 
 langpackdir = "%s-langpack-%s" % (get.srcNAME(), get.srcVERSION())
 langpackpath = os.path.normpath("%s/../%s" % (get.installDIR(), langpackdir))
