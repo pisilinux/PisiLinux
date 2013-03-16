@@ -16,7 +16,7 @@ shelltools.export("LC_ALL", "C")
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    shelltools.system('sed -i "/AUTOMAKE_OPTIONS = cygnus/d" runtime/Makefile.am')
+    pisitools.dosed("runtime/Makefile.am", "AUTOMAKE_OPTIONS = cygnus", deleteLine = True)
     autotools.autoreconf("-fi")
     # Static libs should be enabled for mono compiler
     autotools.configure("--enable-parallel-mark \
