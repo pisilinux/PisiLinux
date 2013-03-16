@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure()
+    kde4.configure("-DLIBNL_INCLUDE_DIR=/usr/include/libnl3 -DLIBNL_LIBRARY=/usr/lib/libnl")
 
 def build():
     kde4.make()
