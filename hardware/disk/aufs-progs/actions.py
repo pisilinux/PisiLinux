@@ -9,11 +9,10 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
+WorkDir = "aufs-utils-%s" % get.srcVERSION()
+
 def setup():
-    pisitools.dosed("ver.c", "aufs_type.h", "auto_fs.h")
     pisitools.dosed("Makefile", "-O -Wall", get.CFLAGS())
-    shelltools.touch("configure.in")
-    autotools.autoreconf("-fi")
 
 def build():
     autotools.make()
