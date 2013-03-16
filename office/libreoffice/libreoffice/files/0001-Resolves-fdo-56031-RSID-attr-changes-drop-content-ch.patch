@@ -1,0 +1,86 @@
+From 791a060bd1031c844a9a1b283689dee6a8a7ef77 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Caol=C3=A1n=20McNamara?= <caolanm@redhat.com>
+Date: Mon, 25 Feb 2013 16:55:07 +0000
+Subject: [PATCH] Resolves: fdo#56031 RSID attr changes drop content change
+ events
+
+So if we have an INVALID_ATTR event in the queue and receive
+INVALID_CONTENT, drop the attr and replace it with invalid-content
+
+And anyway filter out the RSID change event from hitting the
+a11y queue, humans don't care that this changed, it's just noise
+
+Change-Id: I4842f217153fc90aa1dce75c3445053004c74536
+(cherry picked from commit 8d08ccd5b84c121867d7b3102f9d10b26005c682)
+Reviewed-on: https://gerrit.libreoffice.org/2401
+Reviewed-by: Fridrich Strba <fridrich@documentfoundation.org>
+Tested-by: Fridrich Strba <fridrich@documentfoundation.org>
+---
+ sw/source/core/access/accmap.cxx |  9 +++++++++
+ sw/source/core/text/txtfrm.cxx   | 18 ++++++++++++++----
+ 2 files changed, 23 insertions(+), 4 deletions(-)
+
+diff --git a/sw/source/core/access/accmap.cxx b/sw/source/core/access/accmap.cxx
+index 4f737a8..714b37b 100644
+--- a/sw/source/core/access/accmap.cxx
++++ b/sw/source/core/access/accmap.cxx
+@@ -887,10 +887,19 @@ void SwAccessibleMap::AppendEvent( const SwAccessibleEvent_Impl& rEvent )
+                 // POS_CHANGED event.
+                 // Therefor, the event's type has to be adapted and the event
+                 // has to be put at the end.
++                //
++                // fdo#56031 An INVALID_CONTENT event overwrites a INVALID_ATTR
++                // event and overwrites its flags
+                 OSL_ENSURE( aEvent.GetType() != SwAccessibleEvent_Impl::CHILD_POS_CHANGED,
+                         "invalid event combination" );
+                 if( aEvent.GetType() == SwAccessibleEvent_Impl::CARET_OR_STATES )
+                     aEvent.SetType( SwAccessibleEvent_Impl::INVALID_CONTENT );
++                else if ( aEvent.GetType() == SwAccessibleEvent_Impl::INVALID_ATTR )
++                {
++                    aEvent.SetType( SwAccessibleEvent_Impl::INVALID_CONTENT );
++                    aEvent.SetStates( rEvent.GetAllStates() );
++                }
++
+                 break;
+             case SwAccessibleEvent_Impl::POS_CHANGED:
+                 // A pos changed event overwrites CARET_STATES (keeping its
+diff --git a/sw/source/core/text/txtfrm.cxx b/sw/source/core/text/txtfrm.cxx
+index cebe0b5..d76c4fa 100644
+--- a/sw/source/core/text/txtfrm.cxx
++++ b/sw/source/core/text/txtfrm.cxx
+@@ -912,6 +912,13 @@ static void lcl_ModifyOfst( SwTxtFrm* pFrm, xub_StrLen nPos, xub_StrLen nLen )
+     }
+ }
+ 
++//Related: fdo#56031 filter out attribute changes that don't matter for
++//humans/a11y to stop flooding the destination mortal with useless noise
++static bool isA11yRelevantAttribute(MSHORT nWhich)
++{
++    return nWhich != RES_CHRATR_RSID;
++}
++
+ /*************************************************************************
+  *                      SwTxtFrm::Modify()
+  *************************************************************************/
+@@ -1294,11 +1301,14 @@ void SwTxtFrm::Modify( const SfxPoolItem* pOld, const SfxPoolItem *pNew )
+                     SwCntntFrm::Modify( pOld, pNew );
+             }
+ 
+-            // #i88069#
+-            ViewShell* pViewSh = getRootFrm() ? getRootFrm()->GetCurrShell() : 0;
+-            if ( pViewSh  )
++            if (isA11yRelevantAttribute(nWhich))
+             {
+-                pViewSh->InvalidateAccessibleParaAttrs( *this );
++                // #i88069#
++                ViewShell* pViewSh = getRootFrm() ? getRootFrm()->GetCurrShell() : 0;
++                if ( pViewSh  )
++                {
++                    pViewSh->InvalidateAccessibleParaAttrs( *this );
++                }
+             }
+         }
+         break;
+-- 
+1.8.1.2
+

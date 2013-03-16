@@ -1,0 +1,96 @@
+From 1b13c952f50aab2b907dab13395ab23d0955c238 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Caol=C3=A1n=20McNamara?= <caolanm@redhat.com>
+Date: Fri, 15 Feb 2013 17:12:00 +0000
+Subject: [PATCH] Resolves: rhbz#895196 sc filter float a11y parent of itself
+ loop/recurse
+
+Change-Id: I3679e7cfcd32a78b40c6a7b803c92ff0abe6f32c
+---
+ accessibility/source/helper/acc_factory.cxx |  8 +++++---
+ vcl/inc/vcl/popupmenuwindow.hxx             |  3 +++
+ vcl/source/window/popupmenuwindow.cxx       |  6 ++++++
+ vcl/source/window/window.cxx                | 12 +++++++++---
+ 4 files changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/accessibility/source/helper/acc_factory.cxx b/accessibility/source/helper/acc_factory.cxx
+index dc16fe6..93f6bf5 100644
+--- a/accessibility/source/helper/acc_factory.cxx
++++ b/accessibility/source/helper/acc_factory.cxx
+@@ -382,9 +382,11 @@ inline bool hasFloatingChild(Window *pWindow)
+             }
+             else if ( nType == WINDOW_BORDERWINDOW && hasFloatingChild( pWindow ) )
+             {
+-                PopupMenuFloatingWindow* pChild = dynamic_cast<PopupMenuFloatingWindow*>(
+-                    pWindow->GetAccessibleChildWindow(0));
+-                if ( pChild && pChild->IsPopupMenu() )
++                // The logic here has to match that of Window::GetAccessibleParentWindow in
++                // vcl/source/window/window.cxx to avoid PopupMenuFloatingWindow
++                // becoming a11y parents of themselves
++                Window* pChild = pWindow->GetAccessibleChildWindow(0);
++                if (PopupMenuFloatingWindow::isPopupMenu(pChild))
+                 {
+                     // Get the accessible context from the child window.
+                     Reference<XAccessible> xAccessible = pChild->CreateAccessible();
+diff --git a/vcl/inc/vcl/popupmenuwindow.hxx b/vcl/inc/vcl/popupmenuwindow.hxx
+index 57b7747..a5856dc 100644
+--- a/vcl/inc/vcl/popupmenuwindow.hxx
++++ b/vcl/inc/vcl/popupmenuwindow.hxx
+@@ -34,6 +34,9 @@ public:
+     sal_uInt16      GetMenuStackLevel() const;
+     void            SetMenuStackLevel( sal_uInt16 nLevel );
+     bool            IsPopupMenu() const;
++
++    //determine if a given window is an activated PopupMenuFloatingWindow
++    static bool isPopupMenu(const Window *pWindow);
+ };
+ 
+ #endif
+diff --git a/vcl/source/window/popupmenuwindow.cxx b/vcl/source/window/popupmenuwindow.cxx
+index e5e773a..7a03794 100644
+--- a/vcl/source/window/popupmenuwindow.cxx
++++ b/vcl/source/window/popupmenuwindow.cxx
+@@ -67,4 +67,10 @@ bool PopupMenuFloatingWindow::IsPopupMenu() const
+     return mpImplData->mnMenuStackLevel != ::std::numeric_limits<sal_uInt16>::max();
+ }
+ 
++bool PopupMenuFloatingWindow::isPopupMenu(const Window *pWindow)
++{
++    const PopupMenuFloatingWindow* pChild = dynamic_cast<const PopupMenuFloatingWindow*>(pWindow);
++    return pChild && pChild->IsPopupMenu();
++}
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/vcl/source/window/window.cxx b/vcl/source/window/window.cxx
+index 6767fde..7ddb6b1 100644
+--- a/vcl/source/window/window.cxx
++++ b/vcl/source/window/window.cxx
+@@ -48,6 +48,7 @@
+ #include "vcl/unowrap.hxx"
+ #include "vcl/gdimtf.hxx"
+ #include "vcl/pdfextoutdevdata.hxx"
++#include "vcl/popupmenuwindow.hxx"
+ #include "vcl/lazydelete.hxx"
+ #include "vcl/virdev.hxx"
+ 
+@@ -8601,10 +8602,15 @@ Window* Window::GetAccessibleParentWindow() const
+             pWorkWin = pWorkWin->mpWindowImpl->mpNext;
+         pParent = pWorkWin;
+     }
+-    // If this a floating window which has a native boarder window, this one should be reported as
+-    // accessible parent
++    // If this is a floating window which has a native border window, then that border should be reported as
++    // the accessible parent, unless the floating window is a PopupMenuFloatingWindow
++    //
++    // The logic here has to match that of AccessibleFactory::createAccessibleContext in
++    // accessibility/source/helper/acc_factory.cxx to avoid PopupMenuFloatingWindow
++    // becoming a11y parents of themselves
+     else if( GetType() == WINDOW_FLOATINGWINDOW &&
+-        mpWindowImpl->mpBorderWindow && mpWindowImpl->mpBorderWindow->mpWindowImpl->mbFrame)
++        mpWindowImpl->mpBorderWindow && mpWindowImpl->mpBorderWindow->mpWindowImpl->mbFrame &&
++        !PopupMenuFloatingWindow::isPopupMenu(this))
+     {
+         pParent = mpWindowImpl->mpBorderWindow;
+     }
+-- 
+1.8.1.2
+

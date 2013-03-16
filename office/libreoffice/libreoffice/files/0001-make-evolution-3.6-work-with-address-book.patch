@@ -1,0 +1,975 @@
+From e41d94885aeee12b9d00ad52611517901ff3d2c3 Mon Sep 17 00:00:00 2001
+From: Caolán McNamara <caolanm@redhat.com>
+Date: Thu, 7 Feb 2013 17:18:09 +0000
+Subject: [PATCH] make evolution-3.6 work with address book
+
+Change-Id: I04d2a4d7d1520567dd0eb929ffb5d9fa53d35dd4
+---
+ connectivity/source/drivers/evoab2/EApi.cxx        | 109 ++---
+ connectivity/source/drivers/evoab2/EApi.h          |  25 ++
+ .../source/drivers/evoab2/NDatabaseMetaData.cxx    | 136 +++++--
+ connectivity/source/drivers/evoab2/NResultSet.cxx  | 441 ++++++++++++++-------
+ connectivity/source/drivers/evoab2/NResultSet.hxx  |  24 +-
+ .../source/core/api/SingleSelectQueryComposer.cxx  |  12 +
+ 6 files changed, 510 insertions(+), 237 deletions(-)
+
+diff --git a/connectivity/source/drivers/evoab2/EApi.cxx b/connectivity/source/drivers/evoab2/EApi.cxx
+index 84701e1..608b1f9 100644
+--- a/connectivity/source/drivers/evoab2/EApi.cxx
++++ b/connectivity/source/drivers/evoab2/EApi.cxx
+@@ -22,6 +22,7 @@
+ #define  DECLARE_FN_POINTERS 1
+ #include "EApi.h"
+ static const char *eBookLibNames[] = {
++    "libebook-1.2.so.14", // bumped again (evolution-3.6)
+     "libebook-1.2.so.13", // bumped again (evolution-3.4)
+     "libebook-1.2.so.12", // bumped again
+     "libebook-1.2.so.10", // bumped again
+@@ -34,25 +35,23 @@ static const char *eBookLibNames[] = {
+ typedef void (*SymbolFunc) (void);
+ 
+ #define SYM_MAP(a) { #a, (SymbolFunc *)&a }
+-    static struct {
++struct ApiMap
++{
+     const char *sym_name;
+     SymbolFunc *ref_value;
+-    } aApiMap[] = {
++};
++
++static ApiMap aCommonApiMap[] =
++{
++    SYM_MAP( eds_check_version ),
+     SYM_MAP( e_contact_field_name ),
+     SYM_MAP( e_contact_get ),
+     SYM_MAP( e_contact_get_type ),
+     SYM_MAP( e_contact_field_id ),
+-    SYM_MAP( e_source_peek_name ),
+-    SYM_MAP( e_source_get_property ),
+-    SYM_MAP( e_source_list_peek_groups ),
+-    SYM_MAP( e_source_group_peek_sources ),
+     SYM_MAP( e_book_new ),
+     SYM_MAP( e_book_open ),
+-    SYM_MAP( e_book_get_uri ),
+     SYM_MAP( e_book_get_source ),
+-    SYM_MAP( e_book_get_addressbooks ),
+     SYM_MAP( e_book_get_contacts ),
+-    SYM_MAP( e_book_authenticate_user ),
+     SYM_MAP( e_book_query_field_test ),
+     SYM_MAP( e_book_query_and ),
+     SYM_MAP( e_book_query_or ),
+@@ -61,26 +60,55 @@ typedef void (*SymbolFunc) (void);
+     SYM_MAP( e_book_query_unref ),
+     SYM_MAP( e_book_query_from_string ),
+     SYM_MAP( e_book_query_to_string ),
+-    SYM_MAP( e_book_query_field_exists ),
+-    SYM_MAP( e_source_group_peek_base_uri)
+-    };
++    SYM_MAP( e_book_query_field_exists )
++};
++
++//< 3-6 api
++static ApiMap aOldApiMap[] =
++{
++    SYM_MAP( e_book_get_addressbooks ),
++    SYM_MAP( e_book_get_uri ),
++    SYM_MAP( e_book_authenticate_user ),
++    SYM_MAP( e_source_group_peek_base_uri),
++    SYM_MAP( e_source_peek_name ),
++    SYM_MAP( e_source_get_property ),
++    SYM_MAP( e_source_list_peek_groups ),
++    SYM_MAP( e_source_group_peek_sources )
++};
++
++//>= 3-6 api
++static ApiMap aNewApiMap[] =
++{
++    SYM_MAP( e_source_registry_list_sources ),
++    SYM_MAP( e_source_registry_new_sync ),
++    SYM_MAP( e_source_has_extension ),
++    SYM_MAP( e_source_get_extension ),
++    SYM_MAP( e_source_backend_get_backend_name ),
++    SYM_MAP( e_source_get_display_name ),
++    SYM_MAP( e_source_get_uid ),
++    SYM_MAP( e_source_registry_ref_source),
++    SYM_MAP( e_book_client_new ),
++    SYM_MAP( e_client_open_sync ),
++    SYM_MAP( e_client_get_source ),
++    SYM_MAP( e_book_client_get_contacts_sync ),
++    SYM_MAP( e_client_util_free_object_slist )
++};
+ #undef SYM_MAP
+ 
+ static bool
+-tryLink( oslModule &aModule, const char *pName )
++tryLink( oslModule &aModule, const char *pName, ApiMap *pMap, guint nEntries )
+ {
+-    for( guint i = 0; i < G_N_ELEMENTS( aApiMap ); i++ )
++    for (guint i = 0; i < nEntries; ++i)
+     {
+-    SymbolFunc aMethod;
+-    aMethod = (SymbolFunc) osl_getFunctionSymbol
+-        ( aModule, rtl::OUString::createFromAscii ( aApiMap[ i ].sym_name ).pData );
+-    if( !aMethod )
+-    {
+-        fprintf( stderr, "Warning: missing symbol '%s' in '%s'",
+-             aApiMap[ i ].sym_name, pName );
+-        return false;
+-    }
+-    * aApiMap[ i ].ref_value = aMethod;
++        SymbolFunc aMethod = (SymbolFunc)osl_getFunctionSymbol
++            (aModule, OUString::createFromAscii ( pMap[ i ].sym_name ).pData);
++        if( !aMethod )
++        {
++            fprintf( stderr, "Warning: missing symbol '%s' in '%s'\n",
++                 pMap[ i ].sym_name, pName );
++            return false;
++        }
++        *pMap[ i ].ref_value = aMethod;
+     }
+     return true;
+ }
+@@ -96,8 +124,18 @@ bool EApiInit()
+                                   SAL_LOADMODULE_DEFAULT );
+         if( aModule)
+         {
+-            if ( tryLink( aModule, eBookLibNames[ j ] ) )
+-                return true;
++            if (tryLink( aModule, eBookLibNames[ j ], aCommonApiMap, G_N_ELEMENTS(aCommonApiMap)))
++            {
++                if (eds_check_version(3, 6, 0) == NULL)
++                {
++                    if (tryLink( aModule, eBookLibNames[ j ], aNewApiMap, G_N_ELEMENTS(aNewApiMap)))
++                        return true;
++                }
++                else if (tryLink( aModule, eBookLibNames[ j ], aOldApiMap, G_N_ELEMENTS(aOldApiMap)))
++                {
++                    return true;
++                }
++            }
+             osl_unloadModule( aModule );
+         }
+     }
+@@ -105,23 +143,4 @@ bool EApiInit()
+     return false;
+ }
+ 
+-#if 0
+-// hjs: SOLARDEF does no longer exist please lookup the required
+-// defines in a regular compile line
+-/*
+- * Test code - enable &
+- *
+- * Compile with ( after source LinuxIntelEnv.Set.sh )
+-   gcc $SOLARDEF -I $SOLARVER/$UPD/$INPATH/inc \
+-     -I. `pkg-config --cflags --libs gobject-2.0` \
+-     -L $SOLARVER/$UPD/$INPATH/lib -luno_sal -lstdc++ EApi.cxx
+- */
+-
+-int main( int argc, char **argv)
+-{
+-    return EApiInit();
+-}
+-
+-#endif
+-
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/connectivity/source/drivers/evoab2/EApi.h b/connectivity/source/drivers/evoab2/EApi.h
+index bf3a901..8d188a9 100644
+--- a/connectivity/source/drivers/evoab2/EApi.h
++++ b/connectivity/source/drivers/evoab2/EApi.h
+@@ -130,6 +130,31 @@ typedef struct {
+         char *code;
+         char *country;
+ } EContactAddress;
++
++#define E_SOURCE_EXTENSION_ADDRESS_BOOK "Address Book"
++typedef void ESourceRegistry;
++typedef void GCancellable;
++typedef void ESourceBackend;
++typedef void EClient;
++typedef EClient EBookClient;
++EAPI_EXTERN ESourceRegistry* (*e_source_registry_new_sync) (GCancellable *cancellable, GError **error);
++EAPI_EXTERN GList* (*e_source_registry_list_sources) (ESourceRegistry *registry, const gchar *extension_name);
++EAPI_EXTERN gboolean (*e_source_has_extension) (ESource *source, const gchar *extension_name);
++EAPI_EXTERN gpointer (*e_source_get_extension) (ESource *source, const gchar *extension_name);
++EAPI_EXTERN const gchar* (*e_source_backend_get_backend_name) (ESourceBackend *extension);
++EAPI_EXTERN const gchar* (*e_source_get_display_name) (ESource *source);
++EAPI_EXTERN const gchar* (*eds_check_version) (guint required_major, guint required_minor, guint required_micro);
++EAPI_EXTERN const gchar* (*e_source_get_uid) (ESource *source);
++EAPI_EXTERN ESource* (*e_source_registry_ref_source) (ESourceRegistry *registry, const gchar *uid);
++EAPI_EXTERN EBookClient* (*e_book_client_new) (ESource *source, GError **error);
++EAPI_EXTERN gboolean (*e_client_open_sync) (EClient *client, gboolean only_if_exists, GCancellable *cancellable, GError **error);
++EAPI_EXTERN ESource* (*e_client_get_source) (EClient *client);
++EAPI_EXTERN gboolean (*e_book_client_get_contacts_sync) (EBookClient *client, const gchar *sexp, GSList **contacts, GCancellable *cancellable, GError **error);
++EAPI_EXTERN void (*e_client_util_free_object_slist) (GSList *objects);
++
++ESourceRegistry *get_e_source_registry();
++bool isSourceBackend(ESource *pSource, const char *backendname);
++
+ G_END_DECLS
+ #endif
+ 
+diff --git a/connectivity/source/drivers/evoab2/NDatabaseMetaData.cxx b/connectivity/source/drivers/evoab2/NDatabaseMetaData.cxx
+index d0198e5..a83de24 100644
+--- a/connectivity/source/drivers/evoab2/NDatabaseMetaData.cxx
++++ b/connectivity/source/drivers/evoab2/NDatabaseMetaData.cxx
+@@ -1074,7 +1074,25 @@ Reference< XResultSet > SAL_CALL OEvoabDatabaseMetaData::getColumns(
+     pResultSet->setRows( getColumnRows( columnNamePattern ) );
+     return xResultSet;
+ }
++
++ESourceRegistry *get_e_source_registry()
++{
++    static ESourceRegistry *theInstance;
++    if (!theInstance)
++        theInstance = e_source_registry_new_sync(NULL, NULL);
++    return theInstance;
++}
++
+ // -------------------------------------------------------------------------
++bool isSourceBackend(ESource *pSource, const char *backendname)
++{
++    if (!pSource || !e_source_has_extension (pSource, E_SOURCE_EXTENSION_ADDRESS_BOOK))
++        return false;
++
++    gpointer extension = e_source_get_extension (pSource, E_SOURCE_EXTENSION_ADDRESS_BOOK);
++    return extension && g_strcmp0 (e_source_backend_get_backend_name (extension), backendname) == 0;
++}
++
+ Reference< XResultSet > SAL_CALL OEvoabDatabaseMetaData::getTables(
+     const Any& /*catalog*/, const ::rtl::OUString& /*schemaPattern*/,
+     const ::rtl::OUString& /*tableNamePattern*/, const Sequence< ::rtl::OUString >& types ) throw(SQLException, RuntimeException)
+@@ -1111,50 +1129,96 @@ Reference< XResultSet > SAL_CALL OEvoabDatabaseMetaData::getTables(
+ 
+     ODatabaseMetaDataResultSet::ORows aRows;
+ 
+-    ESourceList *pSourceList;
+-    if( !e_book_get_addressbooks (&pSourceList, NULL) )
+-            pSourceList = NULL;
+-
+-    GSList *g;
+-    for( g = e_source_list_peek_groups( pSourceList ); g; g = g->next)
++    if (eds_check_version(3, 6, 0) == NULL)
+     {
+-        GSList *s;
+-        const char *p = e_source_group_peek_base_uri(E_SOURCE_GROUP(g->data));
+-
+-        switch (m_pConnection->getSDBCAddressType()) {
+-        case SDBCAddress::EVO_GWISE:
+-                    if ( !strncmp( "groupwise://", p, 11 ))
+-                        break;
+-                    else
+-                        continue;
+-        case SDBCAddress::EVO_LOCAL:
+-                    if ( !strncmp( "file://", p, 6 ) ||
+-                         !strncmp( "local://", p, 6 ) )
+-                        break;
+-                    else
+-                        continue;
+-        case SDBCAddress::EVO_LDAP:
+-                    if ( !strncmp( "ldap://", p, 6 ))
+-                        break;
+-                    else
+-                        continue;
+-        case SDBCAddress::Unknown:
+-            break;
+-        }
+-        for (s = e_source_group_peek_sources (E_SOURCE_GROUP (g->data)); s; s = s->next)
+-        {
+-            ESource *pSource = E_SOURCE (s->data);
++        GList *pSources = e_source_registry_list_sources(get_e_source_registry(), E_SOURCE_EXTENSION_ADDRESS_BOOK);
+ 
+-            rtl::OUString aName = rtl::OStringToOUString( e_source_peek_name( pSource ),
+-                                                          RTL_TEXTENCODING_UTF8 );
++        for (GList* liter = pSources; liter; liter = liter->next)
++        {
++            ESource *pSource = E_SOURCE (liter->data);
++            bool can = false;
++            switch (m_pConnection->getSDBCAddressType())
++            {
++                case SDBCAddress::EVO_GWISE:
++                    can = isSourceBackend( pSource, "groupwise"); // not supported in evo/eds 3.6.x+, somehow
++                    break;
++                case SDBCAddress::EVO_LOCAL:
++                    can = isSourceBackend( pSource, "local");
++                    break;
++                case SDBCAddress::EVO_LDAP:
++                    can = isSourceBackend( pSource, "ldap");
++                    break;
++                case SDBCAddress::Unknown:
++                    can = true;
++                    break;
++            }
++            if (!can)
++                continue;
+ 
+             ODatabaseMetaDataResultSet::ORow aRow(3);
+             aRow.reserve(6);
+-            aRow.push_back(new ORowSetValueDecorator(aName));
++            OUString aHumanName = OStringToOUString( e_source_get_display_name( pSource ),
++                                                          RTL_TEXTENCODING_UTF8 );
++            aRow.push_back(new ORowSetValueDecorator(aHumanName)); //tablename
+             aRow.push_back(new ORowSetValueDecorator(aTable));
+-            aRow.push_back(ODatabaseMetaDataResultSet::getEmptyValue());
++            OUString aUID = OStringToOUString( e_source_get_uid( pSource ),
++                                                          RTL_TEXTENCODING_UTF8 );
++            aRow.push_back(new ORowSetValueDecorator(aUID)); //comment
++            //I'd prefer to swap the comment and the human name and
++            //just use e_source_registry_ref_source(get_e_source_registry(), aUID);
++            //in open book rather than search for the name again
+             aRows.push_back(aRow);
+         }
++
++        g_list_free_full (pSources, g_object_unref);
++    }
++    else
++    {
++        ESourceList *pSourceList;
++        if( !e_book_get_addressbooks (&pSourceList, NULL) )
++                pSourceList = NULL;
++
++        GSList *g;
++        for( g = e_source_list_peek_groups( pSourceList ); g; g = g->next)
++        {
++            GSList *s;
++            const char *p = e_source_group_peek_base_uri(E_SOURCE_GROUP(g->data));
++
++            switch (m_pConnection->getSDBCAddressType()) {
++            case SDBCAddress::EVO_GWISE:
++                        if ( !strncmp( "groupwise://", p, 11 ))
++                            break;
++                        else
++                            continue;
++            case SDBCAddress::EVO_LOCAL:
++                        if ( !strncmp( "file://", p, 6 ) ||
++                             !strncmp( "local://", p, 6 ) )
++                            break;
++                        else
++                            continue;
++            case SDBCAddress::EVO_LDAP:
++                        if ( !strncmp( "ldap://", p, 6 ))
++                            break;
++                        else
++                            continue;
++            case SDBCAddress::Unknown:
++                break;
++            }
++            for (s = e_source_group_peek_sources (E_SOURCE_GROUP (g->data)); s; s = s->next)
++            {
++                ESource *pSource = E_SOURCE (s->data);
++
++                rtl::OUString aName = rtl::OStringToOUString( e_source_peek_name( pSource ),
++                                                              RTL_TEXTENCODING_UTF8 );
++
++                ODatabaseMetaDataResultSet::ORow aRow(3);
++                aRow.reserve(6);
++                aRow.push_back(new ORowSetValueDecorator(aName));
++                aRow.push_back(new ORowSetValueDecorator(aTable));
++                aRow.push_back(ODatabaseMetaDataResultSet::getEmptyValue());
++                aRows.push_back(aRow);
++            }
++        }
+     }
+ 
+     pResult->setRows(aRows);
+diff --git a/connectivity/source/drivers/evoab2/NResultSet.cxx b/connectivity/source/drivers/evoab2/NResultSet.cxx
+index b5f4640..26690b1 100644
+--- a/connectivity/source/drivers/evoab2/NResultSet.cxx
++++ b/connectivity/source/drivers/evoab2/NResultSet.cxx
+@@ -87,109 +87,17 @@ sal_Bool SAL_CALL OEvoabResultSet::supportsService( const ::rtl::OUString& _rSer
+     return pSupported != pEnd;
+ }
+ 
+-// -------------------------------------------------------------------------
+-OEvoabResultSet::OEvoabResultSet( OCommonStatement* pStmt, OEvoabConnection *pConnection )
+-    :OResultSet_BASE(m_aMutex)
+-    ,::comphelper::OPropertyContainer( OResultSet_BASE::rBHelper )
+-    ,m_pStatement(pStmt)
+-    ,m_pConnection(pConnection)
+-    ,m_xMetaData(NULL)
+-    ,m_bWasNull(sal_True)
+-    ,m_nFetchSize(0)
+-    ,m_nResultSetType(ResultSetType::SCROLL_INSENSITIVE)
+-    ,m_nFetchDirection(FetchDirection::FORWARD)
+-    ,m_nResultSetConcurrency(ResultSetConcurrency::READ_ONLY)
+-    ,m_pContacts(NULL)
+-    ,m_nIndex(-1)
+-    ,m_nLength(0)
+-{
+-    #define REGISTER_PROP( id, member ) \
+-        registerProperty( \
+-            OMetaConnection::getPropMap().getNameByIndex( id ), \
+-            id, \
+-            PropertyAttribute::READONLY, \
+-            &member, \
+-            ::getCppuType( &member ) \
+-        );
+-
+-    REGISTER_PROP( PROPERTY_ID_FETCHSIZE, m_nFetchSize );
+-    REGISTER_PROP( PROPERTY_ID_RESULTSETTYPE, m_nResultSetType );
+-    REGISTER_PROP( PROPERTY_ID_FETCHDIRECTION, m_nFetchDirection );
+-    REGISTER_PROP( PROPERTY_ID_RESULTSETCONCURRENCY, m_nResultSetConcurrency );
+-}
+-
+-// -------------------------------------------------------------------------
+-OEvoabResultSet::~OEvoabResultSet()
+-{
+-}
+-
+-// -------------------------------------------------------------------------
+-
+-static ESource *
+-findSource( const char *name )
++struct ComparisonData
+ {
+-    ESourceList *pSourceList = NULL;
++    const SortDescriptor&   rSortOrder;
++    IntlWrapper             aIntlWrapper;
+ 
+-    g_return_val_if_fail (name != NULL, NULL);
+-
+-    if (!e_book_get_addressbooks (&pSourceList, NULL))
+-        pSourceList = NULL;
+-
+-    for ( GSList *g = e_source_list_peek_groups (pSourceList); g; g = g->next)
++    ComparisonData( const SortDescriptor& _rSortOrder, const Reference< XComponentContext >& _rxContext )
++        :rSortOrder( _rSortOrder )
++        ,aIntlWrapper( _rxContext, SvtSysLocale().GetLanguageTag() )
+     {
+-        for (GSList *s = e_source_group_peek_sources (E_SOURCE_GROUP (g->data)); s; s = s->next)
+-        {
+-            ESource *pSource = E_SOURCE (s->data);
+-            if (!strcmp (e_source_peek_name (pSource), name))
+-                return pSource;
+-        }
+     }
+-    return NULL;
+-}
+-
+-static EBook *
+-openBook( const char *abname )
+-{
+-    ESource *pSource = findSource (abname);
+-    EBook *pBook = NULL;
+-    if (pSource)
+-            pBook = e_book_new (pSource, NULL);
+-
+-    if (pBook && !e_book_open (pBook, TRUE, NULL))
+-    {
+-        g_object_unref (G_OBJECT (pBook));
+-        pBook = NULL;
+-    }
+-
+-    return pBook;
+-}
+-
+-static bool isLDAP( EBook *pBook )
+-{
+-    return pBook && !strncmp( "ldap://", e_book_get_uri( pBook ), 6 );
+-}
+-
+-static bool isLocal( EBook *pBook )
+-{
+-    return pBook && ( !strncmp( "file://", e_book_get_uri( pBook ), 6 ) ||
+-                      !strncmp( "local:", e_book_get_uri( pBook ), 6 ) );
+-}
+-
+-static bool isAuthRequired( EBook *pBook )
+-{
+-    return e_source_get_property( e_book_get_source( pBook ),
+-                                  "auth" ) != NULL;
+-}
+-
+-static rtl::OString getUserName( EBook *pBook )
+-{
+-    rtl::OString aName;
+-    if( isLDAP( pBook ) )
+-        aName = e_source_get_property( e_book_get_source( pBook ), "binddn" );
+-    else
+-        aName = e_source_get_property( e_book_get_source( pBook ), "user" );
+-    return aName;
+-}
++};
+ 
+ static ::rtl::OUString
+ valueToOUString( GValue& _rValue )
+@@ -209,29 +117,6 @@ valueToBool( GValue& _rValue )
+     return bResult;
+ }
+ 
+-static bool
+-executeQuery (EBook* pBook, EBookQuery* pQuery, GList **ppList,
+-              rtl::OString &rPassword, GError **pError)
+-{
+-    ESource *pSource = e_book_get_source( pBook );
+-    bool bSuccess = false;
+-    bool bAuthSuccess = true;
+-
+-    *ppList = NULL;
+-
+-    if( isAuthRequired( pBook ) )
+-    {
+-        rtl::OString aUser( getUserName( pBook ) );
+-        const char *pAuth = e_source_get_property( pSource, "auth" );
+-        bAuthSuccess = e_book_authenticate_user( pBook, aUser.getStr(), rPassword.getStr(), pAuth, pError );
+-    }
+-
+-    if (bAuthSuccess)
+-        bSuccess = e_book_get_contacts( pBook, pQuery, ppList, pError );
+-
+-    return bSuccess;
+-}
+-
+ static int
+ whichAddress(int value)
+ {
+@@ -368,6 +253,7 @@ handleSplitAddress( EContact *pContact,GValue *pStackValue, int value )
+ 
+     return false;
+ }
++
+ static bool
+ getValue( EContact* pContact, sal_Int32 nColumnNum, GType nType, GValue* pStackValue, bool& _out_rWasNull )
+ {
+@@ -420,21 +306,6 @@ getValue( EContact* pContact, sal_Int32 nColumnNum, GType nType, GValue* pStackV
+     return true;
+ }
+ 
+-namespace
+-{
+-    struct ComparisonData
+-    {
+-        const SortDescriptor&   rSortOrder;
+-        IntlWrapper             aIntlWrapper;
+-
+-        ComparisonData( const SortDescriptor& _rSortOrder, const Reference< XComponentContext >& _rxContext )
+-            :rSortOrder( _rSortOrder )
+-            ,aIntlWrapper( _rxContext, SvtSysLocale().GetLanguageTag() )
+-        {
+-        }
+-    };
+-}
+-
+ extern "C"
+ int CompareContacts( gconstpointer _lhs, gconstpointer _rhs, gpointer _userData )
+ {
+@@ -493,13 +364,278 @@ int CompareContacts( gconstpointer _lhs, gconstpointer _rhs, gpointer _userData
+     return 0;
+ }
+ 
+-static GList*
+-sortContacts( GList* _pContactList, const ComparisonData& _rCompData )
++OString OEvoabVersionHelper::getUserName( EBook *pBook )
+ {
+-    OSL_ENSURE( !_rCompData.rSortOrder.empty(), "sortContacts: no need to call this without any sort order!" );
+-    ENSURE_OR_THROW( _rCompData.aIntlWrapper.getCaseCollator(), "no collator for comparing strings" );
++    OString aName;
++    if( isLDAP( pBook ) )
++        aName = e_source_get_property( e_book_get_source( pBook ), "binddn" );
++    else
++        aName = e_source_get_property( e_book_get_source( pBook ), "user" );
++    return aName;
++}
++
++class OEvoabVersion36Helper : public OEvoabVersionHelper
++{
++private:
++    GSList   *m_pContacts;
++public:
++    OEvoabVersion36Helper()
++        : m_pContacts(NULL)
++    {
++    }
++
++    ~OEvoabVersion36Helper()
++    {
++        freeContacts();
++    }
++
++    virtual EBook* openBook(const char *abname)
++    {
++        //It would be better if here we had id to begin with, see
++        //NDatabaseMetaData.cxx
++        const char *id = NULL;
++        GList *pSources = e_source_registry_list_sources(get_e_source_registry(), E_SOURCE_EXTENSION_ADDRESS_BOOK);
++        for (GList* liter = pSources; liter; liter = liter->next)
++        {
++            ESource *pSource = E_SOURCE (liter->data);
+ 
+-    return g_list_sort_with_data( _pContactList, &CompareContacts, const_cast< gpointer >( static_cast< gconstpointer >( &_rCompData ) ) );
++            if (strcmp(abname, e_source_get_display_name( pSource )) == 0)
++            {
++                id = e_source_get_uid( pSource );
++                break;
++            }
++        }
++        g_list_free_full (pSources, g_object_unref);
++        if (!id)
++            return NULL;
++
++        ESource *pSource = e_source_registry_ref_source(get_e_source_registry(), id);
++        EBookClient *pBook = pSource ? e_book_client_new (pSource, NULL) : NULL;
++        if (pBook && !e_client_open_sync (pBook, TRUE, NULL, NULL))
++        {
++            g_object_unref (G_OBJECT (pBook));
++            pBook = NULL;
++        }
++        if (pSource)
++            g_object_unref (pSource);
++        return pBook;
++    }
++
++    bool isBookBackend( EBookClient *pBook, const char *backendname)
++    {
++        if (!pBook)
++            return false;
++        ESource *pSource = e_client_get_source ((EClient *) pBook);
++        return isSourceBackend(pSource, backendname);
++    }
++
++    virtual bool isLDAP( EBook *pBook )
++    {
++        return isBookBackend(pBook, "ldap");
++    }
++
++    virtual bool isLocal( EBook *pBook )
++    {
++        return isBookBackend(pBook, "local");
++    }
++
++    virtual void freeContacts()
++    {
++        e_client_util_free_object_slist(m_pContacts);
++        m_pContacts = NULL;
++    }
++
++    virtual bool executeQuery (EBook* pBook, EBookQuery* pQuery, OString &/*rPassword*/)
++    {
++        freeContacts();
++        char *sexp = e_book_query_to_string( pQuery );
++        bool bSuccess = e_book_client_get_contacts_sync( pBook, sexp, &m_pContacts, NULL, NULL );
++        g_free (sexp);
++        return bSuccess;
++    }
++
++    virtual EContact *getContact(sal_Int32 nIndex)
++    {
++        gpointer pData = g_slist_nth_data (m_pContacts, nIndex);
++        return pData ? E_CONTACT (pData) : NULL;
++    }
++
++    virtual sal_Int32 getNumContacts()
++    {
++        return g_slist_length( m_pContacts );
++    }
++
++    virtual bool hasContacts()
++    {
++        return m_pContacts != NULL;
++    }
++
++    virtual void sortContacts( const ComparisonData& _rCompData )
++    {
++        OSL_ENSURE( !_rCompData.rSortOrder.empty(), "sortContacts: no need to call this without any sort order!" );
++        ENSURE_OR_THROW( _rCompData.aIntlWrapper.getCaseCollator(), "no collator for comparing strings" );
++
++        m_pContacts = g_slist_sort_with_data( m_pContacts, &CompareContacts,
++            const_cast< gpointer >( static_cast< gconstpointer >( &_rCompData ) ) );
++    }
++};
++
++class OEvoabVersion35Helper : public OEvoabVersionHelper
++{
++private:
++    GList *m_pContacts;
++
++    ESource * findSource( const char *id )
++    {
++        ESourceList *pSourceList = NULL;
++
++        g_return_val_if_fail (id != NULL, NULL);
++
++        if (!e_book_get_addressbooks (&pSourceList, NULL))
++            pSourceList = NULL;
++
++        for ( GSList *g = e_source_list_peek_groups (pSourceList); g; g = g->next)
++        {
++            for (GSList *s = e_source_group_peek_sources (E_SOURCE_GROUP (g->data)); s; s = s->next)
++            {
++                ESource *pSource = E_SOURCE (s->data);
++                if (!strcmp (e_source_peek_name (pSource), id))
++                    return pSource;
++            }
++        }
++        return NULL;
++    }
++
++    bool isAuthRequired( EBook *pBook )
++    {
++        return e_source_get_property( e_book_get_source( pBook ),
++                                      "auth" ) != NULL;
++    }
++
++public:
++    OEvoabVersion35Helper()
++        : m_pContacts(NULL)
++    {
++    }
++
++    ~OEvoabVersion35Helper()
++    {
++        freeContacts();
++    }
++
++    virtual EBook* openBook(const char *abname)
++    {
++        ESource *pSource = findSource (abname);
++        EBook *pBook = pSource ? e_book_new (pSource, NULL) : NULL;
++        if (pBook && !e_book_open (pBook, TRUE, NULL))
++        {
++            g_object_unref (G_OBJECT (pBook));
++            pBook = NULL;
++        }
++        return pBook;
++    }
++
++    virtual bool isLDAP( EBook *pBook )
++    {
++        return pBook && !strncmp( "ldap://", e_book_get_uri( pBook ), 6 );
++    }
++
++    virtual bool isLocal( EBook *pBook )
++    {
++        return pBook && ( !strncmp( "file://", e_book_get_uri( pBook ), 6 ) ||
++                          !strncmp( "local:", e_book_get_uri( pBook ), 6 ) );
++    }
++
++    virtual void freeContacts()
++    {
++        g_list_free(m_pContacts);
++        m_pContacts = NULL;
++    }
++
++    virtual bool executeQuery (EBook* pBook, EBookQuery* pQuery, OString &rPassword)
++    {
++        freeContacts();
++
++        ESource *pSource = e_book_get_source( pBook );
++        bool bSuccess = false;
++        bool bAuthSuccess = true;
++
++        if( isAuthRequired( pBook ) )
++        {
++            rtl::OString aUser( getUserName( pBook ) );
++            const char *pAuth = e_source_get_property( pSource, "auth" );
++            bAuthSuccess = e_book_authenticate_user( pBook, aUser.getStr(), rPassword.getStr(), pAuth, NULL );
++        }
++
++        if (bAuthSuccess)
++            bSuccess = e_book_get_contacts( pBook, pQuery, &m_pContacts, NULL );
++
++        return bSuccess;
++    }
++
++    virtual EContact *getContact(sal_Int32 nIndex)
++    {
++        gpointer pData = g_list_nth_data (m_pContacts, nIndex);
++        return pData ? E_CONTACT (pData) : NULL;
++    }
++
++    virtual sal_Int32 getNumContacts()
++    {
++        return g_list_length( m_pContacts );
++    }
++
++    virtual bool hasContacts()
++    {
++        return m_pContacts != NULL;
++    }
++
++    virtual void sortContacts( const ComparisonData& _rCompData )
++    {
++        OSL_ENSURE( !_rCompData.rSortOrder.empty(), "sortContacts: no need to call this without any sort order!" );
++        ENSURE_OR_THROW( _rCompData.aIntlWrapper.getCaseCollator(), "no collator for comparing strings" );
++
++        m_pContacts = g_list_sort_with_data( m_pContacts, &CompareContacts,
++            const_cast< gpointer >( static_cast< gconstpointer >( &_rCompData ) ) );
++    }
++};
++
++OEvoabResultSet::OEvoabResultSet( OCommonStatement* pStmt, OEvoabConnection *pConnection )
++    :OResultSet_BASE(m_aMutex)
++    ,::comphelper::OPropertyContainer( OResultSet_BASE::rBHelper )
++    ,m_pStatement(pStmt)
++    ,m_pConnection(pConnection)
++    ,m_xMetaData(NULL)
++    ,m_bWasNull(sal_True)
++    ,m_nFetchSize(0)
++    ,m_nResultSetType(ResultSetType::SCROLL_INSENSITIVE)
++    ,m_nFetchDirection(FetchDirection::FORWARD)
++    ,m_nResultSetConcurrency(ResultSetConcurrency::READ_ONLY)
++    ,m_nIndex(-1)
++    ,m_nLength(0)
++{
++    if (eds_check_version(3, 6, 0) == NULL)
++        m_pVersionHelper  = new OEvoabVersion36Helper;
++    else
++        m_pVersionHelper  = new OEvoabVersion35Helper;
++
++    #define REGISTER_PROP( id, member ) \
++        registerProperty( \
++            OMetaConnection::getPropMap().getNameByIndex( id ), \
++            id, \
++            PropertyAttribute::READONLY, \
++            &member, \
++            ::getCppuType( &member ) \
++        );
++
++    REGISTER_PROP( PROPERTY_ID_FETCHSIZE, m_nFetchSize );
++    REGISTER_PROP( PROPERTY_ID_RESULTSETTYPE, m_nResultSetType );
++    REGISTER_PROP( PROPERTY_ID_FETCHDIRECTION, m_nFetchDirection );
++    REGISTER_PROP( PROPERTY_ID_RESULTSETCONCURRENCY, m_nResultSetConcurrency );
++}
++
++// -------------------------------------------------------------------------
++OEvoabResultSet::~OEvoabResultSet()
++{
+ }
+ 
+ // -------------------------------------------------------------------------
+@@ -507,17 +643,16 @@ void OEvoabResultSet::construct( const QueryData& _rData )
+ {
+     ENSURE_OR_THROW( _rData.getQuery(), "internal error: no EBookQuery" );
+ 
+-    EBook *pBook = openBook(::rtl::OUStringToOString(_rData.sTable, RTL_TEXTENCODING_UTF8).getStr());
++    EBook *pBook = m_pVersionHelper->openBook(OUStringToOString(_rData.sTable, RTL_TEXTENCODING_UTF8).getStr());
+     if ( !pBook )
+         m_pConnection->throwGenericSQLException( STR_CANNOT_OPEN_BOOK, *this );
+ 
+-    g_list_free(m_pContacts);
+-    m_pContacts = NULL;
++    m_pVersionHelper->freeContacts();
+     bool bExecuteQuery = true;
+     switch ( _rData.eFilterType )
+     {
+         case eFilterNone:
+-            if ( !isLocal( pBook ) )
++            if ( !m_pVersionHelper->isLocal( pBook ) )
+             {
+                 SQLError aErrorFactory( m_pConnection->getDriver().getMSFactory() );
+                 SQLException aAsException = aErrorFactory.getSQLException( ErrorCondition::DATA_CANNOT_SELECT_UNFILTERED, *this );
+@@ -541,16 +676,16 @@ void OEvoabResultSet::construct( const QueryData& _rData )
+     if ( bExecuteQuery )
+     {
+         rtl::OString aPassword = m_pConnection->getPassword();
+-        executeQuery( pBook, _rData.getQuery(), &m_pContacts, aPassword, NULL );
++        m_pVersionHelper->executeQuery(pBook, _rData.getQuery(), aPassword);
+         m_pConnection->setPassword( aPassword );
+ 
+-        if ( m_pContacts && !_rData.aSortOrder.empty() )
++        if ( m_pVersionHelper->hasContacts() && !_rData.aSortOrder.empty() )
+         {
+             ComparisonData aCompData( _rData.aSortOrder, comphelper::getComponentContext(getConnection()->getDriver().getMSFactory()) );
+-            m_pContacts = sortContacts( m_pContacts, aCompData );
++            m_pVersionHelper->sortContacts( aCompData );
+         }
+     }
+-    m_nLength = g_list_length( m_pContacts );
++    m_nLength = m_pVersionHelper->getNumContacts();
+     OSL_TRACE( "Query return %d records", m_nLength );
+     m_nIndex = -1;
+ 
+@@ -567,10 +702,10 @@ void OEvoabResultSet::disposing(void)
+     ::comphelper::OPropertyContainer::disposing();
+ 
+     ::osl::MutexGuard aGuard(m_aMutex);
+-    g_list_free(m_pContacts);
+-    m_pContacts = NULL;
++    delete m_pVersionHelper;
++    m_pVersionHelper = NULL;
+     m_pStatement = NULL;
+-m_xMetaData.clear();
++    m_xMetaData.clear();
+ }
+ // -------------------------------------------------------------------------
+ Any SAL_CALL OEvoabResultSet::queryInterface( const Type & rType ) throw(RuntimeException)
+diff --git a/connectivity/source/drivers/evoab2/NResultSet.hxx b/connectivity/source/drivers/evoab2/NResultSet.hxx
+index fd049fd..c3d7ab4 100644
+--- a/connectivity/source/drivers/evoab2/NResultSet.hxx
++++ b/connectivity/source/drivers/evoab2/NResultSet.hxx
+@@ -45,6 +45,24 @@ namespace connectivity
+ {
+     namespace evoab
+     {
++        class ComparisonData;
++
++        class OEvoabVersionHelper
++        {
++        public:
++            virtual EBook* openBook(const char *abname) = 0;
++            virtual bool executeQuery (EBook* pBook, EBookQuery* pQuery, OString &rPassword) = 0;
++            virtual void freeContacts() = 0;
++            virtual bool isLDAP( EBook *pBook ) = 0;
++            virtual bool isLocal( EBook *pBook ) = 0;
++            virtual EContact *getContact(sal_Int32 nIndex) = 0;
++            virtual sal_Int32 getNumContacts() = 0;
++            virtual bool hasContacts() = 0;
++            virtual void sortContacts( const ComparisonData& _rCompData ) = 0;
++            OString getUserName( EBook *pBook );
++            virtual ~OEvoabVersionHelper() {}
++        };
++
+         typedef ::cppu::WeakComponentImplHelper8    <   ::com::sun::star::sdbc::XResultSet
+                                                     ,   ::com::sun::star::sdbc::XRow
+                                                     ,   ::com::sun::star::sdbc::XResultSetMetaDataSupplier
+@@ -61,6 +79,8 @@ namespace connectivity
+                                 ,public ::comphelper::OPropertyContainer
+                                 ,public ::comphelper::OPropertyArrayUsageHelper<OEvoabResultSet>
+         {
++        private:
++            OEvoabVersionHelper *m_pVersionHelper;
+ 
+         protected:
+ 
+@@ -79,13 +99,11 @@ namespace connectivity
+             // </properties>
+ 
+             // Data & iteration
+-            GList    *m_pContacts;
+             sal_Int32 m_nIndex;
+             sal_Int32 m_nLength;
+             EContact *getCur()
+             {
+-                gpointer pData = g_list_nth_data (m_pContacts, m_nIndex);
+-                return pData ? E_CONTACT (pData) : NULL;
++                return m_pVersionHelper->getContact(m_nIndex);
+             }
+ 
+             // OPropertyArrayUsageHelper
+diff --git a/dbaccess/source/core/api/SingleSelectQueryComposer.cxx b/dbaccess/source/core/api/SingleSelectQueryComposer.cxx
+index 837836d..ad68908 100644
+--- a/dbaccess/source/core/api/SingleSelectQueryComposer.cxx
++++ b/dbaccess/source/core/api/SingleSelectQueryComposer.cxx
+@@ -955,6 +955,18 @@ Reference< XNameAccess > SAL_CALL OSingleSelectQueryComposer::getColumns(  ) thr
+ 
+     } while ( false );
+ 
++    bool bMissingSomeColumnLabels = !aNames.empty() && aNames.size() != aSelectColumns->get().size();
++    SAL_WARN_IF(bMissingSomeColumnLabels, "dbaccess", "We have column labels for *some* columns but not all");
++    //^^this happens in the evolution address book where we have real column names of e.g.
++    //first_name, second_name and city. On parsing via
++    //OSQLParseTreeIterator::appendColumns it creates some labels using those real names
++    //but the evo address book gives them proper labels of First Name, Second Name and City
++    //the munge means that here we have e.g. just "City" as a label because it matches
++    //
++    //This is all a horrible mess
++    if (bMissingSomeColumnLabels)
++        aNames.clear();
++
+     if ( aNames.empty() )
+         m_aCurrentColumns[ SelectColumns ] = OPrivateColumns::createWithIntrinsicNames( aSelectColumns, bCase, *this, m_aMutex );
+     else
+-- 
+1.8.1
+
