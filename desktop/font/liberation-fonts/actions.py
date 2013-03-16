@@ -4,19 +4,12 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import autotools
-from pisi.actionsapi import get
 
-WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION().replace("_", "."))
-shelltools.export("HOME", get.workDIR())
+WorkDir = "liberation-fonts-ttf-2.00.0"
 
-def build():
-    autotools.make()
 
 def install():
-    pisitools.insinto("/usr/share/fonts/liberation-fonts", "*ttf*/*.ttf")
-    pisitools.dosym("../conf.avail/59-liberation-fonts.conf", "/etc/fonts/conf.d/59-liberation-fonts.conf")
+    pisitools.insinto("/usr/share/fonts/liberation-fonts/", "*.ttf")
 
-    pisitools.dodoc("COPYING", "*.txt", "AUTHORS", "ChangeLog", "README")
+    pisitools.dodoc("LICENSE", "AUTHORS", "ChangeLog", "README")
