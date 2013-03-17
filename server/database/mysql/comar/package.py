@@ -3,7 +3,7 @@
 import os
 import time
 
-PIDFILE = "/var/run/mysqld/mysqld.pid"
+PIDFILE = "/run/mysqld/mysqld.pid"
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     os.system("/bin/chown -R mysql:mysql /var/lib/mysql")
@@ -13,8 +13,8 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     os.system("/bin/chmod 0750 /var/log/mysql")
     os.system("/bin/chmod -R 0660 /var/log/mysql/*")
 
-    os.system("/bin/chown -R mysql:mysql /var/run/mysqld")
-    os.system("/bin/chmod -R 0755 /var/run/mysqld")
+    os.system("/bin/chown -R mysql:mysql /run/mysqld")
+    os.system("/bin/chmod -R 0755 /run/mysqld")
 
     # On first install...
     if not os.access("/var/lib/mysql/mysql", os.F_OK):
@@ -27,8 +27,8 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                                     --datadir=/var/lib/mysql \
                                     --max_allowed_packet=8M \
                                     --net_buffer_length=16K \
-                                    --socket=/var/run/mysqld/mysqld.sock \
-                                    --pid-file=/var/run/mysqld/mysqld.pid &")
+                                    --socket=/run/mysqld/mysqld.sock \
+                                    --pid-file=/run/mysqld/mysqld.pid &")
 
 
         # Sleep for a while
@@ -36,7 +36,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
 
         # Delete empty user
         sql = "DELETE FROM mysql.user WHERE USER=''"
-        os.system("/usr/bin/mysql --socket=/var/run/mysqld/mysqld.sock \
+        os.system("/usr/bin/mysql --socket=/run/mysqld/mysqld.sock \
                                  -hlocalhost \
                                  -e \"%s\"" % sql)
 
@@ -47,7 +47,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
         os.system("/bin/cat /usr/share/mysql/fill_help_tables.sql >> /tmp/pisilinux.sql")
 
         # Load generated SQL script
-        os.system('/usr/bin/mysql --socket=/var/run/mysqld/mysqld.sock \
+        os.system('/usr/bin/mysql --socket=/run/mysqld/mysqld.sock \
                                   -hlocalhost \
                                   -uroot \
                                   mysql < %s' % '/tmp/pisilinux.sql')

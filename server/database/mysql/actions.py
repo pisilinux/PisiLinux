@@ -28,7 +28,7 @@ def setup():
                           -DCMAKE_INSTALL_PREFIX=/usr \
                           -DSYSCONFDIR=/etc/mysql \
                           -DMYSQL_DATADIR=/var/lib/mysql \
-                          -DMYSQL_UNIX_ADDR=/var/run/mysqld/mysqld.sock \
+                          -DMYSQL_UNIX_ADDR=/run/mysqld/mysqld.sock \
                           -DDEFAULT_CHARSET=utf8 \
                           -DDEFAULT_COLLATION=utf8_general_ci \
                           -DENABLED_LOCAL_INFILE=ON \
@@ -104,7 +104,7 @@ def install():
     pisitools.dodir("/var/lib/mysql/innodb")
 
     # Runtime data
-    pisitools.dodir("/var/run/mysqld")
+    pisitools.dodir("/run/mysqld")
 
     # Documents
     pisitools.dodoc("README", "COPYING")

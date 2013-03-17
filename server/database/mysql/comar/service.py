@@ -6,7 +6,7 @@ serviceType="server"
 serviceDesc = _({"en": "MySQL Database Server",
                  "tr": "MySQL Veritabanı Sunucusu"})
 
-PIDFILE = "/var/run/mysqld/mysqld.pid"
+PIDFILE = "/run/mysqld/mysqld.pid"
 
 @synchronized
 def start():
