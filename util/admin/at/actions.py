@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.dosed("configure.in", "VERSION=\"3\\.1\\.9\"", "VERSION=\"%s\"" % get.srcVERSION())
-
     autotools.autoconf("-f")
     autotools.configure("--with-jobdir=/var/spool/at \
                          --with-atspool=/var/spool/at/spool \

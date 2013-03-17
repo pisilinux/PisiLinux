@@ -6,7 +6,7 @@ serviceDesc = _({"en": "Task Scheduler",
 serviceDefault = "on"
 serviceConf="atd"
 
-PIDFILE = "/var/run/atd.pid"
+PIDFILE = "/run/atd.pid"
 
 @synchronized
 def start():
