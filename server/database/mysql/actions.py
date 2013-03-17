@@ -109,3 +109,5 @@ def install():
     # Documents
     pisitools.dodoc("README", "COPYING")
     pisitools.dodoc("support-files/my-*.cnf")
+
+

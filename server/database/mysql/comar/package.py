@@ -18,7 +18,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
 
     # On first install...
     if not os.access("/var/lib/mysql/mysql", os.F_OK):
-        os.system("/usr/bin/mysql_install_db --datadir=/var/lib/mysql --user=mysql")
+        os.system("/usr/bin/mysql_install_db --datadir=/var/lib/mysql --basedir=/usr --user=mysql")
 
         # Run MySQL
         os.system("/usr/sbin/mysqld --user=mysql \
