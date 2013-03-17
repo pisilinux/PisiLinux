@@ -25,6 +25,7 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodir("/run/clamav")
+    pisitools.dodir("/var/lib/clamav")
     pisitools.dodir("/var/log/clamav")
 
     pisitools.dodoc("AUTHORS", "BUGS", "COPYING*", "NEWS", "README", "ChangeLog", "FAQ")
