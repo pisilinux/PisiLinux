@@ -13,10 +13,10 @@ shelltools.export("LC_ALL", "POSIX")
 
 def setup():
     pisitools.dosed("doc/screen.1", "/usr/local/etc/screenrc", "/etc/screenrc")
-    pisitools.dosed("doc/screen.1", "/usr/local/screens", "/var/run/screen")
+    pisitools.dosed("doc/screen.1", "/usr/local/screens", "run/screen")
     pisitools.dosed("doc/screen.1", "/local/etc/screenrc", "/etc/screenrc")
-    pisitools.dosed("doc/screen.1", "/etc/utmp", "/var/run/utmp")
-    pisitools.dosed("doc/screen.1", "/local/screens/S-", "/var/run/screen/S-")
+    pisitools.dosed("doc/screen.1", "/etc/utmp", "run/utmp")
+    pisitools.dosed("doc/screen.1", "/local/screens/S-", "/run/screen/S-")
 
     # Allow for more rendition (color/attribute) changes in status bars
     pisitools.dosed("screen.c", "#define MAX_WINMSG_REND 16", "#define MAX_WINMSG_REND 64")
@@ -27,7 +27,7 @@ def setup():
     autotools.autoconf()
 
     autotools.configure("--enable-pam \
-                         --with-socket-dir=/var/run/screen \
+                         --with-socket-dir=/run/screen \
                          --with-sys-screenrc=/etc/screenrc \
                          --with-pty-mode=0620 \
                          --with-pty-group=5 \
@@ -41,13 +41,13 @@ def build():
 def install():
     pisitools.dobin("screen")
 
-    pisitools.dodir("/var/run/screen")
+    pisitools.dodir("/run/screen")
     pisitools.dodir("/etc/pam.d")
 
     pisitools.insinto("/usr/share/terminfo", "terminfo/screencap")
     pisitools.insinto("/usr/share/screen/utf8encodings", "utf8encodings/??")
 
-    shelltools.chmod("%s/var/run/screen" % get.installDIR(), 0775)
+    shelltools.chmod("%s/run/screen" % get.installDIR(), 0775)
 
     pisitools.doman("doc/screen.1")
     pisitools.doinfo("doc/screen.info*")
