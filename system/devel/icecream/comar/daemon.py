@@ -9,13 +9,13 @@ from comar.service import *
 def start():
     startService(command="/opt/icecream/sbin/iceccd",
                  args="-d -m 5 > /dev/null",
-                 pidfile="/var/run/iceccd.pid",
+                 pidfile="/run/iceccd.pid",
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/iceccd.pid",
+    stopService(pidfile="/run/iceccd.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/iceccd.pid")
+    return isServiceRunning("/run/iceccd.pid")

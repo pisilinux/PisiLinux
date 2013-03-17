@@ -8,10 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir ="icecc-%s" % get.srcVERSION()
-
 def setup():
-    #autotools.autoreconf("-fi")
     autotools.configure("--prefix=/opt/icecream \
                          --localstatedir=/var \
                          --enable-shared")

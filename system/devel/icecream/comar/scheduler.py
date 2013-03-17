@@ -6,15 +6,15 @@ from comar.service import *
 
 @synchronized
 def start():
-    startService(command="/opt/icecream/sbin/scheduler",
+    startService(command="/opt/icecream/sbin/icecc-scheduler",
                  args="-d > /dev/null",
-                 pidfile="/var/run/scheduler.pid",
+                 pidfile="run/icecc-scheduler.pid",
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/var/run/scheduler.pid",
+    stopService(pidfile="/run/icecc-scheduler.pid",
                 donotify=True)
 
 def status():
-    return isServiceRunning("/var/run/scheduler.pid")
+    return isServiceRunning("/run/icecc-scheduler.pid")
