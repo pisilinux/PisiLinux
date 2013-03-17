@@ -31,7 +31,7 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodir("/var/cache/systemtap")
-    pisitools.dodir("/var/run/systemtap")
+    pisitools.dodir("/run/systemtap")
     pisitools.dodir("/var/log/stap-server")
     pisitools.dodir("/etc/logrotate.d")
     pisitools.dodir("/etc/stap-server/conf.d")
@@ -39,6 +39,9 @@ def install():
     pisitools.dodir("/etc/systemtap/script.d")
 
     pisitools.dobin("stap-prep")
+    
+    pisitools.domove("/var/run/stap-server", "/run/")
+    pisitools.removeDir("var/run")
 
     shelltools.copytree("testsuite", "%s/usr/share/systemtap" % get.installDIR())
 
