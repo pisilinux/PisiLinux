@@ -8,7 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.autoreconf()
+    autotools.autoreconf("-fi")
     autotools.configure("--with-tmpdir=/tmp")
 
 def build():
