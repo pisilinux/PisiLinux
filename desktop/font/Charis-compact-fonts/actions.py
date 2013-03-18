@@ -7,7 +7,7 @@
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-WorkDir="CharisSILCompact"
+WorkDir="CharisSIL-4.112"
 
 def install():
     shelltools.chmod("*.ttf",0644)
