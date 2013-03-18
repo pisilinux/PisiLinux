@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "qzion-mainline"
-
 def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
