@@ -9,18 +9,15 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "tdb-%s" % get.srcVERSION()
+shelltools.export("JOBS", get.makeJOBS().replace("-j", ""))
 
 def setup():
-    shelltools.system("./autogen.sh")
-    autotools.configure("--enable-python")
+    autotools.configure("--disable-python")
 
 def build():
-    autotools.make()
+    shelltools.system("make")
 
 def install():
-    autotools.install()
-
-    pisitools.remove("/usr/lib/*.a")
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("docs/README")
