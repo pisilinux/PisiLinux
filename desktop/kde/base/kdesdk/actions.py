@@ -20,9 +20,7 @@ def build():
 
 def install():
     kde4.install()
-
-    pisitools.dodoc("COPYING*", "README")
-
+    
     # those come from subversion package, colorsvn is from colorsvn package #16910
     for f in ["svnrevertlast", "svnlastchange", "svnlastlog", "colorsvn"]:
         pisitools.remove("/usr/bin/%s" % f)
