@@ -36,6 +36,4 @@ def install():
 
     shelltools.copy("%s/usr/share/%s/udev*" % (get.installDIR(), get.srcNAME()), "%s/etc/udev/rules.d/" % get.installDIR())
 
-    pisitools.remove("/usr/lib/perl5/5.16.1/x86_64-linux-thread-multi/perllocal.pod")
-
     pisitools.dodoc("ChangeLog", "README", "doc/README*", "doc/TODO", "NEWS", "AUTHORS")
