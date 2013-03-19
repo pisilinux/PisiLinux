@@ -10,8 +10,6 @@ from pisi.actionsapi import kde4
 
 shelltools.export("HOME", get.workDIR())
 
-WorkDir=get.srcNAME()
-
 def setup():
     kde4.configure()
 
