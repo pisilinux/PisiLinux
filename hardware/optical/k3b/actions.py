@@ -13,10 +13,10 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure("-DK3B_BUILD_K3BSETUP=OFF \
-		    -DK3B_BUILD_API_DOCS=OFF \
-		    -DK3B_BUILD_WAVE_DECODER_PLUGIN=ON \
-		    -DK3B_ENABLE_HAL_SUPPORT=OFF \
-		    -DK3B_ENABLE_MUSICBRAINZ=OFF")
+                    -DK3B_BUILD_API_DOCS=OFF \
+                    -DK3B_BUILD_WAVE_DECODER_PLUGIN=ON \
+                    -DK3B_ENABLE_HAL_SUPPORT=OFF \
+                    -DK3B_ENABLE_MUSICBRAINZ=OFF")
 
 def build():
     kde4.make()
