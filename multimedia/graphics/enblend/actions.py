@@ -9,11 +9,9 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "enblend-enfuse-%s-753b534c819d" % get.srcVERSION()
 
 def setup():
-    shelltools.system("rm -rf doc")
-    autotools.autoreconf("-fi")
+    autotools.autoreconf("-vif")
 
     autotools.configure()
 
