@@ -15,7 +15,7 @@ def setup():
                           -DGNASH_EXE_PATH=/usr/bin/gtk-gnash', installPrefix="/usr")
 
 def build():
-    cmaketools.make()
+    cmaketools.make("-j1")
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
