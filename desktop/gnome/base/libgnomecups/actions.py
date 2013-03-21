@@ -6,9 +6,13 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fiv")
+    shelltools.export("CFLAGS", "%s -D_IPP_PRIVATE_STRUCTURES " % get.CFLAGS())
+    
+    autotools.autoreconf("-fi")
     autotools.configure("--disable-static")
 
 def build():
