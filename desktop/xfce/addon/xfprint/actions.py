@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.export("CFLAGS", "%s -D_IPP_PRIVATE_STRUCTURES " % get.CFLAGS())
     shelltools.export("LDFLAGS", "%s -lX11" % get.LDFLAGS())
     autotools.configure("--disable-letter \
                          --enable-cups \
