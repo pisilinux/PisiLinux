@@ -17,13 +17,14 @@ def setup():
     autotools.configure("--enable-dbus \
                          --enable-cyrus-sasl \
                          --enable-gnutls=yes \
-                         --enable-nss=no \
+                         --enable-nss=yes \
+                         --enable-nm \
                          --enable-cap \
                          --disable-schemas-install \
                          --disable-meanwhile \
                          --enable-nm \
-                         --disable-tcl \
-                         --disable-tk \
+                         --enable-tcl \
+                         --enable-tk \
                          --x-includes=/usr/include/X11 \
                          --with-gnutls-includes=/usr/include/gnutls \
                          --with-gnutls-libs=/usr/lib")
