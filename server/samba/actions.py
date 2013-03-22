@@ -16,65 +16,60 @@ def setup():
 
     # Manually fix manpages
     pisitools.dosed("docs/manpages/*", "\$LOCKDIR", "/run/samba")
-
     shelltools.cd(SAMBA_SOURCE)
 
     # Build VERSION
     shelltools.system("script/mkversion.sh")
     shelltools.system("./autogen.sh")
+    pisitools.dosed("configure", "(LDSHFLAGS=\")", r"\1%s " % get.LDFLAGS() )
     autotools.configure("--with-dnsupdate \
                          --with-ads \
                          --with-acl-support \
                          --with-automount \
+                         --with-dnsupdate \
+                         --with-libsmbclient \
+                         --with-libsmbsharemodes \
+                         --with-mmap \
                          --with-pam \
                          --with-pam_smbpass \
                          --with-quotas \
-                         --with-sys-quotas \
                          --with-sendfile-support \
                          --with-syslog \
                          --with-utmp \
-                         --with-fhs \
+                         --with-vfs \
                          --with-winbind \
+                         --without-smbwrapper \
+                         --with-lockdir=/var/lib/samba \
+                         --with-piddir=/run \
+                         --with-privatedir=/var/lib/samba/private \
+                         --with-logfilebase=/var/log/samba \
+                         --with-libdir=/usr/lib \
+                         --with-configdir=/etc/samba \
+                         --with-pammodulesdir=/lib/security \
+                         --with-swatdir=/usr/share/swat \
+                         --with-shared-modules=idmap_ad,idmap_rid,idmap_adex,idmap_hash,idmap_tdb2 \
                          --with-cluster-support=auto \
                          --with-libtalloc=no \
-                         --with-libtdb=no \
-                         --sysconfdir=/etc/samba \
-                         --localstatedir=/var \
-                         --libdir=/usr/lib \
-                         --with-configdir=/etc/samba \
-                         --with-piddir=/run/samba \
-                         --with-lockdir=/var/lib/samba \
-                         --with-logfilebase=/var/log/samba \
-                         --with-pammodulesdir=/lib/security \
-                         --with-privatedir=/var/lib/samba/private \
-                         --with-swatdir=/usr/share/swat \
-                         --with-readline \
-                         --with-ldap \
-                         --with-cifsmount \
-                         --with-cifsumount \
-                         --with-cifsupcall \
                          --enable-external-libtalloc=yes \
-                         --enable-external-libtdb=yes \
-                         --enable-shared=yes \
-                         --enable-static=no \
-                         --enable-cups \
-                         --enable-swat \
-                         --with-shared-modules=idmap_rid,idmap_ad,idmap_adex,idmap_hash,idmap_tdb2")
+                         --with-libtdb=no \
+                         --with-nmbdsocketdir=/run/nmbd \
+                         --disable-smbtorture4")
+
+    pisitools.dosed("Makefile", "^\svfs_examples", deleteLine = True)
 
 def build():
     shelltools.cd(SAMBA_SOURCE)
-    autotools.make("proto")
-    autotools.make("everything")
+    shelltools.system("make everything")
+    shelltools.cd("../examples/VFS")
+    autotools.autoreconf("-fiv")
+    autotools.configure()
+    shelltools.system("make")
 
 def install():
     shelltools.cd(SAMBA_SOURCE)
     autotools.rawInstall("DESTDIR=%s" % get.installDIR(), "install-everything")
 
     pisitools.insinto("/usr/lib/pkgconfig", "pkgconfig/*pc")
-
-    # we have all mount.* helpers in /usr/bin
-    pisitools.domove("/usr/sbin/mount.cifs", "/usr/bin/")
-    pisitools.domove("/usr/sbin/umount.cifs", "/usr/bin/")
 
     # Nsswitch extensions. Make link for wins and winbind resolvers
     pisitools.dolib_so("../nsswitch/libnss_wins.so")
@@ -88,14 +83,6 @@ def install():
 
     # Move mount helpers to /sbin
     pisitools.dodir("/sbin")
-
-    for f in ("mount.cifs", "umount.cifs"):
-        pisitools.domove("/usr/bin/%s" % f, "/sbin")
-
-    pisitools.domove("/usr/sbin/cifs.upcall", "/sbin")
-
-    # Set SUID bit for mount helpers
-    shelltools.chmod("%s/sbin/*mount.cifs" % get.installDIR(), mode=04755)
 
     # cups support
     pisitools.dodir("/usr/lib/cups/backend")
@@ -128,4 +115,3 @@ def install():
 
     # Remove conflicting man pages
     pisitools.remove("/usr/share/man/man8/tdb*")
-
