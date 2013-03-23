@@ -9,13 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-#WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION().replace("_", "-"))
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    # This docbook is buggy
-    # pisitools.dosed("doc-translations/CMakeLists.txt", "^(add_subdirectory\( pt_digikam/digikam \))$", "#\\1")
-
     kde4.configure("-DDIGIKAMSC_COMPILE_DOC=on \
                     -DDIGIKAMSC_CHECKOUT_PO=on \
                     -DDIGIKAMSC_COMPILE_PO=on")
@@ -25,12 +21,6 @@ def build():
 
 def install():
     kde4.install()
-
-    """
-    for d in ["sv"]:
-        pisitools.remove("/usr/share/kde4/doc/HTML/%s/%s/common" % (d, get.srcNAME()))
-        pisitools.dosym("/usr/share/kde4/doc/HTML/en/common", "/usr/share/kde4/doc/HTML/%s/%s/common" % (d, get.srcNAME()))
-    """
 
     pisitools.dodoc("NEWS", "README")
     
@@ -42,7 +32,7 @@ def install():
     pisitools.remove("/usr/share/kde4/apps/kipi/data/kipi-icon.svg")
     pisitools.remove("/usr/bin/kxmlkipicmd")
     pisitools.remove("/usr/share/kde4/apps/libkdcraw/profiles/srgb-d65.icm")
-    pisitools.remove("/usr/lib/libkdcraw.so.22.0.0")
+    #pisitools.remove("/usr/lib/libkdcraw.so.22.0.0")
     pisitools.remove("/usr/share/kde4/apps/kxmlkipicmd/kxmlkipicmd_defaultui.rc")
     pisitools.remove("/usr/share/kde4/apps/libkdcraw/profiles/prophoto.icm")
     pisitools.remove("/usr/share/icons/hicolor/32x32/apps/kdcraw.png")
@@ -77,7 +67,7 @@ def install():
     pisitools.remove("/usr/share/icons/hicolor/128x128/apps/kipi.png")
     pisitools.remove("/usr/lib/pkgconfig/libkipi.pc")
     pisitools.remove("/usr/share/kde4/apps/libkexiv2/data/topicset.iptc-subjectcode.xml")
-    pisitools.remove("/usr/lib/libkexiv2.so.11.1.0")
+    #pisitools.remove("/usr/lib/libkexiv2.so.11.1.0")
     pisitools.remove("/usr/share/kde4/apps/kxmlkipicmd/kxmlkipicmd_gwenviewui.rc")
     pisitools.remove("/usr/share/icons/hicolor/22x22/apps/kipi.png")
     pisitools.remove("/usr/include/kde4/libksane/version.h")
