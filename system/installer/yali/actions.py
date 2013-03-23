@@ -9,6 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("yali/postinstall.py", "(yali-(theme|branding)-)pardus", r"\1pisilinux")
+    pisitools.dosed("yali-bin", '(default=")pardus', r'\1pisilinux')
+
     repo_uri = "http://packages.pardus.org.tr/pardus/2011.2/devel/%s/pisi-index.xml.xz" % get.ARCH()
     pisitools.dosed("yali/constants.py", "@REPO_URI@", repo_uri)
 
