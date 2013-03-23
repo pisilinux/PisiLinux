@@ -97,3 +97,15 @@ def install():
     shelltools.copy("vboxapisetup.py", "setup.py")
     shelltools.export("VBOX_INSTALL_PATH", VBoxLibDir)
     pythonmodules.install()
+
+    shelltools.cd("../..")
+    mvb_name = "module-virtualbox-%s" % get.srcVERSION()
+    mvbg_name = "module-virtualbox-guest-%s" % get.srcVERSION()
+
+    shelltools.copy("src", "%s/%s" % (get.workDIR(), mvb_name))
+    shelltools.copy("additions/src", "%s/%s" % (get.workDIR(), mvbg_name))
+    shelltools.cd(get.workDIR())
+    shelltools.system("tar c %s | xz -9 > %s.tar.xz" % ((mvb_name, )*2))
+    shelltools.unlinkDir(mvb_name)
+    shelltools.system("tar c %s | xz -9 > %s.tar.xz" % ((mvbg_name, )*2))
+    shelltools.unlinkDir(mvbg_name)
