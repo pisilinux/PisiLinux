@@ -23,3 +23,5 @@ def install():
     kde4.install()
 
     pisitools.dodoc("NEWS", "README")
+    
+    pisitools.remove("/usr/share/locale/*/LC_MESSAGES/libkipi.mo")    
