@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("src/bluetooth.conf", '(group=")plugdev', r"\1removable")
     autotools.autoreconf("-fi")
     # Enable hid2hci in next releases as udev dropped that again
     autotools.configure("--enable-network \
