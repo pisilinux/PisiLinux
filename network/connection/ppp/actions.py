@@ -32,6 +32,7 @@ def install():
     pisitools.removeDir("/var/log")
 
     # Create peers directory
+    pisitools.dodir("/run/ppp")
     pisitools.dodir("/etc/ppp/peers")
 
     pisitools.dodoc("Changes*", "README*", "FAQ")
