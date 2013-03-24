@@ -1,3 +1,4 @@
 PisiLinux
 ===
-PiSi GNU/Linux devel package repository
+PiSi GNU/Linux devel 
+package repository
