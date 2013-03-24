@@ -35,5 +35,7 @@ def install():
     for f in tools:
         pisitools.insinto(datadir, "utils/"+f)
 
+    #pisitools.domove("/usr/lib/syslinux/libutil_com.c32","/usr/lib/syslinux/com32/libutil")
+    #pisitools.domove("/usr/lib/syslinux/libcom32.c32","/usr/lib/syslinux/com32/lib")
     pisitools.dodoc("README", "NEWS", "doc/*.txt", "doc/logo/LICENSE")
     pisitools.remove("/usr/bin/gethostip")
