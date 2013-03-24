@@ -9,4 +9,4 @@ from pisi.actionsapi import pisitools
 WorkDir="."
 
 def install():
-    pisitools.dobin("youtube-dl")
+    pisitools.dobin("youtube-dl*")
