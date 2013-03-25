@@ -11,6 +11,9 @@ from pisi.actionsapi import get
 def setup():
     for f in ("yali/constants.py", "yali/storage/bootloader.py", "yali/storage/__init__.py"):
         pisitools.dosed(f, "pardus-release", "pisilinux-release")
+
+    pisitools.dosed("yali/gui/Ui/exception.ui", "bugs.pardus.org.tr", r"bugs.pisilinux.org")
+
     pisitools.dosed("yali/postinstall.py", "(yali-(theme|branding)-)pardus", r"\1pisilinux")
     pisitools.dosed("yali-bin", '(default=")pardus', r'\1pisilinux')
 
