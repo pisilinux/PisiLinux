@@ -12,6 +12,7 @@ from pisi.actionsapi import get
 #def setup():
 
 def build():
+    pisitools.dosed("src/Makefile", "^(FFMPEG_LDFLAGS\s=.*)", r"\1 -lavutil")
     autotools.make("-C src gimp custom lib")
 
 def install():
