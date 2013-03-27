@@ -12,6 +12,7 @@ unifontfile_path="/usr/share/fonts/unifont/unifont-5.1.20080820.pcf"
 pf2_fonts=["dejavu_10.pf2","dejavu_12.pf2","dejavu_14.pf2","dejavu_16.pf2","dejavu_bold_14.pf2"]
 
 def setup():
+    shelltools.copy("../unifont*.pcf.gz", "./unifont.pcf.gz")
     shelltools.export("GRUB_CONTRIB", "%s/grub-%s/grub-extras" % (get.workDIR(), get.srcVERSION()))
     CFLAGS = get.CFLAGS().replace(" -fstack-protector","").replace(" -fasynchronous-unwind-tables","").replace(" -O2", "")
     shelltools.export("CFLAGS", CFLAGS)
