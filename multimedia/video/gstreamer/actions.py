@@ -23,6 +23,7 @@ def setup():
                --disable-examples \
                --disable-tests \
                --disable-failing-tests \
+               --disable-introspection \
                --disable-static \
                --disable-rpath \
                --disable-valgrind \
