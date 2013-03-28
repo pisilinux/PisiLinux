@@ -6,12 +6,14 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-def setup():
-    autotools.configure()
-    autotools.autoreconf()
+shelltools.export("HOME", get.workDIR())
 
+def setup():
+    autotools.configure("--disable-static")
+    
 def build():
     autotools.make()
 
