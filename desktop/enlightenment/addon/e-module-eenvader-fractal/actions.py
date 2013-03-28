@@ -13,6 +13,8 @@ WorkDir="eenvader-fractal"
 
 def setup():
         shelltools.system("./autogen.sh")
+        autotools.rawConfigure("--libdir=/usr/lib \
+                                --prefix=/usr")
 
 
 def install():
