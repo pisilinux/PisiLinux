@@ -6,8 +6,10 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
-def setup():
+def setup():    
+    shelltools.export("LDFLAGS", "%s -lm" % get.LDFLAGS())
     autotools.autoreconf("-fi")
     autotools.rawConfigure("--bindir=/usr/lib/gimp/2.0/plug-ins")
     
