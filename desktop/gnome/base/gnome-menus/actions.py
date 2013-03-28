@@ -19,5 +19,8 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    
+    pisitools.dodir("/etc/xdg/gnome")
+    pisitools.domove("/etc/xdg/menus", "/etc/xdg/gnome")
+    
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "NEWS", "README")
