@@ -23,7 +23,7 @@ def setup():
                --disable-examples \
                --disable-tests \
                --disable-failing-tests \
-               --disable-introspection \
+               --enable-introspection \
                --disable-static \
                --disable-rpath \
                --disable-valgrind \
@@ -32,9 +32,9 @@ def setup():
     if get.buildTYPE() == "emul32":
         options += " --bindir=/usr/bin32 \
                      --libexecdir=/usr/libexec32 \
-                     --libdir=/usr/lib32"
+                     --disable-introspection"
 
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
+        shelltools.export("PKG_CONFIG_PATH", "/usr/lib32/pkgconfig")
 
     autotools.configure(options)
 

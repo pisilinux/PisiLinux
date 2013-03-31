@@ -5,7 +5,7 @@
 
 from pisi.actionsapi import pisitools
 
-WorkDir="kurier-ttf"
+WorkDir="."
 
 def install():
     pisitools.insinto("/usr/share/fonts/kurier","*.ttf");

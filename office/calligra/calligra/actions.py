@@ -13,14 +13,14 @@ import os
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-        kde4.configure("-DIHAVEPATCHEDQT=1 \
-			-DCMAKE_SKIP_RPATH=ON \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DBUILD_active=OFF \
-			-DBUILD_cstester:BOOL=OFF \
-			-DKDE4_BUILD_TESTS=OFF \
-			-DBUILD_mobile=OFF \
-			-DCMAKE_INSTALL_PREFIX=/usr ")
+    kde4.configure("-DIHAVEPATCHEDQT=1 \
+		    -DCMAKE_SKIP_RPATH=ON \
+		    -DCMAKE_BUILD_TYPE=Release \
+		    -DBUILD_active=OFF \
+		    -DBUILD_cstester:BOOL=OFF \
+		    -DKDE4_BUILD_TESTS=OFF \
+		    -DBUILD_mobile=OFF \
+		    -DCMAKE_INSTALL_PREFIX=/usr ")
 
 def build():
     kde4.make()

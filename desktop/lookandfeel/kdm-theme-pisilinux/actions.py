@@ -10,5 +10,5 @@ from pisi.actionsapi import kde4
 WorkDir = "./"
 
 def install():
-    pisitools.insinto("%s/kdm/themes/" % kde4.appsdir, "pisilinux-default-kdm", "PisiLinux")
+    pisitools.insinto("%s/kdm/themes/" % kde4.appsdir, "kdm-theme-pisilinux", "pisilinux")
 

@@ -12,8 +12,8 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def build():
-    autotools.make()
+    autotools.make("STRIP_CMD=/bin/true")
 
 def install():
-    pisitools.dodir("/usr/bin")
-    autotools.install("ROOT=%s" % get.installDIR())
+    autotools.rawInstall("DESTDIR=%s PREFIX=/usr" % get.installDIR())
+    pisitools.dodoc("COPYING")
