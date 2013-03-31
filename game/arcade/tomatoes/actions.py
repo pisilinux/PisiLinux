@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.dosed("makefile", "_pardus_cflags", get.CFLAGS())
-    pisitools.dosed("makefile", "_pardus_ldflags", get.LDFLAGS())
+    pisitools.dosed("makefile", "_pardus_ldflags", "-lm -lstdc++ %s" % get.LDFLAGS())
 
 def build():
     autotools.make()
