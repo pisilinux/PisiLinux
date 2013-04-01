@@ -29,9 +29,11 @@ def setup():
                          --enable-enotify \
                          --enable-ephysics \
                          --disable-wayland-clients \
-                         --disable-conf-wallpaper2 \
+                         --enable-conf-wallpaper2 \
                          --disable-illume2 \
                          --disable-doc")
+
+    shelltools.system("patch -p1 < backround-default.patch")
 
 def build():
     autotools.make()
