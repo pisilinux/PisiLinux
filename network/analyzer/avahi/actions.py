@@ -4,9 +4,12 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
+
+shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.autoreconf("-fi")
@@ -16,9 +19,10 @@ def setup():
                          --disable-static \
                          --disable-xmltoman \
                          --disable-qt3 \
+                         --disable-qt4 \
                          --disable-doxygen-doc \
                          --disable-gtk3 \
-                         --disable-introspection \
+                         --enable-introspection \
                          --enable-mono \
                          --enable-compat-howl \
                          --enable-compat-libdns_sd \
@@ -47,5 +51,5 @@ def install():
     pisitools.dodir("/var/lib/avahi-autoipd")
 
     pisitools.dodoc("docs/AUTHORS", "docs/README", "docs/TODO")
-    
+
     pisitools.removeDir("var/run")
