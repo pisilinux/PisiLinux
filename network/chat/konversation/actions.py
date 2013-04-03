@@ -9,7 +9,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 
-WorkDir="konversation-1.4"
+WorkDir="konversation-1.5-rc1"
 shelltools.export("HOME", get.workDIR())
 
 def setup():
