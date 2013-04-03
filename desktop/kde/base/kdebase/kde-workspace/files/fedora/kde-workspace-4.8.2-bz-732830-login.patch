@@ -1,0 +1,497 @@
+diff -up kde-workspace-4.8.2/kdm/CMakeLists.txt.bz#732830-login kde-workspace-4.8.2/kdm/CMakeLists.txt
+--- kde-workspace-4.8.2/kdm/CMakeLists.txt.bz#732830-login	2012-03-30 00:02:31.000000000 +0200
++++ kde-workspace-4.8.2/kdm/CMakeLists.txt	2012-03-30 13:38:35.094493727 +0200
+@@ -33,6 +33,11 @@ set(backgroundlib_SRCS
+     ${CMAKE_CURRENT_SOURCE_DIR}/kcm/background/bgsettings.cpp
+ )
+ 
++set(kdmminmaxuidlib_SRCS
++    ${CMAKE_CURRENT_SOURCE_DIR}/kdm-minmaxuid.c
++    ${CMAKE_CURRENT_SOURCE_DIR}/kdm-minmaxuid.h
++)
++
+ # after confci is defined
+ add_subdirectory(backend)
+ add_subdirectory(kfrontend)
+diff -up kde-workspace-4.8.2/kdm/config.def.bz#732830-login kde-workspace-4.8.2/kdm/config.def
+--- kde-workspace-4.8.2/kdm/config.def.bz#732830-login	2012-03-30 00:02:31.000000000 +0200
++++ kde-workspace-4.8.2/kdm/config.def	2012-03-30 13:38:35.112493501 +0200
+@@ -2288,9 +2288,13 @@ Instance: #*/
+ Update: upd_minshowuid
+ Comment:
+  Special case of HiddenUsers: users with a non-zero UID less than this number
+- will not be shown as well.
++ will not be shown as well.  Setting this to -1 means that the limit should be
++ determined in a platform-specific way (by reading /etc/login.defs or using a
++ compiled-in default).
+ Description:
+- See <option>ShowUsers</option>.
++ See <option>ShowUsers</option>.  Setting this to -1 means that the limit
++ should be determined in a platform-specific way (by reading
++ <filename>/etc/login.defs</filename> or using a compiled-in default).
+ 
+ Key: MaxShowUID
+ Type: int
+@@ -2301,9 +2305,11 @@ Instance: #*/
+ Update: upd_maxshowuid
+ Comment:
+  Complement to MinShowUID: users with a UID greater than this number will
+- not be shown as well.
++ not be shown as well.  Unlike MinShowUID, the special value -1 is not
++ supported.
+ Description:
+- See <option>ShowUsers</option>.
++ See <option>ShowUsers</option>.  Unlike <option>MinShowUID</option>, the
++ special value -1 is not supported.
+ 
+ Key: SortUsers
+ Type: bool
+diff -up kde-workspace-4.8.2/kdm/kcm/CMakeLists.txt.bz#732830-login kde-workspace-4.8.2/kdm/kcm/CMakeLists.txt
+--- kde-workspace-4.8.2/kdm/kcm/CMakeLists.txt.bz#732830-login	2012-03-30 00:02:31.000000000 +0200
++++ kde-workspace-4.8.2/kdm/kcm/CMakeLists.txt	2012-03-30 13:38:35.114493477 +0200
+@@ -15,6 +15,7 @@ kde4_add_ui_files(kcmbackgroundlib_SRCS
+     background/bgadvanced_ui.ui)
+ 
+ set(kcm_kdm_PART_SRCS ${kcmbackgroundlib_SRCS} ${backgroundlib_SRCS}
++   ${kdmminmaxuidlib_SRCS}
+    background.cpp
+    kdm-gen.cpp
+    kdm-dlg.cpp
+diff -up kde-workspace-4.8.2/kdm/kcm/kdm-users.cpp.bz#732830-login kde-workspace-4.8.2/kdm/kcm/kdm-users.cpp
+--- kde-workspace-4.8.2/kdm/kcm/kdm-users.cpp.bz#732830-login	2012-03-30 00:02:31.000000000 +0200
++++ kde-workspace-4.8.2/kdm/kcm/kdm-users.cpp	2012-03-30 13:38:35.123493365 +0200
+@@ -58,6 +58,9 @@
+ #include <unistd.h>
+ #include <pwd.h>
+ 
++#include "../kdm-minmaxuid.h"
++
++
+ extern KConfig *config;
+ 
+ extern int handleActionReply(QWidget *parent, const KAuth::ActionReply &reply);
+@@ -80,28 +83,11 @@ static int executeFaceAction(QWidget *pa
+ KDMUsersWidget::KDMUsersWidget(QWidget *parent)
+     : QWidget(parent)
+ {
+-#ifdef __linux__
+-    struct stat st;
+-    if (!stat("/etc/debian_version", &st)) { /* debian */
+-        defminuid = "1000";
+-        defmaxuid = "29999";
+-    } else if (!stat("/usr/portage", &st)) { /* gentoo */
+-        defminuid = "1000";
+-        defmaxuid = "65000";
+-    } else if (!stat("/etc/mandrake-release", &st)) { /* mandrake - check before redhat! */
+-        defminuid = "500";
+-        defmaxuid = "65000";
+-    } else if (!stat("/etc/redhat-release", &st)) { /* redhat */
+-        defminuid = "100";
+-        defmaxuid = "65000";
+-    } else /* if (!stat("/etc/SuSE-release", &st)) */ { /* suse */
+-        defminuid = "500";
+-        defmaxuid = "65000";
+-    }
+-#else
+-    defminuid = "1000";
+-    defmaxuid = "65000";
+-#endif
++    int minUid, maxUid;
++
++    getDefaultMinMaxUids(&minUid, &maxUid);
++    defminuid = QString::number(minUid);
++    defmaxuid = QString::number(maxUid);
+ 
+     m_userPixDir = config->group("X-*-Greeter").readEntry("FaceDir",
+             QString(KStandardDirs::installPath("data") + "kdm/faces" + '/'));
+diff -up kde-workspace-4.8.2/kdm/kcm/main.cpp.bz#732830-login kde-workspace-4.8.2/kdm/kcm/main.cpp
+--- kde-workspace-4.8.2/kdm/kcm/main.cpp.bz#732830-login	2012-03-30 00:02:31.000000000 +0200
++++ kde-workspace-4.8.2/kdm/kcm/main.cpp	2012-03-30 13:38:35.135493214 +0200
+@@ -59,6 +59,7 @@
+ #include <pwd.h>
+ #include <grp.h>
+ 
++#include "../kdm-minmaxuid.h"
+ 
+ K_PLUGIN_FACTORY(KDMFactory, registerPlugin<KDModule>();)
+ K_EXPORT_PLUGIN(KDMFactory("kdmconfig"))
+@@ -393,13 +394,14 @@ void KDModule::propagateUsers()
+ {
+     groupmap.clear();
+     emit clearUsers();
++    int realminuid = interpretMinUid(minshowuid);
+     QMap<QString, int> lusers;
+     QMap<QString, QPair<int, QStringList> >::const_iterator it;
+     QStringList::ConstIterator jt;
+     QMap<QString, int>::Iterator gmapi;
+     for (it = usermap.constBegin(); it != usermap.constEnd(); ++it) {
+         int uid = it.value().first;
+-        if (!uid || (uid >= minshowuid && uid <= maxshowuid)) {
++        if (!uid || (uid >= realminuid && uid <= maxshowuid)) {
+             lusers[it.key()] = uid;
+             for (jt = it.value().second.begin(); jt != it.value().second.end(); ++jt)
+                 if ((gmapi = groupmap.find(*jt)) == groupmap.end()) {
+@@ -415,6 +417,8 @@ void KDModule::propagateUsers()
+ 
+ void KDModule::slotMinMaxUID(int min, int max)
+ {
++    int oldrealmin = interpretMinUid(minshowuid);
++    int newrealmin = interpretMinUid(min);
+     if (updateOK) {
+         QMap<QString, int> alusers, dlusers;
+         QMap<QString, QPair<int, QStringList> >::const_iterator it;
+@@ -424,8 +428,8 @@ void KDModule::slotMinMaxUID(int min, in
+             int uid = it.value().first;
+             if (!uid)
+                 continue;
+-            if ((uid >= minshowuid && uid <= maxshowuid) &&
+-                    !(uid >= min && uid <= max)) {
++            if ((uid >= oldrealmin && uid <= maxshowuid) &&
++                    !(uid >= newrealmin && uid <= max)) {
+                 dlusers[it.key()] = uid;
+                 for (jt = it.value().second.begin();
+                         jt != it.value().second.end(); ++jt) {
+@@ -435,8 +439,8 @@ void KDModule::slotMinMaxUID(int min, in
+                         dlusers['@' + *jt] = -uid;
+                     }
+                 }
+-            } else if ((uid >= min && uid <= max) &&
+-                       !(uid >= minshowuid && uid <= maxshowuid)) {
++            } else if ((uid >= newrealmin && uid <= max) &&
++                       !(uid >= oldrealmin && uid <= maxshowuid)) {
+                 alusers[it.key()] = uid;
+                 for (jt = it.value().second.begin();
+                         jt != it.value().second.end(); ++jt)
+diff -up kde-workspace-4.8.2/kdm/kdm-minmaxuid.c.bz#732830-login kde-workspace-4.8.2/kdm/kdm-minmaxuid.c
+--- kde-workspace-4.8.2/kdm/kdm-minmaxuid.c.bz#732830-login	2012-03-30 13:38:35.137493189 +0200
++++ kde-workspace-4.8.2/kdm/kdm-minmaxuid.c	2012-03-30 13:38:35.137493189 +0200
+@@ -0,0 +1,152 @@
++/*
++ * Utilities for handling the UID range allocated for non-system user
++ */
++
++#include <stdio.h>
++#include <sys/stat.h>
++#ifdef __linux__
++#include <assert.h>
++#include <errno.h>
++#include <inttypes.h>
++#include <regex.h>
++#include <stdlib.h>
++#include <string.h>
++#endif
++
++#include "kdm-minmaxuid.h"
++
++static void internalMinMaxUids(int *minUid, int *maxUid, int staticValues)
++{
++    struct stat st;
++
++#ifdef __linux__
++    if (!stat("/etc/debian_version", &st)) { /* debian */
++        *minUid = 1000;
++        *maxUid = 29999;
++    } else if (!stat("/usr/portage", &st)) { /* gentoo */
++        *minUid = 1000;
++        *maxUid = 65000;
++    } else if (!stat("/etc/mandrake-release", &st)) { /* mandrake - check before redhat! */
++        *minUid = 500;
++        *maxUid = 65000;
++    } else if (!stat("/etc/redhat-release", &st)) { /* redhat */
++	if (!staticValues && !stat("/etc/login.defs", &st))
++	    *minUid = -1;
++	else
++	    *minUid = 100;
++        *maxUid = 65000;
++    } else /* if (!stat("/etc/SuSE-release", &st)) */ { /* suse */
++        *minUid = 500;
++        *maxUid = 65000;
++    }
++#else
++    *minUid = 1000;
++    *maxUid = 65000;
++#endif
++}
++
++void getDefaultMinMaxUids(int *minUid, int *maxUid)
++{
++    internalMinMaxUids(minUid, maxUid, 0);
++}
++
++#ifdef __linux__
++static int getLoginDefsMinUid(void)
++{
++    int res;
++    char *buf;
++    size_t buf_size;
++    ssize_t line_len;
++    regex_t re;
++    FILE *f;
++
++    f = fopen("/etc/login.defs", "r");
++    if (f == NULL)
++	return -1;
++
++    /* No, this is not particularly nice, but "compatible" is more important
++       than "beautiful". */
++    if (regcomp(&re,
++		"^[ \t]*"	/* Initial whitespace */
++		"([^ \t]+)"	/* Variable name */
++		"[ \t][ \t\"]*"	/* Separator - yes, may have multiple "s */
++		"("
++		"([^\"]*)\".*"	/* Value, case 1 - terminated by " */
++		/* Value, case 2 - only drop trailing [[:space:]] */
++		"|([^\"]*[^[:space:]])?[[:space:]]*"
++		")$", REG_EXTENDED) != 0)
++	abort();
++
++    buf = NULL;
++    buf_size = 0;
++    res = -1;
++    while ((line_len = getline(&buf, &buf_size, f)) > 0) {
++	regmatch_t match[5];
++	const char *name, *value;
++
++	if (line_len > 0 && buf[line_len - 1] == '\n')
++	    buf[line_len - 1] = '\0';
++
++	if (regexec(&re, buf, sizeof(match) / sizeof(*match), match, 0) != 0)
++	    continue;
++
++	assert(match[1].rm_so != -1);
++	name = buf + match[1].rm_so;
++	if (*name == '#')
++	    continue;
++	/* The "separator" is at least one character long, so we can safely
++	   overwrite it with '\0'. */
++	buf[match[1].rm_eo] = '\0';
++
++	if (match[3].rm_so != -1) {
++	    value = buf + match[3].rm_so;
++	    buf[match[3].rm_eo] = '\0';
++	} else if (match[4].rm_so != -1) {
++	    value = buf + match[4].rm_so;
++	    buf[match[4].rm_eo] = '\0';
++	} else
++	    value = "";
++
++	/* fprintf(stderr, "\tMatched: %s = %s!\n", name, value); */
++
++	if (strcmp(name, "UID_MIN") == 0) {
++	    intmax_t imax;
++	    char *p;
++
++	    errno = 0;
++	    imax = strtoimax(value, &p, 10);
++	    if (errno == 0 && *p == '\0' && p != value && (uid_t)imax == imax)
++		res = imax;
++	}
++    }
++    free(buf);
++
++    regfree(&re);
++    fclose(f);
++
++    return res;
++}
++#endif
++
++int interpretMinUid(int minUid)
++{
++    int res, dummy;
++
++    if (minUid != -1)
++	return minUid;
++#ifdef __linux__
++    res = getLoginDefsMinUid();
++    if (res != -1)
++	return res;
++#endif
++    internalMinMaxUids(&res, &dummy, 1);
++    return res;
++}
++
++#ifdef TESTING
++int main(void)
++{
++    printf("interpretMinUid returns %d\n", interpretMinUid(-1));
++    return 0;
++}
++#endif
+diff -up kde-workspace-4.8.2/kdm/kdm-minmaxuid.h.bz#732830-login kde-workspace-4.8.2/kdm/kdm-minmaxuid.h
+--- kde-workspace-4.8.2/kdm/kdm-minmaxuid.h.bz#732830-login	2012-03-30 13:38:35.148493053 +0200
++++ kde-workspace-4.8.2/kdm/kdm-minmaxuid.h	2012-03-30 13:38:35.138493177 +0200
+@@ -0,0 +1,25 @@
++/*
++ * Utilities for handling the UID range allocated for non-system user
++ */
++
++#ifndef KDM_MINMAXUID_H
++#define KDM_MINMAXUID_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Get platform-specific defaults for minShowUID and maxShowUID.
++   Never fails. */
++void getDefaultMinMaxUids(int *minUid, int *maxUid);
++
++/* Return the lower limit of user UIDs, based on supplied minShowUID value
++   (i.e. interpret the value -1). */
++int interpretMinUid(int minUid);
++
++#ifdef __cplusplus
++}
++#endif
++
++
++#endif
+diff -up kde-workspace-4.8.2/kdm/kfrontend/CMakeLists.txt.bz#732830-login kde-workspace-4.8.2/kdm/kfrontend/CMakeLists.txt
+--- kde-workspace-4.8.2/kdm/kfrontend/CMakeLists.txt.bz#732830-login	2012-03-30 00:02:31.000000000 +0200
++++ kde-workspace-4.8.2/kdm/kfrontend/CMakeLists.txt	2012-03-30 13:38:35.149493040 +0200
+@@ -52,6 +52,7 @@ set(kdm_greet_SRCS
+ 	utils.cpp
+ 	utils.h
+ 	${kdmthemer_SRCS}
++	${kdmminmaxuidlib_SRCS}
+ )
+ 
+ if (XDMCP)
+@@ -93,7 +94,7 @@ kde4_add_executable(krootimage ${krootim
+ target_link_libraries(krootimage ${KDE4_KDEUI_LIBS} ${X11_X11_LIB} ${QIMAGEBLITZ_LIBRARIES})
+ install(TARGETS krootimage DESTINATION ${LIBEXEC_INSTALL_DIR})
+ 
+-set(genkdmconf_SRCS genkdmconf.c)
++set(genkdmconf_SRCS genkdmconf.c ${kdmminmaxuidlib_SRCS})
+ macro_add_file_dependencies(genkdmconf.c ${confci})
+ kde4_add_executable(genkdmconf NOGUI ${genkdmconf_SRCS})
+ macro_add_compile_flags(genkdmconf -U_REENTRANT)
+diff -up kde-workspace-4.8.2/kdm/kfrontend/genkdmconf.c.bz#732830-login kde-workspace-4.8.2/kdm/kfrontend/genkdmconf.c
+--- kde-workspace-4.8.2/kdm/kfrontend/genkdmconf.c.bz#732830-login	2012-03-30 00:02:31.000000000 +0200
++++ kde-workspace-4.8.2/kdm/kfrontend/genkdmconf.c	2012-03-30 13:49:49.760059248 +0200
+@@ -58,6 +58,8 @@ Foundation, Inc., 51 Franklin Street, Fi
+ # endif
+ #endif
+ 
++#include "../kdm-minmaxuid.h"
++
+ #define WANT_CONF_GEN
+ #include <config.ci>
+ 
+@@ -2008,7 +2010,7 @@ upd_showusers(Entry *ce, Section *cs)
+     }
+ }
+ 
+-static const char *defminuid, *defmaxuid;
++static char defminuid[64], defmaxuid[64];
+ 
+ static void
+ upd_minshowuid(Entry *ce, Section *cs ATTR_UNUSED)
+@@ -2034,16 +2036,18 @@ upd_hiddenusers(Entry *ce, Section *cs)
+     char *nv;
+     const char *msu, *pt, *et;
+     struct passwd *pw;
+-    unsigned minuid, maxuid;
++    int minuid, maxuid;
+     char nbuf[128];
+ 
+     if (!ce->active)
+         return;
+ 
+     msu = getFqVal(cs->name, "MinShowUID", "0");
+-    sscanf(msu, "%u", &minuid);
++    sscanf(msu, "%d", &minuid);
+     msu = getFqVal(cs->name, "MaxShowUID", "65535");
+-    sscanf(msu, "%u", &maxuid);
++    sscanf(msu, "%d", &maxuid);
++
++    minuid = interpretMinUid(minuid);
+ 
+     nv = 0;
+     pt = ce->value;
+@@ -2057,7 +2061,7 @@ upd_hiddenusers(Entry *ce, Section *cs)
+         }
+         if ((pw = getpwnam(nbuf))) {
+             if (!pw->pw_uid ||
+-                (pw->pw_uid >= minuid && pw->pw_uid <= maxuid))
++                (pw->pw_uid >= (uid_t)minuid && pw->pw_uid <= (uid_t)maxuid))
+             {
+                 if (nv)
+                     strCat(&nv, ",%s", nbuf);
+@@ -3000,7 +3004,7 @@ int main(int argc, char **argv)
+     StrList *fp;
+     Section *cs;
+     Entry *ce, **cep;
+-    int i, ap, locals, foreigns;
++    int i, ap, locals, foreigns, minuid, maxuid;
+     int no_old_xdm = 0, no_old_kde = 0;
+     struct stat st;
+ 
+@@ -3239,27 +3243,9 @@ int main(int argc, char **argv)
+             }
+         }
+     }
+-#ifdef __linux__
+-    if (!stat("/etc/debian_version", &st)) { /* debian */
+-        defminuid = "1000";
+-        defmaxuid = "29999";
+-    } else if (!stat("/usr/portage", &st)) { /* gentoo */
+-        defminuid = "1000";
+-        defmaxuid = "65000";
+-    } else if (!stat("/etc/mandrake-release", &st)) { /* mandrake - check before redhat! */
+-        defminuid = "500";
+-        defmaxuid = "65000";
+-    } else if (!stat("/etc/redhat-release", &st)) { /* redhat */
+-        defminuid = "100";
+-        defmaxuid = "65000";
+-    } else /* if (!stat("/etc/SuSE-release", &st)) */ { /* suse */
+-        defminuid = "500";
+-        defmaxuid = "65000";
+-    }
+-#else
+-    defminuid = "1000";
+-    defmaxuid = "65000";
+-#endif
++    getDefaultMinMaxUids(&minuid, &maxuid);
++    sprintf(defminuid, "%d", minuid);
++    sprintf(defmaxuid, "%d", maxuid);
+     for (i = 0; i <= CONF_MAX_PRIO; i++)
+         for (cs = config; cs; cs = cs->next)
+             for (ce = cs->ents; ce; ce = ce->next)
+diff -up kde-workspace-4.8.2/kdm/kfrontend/kgreeter.cpp.bz#732830-login kde-workspace-4.8.2/kdm/kfrontend/kgreeter.cpp
+--- kde-workspace-4.8.2/kdm/kfrontend/kgreeter.cpp.bz#732830-login	2012-03-30 00:02:31.000000000 +0200
++++ kde-workspace-4.8.2/kdm/kfrontend/kgreeter.cpp	2012-03-30 13:38:35.163492865 +0200
+@@ -66,6 +66,8 @@ Foundation, Inc., 51 Franklin Street, Fi
+ #include <X11/Xlib.h>
+ #include <fixx11h.h>
+ 
++#include "../kdm-minmaxuid.h"
++
+ class UserListView : public QListWidget {
+   public:
+     UserListView(QWidget *parent = 0)
+@@ -389,12 +391,13 @@ KGreeter::insertUsers()
+             default_pix.fill(0);
+         }
+     }
++    int realLowUserId = interpretMinUid(_lowUserId);
+     if (_showUsers == SHOW_ALL) {
+         UserList noUsers(_noUsers);
+         QSet<QString> dupes;
+         for (setpwent(); (ps = getpwent()) != 0;) {
+             if (*ps->pw_dir && *ps->pw_shell &&
+-                (ps->pw_uid >= (unsigned)_lowUserId ||
++                (ps->pw_uid >= (unsigned)realLowUserId ||
+                  (!ps->pw_uid && _showRoot)) &&
+                 ps->pw_uid <= (unsigned)_highUserId &&
+                 !noUsers.hasUser(ps->pw_name) &&
+@@ -413,7 +416,7 @@ KGreeter::insertUsers()
+             QSet<QString> dupes;
+             for (setpwent(); (ps = getpwent()) != 0;) {
+                 if (*ps->pw_dir && *ps->pw_shell &&
+-                    (ps->pw_uid >= (unsigned)_lowUserId ||
++                    (ps->pw_uid >= (unsigned)realLowUserId ||
+                      (!ps->pw_uid && _showRoot)) &&
+                     ps->pw_uid <= (unsigned)_highUserId &&
+                     (users.hasUser(ps->pw_name) ||

@@ -1,0 +1,286 @@
+diff -up kdelibs-4.7.80/plasma/CMakeLists.txt.libplasma-pk-0001 kdelibs-4.7.80/plasma/CMakeLists.txt
+--- kdelibs-4.7.80/plasma/CMakeLists.txt.libplasma-pk-0001	2011-11-17 21:54:56.000000000 +0100
++++ kdelibs-4.7.80/plasma/CMakeLists.txt	2011-11-18 13:16:23.243039344 +0100
+@@ -6,10 +6,15 @@ if(KDE_PLATFORM_FEATURE_BINARY_COMPATIBL
+     set(PLASMA_NO_KNEWSTUFF TRUE)
+     set(PLASMA_NO_SOLID TRUE)
+     set(PLASMA_NO_KIO TRUE)
++    set(PLASMA_NO_PACKAGEKIT TRUE)
+     set(PLASMA_NO_KUTILS TRUE)
+     set(PLASMA_NO_GLOBAL_SHORTCUTS TRUE)
+ endif(KDE_PLATFORM_FEATURE_BINARY_COMPATIBLE_FEATURE_REDUCTION)
+ 
++if(NOT Q_WS_X11)
++    set(PLASMA_NO_PACKAGEKIT TRUE)
++endif(NOT Q_WS_X11)
++
+ include_directories(${CMAKE_CURRENT_SOURCE_DIR}
+                     ${KDE4_KDECORE_INCLUDES}
+                     ${KDE4_KDEUI_INCLUDES}
+@@ -44,6 +49,11 @@ if(NOT PLASMA_NO_SOLID)
+     set(PLASMA_EXTRA_LIBS ${PLASMA_EXTRA_LIBS} ${KDE4_SOLID_LIBS})
+ endif(NOT PLASMA_NO_SOLID)
+ 
++if(NOT PLASMA_NO_PACKAGEKIT)
++    add_definitions(-DPLASMA_ENABLE_PACKAGEKIT_SUPPORT=1)
++    set(PLASMA_EXTRA_LIBS ${PLASMA_EXTRA_LIBS} ${QT_QTDBUS_LIBRARY})
++endif(NOT PLASMA_NO_PACKAGEKIT)
++
+ if (NOT PLASMA_NO_KUTILS)
+     include_directories(${CMAKE_SOURCE_DIR}/kutils)
+     set(PLASMA_EXTRA_LIBS ${PLASMA_EXTRA_LIBS} ${KDE4_KUTILS_LIBS})
+@@ -117,6 +127,7 @@ set(plasma_LIB_SRCS
+     private/animablegraphicswebview.cpp
+     private/applethandle.cpp
+     private/associatedapplicationmanager.cpp
++    private/componentinstaller.cpp
+     private/datacontainer_p.cpp
+     private/dataenginebindings.cpp
+     private/dataengineconsumer.cpp
+diff -up kdelibs-4.7.80/plasma/dataenginemanager.cpp.libplasma-pk-0001 kdelibs-4.7.80/plasma/dataenginemanager.cpp
+--- kdelibs-4.7.80/plasma/dataenginemanager.cpp.libplasma-pk-0001	2011-08-22 15:13:55.000000000 +0200
++++ kdelibs-4.7.80/plasma/dataenginemanager.cpp	2011-11-18 12:48:37.513008572 +0100
+@@ -29,6 +29,7 @@
+ 
+ #include "datacontainer.h"
+ #include "pluginloader.h"
++#include "private/componentinstaller_p.h"
+ #include "private/dataengine_p.h"
+ #include "private/datacontainer_p.h"
+ #include "scripting/scriptengine.h"
+@@ -130,6 +131,9 @@ Plasma::DataEngine *DataEngineManager::l
+ 
+     DataEngine *engine = PluginLoader::pluginLoader()->loadDataEngine(name);
+     if (!engine) {
++        // Try installing the engine. However, it's too late for this request.
++        ComponentInstaller::self()->installMissingComponent("dataengine", name);
++
+         return d->nullEngine();
+     }
+ 
+diff -up kdelibs-4.7.80/plasma/private/componentinstaller.cpp.libplasma-pk-0001 kdelibs-4.7.80/plasma/private/componentinstaller.cpp
+--- kdelibs-4.7.80/plasma/private/componentinstaller.cpp.libplasma-pk-0001	2011-11-18 12:48:37.513008572 +0100
++++ kdelibs-4.7.80/plasma/private/componentinstaller.cpp	2011-11-18 12:48:37.513008572 +0100
+@@ -0,0 +1,103 @@
++/*
++ *   Copyright 2011 Kevin Kofler <kevin.kofler@chello.at>
++ *
++ *   This program is free software; you can redistribute it and/or modify
++ *   it under the terms of the GNU Library General Public License as
++ *   published by the Free Software Foundation; either version 2, or
++ *   (at your option) any later version.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details
++ *
++ *   You should have received a copy of the GNU Library General Public
++ *   License along with this program; if not, write to the
++ *   Free Software Foundation, Inc.,
++ *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++ */
++
++#include "private/componentinstaller_p.h"
++
++#include <kglobal.h>
++
++#ifdef PLASMA_ENABLE_PACKAGEKIT_SUPPORT
++#include <QSet>
++#include <QDBusInterface>
++#include <QDBusPendingCall>
++#include <QWidget>
++#include <QLatin1String>
++#include <QStringList>
++#endif
++
++namespace Plasma
++{
++
++class ComponentInstallerPrivate
++{
++    public:
++#ifdef PLASMA_ENABLE_PACKAGEKIT_SUPPORT
++        QSet<QString> alreadyPrompted;
++#endif
++};
++
++class ComponentInstallerSingleton
++{
++    public:
++        ComponentInstaller self;
++};
++
++K_GLOBAL_STATIC(ComponentInstallerSingleton, privateComponentInstallerSelf)
++
++ComponentInstaller *ComponentInstaller::self()
++{
++    return &privateComponentInstallerSelf->self;
++}
++
++ComponentInstaller::ComponentInstaller()
++    : d(new ComponentInstallerPrivate)
++{
++}
++
++ComponentInstaller::~ComponentInstaller()
++{
++    delete d;
++}
++
++void ComponentInstaller::installMissingComponent(const QString &type,
++                                                 const QString &name,
++                                                 QWidget *parent, bool force)
++{
++#ifdef PLASMA_ENABLE_PACKAGEKIT_SUPPORT
++    QString searchString = type + '-' + name;
++
++    if (!force) {
++        if (d->alreadyPrompted.contains(searchString)) {
++            return;
++        }
++    }
++
++    d->alreadyPrompted.insert(searchString);
++
++    QDBusInterface packageKit(QLatin1String("org.freedesktop.PackageKit"),
++                              QLatin1String("/org/freedesktop/PackageKit"),
++                              QLatin1String("org.freedesktop.PackageKit.Modify"));
++    // We don't check packageKit.isValid() because the service is activated on
++    // demand, so it will show up as "not valid".
++    WId wid = 0;
++    if (parent) {
++        wid = parent->winId();
++    }
++    QStringList resources;
++    resources.append(searchString);
++    packageKit.asyncCall(QLatin1String("InstallResources"), (unsigned int) wid,
++                         QLatin1String("plasma-service"), resources, QString());
++#else
++    Q_UNUSED(type);
++    Q_UNUSED(name);
++    Q_UNUSED(parent);
++    Q_UNUSED(force);
++#endif
++}
++
++} // namespace Plasma
+diff -up kdelibs-4.7.80/plasma/private/componentinstaller_p.h.libplasma-pk-0001 kdelibs-4.7.80/plasma/private/componentinstaller_p.h
+--- kdelibs-4.7.80/plasma/private/componentinstaller_p.h.libplasma-pk-0001	2011-11-18 12:48:37.514008574 +0100
++++ kdelibs-4.7.80/plasma/private/componentinstaller_p.h	2011-11-18 12:48:37.514008574 +0100
+@@ -0,0 +1,94 @@
++/*
++ *   Copyright 2011 Kevin Kofler <kevin.kofler@chello.at>
++ *
++ *   This program is free software; you can redistribute it and/or modify
++ *   it under the terms of the GNU Library General Public License as
++ *   published by the Free Software Foundation; either version 2, or
++ *   (at your option) any later version.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details
++ *
++ *   You should have received a copy of the GNU Library General Public
++ *   License along with this program; if not, write to the
++ *   Free Software Foundation, Inc.,
++ *   51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++ */
++
++#ifndef PLASMA_COMPONENTINSTALLER_H
++#define PLASMA_COMPONENTINSTALLER_H
++
++class QString;
++class QWidget;
++
++namespace Plasma
++{
++
++class ComponentInstallerPrivate;
++
++/**
++ * @class ComponentInstaller plasma/private/componentinstaller_p.h
++ *
++ * @short This class provides a generic API for installation of components.
++ *
++ * @internal
++ *
++ * Plasma::ComponentInstaller allows searching for a missing data or script
++ * engine by name, and allowing the user to install the missing service.
++ * Currently, PackageKit is supported as the mechanism to install components,
++ * but more mechanisms could be supported in the future through the same API.
++ *
++ * @since 4.8
++ */
++class ComponentInstaller
++{
++    public:
++        /**
++         * Singleton pattern accessor.
++         */
++        static ComponentInstaller *self();
++
++        /**
++         * Installs a missing component asynchronously.
++         *
++         * By default, this method will cache requested components and not
++         * prompt again for the same engine in the same session. The force
++         * parameter can be used to disable this mechanism, e.g. when the user
++         * just installed a new widget written in a scripting language, and so
++         * is likely to want the script engine installed after all.
++         *
++         * In the case of on-demand installation, this will unfortunately not
++         * allow the call which triggered the missing component lookup to
++         * succeed, but we cannot afford to block all of Plasma until the
++         * mechanism is done installing the service.
++         *
++         * This function does nothing if PackageKit integration was disabled at
++         * compile time.
++         *
++         * @param type the type of the component, should be "scriptengine" or
++         *             "dataengine"
++         * @param name the name of the component
++         * @param parent a parent widget, used to set the wid for PackageKit
++         * @param force whether to always prompt, even if recently prompted
++         */
++        void installMissingComponent(const QString &type, const QString &name,
++                                     QWidget *parent = 0, bool force = false);
++
++    private:
++        /**
++         * Default constructor. The singleton method self() is the
++         * preferred access mechanism.
++         */
++        ComponentInstaller();
++        ~ComponentInstaller();
++
++        ComponentInstallerPrivate *const d;
++
++        friend class ComponentInstallerSingleton;
++};
++
++} // namespace Plasma
++
++#endif // multiple inclusion guard
+diff -up kdelibs-4.7.80/plasma/scripting/scriptengine.cpp.libplasma-pk-0001 kdelibs-4.7.80/plasma/scripting/scriptengine.cpp
+--- kdelibs-4.7.80/plasma/scripting/scriptengine.cpp.libplasma-pk-0001	2011-09-26 11:41:11.000000000 +0200
++++ kdelibs-4.7.80/plasma/scripting/scriptengine.cpp	2011-11-18 12:48:37.514008574 +0100
+@@ -27,6 +27,7 @@
+ #include "applet.h"
+ #include "dataengine.h"
+ #include "package.h"
++#include "private/componentinstaller_p.h"
+ #include "scripting/appletscript.h"
+ #include "scripting/dataenginescript.h"
+ #include "scripting/runnerscript.h"
+@@ -196,6 +197,9 @@ ScriptEngine *loadEngine(const QString &
+                  << "! error reported: " << error;
+     }
+ 
++    // Try installing the engine. However, it's too late for this request.
++    ComponentInstaller::self()->installMissingComponent("scriptengine", language);
++
+     return 0;
+ }
+ 

@@ -1,0 +1,294 @@
+Index: kdebase-runtime-4.6.1/kcontrol/locale/CMakeLists.txt
+===================================================================
+--- kdebase-runtime-4.6.1.orig/kcontrol/locale/CMakeLists.txt
++++ kdebase-runtime-4.6.1/kcontrol/locale/CMakeLists.txt
+@@ -13,6 +13,15 @@ target_link_libraries(kcm_locale ${KDE4_
+ 
+ install(TARGETS kcm_locale  DESTINATION ${PLUGIN_INSTALL_DIR} )
+ 
++#### KAuth helper and actions ####
++kde4_add_executable(kcmlocalehelper helper.cpp)
++target_link_libraries(kcmlocalehelper ${KDE4_KDECORE_LIBS})
++install(TARGETS kcmlocalehelper DESTINATION ${LIBEXEC_INSTALL_DIR})
++
++kde4_install_auth_helper_files(kcmlocalehelper org.kde.kcontrol.kcmlocale root)
++
++kde4_install_auth_actions(org.kde.kcontrol.kcmlocale kcmlocale.actions)
++
+ ########### install files ###############
+ 
+ install( FILES language.desktop  DESTINATION  ${SERVICES_INSTALL_DIR} )
+Index: kdebase-runtime-4.6.1/kcontrol/locale/helper.cpp
+===================================================================
+--- /dev/null
++++ kdebase-runtime-4.6.1/kcontrol/locale/helper.cpp
+@@ -0,0 +1,77 @@
++#include "helper.h"
++#include <iostream>
++#include <QStringList>
++#include <QFile>
++#include <QTextStream>
++#include <QDebug>
++
++ActionReply Helper::createReply(int code, const QVariantMap *returnData)
++{
++    ActionReply reply;
++
++    if (code) {
++        reply = ActionReply::HelperError;
++        reply.setErrorCode(code);
++    } else {
++        reply = ActionReply::SuccessReply;
++    }
++
++    if (returnData)
++        reply.setData(*returnData);
++
++    return reply;
++}
++
++
++bool Helper::writeLocale(const QString &locale)
++{
++    QString mudurFile = "/etc/conf.d/mudur";
++
++    // open file to read
++    QFile file(mudurFile);
++    if( !file.open( QIODevice::ReadOnly | QIODevice::Text)) {
++        qDebug() << "Failed to read.";
++        return false;
++    }
++
++    // read whole file, replace language string and create a new string
++    QString output;
++    QTextStream in(&file);
++    in.setCodec("UTF-8");
++    while (!in.atEnd()) {
++        QString line = in.readLine();
++        if (line.contains("language=")) {
++            QString newline = "language=\"" + locale + "\"\n";
++            qDebug() << newline << endl;
++            output.append(newline);
++        } else {
++            QString newline = line + "\n";
++            output.append(newline);
++        }
++    }
++    file.close();
++
++    QFile fileNew(mudurFile);
++    if( !fileNew.open( QIODevice::WriteOnly | QIODevice::Text)) {
++        qDebug() << "Failed to write.";
++        return false;
++    }
++    QTextStream out(&fileNew);
++    out.setCodec("UTF-8");
++    out << output; //write the output to the new file
++    fileNew.close();
++
++    return true;
++}
++
++ActionReply Helper::managelocale(QVariantMap args)
++{
++    int code = 0;
++
++    QString locale = args.value("locale").toString();
++
++    code = (writeLocale(locale) ? 0 : WriteLocaleError);
++    return createReply(code);
++}
++
++KDE4_AUTH_HELPER_MAIN("org.kde.kcontrol.kcmlocale", Helper)
+Index: kdebase-runtime-4.6.1/kcontrol/locale/helper.h
+===================================================================
+--- /dev/null
++++ kdebase-runtime-4.6.1/kcontrol/locale/helper.h
+@@ -0,0 +1,17 @@
++#include <kauth.h>
++#define WriteLocaleError 1
++
++using namespace KAuth;
++
++class Helper : public QObject
++{
++    Q_OBJECT
++
++    public slots:
++        ActionReply managelocale(QVariantMap args);
++
++    private:
++        bool writeLocale(const QString &locale);
++        ActionReply createReply(int code, const QVariantMap *returnData = 0);
++
++};
+Index: kdebase-runtime-4.6.1/kcontrol/locale/kcmlocale.actions
+===================================================================
+--- /dev/null
++++ kdebase-runtime-4.6.1/kcontrol/locale/kcmlocale.actions
+@@ -0,0 +1,11 @@
++[Domain]
++Name=Langage Manager Control Module
++Icon=preferences-system-login
++
++[org.kde.kcontrol.kcmlocale.managelocale]
++Name=Save the Locale settings
++Name[tr]=Yerel ayarlarını kaydet
++Description=Administrator authorization is required to change the Locale settings
++Description[tr]=Yerel ayarlarını değiştirmek için yönetici hakları gerekiyor
++Policy=auth_admin
++Persistence=session
+Index: kdebase-runtime-4.6.1/kcontrol/locale/kcmlocale.cpp
+===================================================================
+--- kdebase-runtime-4.6.1.orig/kcontrol/locale/kcmlocale.cpp
++++ kdebase-runtime-4.6.1/kcontrol/locale/kcmlocale.cpp
+@@ -39,8 +39,10 @@
+ #include <KPluginFactory>
+ #include <KStandardDirs>
+ #include <KCurrencyCode>
++#include <KMessageBox>
+ 
+ #include "ui_kcmlocalewidget.h"
++#include "helper.h"
+ 
+ K_PLUGIN_FACTORY( KCMLocaleFactory, registerPlugin<KCMLocale>(); )
+ K_EXPORT_PLUGIN( KCMLocaleFactory( "kcmlocale" ) )
+@@ -100,6 +102,9 @@ KCMLocale::KCMLocale( QWidget *parent, c
+     // User has clicked Default button, resest lists to Defaults
+     connect( m_ui->m_buttonDefaultTranslations,    SIGNAL( clicked() ),
+              this,                               SLOT( defaultTranslations() ) );
++    // Reflect changes system wide (to mudur.conf)
++    connect( m_ui->m_systemWide,                 SIGNAL( clicked() ),
++             this,                               SIGNAL( localeChanged() ) );
+ 
+     // Numbers tab
+ 
+@@ -599,6 +604,15 @@ void KCMLocale::save()
+ {
+     m_userConfig->sync();
+ 
++    // Apply language settings to system wide
++    if (m_ui->m_systemWide->isChecked()) {
++        int replyErrorCode = saveSystemWide();
++        qDebug() << replyErrorCode << endl;
++        if (replyErrorCode != 0)
++            KMessageBox::error(this, i18n("KAuth returned an error code: %1", replyErrorCode));
++    };
++
++    qDebug() << "Bakalim neler olacak artik" << endl;
+     // rebuild the date base if language was changed
+     if ( m_currentTranslations != m_kcmSettings.readEntry( "Language", QString() ) ) {
+         KMessageBox::information(this, ki18n("Changed language settings apply only to "
+@@ -1192,6 +1206,7 @@ void KCMLocale::changedTranslationsAvail
+     int row = m_ui->m_selectTranslations->availableListWidget()->currentRow();
+     changedTranslations();
+     m_ui->m_selectTranslations->availableListWidget()->setCurrentRow( row );
++    emit localeChanged();
+ }
+ 
+ void KCMLocale::changedTranslationsSelected( QListWidgetItem *item )
+@@ -1200,6 +1215,7 @@ void KCMLocale::changedTranslationsSelec
+     int row = m_ui->m_selectTranslations->selectedListWidget()->currentRow();
+     changedTranslations();
+     m_ui->m_selectTranslations->selectedListWidget()->setCurrentRow( row );
++    emit localeChanged();
+ }
+ 
+ void KCMLocale::changedTranslations()
+@@ -1243,6 +1259,35 @@ void KCMLocale::installTranslations()
+     // User has clicked Install Languages button, trigger distro specific install routine
+ }
+ 
++void KCMLocale::initLocaleChange()
++{
++    m_ui->m_systemWide->setText( ki18n( "Set the first language as the system default" ).toString( m_kcmLocale ) );
++    QString helpText = ki18n( "<p>Click here to set the first language in the list as the system default</p>" ).toString( m_kcmLocale );
++    m_ui->m_systemWide->setToolTip( helpText );
++    m_ui->m_systemWide->setWhatsThis( helpText );
++}
++
++int KCMLocale::saveSystemWide()
++{
++    QStringList selectedTranslations;
++    for ( int i = 0; i < m_ui->m_selectTranslations->selectedListWidget()->count(); ++i ) {
++        selectedTranslations.append(  m_ui->m_selectTranslations->selectedListWidget()->item( i )->data( Qt::UserRole ).toString() );
++    }
++
++    KAuth::Action action("org.kde.kcontrol.kcmlocale.managelocale");
++    action.setHelperID("org.kde.kcontrol.kcmlocale");
++
++    QVariantMap helperargs;
++    helperargs["locale"] = selectedTranslations.at(0);
++
++    qDebug() << selectedTranslations.at(0);
++
++    action.setArguments(helperargs);
++
++    KAuth::ActionReply reply = action.execute();
++    return reply.errorCode();
++}
++
+ void KCMLocale::initNumericThousandsSeparator()
+ {
+     m_ui->m_comboThousandsSeparator->blockSignals( true );
+Index: kdebase-runtime-4.6.1/kcontrol/locale/kcmlocale.h
+===================================================================
+--- kdebase-runtime-4.6.1.orig/kcontrol/locale/kcmlocale.h
++++ kdebase-runtime-4.6.1/kcontrol/locale/kcmlocale.h
+@@ -162,6 +162,8 @@ private:
+ 
+     void initTranslationsInstall();
+ 
++    void initLocaleChange();
++    int saveSystemWide();
+     //Numeric tab
+ 
+     void initNumericThousandsSeparator();
+@@ -262,6 +264,9 @@ private:
+     void initBinaryUnitDialect();
+     void setBinaryUnitDialect( int newValue );
+ 
++Q_SIGNALS:
++    void localeChanged();
++
+ private Q_SLOTS:
+ 
+     void updateSample();
+@@ -456,6 +461,8 @@ private:
+     KLocale *m_defaultLocale;
+ 
+     Ui::KCMLocaleWidget *m_ui;
++
++
+ };
+ 
+-#endif //KCMLOCALE_H
+\ No newline at end of file
++#endif //KCMLOCALE_H
+Index: kdebase-runtime-4.6.1/kcontrol/locale/kcmlocalewidget.ui
+===================================================================
+--- kdebase-runtime-4.6.1.orig/kcontrol/locale/kcmlocalewidget.ui
++++ kdebase-runtime-4.6.1/kcontrol/locale/kcmlocalewidget.ui
+@ -20,7 +20,7 @@
+    <item>
+     <widget class="KTabWidget" name="m_tabWidgetSettings">
+      <property name="currentIndex">
+-      <number>0</number>
++      <number>1</number>
+      </property>
+      <widget class="QWidget" name="m_tabLocation">
+       <attribute name="title">
+@@ -147,6 +147,13 @@
+          </item>
+         </layout>
+        </item>
++       <item>
++        <widget class="QCheckBox" name="m_systemWide">
++         <property name="text">
++          <string>Set the first language as the system default</string>
++         </property>
++        </widget>
++       </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="m_tabNumbers">

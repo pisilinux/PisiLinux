@@ -1,0 +1,330 @@
+Index: kdebase-workspace-4.3.5/ksplash/ksplashx/splash.cpp
+===================================================================
+--- kdebase-workspace-4.3.5.orig/ksplash/ksplashx/splash.cpp
++++ kdebase-workspace-4.3.5/ksplash/ksplashx/splash.cpp
+@@ -335,6 +335,265 @@ static void pregeneratePixmap( const cha
+         }
+     }
+ 
++static int lowest_bit(uint val)
++{
++    if (!(val & 0xffffffff))
++        return -1;
++
++    int ret = 0;
++    while (!(val & 0xff)) { val >>= 8; ret += 8; }
++    while (!(val & 1)) { val >>= 1; ret++; }
++    return ret;
++}
++
++// Function to convert an XImage to QImage.
++// Mostly stolen from kdelibs-3.5.10/kdeui/kpixmapio.{h,cpp}
++static QImage convertXImageToQImage(XImage *ximage)
++{
++    int x, y;
++    int width = ximage->width, height = ximage->height;
++    int bpl = ximage->bytes_per_line;
++    char *data = ximage->data;
++
++    int bpp = ximage->bits_per_pixel;
++    int byteorder;
++
++    if( ximage->byte_order == LSBFirst )
++        bpp++;
++
++    int red_shift = lowest_bit( ximage->red_mask );
++    int green_shift = lowest_bit( ximage->green_mask );
++    int blue_shift = lowest_bit( ximage->blue_mask );
++
++    /*
++     * Supported XImage byte orders. The notation ARGB means bytes
++     * containing A:R:G:B succeed in memory.
++     */
++    enum ByteOrders {
++        bo32_ARGB, bo32_BGRA, bo24_RGB, bo24_BGR,
++        bo16_RGB_565, bo16_BGR_565, bo16_RGB_555,
++        bo16_BGR_555, bo8
++    };
++
++    // Offer discrete possibilities for the bitformat. Each will have its
++    // own routine. The general algorithm using bitshifts is much too slow;
++    // this has to be done for every pixel!
++
++    if ((bpp == 32) && (red_shift == 16) && (green_shift == 8) &&
++            (blue_shift == 0))
++        byteorder = bo32_ARGB;
++    else if ((bpp == 32) && (red_shift == 0) && (green_shift == 8) &&
++           (blue_shift == 16))
++        byteorder = bo32_BGRA;
++    else if ((bpp == 33) && (red_shift == 16) && (green_shift == 8) &&
++            (blue_shift == 0))
++        byteorder = bo32_BGRA;
++    else if ((bpp == 24) && (red_shift == 16) && (green_shift == 8) &&
++            (blue_shift == 0))
++        byteorder = bo24_RGB;
++    else if ((bpp == 24) && (red_shift == 0) && (green_shift == 8) &&
++            (blue_shift == 16))
++        byteorder = bo24_BGR;
++    else if ((bpp == 25) && (red_shift == 16) && (green_shift == 8) &&
++            (blue_shift == 0))
++        byteorder = bo24_BGR;
++    else if ((bpp == 16) && (red_shift == 11) && (green_shift == 5) &&
++            (blue_shift == 0))
++        byteorder = bo16_RGB_565;
++    else if ((bpp == 16) && (red_shift == 10) && (green_shift == 5) &&
++            (blue_shift == 0))
++        byteorder = bo16_RGB_555;
++    else if ((bpp == 17) && (red_shift == 11) && (green_shift == 5) &&
++            (blue_shift == 0))
++        byteorder = bo16_BGR_565;
++    else if ((bpp == 17) && (red_shift == 10) && (green_shift == 5) &&
++            (blue_shift == 0))
++        byteorder = bo16_BGR_555;
++    else if ((bpp == 8) || (bpp == 9))
++        byteorder = bo8;
++    else
++#if 0
++    {
++        m_bShm = false;
++        kdWarning(290) << "Byte order not supported!" << endl;
++        kdWarning(290) << "red = " << red_shift
++                << ", green = " << green_shift
++                << ", blue = " << blue_shift << endl;
++        kdWarning(290) << "Please report to <jansen@kde.org>\n";
++    }
++#else
++        // fallback to bo32_ARGB
++        byteorder = bo32_ARGB;
++#endif
++
++    QImage image;
++    if (bpp == 8)
++    {
++        image.create(width, height, 8);
++
++        // Query color map. Don't remove unused entries as a speed
++        // optmization.
++        int i, ncells = 256;
++        XColor *cmap = new XColor[ncells];
++        for (i=0; i<ncells; i++)
++            cmap[i].pixel = i;
++        XQueryColors(qt_xdisplay(), QPaintDevice::x11AppColormap(),
++                cmap, ncells);
++        image.setNumColors(ncells);
++        for (i=0; i<ncells; i++)
++            image.setColor(i, qRgb(cmap[i].red, cmap[i].green, cmap[i].blue >> 8));
++    } else
++        image.create(width, height, 32);
++
++    switch (byteorder)
++    {
++
++    case bo8:
++    {
++        for (y=0; y<height; y++)
++            memcpy(image.scanLine(y), data + y*bpl, width);
++        break;
++    }
++
++    case bo16_RGB_565:
++    case bo16_BGR_565:
++    {
++        Q_INT32 pixel, *src;
++        QRgb *dst, val;
++        for (y=0; y<height; y++)
++        {
++            src = (Q_INT32 *) (data + y*bpl);
++            dst = (QRgb *) image.scanLine(y);
++            for (x=0; x<width/2; x++)
++            {
++                pixel = *src++;
++                val = ((pixel & 0xf800) << 8) | ((pixel & 0x7e0) << 5) |
++                        ((pixel & 0x1f) << 3);
++                *dst++ = val;
++                pixel >>= 16;
++                val = ((pixel & 0xf800) << 8) | ((pixel & 0x7e0) << 5) |
++                        ((pixel & 0x1f) << 3);
++                *dst++ = val;
++            }
++            if (width%2)
++            {
++                pixel = *src++;
++                val = ((pixel & 0xf800) << 8) | ((pixel & 0x7e0) << 5) |
++                        ((pixel & 0x1f) << 3);
++                *dst++ = val;
++            }
++        }
++        break;
++    }
++
++    case bo16_RGB_555:
++    case bo16_BGR_555:
++    {
++        Q_INT32 pixel, *src;
++        QRgb *dst, val;
++        for (y=0; y<height; y++)
++        {
++            src = (Q_INT32 *) (data + y*bpl);
++            dst = (QRgb *) image.scanLine(y);
++            for (x=0; x<width/2; x++)
++            {
++                pixel = *src++;
++                val = ((pixel & 0x7c00) << 9) | ((pixel & 0x3e0) << 6) |
++                        ((pixel & 0x1f) << 3);
++                *dst++ = val;
++                pixel >>= 16;
++                val = ((pixel & 0x7c00) << 9) | ((pixel & 0x3e0) << 6) |
++                        ((pixel & 0x1f) << 3);
++                *dst++ = val;
++            }
++            if (width%2)
++            {
++                pixel = *src++;
++                val = ((pixel & 0x7c00) << 9) | ((pixel & 0x3e0) << 6) |
++                        ((pixel & 0x1f) << 3);
++                *dst++ = val;
++            }
++        }
++        break;
++    }
++
++    case bo24_RGB:
++    {
++        char *src;
++        QRgb *dst;
++        int w1 = width/4;
++        Q_INT32 d1, d2, d3;
++        for (y=0; y<height; y++)
++        {
++            src = data + y*bpl;
++            dst = (QRgb *) image.scanLine(y);
++            for (x=0; x<w1; x++)
++            {
++                d1 = *((Q_INT32 *)src);
++                d2 = *((Q_INT32 *)src + 1);
++                d3 = *((Q_INT32 *)src + 2);
++                src += 12;
++                *dst++ = d1;
++                *dst++ = (d1 >> 24) | (d2 << 8);
++                *dst++ = (d3 << 16) | (d2 >> 16);
++                *dst++ = d3 >> 8;
++            }
++            for (x=w1*4; x<width; x++)
++            {
++                d1 = *src++ << 16;
++                d1 += *src++ << 8;
++                d1 += *src++;
++                *dst++ = d1;
++            }
++        }
++        break;
++    }
++
++    case bo24_BGR:
++    {
++        char *src;
++        QRgb *dst;
++        int w1 = width/4;
++        Q_INT32 d1, d2, d3;
++        for (y=0; y<height; y++)
++        {
++            src = data + y*bpl;
++            dst = (QRgb *) image.scanLine(y);
++            for (x=0; x<w1; x++)
++            {
++                d1 = *((Q_INT32 *)src);
++                d2 = *((Q_INT32 *)src + 1);
++                d3 = *((Q_INT32 *)src + 2);
++                src += 12;
++                *dst++ = d1;
++                *dst++ = (d1 >> 24) | (d2 << 8);
++                *dst++ = (d3 << 16) | (d2 >> 16);
++                *dst++ = d3 >> 8;
++            }
++            for (x=w1*4; x<width; x++)
++            {
++                d1 = *src++;
++                d1 += *src++ << 8;
++                d1 += *src++ << 16;
++                *dst++ = d1;
++            }
++        }
++        break;
++    }
++
++    case bo32_ARGB:
++    case bo32_BGRA:
++    {
++        for (y=0; y<height; y++)
++            memcpy(image.scanLine(y), data + y*bpl, width*4);
++        break;
++    }
++
++    }
++
++    return image;
++}
++
+ static QImage loadImage( const char* file, QRect geom )
+     {
+     int w, h;
+@@ -839,6 +1098,7 @@ void runSplash( const char* them, bool t
+     splash_pixmap = None;
+     final_time = time( NULL ) + 300;
+     int desc_w, desc_h;
++    bool keep_xdm_background = false;
+ 
+     // try to load the themes description.txt file from within the theme_dir
+     FILE* datafile = fopen( findFile( "description.txt", &desc_w, &desc_h ), "r" );
+@@ -997,10 +1257,29 @@ void runSplash( const char* them, bool t
+                 exit( 3 );
+                 }
+             }
++        else if( sscanf( line, "KEEP_XDM_BACKGROUND %1023s", buf ) == 1 )
++            {
++            handled = true;
++            if( strcmp( buf, "ON" ) == 0 )
++                {
++                char *xdm_managed = getenv("XDM_MANAGED");
++                if( xdm_managed && !strstr(xdm_managed, "auto") )
++                    keep_xdm_background = true;
++                }
++            else if( strcmp( buf, "OFF" ) == 0 )
++                keep_xdm_background = false;
++            else
++                {
++                fprintf( stderr, "Bad value: %s\n", line );
++                exit( 3 );
++                }
++            }
+         else if( sscanf( line, "BACKGROUND_IMAGE %d %d %1023s", &x, &y, buf ) == 3 )
+             {
+             int screens = screenCount();
+             handled = true;
++            if( keep_xdm_background )
++                x = y = 0;
+             if( scalex || scaley )
+                 {
+                 x = scalex ? round( x / ratiox ) : x;
+@@ -1010,7 +1289,20 @@ void runSplash( const char* them, bool t
+                 createSplashImage();
+             for (int i = 0; i < screens; ++i) {
+                 QRect geom = screenGeometry(i);
+-                QImage img = loadImage( buf, geom );
++                QImage img;
++                if( keep_xdm_background )
++                    {
++                    XImage *ximg = XGetImage( qt_xdisplay(),
++                                            DefaultRootWindow( qt_xdisplay() ),
++                                            geom.x(),
++                                            geom.y(),
++                                            geom.width(),
++                                            geom.height(),
++                                            AllPlanes, ZPixmap );
++                    img = convertXImageToQImage( ximg );
++                    }
++                else
++                    img = loadImage( buf, geom );
+                 if( !img.isNull())
+                     {
+                     blend( img, geom.x() + x, geom.y() + y );

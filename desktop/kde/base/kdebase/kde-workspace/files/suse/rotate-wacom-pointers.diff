@@ -1,0 +1,103 @@
+Index: kcontrol/randr/randrscreen.cpp
+===================================================================
+--- kcontrol/randr/randrscreen.cpp.orig	2010-09-01 15:36:50.000000000 +0200
++++ kcontrol/randr/randrscreen.cpp	2010-11-21 20:47:03.651718637 +0100
+@@ -538,6 +538,8 @@ bool RandRScreen::applyProposed(bool con
+ 	if (succeed && confirm)
+ 		succeed = RandR::confirm(r);
+ 
++	RandR::rotateWacom( m_unifiedRotation );
++
+ 	// if we succeeded applying and the user confirmed the changes,
+ 	// just return from here 
+ 	if (succeed)
+Index: kcontrol/randr/randr.h
+===================================================================
+--- kcontrol/randr/randr.h.orig	2010-08-11 12:08:09.000000000 +0200
++++ kcontrol/randr/randr.h	2010-11-21 20:47:03.651718637 +0100
+@@ -104,6 +104,7 @@ public:
+ 	static bool confirm(const QRect &rect = QRect());
+ 
+ 	static SizeList sortSizes(const SizeList &sizes);
++	static void rotateWacom( int rotation );
+ };
+ 
+ #endif
+Index: kcontrol/randr/legacyrandrscreen.cpp
+===================================================================
+--- kcontrol/randr/legacyrandrscreen.cpp.orig	2010-09-01 15:36:50.000000000 +0200
++++ kcontrol/randr/legacyrandrscreen.cpp	2010-11-21 20:47:03.653717490 +0100
+@@ -104,6 +104,7 @@ bool LegacyRandRScreen::applyProposed()
+ 		m_currentSize = m_proposedSize;
+ 		m_currentRotation = m_proposedRotation;
+ 		m_currentRefreshRate = m_proposedRefreshRate;
++		RandR::rotateWacom( m_currentRotation );	
+ 		return true;
+ 	}
+ 
+Index: kcontrol/randr/randrcrtc.cpp
+===================================================================
+--- kcontrol/randr/randrcrtc.cpp.orig	2008-11-19 11:17:57.000000000 +0100
++++ kcontrol/randr/randrcrtc.cpp	2010-11-21 20:47:03.653717490 +0100
+@@ -317,6 +317,7 @@ bool RandRCrtc::applyProposed()
+ 		m_currentRect = m_proposedRect;
+ 		m_currentRate = mode.refreshRate();
+ 		emit crtcChanged(m_id, RandR::ChangeMode);
++		RandR::rotateWacom( m_currentRotation );
+ 		ret = true;
+ 	}
+ 	else
+Index: kcontrol/randr/randr.cpp
+===================================================================
+--- kcontrol/randr/randr.cpp.orig	2010-08-11 12:08:09.000000000 +0200
++++ kcontrol/randr/randr.cpp	2010-11-21 20:47:03.653717490 +0100
+@@ -19,6 +19,8 @@
+ 
+ #include "randr.h"
+ #include <KIconLoader>
++#include <kstandarddirs.h>
++#include <qprocess.h>
+ 
+ bool RandR::has_1_2 = false;
+ bool RandR::has_1_3 = false;
+@@ -177,5 +179,40 @@ SizeList RandR::sortSizes(const SizeList
+ 	return sorted;
+ }
+ 
++void RandR::rotateWacom( int rotation )
++{
++	// search wacom utility and set orientation for available wacom pointers
++	QString xsetwacom = KStandardDirs::findExe("xsetwacom");
++	if (!xsetwacom.isEmpty()) {
++		QProcess proc;
++		proc.start( "xsetwacom", QStringList() << "list" );
++		if (!proc.waitForStarted() || !proc.waitForFinished()) {
++			kError("Could not ask xsetwacom for available pointers.");
++			return;
++		} else {
++			while( !proc.atEnd()) {
++				QString line = QString::fromLocal8Bit( proc.readLine());
++				QString pointer = line.split( ' ' ).first();
++				QStringList args;
++				args << "set" << pointer << "Rotate";
++				switch (rotation) {
++					case RR_Rotate_90:
++						args << "CW";
++						break;
++					case RR_Rotate_180:
++						args << "HALF";
++						break;
++					case RR_Rotate_270:
++						args << "CCW";
++						break;
++					default:
++						args << "NONE";
++			        }
++				if( QProcess::execute( "xsetwacom", args ) != 0 )
++					kError("Could not set orientation for wacom pointers.");
++			}
++		}
++	}
++}
+ 
+ 

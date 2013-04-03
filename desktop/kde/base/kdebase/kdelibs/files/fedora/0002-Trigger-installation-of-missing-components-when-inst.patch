@@ -1,0 +1,139 @@
+diff -up kdelibs-4.8.90/plasma/package.cpp.libplasma-pk-0002 kdelibs-4.8.90/plasma/package.cpp
+--- kdelibs-4.8.90/plasma/package.cpp.libplasma-pk-0002	2012-06-05 10:47:01.000000000 +0200
++++ kdelibs-4.8.90/plasma/package.cpp	2012-06-08 15:40:14.219728253 +0200
+@@ -43,8 +43,11 @@
+ #include <kdebug.h>
+ 
+ #include "authorizationmanager.h"
++#include "dataenginemanager.h"
+ #include "packagemetadata.h"
++#include "scripting/scriptengine.h"
+ #include "private/authorizationmanager_p.h"
++#include "private/componentinstaller_p.h"
+ #include "private/package_p.h"
+ #include "private/plasmoidservice_p.h"
+ #include "private/service_p.h"
+@@ -580,6 +583,41 @@ bool Package::installPackage(const QStri
+         // no need to remove the temp dir (which has been successfully moved if it's an archive)
+         tempdir.setAutoRemove(false);
+     }
++    // check for missing dependencies
++    QString requiredScriptEngine = meta.implementationApi();
++    if (!requiredScriptEngine.isEmpty()) {
++        // figure out the component type to query for
++        ComponentTypes componentTypes = static_cast<ComponentTypes>(0);
++        QStringList serviceTypes = meta.serviceType().split(',');
++        if (serviceTypes.contains("Plasma/Applet")) {
++            componentTypes |= AppletComponent;
++        }
++        if (serviceTypes.contains("Plasma/DataEngine")) {
++            componentTypes |= DataEngineComponent;
++        }
++        if (serviceTypes.contains("Plasma/Runner")) {
++            componentTypes |= RunnerComponent;
++        }
++        if (serviceTypes.contains("Plasma/Wallpaper")) {
++            componentTypes |= WallpaperComponent;
++        }
++        if (!knownLanguages(componentTypes).contains(requiredScriptEngine)) {
++            // install the missing script engine
++            // force prompting because the user has just explicitly installed a widget
++            ComponentInstaller::self()->installMissingComponent("scriptengine", requiredScriptEngine, 0, true);
++        }
++    }
++    QStringList requiredDataEngines = meta.requiredDataEngines();
++    if (!requiredDataEngines.isEmpty()) {
++        QStringList knownDataEngines = DataEngineManager::self()->listAllEngines(meta.application());
++        foreach (const QString &requiredDataEngine, requiredDataEngines) {
++            if (!knownDataEngines.contains(requiredDataEngine)) {
++                // install the missing data engine
++                // force prompting because the user has just explicitly installed a widget
++                ComponentInstaller::self()->installMissingComponent("dataengine", requiredDataEngine, 0, true);
++            }
++        }
++    }
+ 
+     if (!servicePrefix.isEmpty()) {
+         // and now we register it as a service =)
+diff -up kdelibs-4.8.90/plasma/packagemetadata.cpp.libplasma-pk-0002 kdelibs-4.8.90/plasma/packagemetadata.cpp
+--- kdelibs-4.8.90/plasma/packagemetadata.cpp.libplasma-pk-0002	2012-05-23 01:45:26.000000000 +0200
++++ kdelibs-4.8.90/plasma/packagemetadata.cpp	2012-06-08 15:24:24.439149182 +0200
+@@ -52,6 +52,7 @@ class PackageMetadataPrivate
+         QString serviceType;
+         QString api;
+         KUrl location;
++        QStringList requiredDataEngines;
+ };
+ 
+ PackageMetadata::PackageMetadata(const PackageMetadata &other)
+@@ -108,6 +109,7 @@ void PackageMetadata::write(const QStrin
+     config.writeEntry("X-KDE-ParentApp", d->app);
+     config.writeEntry("Type", d->type);
+     config.writeEntry("X-Plasma-RemoteLocation", d->location);
++    config.writeEntry("X-Plasma-RequiredDataEngines", d->requiredDataEngines);
+ }
+ 
+ void PackageMetadata::read(const QString &filename)
+@@ -154,6 +156,7 @@ void PackageMetadata::read(const QString
+     d->app = config.readEntry("X-KDE-ParentApp", d->app);
+     d->type = config.readEntry("Type", d->type);
+     d->location = config.readEntry("X-Plasma-RemoteLocation", d->location);
++    d->requiredDataEngines = config.readEntry("X-Plasma-RequiredDataEngines", d->requiredDataEngines);
+ }
+ 
+ QString PackageMetadata::name() const
+@@ -246,6 +249,11 @@ QString PackageMetadata::implementationA
+     return d->api;
+ }
+ 
++QStringList PackageMetadata::requiredDataEngines() const
++{
++    return d->requiredDataEngines;
++}
++
+ void PackageMetadata::setImplementationApi(const QString &api)
+ {
+     d->api = api;
+@@ -321,6 +329,11 @@ void PackageMetadata::setRemoteLocation(
+     d->location = location;
+ }
+ 
++void PackageMetadata::setRequiredDataEngines(const QStringList &requiredDataEngines)
++{
++    d->requiredDataEngines = requiredDataEngines;
++}
++
+ void PackageMetadata::setType(const QString &type)
+ {
+     d->type = type;
+diff -up kdelibs-4.8.90/plasma/packagemetadata.h.libplasma-pk-0002 kdelibs-4.8.90/plasma/packagemetadata.h
+--- kdelibs-4.8.90/plasma/packagemetadata.h.libplasma-pk-0002	2012-05-23 01:45:26.000000000 +0200
++++ kdelibs-4.8.90/plasma/packagemetadata.h	2012-06-08 15:24:24.481149665 +0200
+@@ -21,6 +21,7 @@
+ #define PLASMA_PACKAGEMETADATA_H
+ 
+ #include <QtCore/QString>
++#include <QtCore/QStringList>
+ 
+ #include <plasma/plasma_export.h>
+ 
+@@ -92,6 +93,7 @@ public:
+     QString pluginName() const;
+     QString implementationApi() const;
+     KUrl remoteLocation() const;
++    QStringList requiredDataEngines() const;
+ 
+     QString type() const;
+ 
+@@ -205,6 +207,11 @@ public:
+      */
+     void setImplementationApi(const QString &api);
+ 
++    /**
++     * Set the required data engines for this package.
++     */
++    void setRequiredDataEngines(const QStringList &);
++
+ private:
+     PackageMetadataPrivate * const d;
+ };

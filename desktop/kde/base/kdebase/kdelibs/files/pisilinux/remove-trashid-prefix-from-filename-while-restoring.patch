@@ -1,0 +1,68 @@
+Index: kdelibs-4.6.5/kio/kio/copyjob.cpp
+===================================================================
+--- kdelibs-4.6.5.orig/kio/kio/copyjob.cpp
++++ kdelibs-4.6.5/kio/kio/copyjob.cpp
+@@ -199,6 +199,7 @@ public:
+ //     KIO::Job* linkNextFile( const KUrl& uSource, const KUrl& uDest, bool overwrite );
+     KIO::Job* linkNextFile( const KUrl& uSource, const KUrl& uDest, JobFlags flags );
+     void copyNextFile();
++    KUrl cleanDestUrl( QString protocol, KUrl uDest );
+     void slotResultDeletingDirs( KJob * job );
+     void deleteNextDir();
+     void sourceStated(const UDSEntry& entry, const KUrl& sourceUrl);
+@@ -869,6 +870,24 @@ bool CopyJobPrivate::shouldSkip( const Q
+     return false;
+ }
+ 
++// Remove "trashid-" prefix from the file name when restoring a file with drag and drop action or copy/cut paste
++// KDE bug #267221 and #262881
++KUrl CopyJobPrivate::cleanDestUrl(QString protocol, KUrl uDest)
++{
++    if (protocol == QLatin1String("trash")) {
++        QString fileName = uDest.fileName();
++        int dashPos = fileName.indexOf(QLatin1Char('-'), 0) + 1;
++        QString newFileName = fileName.remove(0, dashPos);
++
++        KUrl newDest = uDest.path();
++        newDest.setFileName(newFileName);
++
++        return newDest;
++    }
++
++    return uDest;
++}
++
+ void CopyJobPrivate::slotResultCreatingDirs( KJob * job )
+ {
+     Q_Q(CopyJob);
+@@ -1548,7 +1567,7 @@ void CopyJobPrivate::copyNextFile()
+             // Copying a symlink - only on the same protocol/host/etc. (#5601, downloading an FTP file through its link),
+         {
+             const JobFlags flags = bOverwrite ? Overwrite : DefaultFlags;
+-            KIO::SimpleJob *newJob = KIO::symlink( (*it).linkDest, uDest, flags | HideProgressInfo /*no GUI*/ );
++            KIO::SimpleJob *newJob = KIO::symlink( (*it).linkDest, cleanDestUrl(uSource.protocol(), uDest), flags | HideProgressInfo /*no GUI*/ );
+             Scheduler::setJobPriority(newJob, 1);
+             newjob = newJob;
+             //kDebug(7007) << "Linking target=" << (*it).linkDest << "link=" << uDest;
+@@ -1561,8 +1580,11 @@ void CopyJobPrivate::copyNextFile()
+             // NOTE: if we are moving stuff, the deletion of the source will be done in slotResultCopyingFiles
+         } else if (m_mode == CopyJob::Move) // Moving a file
+         {
++            KIO::FileCopyJob * moveJob;
+             JobFlags flags = bOverwrite ? Overwrite : DefaultFlags;
+-            KIO::FileCopyJob * moveJob = KIO::file_move( uSource, uDest, (*it).permissions, flags | HideProgressInfo/*no GUI*/ );
++
++            moveJob = KIO::file_move( uSource, cleanDestUrl(uSource.protocol(), uDest), (*it).permissions, flags | HideProgressInfo/*no GUI*/ );
++
+             moveJob->setSourceSize( (*it).size );
+             if ((*it).mtime != -1) {
+                 moveJob->setModificationTime( QDateTime::fromTime_t( (*it).mtime ) ); // #55804
+@@ -1584,7 +1606,7 @@ void CopyJobPrivate::copyNextFile()
+             if ( m_defaultPermissions || ( remoteSource && uDest.isLocalFile() ) )
+                 permissions = -1;
+             JobFlags flags = bOverwrite ? Overwrite : DefaultFlags;
+-            KIO::FileCopyJob * copyJob = KIO::file_copy( uSource, uDest, permissions, flags | HideProgressInfo/*no GUI*/ );
++            KIO::FileCopyJob * copyJob = KIO::file_copy( uSource, cleanDestUrl(uSource.protocol(), uDest), permissions, flags | HideProgressInfo/*no GUI*/ );
+             copyJob->setParentJob( q ); // in case of rename dialog
+             copyJob->setSourceSize( (*it).size );
+             if ((*it).mtime != -1) {

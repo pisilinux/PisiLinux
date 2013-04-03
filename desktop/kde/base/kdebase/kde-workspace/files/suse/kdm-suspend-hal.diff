@@ -1,0 +1,301 @@
+Index: kdm/backend/ctrl.c
+===================================================================
+--- kdm/backend/ctrl.c.orig	2010-08-05 18:55:40.000000000 +0200
++++ kdm/backend/ctrl.c	2010-11-21 20:47:03.492842634 +0100
+@@ -499,6 +499,10 @@ processCtrl(const char *string, int len,
+                             Reply("nuke\t");
+                     }
+                 }
++				if (d->allowSuspend != SHUT_NONE) {
++				    Reply( "suspend\t" );
++				}
++
+                 if ((d->displayType & d_location) == dLocal &&
+                     anyReserveDisplays())
+                 {
+Index: kdm/backend/greet.h
+===================================================================
+--- kdm/backend/greet.h.orig	2010-07-06 08:54:30.000000000 +0200
++++ kdm/backend/greet.h	2010-11-21 20:47:03.492842634 +0100
+@@ -150,6 +150,7 @@ from the copyright holder.
+ # define SHUT_REBOOT      1     /* how */
+ # define SHUT_HALT        2
+ # define SHUT_CONSOLE     -1 /* pseudo-code */
++# define SHUT_SUSPEND     -2 /* pseudo-code */
+ # define SHUT_SCHEDULE    0     /* when; config only */
+ # define SHUT_TRYNOW      1
+ # define SHUT_FORCENOW    2
+Index: kdm/config.def
+===================================================================
+--- kdm/config.def.orig	2010-10-12 15:07:22.000000000 +0200
++++ kdm/config.def	2010-11-21 20:47:31.380718279 +0100
+@@ -1794,6 +1794,19 @@ Description:
+  Who is allowed to shut down the system. This applies both to the
+  greeter and to the command sockets.
+ 
++Key: AllowSuspend
++Type: enum
++ None/SHUT_NONE: no <guilabel>Suspend...</guilabel> menu entry is shown at all
++ Root/SHUT_ROOT: the <systemitem class="username">root</systemitem> password must be entered to suspend
++ All/SHUT_ALL: everybody can suspend the machine
++Default: Root
++User: greeter
++User: core
++Instance: #:0/All
++Comment: &
++Description:
++  If the user should have an option to suspend the system if configured to (also in the desktop)
++
+ Key: AllowSdForceNow
+ Type: enum
+  None: no forced shutdown is allowed at all
+Index: kdm/kfrontend/CMakeLists.txt
+===================================================================
+--- kdm/kfrontend/CMakeLists.txt.orig	2010-10-27 21:55:03.000000000 +0200
++++ kdm/kfrontend/CMakeLists.txt	2010-11-21 20:47:31.380718279 +0100
+@@ -4,10 +4,14 @@ add_subdirectory( themes )
+ add_subdirectory( pics )
+ add_subdirectory( sessions )
+ 
++INCLUDE(UsePkgConfig)
++PKG_CHECK_MODULES(LAZY lazy)
++
+ include_directories(
+ 	${CMAKE_CURRENT_SOURCE_DIR}/../kcm/background
+ 	${KDEBASE_WORKSPACE_SOURCE_DIR}/libs/kdm
+ 	${QIMAGEBLITZ_INCLUDES}
++	${LAZY_INCLUDE_DIRS}
+ )
+ 
+ set(kdmthemer_SRCS
+@@ -70,7 +74,7 @@ endif (WITH_KDM_XCONSOLE)
+ 
+ macro_add_file_dependencies(kdm_greet.h ${confci})
+ kde4_add_executable(kdm_greet ${kdm_greet_SRCS})
+-target_link_libraries(kdm_greet ${KDE4_KDEUI_LIBS} ${QT_QTXML_LIBRARY} ${X11_X11_LIB} ${POSIX4_LIBRARIES})
++target_link_libraries(kdm_greet ${KDE4_KDEUI_LIBS} ${QT_QTXML_LIBRARY} ${X11_X11_LIB} ${POSIX4_LIBRARIES} lazy)
+ if (X11_XTest_FOUND)
+   target_link_libraries(kdm_greet ${X11_XTest_LIB})
+ endif (X11_XTest_FOUND)
+Index: kdm/kfrontend/kdmshutdown.cpp
+===================================================================
+--- kdm/kfrontend/kdmshutdown.cpp.orig	2010-07-06 08:54:31.000000000 +0200
++++ kdm/kfrontend/kdmshutdown.cpp	2010-11-21 20:47:03.494842502 +0100
+@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin Street, Fi
+ 
+ */
+ 
++#include <liblazy.h>
+ #include "kdmshutdown.h"
+ #include "kdm_greet.h"
+ #include "utils.h"
+@@ -33,6 +34,7 @@ Foundation, Inc., 51 Franklin Street, Fi
+ #include <kstandarddirs.h>
+ #include <KStandardGuiItem>
+ #include <kuser.h>
++#include <kdebug.h>
+ 
+ #include <QAction>
+ #include <QApplication>
+@@ -55,6 +57,10 @@ Foundation, Inc., 51 Franklin Street, Fi
+ int KDMShutdownBase::curPlugin = -1;
+ PluginList KDMShutdownBase::pluginList;
+ 
++#define DBUS_HAL_INTERFACE             "org.freedesktop.Hal"
++#define DBUS_HAL_SYSTEM_POWER_INTERFACE        "org.freedesktop.Hal.Device.SystemPowerManagement"
++#define HAL_UDI_COMPUTER               "/org/freedesktop/Hal/devices/computer"
++
+ KDMShutdownBase::KDMShutdownBase(int _uid, QWidget *_parent)
+     : inherited(_parent)
+     , box(new QVBoxLayout(this))
+@@ -65,6 +71,7 @@ KDMShutdownBase::KDMShutdownBase(int _ui
+     , doesNuke(false)
+     , mayOk(true)
+     , maySched(false)
++    , willSuspend(false)
+     , rootlab(0)
+     , verify(0)
+     , needRoot(-1)
+@@ -85,6 +92,7 @@ KDMShutdownBase::complete(QWidget *prevW
+ 
+     if (uid &&
+         ((willShut && _allowShutdown == SHUT_ROOT) ||
++	    ( willSuspend && _allowSuspend == SHUT_ROOT ) ||
+          (mayNuke && _allowNuke == SHUT_ROOT)))
+     {
+         rootlab = new QLabel(i18n("Root authorization required."), this);
+@@ -171,6 +179,7 @@ KDMShutdownBase::updateNeedRoot()
+ {
+     int nNeedRoot = uid &&
+         (((willShut && _allowShutdown == SHUT_ROOT) ||
++		  ( willSuspend && _allowSuspend == SHUT_ROOT ) ||
+           (_allowNuke == SHUT_ROOT && doesNuke)));
+     if (verify && nNeedRoot != needRoot) {
+         if (needRoot == 1)
+@@ -488,6 +497,63 @@ KDMSlimShutdown::KDMSlimShutdown(QWidget
+     buttonlay->addWidget(btnReboot);
+     connect(btnReboot, SIGNAL(clicked()), SLOT(slotReboot()));
+ 
++        if ( _allowSuspend != SHUT_NONE )
++        {
++            int supported = -1;
++            liblazy_hal_get_property_bool(HAL_UDI_COMPUTER, "power_management.can_suspend", &supported);
++            if (supported == 1)
++                suspend_ram = true;
++            else
++                suspend_ram = false;
++
++            liblazy_hal_get_property_bool(HAL_UDI_COMPUTER, "power_management.can_standby", &supported);
++            if (supported == 1)
++                standby = true;
++            else
++                standby = false;
++           liblazy_hal_get_property_bool(HAL_UDI_COMPUTER, "power_management.can_hibernate", &supported);
++           if (supported == 1)
++                suspend_disk = true;
++           else
++                suspend_disk = false;
++
++            /*	if (liblazy_polkit_is_user_allowed_by_uid(0, "hal-power-hibernate", NULL) != 1)
++              suspend_disk = false;
++              if (liblazy_polkit_is_user_allowed_by_uid(0, "hal-power-suspend", NULL) != 1)
++              suspend_ram = false;
++              if (liblazy_polkit_is_user_allowed_by_uid(0, "hal-power-standby", NULL) != 1)
++              standby = false;
++            */
++            int sum = standby + suspend_ram + suspend_disk;
++            if ( sum ) {
++                buttonlay->addSpacing( KDialog::spacingHint() );
++
++                KPushButton *btnSuspend;
++                if (sum > 1) {
++                    btnSuspend = new KDMDelayedPushButton( KGuiItem( i18n("&Suspend Computer"), "media-playback-pause"), this );
++                    QMenu *suspends = new QMenu(this);
++                    if (suspend_disk)
++                        qa_suspend_disk = suspends->addAction(i18n("Suspend to Disk"));
++                    else
++                        qa_suspend_disk = 0;
++                    if (suspend_ram)
++                        qa_suspend_ram = suspends->addAction(i18n("Suspend to RAM"));
++                    else
++                        qa_suspend_ram = 0;
++                    if (standby)
++                        qa_standby = suspends->addAction(i18n("Standby"));
++                    else
++                        qa_standby = 0;
++                    connect(suspends, SIGNAL(triggered( QAction* )), SLOT(slotSuspend(QAction*)));
++                    static_cast<KDMDelayedPushButton*>(btnSuspend)->setDelayedMenu(suspends);
++                } else {
++                    btnSuspend = new KPushButton( KGuiItem( i18n("&Suspend Computer"), "media-playback-pause"), this );
++                }
++                buttonlay->addWidget( btnSuspend );
++                connect(btnSuspend, SIGNAL(clicked()), SLOT(slotSuspend()));
++            }
++        }
++
+     int dummy, cur;
+     if (getBootOptions(&targetList, &dummy, &cur)) {
+         QMenu *targets = new QMenu(this);
+@@ -523,6 +589,65 @@ KDMSlimShutdown::KDMSlimShutdown(QWidget
+     buttonlay->addSpacing(KDialog::spacingHint());
+ }
+ 
++void KDMSlimShutdown::slotSuspend()
++{
++  if (suspend_disk)
++      slotSuspend( qa_suspend_disk );
++  else if (suspend_ram)
++      slotSuspend( qa_suspend_ram );
++  else if ( standby )
++      slotSuspend( qa_standby );
++  else
++      reject();
++}
++
++void KDMSlimShutdown::slotSuspend(QAction * id)
++{
++  reject();
++  // dpySpec *sess = fetchSessions( lstRemote | lstTTY );
++  // it would be nice to show the sessions to suspend, but it
++  // would require string changes (coolo)
++  QList<DpySpec> sess;
++  kDebug() << "slotSuspend" << _allowSuspend;
++  if (!sess.isEmpty() || _allowSuspend == SHUT_ROOT)
++  {
++      int ret = KDMConfShutdown( -1, sess, SHUT_SUSPEND, 0 ).exec();
++      if ( !ret )
++          return;
++  }
++
++  int error = 0;
++  int wake = 0;
++  DBusMessage *reply;
++
++  if (suspend_disk && id == qa_suspend_disk) {
++       error = liblazy_dbus_system_send_method_call(DBUS_HAL_INTERFACE,
++						    HAL_UDI_COMPUTER,
++						    DBUS_HAL_SYSTEM_POWER_INTERFACE,
++						    "Hibernate",
++						    &reply,
++						    DBUS_TYPE_INVALID);
++  } else if (suspend_ram && id == qa_suspend_ram)
++       error = liblazy_dbus_system_send_method_call(DBUS_HAL_INTERFACE,
++						    HAL_UDI_COMPUTER,
++						    DBUS_HAL_SYSTEM_POWER_INTERFACE,
++						    "Suspend",
++						    &reply,
++						    DBUS_TYPE_INT32,
++						    &wake,
++						    DBUS_TYPE_INVALID);
++  else if (standby && id == qa_standby )
++       error = liblazy_dbus_system_send_method_call(DBUS_HAL_INTERFACE,
++						    HAL_UDI_COMPUTER,
++						    DBUS_HAL_SYSTEM_POWER_INTERFACE,
++						    "Standby",
++						    &reply,
++						  DBUS_TYPE_INVALID);
++  else {
++      return;
++  }
++}
++
+ void
+ KDMSlimShutdown::slotSched()
+ {
+Index: kdm/kfrontend/kdmshutdown.h
+===================================================================
+--- kdm/kfrontend/kdmshutdown.h.orig	2010-07-06 08:54:31.000000000 +0200
++++ kdm/kfrontend/kdmshutdown.h	2010-11-21 20:47:03.494842502 +0100
+@@ -67,7 +67,7 @@ class KDMShutdownBase : public FDialog,
+ #else
+     static const bool willShut = true;
+ #endif
+-    bool mayNuke, doesNuke, mayOk, maySched;
++	bool mayNuke, doesNuke, mayOk, maySched, willSuspend;
+ 
+   private Q_SLOTS:
+     void slotSched();
+@@ -118,7 +118,6 @@ class KDMShutdown : public KDMShutdownBa
+     QComboBox *targets;
+     int oldTarget;
+     int sch_st, sch_to;
+-
+ };
+ 
+ class KDMRadioButton : public QRadioButton {
+@@ -161,11 +160,15 @@ class KDMSlimShutdown : public FDialog {
+     void slotReboot();
+     void slotReboot(QAction *);
+     void slotSched();
++    void slotSuspend();
++    void slotSuspend(QAction *);
+ 
+   private:
+     bool checkShutdown(int type, const QString &os);
+     QStringList targetList;
++    bool suspend_disk, suspend_ram, standby;
+ 
++    QAction *qa_suspend_disk, *qa_suspend_ram, *qa_standby;
+ };
+ 
+ class KDMConfShutdown : public KDMShutdownBase {

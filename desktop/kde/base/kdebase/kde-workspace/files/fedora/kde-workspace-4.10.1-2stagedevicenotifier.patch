@@ -1,0 +1,163 @@
+commit b4096a222ca5a3e3412186dade4e8bee22e9e1d3
+Author: Lukáš Tinkl <lukas@kde.org>
+Date:   Thu Feb 7 01:01:15 2013 +0100
+
+    fix wrong description and size for 2-stage USB storage devices
+    
+    with review and help from Dan Vratil <dvratil@redhat.com> and
+    Jan Grulich <jgrulich@redhat.com>, tested on their N9 and SG III,
+    respectively :)
+
+diff --git a/plasma/generic/applets/devicenotifier/package/contents/ui/devicenotifier.qml b/plasma/generic/applets/devicenotifier/package/contents/ui/devicenotifier.qml
+index 1c6cdc8..7191ed1 100644
+--- a/plasma/generic/applets/devicenotifier/package/contents/ui/devicenotifier.qml
++++ b/plasma/generic/applets/devicenotifier/package/contents/ui/devicenotifier.qml
+@@ -63,6 +63,11 @@ Item {
+             processLastDevice()
+         }
+ 
++        onNewData: {
++            last = sourceName;
++            processLastDevice();
++        }
++
+         function processLastDevice() {
+             if (last != "") {
+                 if (devicesType == "all" ||
+@@ -155,9 +160,9 @@ Item {
+             tooltip["image"] = "device-notifier"
+             tooltip["mainText"] = i18n("No devices available")
+         } else if (sdSource.last != "") {
+-            tooltip["image"] = hpSource.data[sdSource.last]["icon"]
++            tooltip["image"] = sdSource.data[sdSource.last]["Icon"]
+             tooltip["mainText"] = i18n("Most recent device")
+-            tooltip["subText"] = hpSource.data[sdSource.last]["text"]
++            tooltip["subText"] = sdSource.data[sdSource.last]["Description"]
+         }
+         plasmoid.popupIconToolTip = tooltip
+     }
+@@ -305,8 +310,8 @@ Item {
+                 id: wrapper
+                 width: notifierDialog.width
+                 udi: DataEngineSource
+-                icon: hpSource.data[udi]["icon"]
+-                deviceName: hpSource.data[udi]["text"]
++                icon: sdSource.data[udi]["Icon"]
++                deviceName: sdSource.data[udi]["Description"]
+                 emblemIcon: Emblems[0]
+                 state: model["State"]
+ 
+diff --git a/plasma/generic/dataengines/soliddevice/soliddeviceengine.cpp b/plasma/generic/dataengines/soliddevice/soliddeviceengine.cpp
+index d186843..4e24eba 100644
+--- a/plasma/generic/dataengines/soliddevice/soliddeviceengine.cpp
++++ b/plasma/generic/dataengines/soliddevice/soliddeviceengine.cpp
+@@ -21,6 +21,7 @@
+ 
+ #include <QMetaEnum>
+ #include <QDateTime>
++#include <Solid/GenericInterface>
+ 
+ #include <KDebug>
+ #include <KDiskFreeSpaceInfo>
+@@ -126,6 +127,7 @@ bool SolidDeviceEngine::populateDeviceData(const QString &name)
+     setData(name, I18N_NOOP("Parent UDI"), device.parentUdi());
+     setData(name, I18N_NOOP("Vendor"), device.vendor());
+     setData(name, I18N_NOOP("Product"), device.product());
++    setData(name, I18N_NOOP("Description"), device.description());
+     setData(name, I18N_NOOP("Icon"), device.icon());
+     setData(name, I18N_NOOP("Emblems"), device.emblems());
+     setData(name, I18N_NOOP("State"), Idle);
+@@ -166,8 +168,8 @@ bool SolidDeviceEngine::populateDeviceData(const QString &name)
+ 
+         if (storageaccess->isAccessible()) {
+             QVariant freeDiskVar;
+-            qlonglong freeDisk = freeDiskSpace(storageaccess->filePath());
+-            if ( freeDisk != -1 ) {
++            qulonglong freeDisk = freeDiskSpace(storageaccess->filePath());
++            if ( freeDisk != (qulonglong)-1 ) {
+                 freeDiskVar.setValue( freeDisk );
+             }
+             if (!device.is<Solid::OpticalDisc>()) {
+@@ -321,7 +323,6 @@ bool SolidDeviceEngine::populateDeviceData(const QString &name)
+             //TODO: compress the calls?
+             forceUpdateAccessibility(containerUdi);
+         }
+-
+     }
+     if (device.is<Solid::OpticalDisc>()) {
+         Solid::OpticalDisc *opticaldisc = device.as<Solid::OpticalDisc>();
+@@ -576,6 +577,16 @@ void SolidDeviceEngine::deviceAdded(const QString& udi)
+         }
+     }
+     else if (device.is<Solid::StorageVolume>()) {
++        // update the volume in case of 2-stage devices
++        if (m_devicemap.contains(udi) && query(udi).value(I18N_NOOP("Size")).toULongLong() == 0) {
++            Solid::GenericInterface * iface = device.as<Solid::GenericInterface>();
++            if (iface) {
++                iface->setProperty("udi", udi);
++                connect(iface, SIGNAL(propertyChanged(QMap<QString,int>)),
++                        this, SLOT(deviceChanged(QMap<QString,int>)));
++            }
++        }
++
+         Solid::StorageAccess *access = device.as<Solid::StorageAccess>();
+         if (access) {
+             connect(access, SIGNAL(setupRequested(const QString&)),
+@@ -625,13 +636,23 @@ void SolidDeviceEngine::setIdleState(Solid::ErrorType error, QVariant errorData,
+     setData(udi, I18N_NOOP("File Path"), storageaccess->filePath());
+ }
+ 
+-qlonglong SolidDeviceEngine::freeDiskSpace(const QString &mountPoint)
++void SolidDeviceEngine::deviceChanged(const QMap<QString, int> &props)
++{
++    Solid::GenericInterface * iface = qobject_cast<Solid::GenericInterface *>(sender());
++    if (iface && iface->isValid() && props.contains("Size") && iface->property("Size").toInt() > 0) {
++        const QString udi = qobject_cast<QObject *>(iface)->property("udi").toString();
++        if (populateDeviceData(udi))
++            forceImmediateUpdateOfAllVisualizations();
++    }
++}
++
++qulonglong SolidDeviceEngine::freeDiskSpace(const QString &mountPoint)
+ {
+     KDiskFreeSpaceInfo info = KDiskFreeSpaceInfo::freeSpaceInfo(mountPoint);
+     if (info.isValid()) {
+         return info.available();
+     }
+-    return -1;
++    return (qulonglong)-1;
+ }
+ 
+ bool SolidDeviceEngine::updateFreeSpace(const QString &udi)
+@@ -650,8 +671,8 @@ bool SolidDeviceEngine::updateFreeSpace(const QString &udi)
+     }
+ 
+     QVariant freeSpaceVar;
+-    qlonglong freeSpace = freeDiskSpace(storageaccess->filePath());
+-    if (freeSpace != -1) {
++    qulonglong freeSpace = freeDiskSpace(storageaccess->filePath());
++    if (freeSpace != (qulonglong)-1) {
+         freeSpaceVar.setValue( freeSpace );
+     }
+     setData(udi, I18N_NOOP("Free Space"), freeSpaceVar );
+diff --git a/plasma/generic/dataengines/soliddevice/soliddeviceengine.h b/plasma/generic/dataengines/soliddevice/soliddeviceengine.h
+index 3678c02..85bdc68 100644
+--- a/plasma/generic/dataengines/soliddevice/soliddeviceengine.h
++++ b/plasma/generic/dataengines/soliddevice/soliddeviceengine.h
+@@ -67,7 +67,7 @@ protected:
+ 
+ private:
+     bool populateDeviceData(const QString &name);
+-    qlonglong freeDiskSpace(const QString &mountPoint);
++    qulonglong freeDiskSpace(const QString &mountPoint);
+     bool updateFreeSpace(const QString &udi);
+     bool updateHardDiskTemperature(const QString &udi);
+     bool updateEmblems(const QString &udi);
+@@ -94,6 +94,7 @@ private Q_SLOTS:
+     void setMountingState(const QString &udi);
+     void setUnmountingState(const QString &udi);
+     void setIdleState(Solid::ErrorType error, QVariant errorData, const QString &udi);
++    void deviceChanged(const QMap<QString,int> & props);
+ };
+ 
+ #endif

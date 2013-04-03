@@ -1,0 +1,676 @@
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/CMakeLists.txt.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/CMakeLists.txt
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/CMakeLists.txt.wac-html-widgets	2011-07-27 20:35:44.000000000 +0200
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/CMakeLists.txt	2011-11-24 09:25:25.941032887 +0100
+@@ -26,8 +26,22 @@ kde4_add_plugin(plasma_packagestructure_
+ target_link_libraries(plasma_packagestructure_dashboard  ${KDE4_PLASMA_LIBS} ${KDE4_KIO_LIBS} ${QT_QTWEBKIT_LIBRARY} )
+ install(TARGETS plasma_packagestructure_dashboard DESTINATION ${PLUGIN_INSTALL_DIR})
+ 
++set(wacapplet_SRCS
++    webpage.cpp webapplet.cpp wacapplet.cpp wacpackage.cpp)
++kde4_add_plugin(plasma_appletscriptengine_wac ${wacapplet_SRCS})
++target_link_libraries(plasma_appletscriptengine_wac ${KDE4_PLASMA_LIBS} ${KDE4_KIO_LIBS} ${QT_QTWEBKIT_LIBRARY} )
++install(TARGETS plasma_appletscriptengine_wac DESTINATION ${PLUGIN_INSTALL_DIR})
++
++set(wacpackage_SRCS
++    wacpackage.cpp wac_plugin.cpp)
++kde4_add_plugin(plasma_packagestructure_wac ${wacpackage_SRCS})
++target_link_libraries(plasma_packagestructure_wac  ${KDE4_PLASMA_LIBS} ${KDE4_KIO_LIBS} ${QT_QTWEBKIT_LIBRARY} )
++install(TARGETS plasma_packagestructure_wac DESTINATION ${PLUGIN_INSTALL_DIR})
++
+ install(FILES plasma-scriptengine-applet-web.desktop
+               plasma-scriptengine-applet-dashboard.desktop
++              plasma-scriptengine-applet-wac.desktop
+               plasma-packagestructure-dashboard.desktop
+               plasma-packagestructure-web.desktop
++              plasma-packagestructure-wac.desktop
+         DESTINATION ${SERVICES_INSTALL_DIR})
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/plasma-packagestructure-wac.desktop.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/plasma-packagestructure-wac.desktop
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/plasma-packagestructure-wac.desktop.wac-html-widgets	2011-11-24 09:25:25.941032887 +0100
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/plasma-packagestructure-wac.desktop	2011-11-24 09:25:25.941032887 +0100
+@@ -0,0 +1,18 @@
++[Desktop Entry]
++Name=Wac web Widgets
++Comment=Wac HTML widget
++Type=Service
++ServiceTypes=Plasma/PackageStructure
++
++X-KDE-Library=plasma_packagestructure_wac
++X-KDE-PluginInfo-Author=Marco Martin
++X-KDE-PluginInfo-Email=mart@kde.org
++X-KDE-PluginInfo-Name=wac
++X-KDE-PluginInfo-Version=pre0.1
++X-KDE-PluginInfo-Website=http://plasma.kde.org/
++X-KDE-PluginInfo-Category=Applet
++X-KDE-PluginInfo-Depends=
++X-KDE-PluginInfo-License=BSD
++X-KDE-PluginInfo-EnabledByDefault=true
++X-Plasma-PackageFileFilter=*
++X-Plasma-PackageFileMimetypes=application/zip
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/plasma-scriptengine-applet-wac.desktop.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/plasma-scriptengine-applet-wac.desktop
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/plasma-scriptengine-applet-wac.desktop.wac-html-widgets	2011-11-24 09:25:25.942032913 +0100
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/plasma-scriptengine-applet-wac.desktop	2011-11-24 09:25:25.942032913 +0100
+@@ -0,0 +1,20 @@
++[Desktop Entry]
++Name=Wac web widget
++Comment=Support for the Wac HTML5 widgets
++Type=Service
++ServiceTypes=Plasma/ScriptEngine
++Icon=internet-web-browser
++
++X-KDE-Library=plasma_appletscriptengine_wac
++X-KDE-PluginInfo-Author=Marco Martin
++X-KDE-PluginInfo-Email=mart@kde.org
++X-KDE-PluginInfo-Name=wac
++X-KDE-PluginInfo-Version=pre0.1
++X-KDE-PluginInfo-Website=http://plasma.kde.org/
++X-KDE-PluginInfo-Category=Applet
++X-KDE-PluginInfo-Depends=
++X-KDE-PluginInfo-License=BSD
++X-KDE-PluginInfo-EnabledByDefault=true
++X-Plasma-API=wac
++X-Plasma-ComponentTypes=Applet
++X-Plasma-PackageFormat=wac
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacapplet.cpp.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacapplet.cpp
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacapplet.cpp.wac-html-widgets	2011-11-24 09:25:25.942032913 +0100
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacapplet.cpp	2011-11-24 09:25:25.942032913 +0100
+@@ -0,0 +1,72 @@
++/*
++Copyright (c) 2007 Zack Rusin <zack@kde.org>
++Copyright (c) 2008 Beat Wolf <asraniel@fryx.ch>
++Copyright (C) 2011 Marco Martin <mart@kde.org>
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
++ */
++#include "wacapplet.h"
++
++#include <QWebFrame>
++#include <QFile>
++#include <QByteArray>
++
++#include <KGlobal>
++#include <KStandardDirs>
++
++#include <Plasma/WebView>
++#include <Plasma/Applet>
++#include <Plasma/Package>
++
++#include "dashboardjs.h"
++
++WacApplet::WacApplet(QObject *parent, const QVariantList &args)
++    : WebApplet(parent, args)
++{
++}
++
++WacApplet::~WacApplet()
++{
++}
++
++bool WacApplet::init()
++{
++    //applet()->setAspectRatioMode(Plasma::FixedSize);
++    return WebApplet::init();
++    applet()->setBackgroundHints(Plasma::Applet::StandardBackground);
++}
++
++void WacApplet::loadFinished(bool success)
++{
++    WebApplet::loadFinished(success);
++    if (success) {
++        view()->resize(view()->mainFrame()->contentsSize());
++        applet()->resize(view()->mainFrame()->contentsSize());
++    }
++}
++
++void WacApplet::constraintsEvent(Plasma::Constraints constraints)
++{
++    if (constraints & Plasma::FormFactorConstraint) {
++       // applet()->setBackgroundHints(Plasma::Applet::NoBackground);
++    }
++}
++
++
++#include "wacapplet.moc"
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacapplet.h.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacapplet.h
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacapplet.h.wac-html-widgets	2011-11-24 09:25:25.942032913 +0100
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacapplet.h	2011-11-24 09:25:25.942032913 +0100
+@@ -0,0 +1,51 @@
++/*
++Copyright (c) 2007 Zack Rusin <zack@kde.org>
++Copyright (C) 2011 Marco Martin <mart@kde.org>
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
++ */
++#ifndef WACAPPLET_H
++#define WACAPPLET_H
++
++#include "webapplet.h"
++#include "bundle.h"
++
++#include "dashboardjs.h"
++
++#include <Plasma/DataEngine>
++
++#include <QtGui/QWidget>
++
++class WacApplet : public WebApplet
++{
++    Q_OBJECT
++public:
++    WacApplet(QObject *parent, const QVariantList &args);
++    ~WacApplet();
++
++    bool init();
++
++protected Q_SLOTS:
++    virtual void loadFinished(bool success);
++    virtual void constraintsEvent(Plasma::Constraints constraints);
++};
++
++K_EXPORT_PLASMA_APPLETSCRIPTENGINE(wac, WacApplet)
++
++#endif
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacpackage.cpp.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacpackage.cpp
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacpackage.cpp.wac-html-widgets	2011-11-24 09:25:25.944032965 +0100
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacpackage.cpp	2011-11-24 09:25:25.944032965 +0100
+@@ -0,0 +1,331 @@
++/*
++Copyright (c) 2007 Zack Rusin <zack@kde.org>
++Copyright (C) 2011 Marco Martin <mart@kde.org>
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
++ */
++
++#include "wacpackage.h"
++
++#include <QBuffer>
++#include <QDebug>
++#include <QDir>
++#include <QFile>
++#include <QXmlStreamReader>
++
++#include <KDebug>
++
++#include <KIO/CopyJob>
++#include <KIO/Job>
++
++#include <Plasma/PackageMetadata>
++#include <Plasma/Package>
++
++void recursive_print(const KArchiveDirectory *dir, const QString &path)
++{
++    const QStringList l = dir->entries();
++    QStringList::const_iterator it = l.constBegin();
++    for (; it != l.end(); ++it)
++    {
++        const KArchiveEntry* entry = dir->entry((*it));
++        printf("mode=%07o %s %s size: %lld pos: %lld %s%s isdir=%d%s",
++               entry->permissions(),
++               entry->user().toLatin1().constData(),
++               entry->group().toLatin1().constData(),
++               entry->isDirectory() ? 0 : ((KArchiveFile*)entry)->size(),
++               entry->isDirectory() ? 0 : ((KArchiveFile*)entry)->position(),
++               path.toLatin1().constData(),
++               (*it).toLatin1().constData(), entry->isDirectory(),
++               entry->symLinkTarget().isEmpty() ? "" :
++               QString(" symlink: %1").arg(
++                   entry->symLinkTarget()).toLatin1().constData());
++
++        //if (!entry->isDirectory()) printf("%d",
++        //     ((KArchiveFile*)entry)->size());
++        printf("\n");
++        if (entry->isDirectory())
++            recursive_print((KArchiveDirectory *)entry, path+(*it)+'/');
++    }
++}
++
++
++WacPackage::WacPackage(const QString &path)
++    : PackageStructure(0, "WacWidget"),
++      m_isValid(false),
++      m_width(0), m_height(0)
++{
++    setContentsPrefix(QString());
++    QFile f(path);
++    f.open(QIODevice::ReadOnly);
++    m_data = f.readAll();
++    f.close();
++    initTempDir();
++    open();
++}
++
++WacPackage::WacPackage(const QByteArray &data)
++    : PackageStructure(0, "WacWidget"),
++      m_isValid(false),
++      m_width(0),
++      m_height(0)
++{
++    setContentsPrefix(QString());
++    m_data = data;
++    initTempDir();
++    open();
++}
++
++WacPackage::WacPackage(QObject *parent, QVariantList args)
++    : PackageStructure(parent, "WacWidget"),
++      m_isValid(false),
++      m_tempDir(0),
++      m_width(0),
++      m_height(0)
++{
++    Q_UNUSED(args)
++    setContentsPrefix(QString());
++}
++
++WacPackage::~WacPackage()
++{
++    close();
++}
++
++void WacPackage::setData(const QByteArray &data)
++{
++    m_data = data;
++    close();
++    open();
++}
++
++QByteArray WacPackage::data() const
++{
++    return m_data;
++}
++
++bool WacPackage::open()
++{
++    if (!m_tempDir) {
++        initTempDir();
++    }
++
++    if (m_data.isEmpty()) {
++        return false;
++    }
++
++    QBuffer buffer(&m_data);
++    KZip zip(&buffer);
++    if (!zip.open(QIODevice::ReadOnly)) {
++        qWarning("Couldn't open the bundle!");
++        return false;
++    }
++
++    const KArchiveDirectory *dir = zip.directory();
++
++    m_isValid = extractArchive(dir, QLatin1String(""));
++    qDebug()<<"Dir = "<<dir->name() << m_isValid;
++
++    if (m_isValid) {
++        setPath(m_tempDir->name());
++    }
++
++    zip.close();
++
++    return m_isValid;
++}
++
++bool WacPackage::close()
++{
++    bool ret = m_tempDir;
++    delete m_tempDir;
++    m_tempDir = 0;
++    return ret;
++}
++
++bool WacPackage::extractArchive(const KArchiveDirectory *dir, const QString &path)
++{
++    const QStringList l = dir->entries();
++
++    QStringList::const_iterator it;
++    for (it = l.constBegin(); it != l.constEnd(); ++it) {
++        const KArchiveEntry* entry = dir->entry((*it));
++        QString fullPath = QString("%1/%2").arg(path).arg(*it);
++        if (entry->isDirectory()) {
++            QString outDir = QString("%1%2").arg(m_tempDir->name()).arg(path);
++            QDir qdir(outDir);
++            qdir.mkdir(*it);
++            extractArchive(static_cast<const KArchiveDirectory*>(entry), fullPath);
++        } else if (entry->isFile()) {
++            QString outName = QString("%1%2").arg(m_tempDir->name()).arg(fullPath.remove(0, 1));
++            //qDebug()<<"-------- "<<outName;
++            QFile f(outName);
++            if (!f.open(QIODevice::WriteOnly)) {
++                qWarning("Couldn't create %s", qPrintable(outName));
++                continue;
++            }
++            const KArchiveFile *archiveFile = static_cast<const KArchiveFile*>(entry);
++            f.write(archiveFile->data());
++            f.close();
++        } else {
++            qWarning("Unidentified entry at %s", qPrintable(fullPath));
++        }
++    }
++    return true;
++}
++
++void WacPackage::pathChanged()
++{
++    //qDebug() << "path changed";
++    m_isValid = extractInfo();
++}
++
++bool WacPackage::extractInfo()
++{
++    QString configXml = QString("%1config.xml").arg(path());
++    if (QFile::exists(configXml)) {
++        return parseConfigXml(configXml);
++    }
++
++    return false;
++}
++
++bool WacPackage::installPackage(const QString &archivePath, const QString &packageRoot)
++{
++    //kDebug() << "??????????????" << archivePath << packageRoot;
++    QFile f(archivePath);
++    f.open(QIODevice::ReadOnly);
++    m_data = f.readAll();
++    f.close();
++    open();
++
++    if (m_isValid) {
++        m_tempDir->setAutoRemove(false);
++        QString pluginName = "wac_" + m_name;
++        //kDebug() << "valid, so going to move it in to" << pluginName;
++        KIO::CopyJob* job = KIO::move(m_tempDir->name(), QString(packageRoot + "/" + pluginName), KIO::HideProgressInfo);
++        m_isValid = job->exec();
++
++        if (m_isValid) {
++            //kDebug() << "still so good ... registering";
++            Plasma::PackageMetadata data;
++            data.setName(m_name);
++            data.setDescription(m_description);
++            data.setPluginName(pluginName);
++            data.setImplementationApi("wac");
++            Plasma::Package::registerPackage(data, m_iconLocation);
++        }
++    }
++
++    if (!m_isValid) {
++        // make sure we clean up after ourselves afterwards on failure
++        m_tempDir->setAutoRemove(true);
++    }
++
++    return m_isValid;
++}
++
++bool WacPackage::parseConfigXml(const QString &loc)
++{
++    QFile f(loc);
++    if (!f.open(QIODevice::ReadOnly)) {
++        qWarning("Couldn't open info file: '%s'", qPrintable(loc));
++        return false;
++    }
++
++    QMap<QString, QString> infoMap;
++    QString str = f.readAll();
++    QXmlStreamReader reader(str);
++    while (!reader.atEnd()) {
++        reader.readNext();
++        // do processing
++        if (reader.isStartElement()) {
++            qDebug() << reader.name().toString();
++            if (reader.name() == "icon") {
++                //infoMap.insert("icon", reader.attributes().value("src");
++                kDebug() << path();
++                m_iconLocation = QString("%1%2").arg(path()).arg(reader.attributes().value("src").toString());
++            } else if (reader.name() == "content") {
++                const QString src = reader.attributes().value("src").toString();
++                m_htmlLocation = QString("%1%2").arg(path()).arg(src);
++                addFileDefinition("mainscript", src, i18n("Main Webpage"));
++            } else if (reader.name() == "name") {
++                m_name = reader.attributes().value("short").toString();
++                m_description = reader.readElementText().trimmed();
++            }
++        }
++    }
++
++   
++    addDirectoryDefinition("html", "/", i18n("Root HTML directory"));
++
++    qDebug()<<"name = "<<m_name;
++    qDebug()<<"html = "<<m_htmlLocation;
++    qDebug()<<"icon = "<<m_iconLocation;
++
++    return !m_htmlLocation.isEmpty();
++}
++
++void WacPackage::initTempDir()
++{
++    m_tempDir = new KTempDir();
++    //make it explicit
++    m_tempDir->setAutoRemove(true);
++}
++
++QString WacPackage::name() const
++{
++    return m_name;
++}
++
++QString WacPackage::version() const
++{
++    return m_version;
++}
++
++QString WacPackage::description() const
++{
++    return m_description;
++}
++
++int WacPackage::width() const
++{
++    return m_width;
++}
++
++int WacPackage::height() const
++{
++    return m_height;
++}
++
++QString WacPackage::htmlLocation() const
++{
++    return m_htmlLocation;
++}
++
++QString WacPackage::iconLocation() const
++{
++    return m_iconLocation;
++}
++
++bool WacPackage::isValid() const
++{
++    return m_isValid;
++}
++
++
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacpackage.h.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacpackage.h
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacpackage.h.wac-html-widgets	2011-11-24 09:25:25.944032965 +0100
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wacpackage.h	2011-11-24 09:25:25.944032965 +0100
+@@ -0,0 +1,85 @@
++/*
++Copyright (c) 2007 Zack Rusin <zack@kde.org>
++Copyright (C) 2011 Marco Martin <mart@kde.org>
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
++ */
++#ifndef WACPACKAGE_H
++#define WACPACKAGE_H
++
++#include <KZip>
++#include <KTempDir>
++
++#include <Plasma/PackageStructure>
++
++class KArchiveDirectory;
++
++class WacPackage : public Plasma::PackageStructure
++{
++    Q_OBJECT
++public:
++    WacPackage(const QString &path);
++    WacPackage(const QByteArray &data);
++    WacPackage(QObject *parent, QVariantList args);
++    ~WacPackage();
++
++    bool isValid() const;
++
++    void setData(const QByteArray &fn);
++    QByteArray data() const;
++
++    QString bundleId() const;
++    QString name() const;
++    QString version() const;
++    QString description() const;
++    int     width() const;
++    int     height() const;
++    QString htmlLocation() const;
++    QString iconLocation() const;
++
++protected:
++    void pathChanged();
++
++private:
++    bool extractArchive(const KArchiveDirectory *dir, const QString &path);
++    bool extractInfo();
++
++    bool parseConfigXml(const QString &loc);
++
++    void initTempDir();
++
++    bool open();
++    bool close();
++    bool installPackage(const QString &archivePath, const QString &packageRoot);
++
++private:
++    QByteArray   m_data;
++    bool      m_isValid;
++    KTempDir *m_tempDir;
++
++    QString m_name;
++    QString m_version;
++    QString m_description;
++    int     m_width;
++    int     m_height;
++    QString m_htmlLocation;
++    QString m_iconLocation;
++};
++
++#endif
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wac_plugin.cpp.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wac_plugin.cpp
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wac_plugin.cpp.wac-html-widgets	2011-11-24 09:25:25.945032991 +0100
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/wac_plugin.cpp	2011-11-24 09:25:25.945032991 +0100
+@@ -0,0 +1,25 @@
++/*
++Copyright (c) 2007 Zack Rusin <zack@kde.org>
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
++ */
++#include "wacpackage.h"
++
++K_EXPORT_PLASMA_PACKAGESTRUCTURE(wac, WacPackage)
++
+diff -up kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/webapplet.cpp.wac-html-widgets kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/webapplet.cpp
+--- kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/webapplet.cpp.wac-html-widgets	2011-08-22 15:29:52.000000000 +0200
++++ kde-workspace-4.7.80/plasma/generic/scriptengines/webkit/webapplet.cpp	2011-11-24 09:26:21.773472132 +0100
+@@ -28,6 +28,7 @@ THE SOFTWARE.
+ #include <QWebFrame>
+ #include <QWebPage>
+ #include <QFile>
++#include <QGraphicsLinearLayout>
+ 
+ #include <KDebug>
+ 
+@@ -53,6 +54,8 @@ public:
+         applet->setAcceptsHoverEvents(true);
+ 
+         view = new Plasma::WebView(applet);
++        QGraphicsLinearLayout *lay = new QGraphicsLinearLayout(applet);
++        lay->addItem(view);
+         QObject::connect(view, SIGNAL(loadFinished(bool)),
+                          q, SLOT(loadFinished(bool)));
+         QObject::connect(view->page(), SIGNAL(frameCreated(QWebFrame*)),
