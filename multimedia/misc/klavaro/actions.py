@@ -9,6 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("configure.in", "uk ur", "uk tr ur")
+    pisitools.dosed("configure", "uk ur", "uk tr ur")
     autotools.configure()
 
 def build():
