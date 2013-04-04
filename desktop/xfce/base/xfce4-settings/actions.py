@@ -23,3 +23,4 @@ def install():
     autotools.install()
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README", "TODO")
+    pisitools.removeDir("/etc/xdg/xfce4/xfconf")
