@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-fi")
     shelltools.system("intltoolize -f -c --automake")
-
+    shelltools.export("LDFLAGS", "%s -lX11 -lm -lXtst" % get.LDFLAGS())
     autotools.configure()
 
 def build():
