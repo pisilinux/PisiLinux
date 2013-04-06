@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.dosed("Makefile", "^CC.*", "CC = %s" % get.CC())
-    pisitools.dosed("doc/Makefile", "xmlto", "xmlto --skip-validation")
+    #pisitools.dosed("doc/Makefile", "xmlto", "xmlto --skip-validation")
 
 def build():
     shelltools.export("HOME", get.workDIR())
