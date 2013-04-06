@@ -9,10 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "kwebkitpart"
-
-shelltools.export("HOME", get.workDIR())
-
 def setup():
     kde4.configure()
 
@@ -22,4 +18,3 @@ def build():
 def install():
     kde4.install()
     pisitools.dodoc("COPYING.LIB", "README")
-
