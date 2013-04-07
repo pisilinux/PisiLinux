@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
-WorkDir = "dbus-c++"
-
 def setup():
     pisitools.dosed("configure.ac", "-O3", "")
     shelltools.export("CPPFLAGS", get.CXXFLAGS())
