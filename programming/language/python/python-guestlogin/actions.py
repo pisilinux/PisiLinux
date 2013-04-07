@@ -7,8 +7,6 @@
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 
-WorkDir = "%s-%s" % (get.srcNAME().split("-")[1], get.srcVERSION())
-
 def build():
     pythonmodules.compile()
 
