@@ -1,0 +1,595 @@
+--- mate-panel-1.5.5/applets/wncklet/showdesktop.c.0026	2013-04-08 02:20.000000000 +0100
++++ mate-panel-1.5.5/applets/wncklet/showdesktop.c	2013-04-08 02:20:45.699384966 +0100
+@@ -30,7 +30,7 @@
+ #include <gtk/gtk.h>
+ #include <gdk/gdkx.h>
+ 
+-#include <libmatewnck/screen.h>
++#include <libwnck/screen.h>
+ 
+ #include "wncklet.h"
+ #include "showdesktop.h"
+@@ -50,7 +50,7 @@ typedef struct {
+ 	GtkOrientation orient;
+ 	int size;
+ 
+-	MatewnckScreen* matewnck_screen;
++	WnckScreen* wnck_screen;
+ 
+ 	guint showing_desktop: 1;
+ 	guint button_activate;
+@@ -68,7 +68,7 @@ static void update_button_display(ShowDe
+ static void theme_changed_callback(GtkIconTheme* icon_theme, ShowDesktopData* sdd);
+ 
+ static void button_toggled_callback(GtkWidget* button, ShowDesktopData* sdd);
+-static void show_desktop_changed_callback(MatewnckScreen* screen, ShowDesktopData* sdd);
++static void show_desktop_changed_callback(WnckScreen* screen, ShowDesktopData* sdd);
+ 
+ /* this is when the panel orientation changes */
+ 
+@@ -279,10 +279,10 @@ static void applet_destroyed(GtkWidget*
+ 		sdd->button_activate = 0;
+ 	}
+ 
+-	if (sdd->matewnck_screen != NULL)
++	if (sdd->wnck_screen != NULL)
+ 	{
+-		g_signal_handlers_disconnect_by_func(sdd->matewnck_screen, show_desktop_changed_callback, sdd);
+-		sdd->matewnck_screen = NULL;
++		g_signal_handlers_disconnect_by_func(sdd->wnck_screen, show_desktop_changed_callback, sdd);
++		sdd->wnck_screen = NULL;
+ 	}
+ 
+ 	if (sdd->icon_theme != NULL)
+@@ -341,21 +341,21 @@ static void show_desktop_applet_realized
+ 
+ 	sdd = (ShowDesktopData*) data;
+ 
+-	if (sdd->matewnck_screen != NULL)
+-		g_signal_handlers_disconnect_by_func(sdd->matewnck_screen, show_desktop_changed_callback, sdd);
++	if (sdd->wnck_screen != NULL)
++		g_signal_handlers_disconnect_by_func(sdd->wnck_screen, show_desktop_changed_callback, sdd);
+ 
+ 	if (sdd->icon_theme != NULL)
+ 		g_signal_handlers_disconnect_by_func(sdd->icon_theme, theme_changed_callback, sdd);
+ 
+ 	screen = gtk_widget_get_screen(sdd->applet);
+-	sdd->matewnck_screen = matewnck_screen_get(gdk_screen_get_number (screen));
++	sdd->wnck_screen = wnck_screen_get(gdk_screen_get_number (screen));
+ 
+-	if (sdd->matewnck_screen != NULL)
+-		wncklet_connect_while_alive(sdd->matewnck_screen, "showing_desktop_changed", G_CALLBACK(show_desktop_changed_callback), sdd, sdd->applet);
++	if (sdd->wnck_screen != NULL)
++		wncklet_connect_while_alive(sdd->wnck_screen, "showing_desktop_changed", G_CALLBACK(show_desktop_changed_callback), sdd, sdd->applet);
+ 	else
+-		g_warning("Could not get MatewnckScreen!");
++		g_warning("Could not get WnckScreen!");
+ 
+-	show_desktop_changed_callback(sdd->matewnck_screen, sdd);
++	show_desktop_changed_callback(sdd->wnck_screen, sdd);
+ 
+ 	sdd->icon_theme = gtk_icon_theme_get_for_screen (screen);
+ 	wncklet_connect_while_alive(sdd->icon_theme, "changed", G_CALLBACK(theme_changed_callback), sdd, sdd->applet);
+@@ -520,16 +520,16 @@ static void button_toggled_callback(GtkW
+ 		return;
+ 	}
+ 
+-	if (sdd->matewnck_screen != NULL)
+-		matewnck_screen_toggle_showing_desktop(sdd->matewnck_screen, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button)));
++	if (sdd->wnck_screen != NULL)
++		wnck_screen_toggle_showing_desktop(sdd->wnck_screen, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button)));
+ 
+ 	update_button_display (sdd);
+ }
+ 
+-static void show_desktop_changed_callback(MatewnckScreen* screen, ShowDesktopData* sdd)
++static void show_desktop_changed_callback(WnckScreen* screen, ShowDesktopData* sdd)
+ {
+-	if (sdd->matewnck_screen != NULL)
+-		sdd->showing_desktop = matewnck_screen_get_showing_desktop(sdd->matewnck_screen);
++	if (sdd->wnck_screen != NULL)
++		sdd->showing_desktop = wnck_screen_get_showing_desktop(sdd->wnck_screen);
+ 
+ 	update_button_state (sdd);
+ }
+--- mate-panel-1.5.5/applets/wncklet/window-list.c.0026	2013-04-08 02:20.000000000 +0100
++++ mate-panel-1.5.5/applets/wncklet/window-list.c	2013-02-16 19:11:23.712812046 +0100
+@@ -1,6 +1,6 @@
+ /* -*- mode: C; c-file-style: "linux" -*- */
+ /*
+- * libmatewnck based tasklist applet.
++ * libwnck based tasklist applet.
+  * (C) 2001 Red Hat, Inc
+  * (C) 2001 Alexander Larsson
+  *
+@@ -19,7 +19,8 @@
+ 
+ #include <glib/gi18n.h>
+ #include <gtk/gtk.h>
+-#include <libmatewnck/libmatewnck.h>
++#define WNCK_I_KNOW_THIS_IS_UNSTABLE
++#include <libwnck/libwnck.h>
+ #include <gio/gio.h>
+ 
+ #include "wncklet.h"
+@@ -33,7 +34,7 @@ typedef struct {
+ 	GtkWidget* tasklist;
+ 
+ 	gboolean include_all_workspaces;
+-	MatewnckTasklistGroupingType grouping;
++	WnckTasklistGroupingType grouping;
+ 	gboolean move_unminimized_windows;
+ 
+ 	GtkOrientation orientation;
+@@ -71,9 +72,9 @@ static void tasklist_update(TasklistData
+ 		gtk_widget_set_size_request(GTK_WIDGET(tasklist->tasklist), tasklist->size, -1);
+ 	}
+ 
+-	matewnck_tasklist_set_grouping(MATEWNCK_TASKLIST(tasklist->tasklist), tasklist->grouping);
+-	matewnck_tasklist_set_include_all_workspaces(MATEWNCK_TASKLIST(tasklist->tasklist), tasklist->include_all_workspaces);
+-	matewnck_tasklist_set_switch_workspace_on_unminimize(MATEWNCK_TASKLIST(tasklist->tasklist), tasklist->move_unminimized_windows);
++	wnck_tasklist_set_grouping(WNCK_TASKLIST(tasklist->tasklist), tasklist->grouping);
++	wnck_tasklist_set_include_all_workspaces(WNCK_TASKLIST(tasklist->tasklist), tasklist->include_all_workspaces);
++	wnck_tasklist_set_switch_workspace_on_unminimize(WNCK_TASKLIST(tasklist->tasklist), tasklist->move_unminimized_windows);
+ }
+ 
+ static void response_cb(GtkWidget* widget, int id, TasklistData* tasklist)
+@@ -115,7 +116,7 @@ static void applet_change_orient(MatePan
+ 
+ 	tasklist->orientation = new_orient;
+ 
+-	matewnck_tasklist_set_orientation (tasklist->tasklist, new_orient);
++	wnck_tasklist_set_orientation (tasklist->tasklist, new_orient);
+ 	tasklist_update(tasklist);
+ }
+ 
+@@ -124,11 +125,11 @@ static void applet_change_background(Mat
+ 	switch (type)
+ 	{
+ 		case PANEL_NO_BACKGROUND:
+-			matewnck_tasklist_set_button_relief(MATEWNCK_TASKLIST(tasklist->tasklist), GTK_RELIEF_NORMAL);
++			wnck_tasklist_set_button_relief(WNCK_TASKLIST(tasklist->tasklist), GTK_RELIEF_NORMAL);
+ 			break;
+ 		case PANEL_COLOR_BACKGROUND:
+ 		case PANEL_PIXMAP_BACKGROUND:
+-			matewnck_tasklist_set_button_relief(MATEWNCK_TASKLIST(tasklist->tasklist), GTK_RELIEF_NONE);
++			wnck_tasklist_set_button_relief(WNCK_TASKLIST(tasklist->tasklist), GTK_RELIEF_NONE);
+ 			break;
+ 	}
+ }
+@@ -231,18 +232,18 @@ static void display_all_workspaces_chang
+ 	tasklist_properties_update_content_radio(tasklist);
+ }
+ 
+-static GtkWidget* get_grouping_button(TasklistData* tasklist, MatewnckTasklistGroupingType type)
++static GtkWidget* get_grouping_button(TasklistData* tasklist, WnckTasklistGroupingType type)
+ {
+ 	switch (type)
+ 	{
+ 		default:
+-		case MATEWNCK_TASKLIST_NEVER_GROUP:
++		case WNCK_TASKLIST_NEVER_GROUP:
+ 			return tasklist->never_group_radio;
+ 			break;
+-		case MATEWNCK_TASKLIST_AUTO_GROUP:
++		case WNCK_TASKLIST_AUTO_GROUP:
+ 			return tasklist->auto_group_radio;
+ 			break;
+-		case MATEWNCK_TASKLIST_ALWAYS_GROUP:
++		case WNCK_TASKLIST_ALWAYS_GROUP:
+ 			return tasklist->always_group_radio;
+ 			break;
+ 	}
+@@ -250,7 +251,7 @@ static GtkWidget* get_grouping_button(Ta
+ 
+ static void group_windows_changed(GSettings* settings, gchar* key, TasklistData* tasklist)
+ {
+-	MatewnckTasklistGroupingType type;
++	WnckTasklistGroupingType type;
+ 	GtkWidget* button;
+ 
+ 	type = g_settings_get_enum (settings, key);
+@@ -322,11 +323,11 @@ static void applet_size_request(GtkWidge
+ 	int len;
+ 	const int* size_hints;
+ 	GtkRequisition child_req;
+-	MatewnckTasklist* matewncktl = MATEWNCK_TASKLIST(tasklist->tasklist);
++	WnckTasklist* wncktl = WNCK_TASKLIST(tasklist->tasklist);
+ 
+ 	gtk_widget_get_child_requisition(tasklist->applet, &child_req);
+ 
+-	size_hints = matewnck_tasklist_get_size_hint_list(matewncktl, &len);
++	size_hints = wnck_tasklist_get_size_hint_list(wncktl, &len);
+ 	g_assert(len % 2 == 0);
+ 
+ 	mate_panel_applet_set_size_hints(MATE_PANEL_APPLET(tasklist->applet), size_hints, len, 0);
+@@ -413,11 +414,11 @@ gboolean window_list_applet_fill(MatePan
+ 			break;
+ 	}
+ 
+-	tasklist->tasklist = matewnck_tasklist_new(NULL);
++	tasklist->tasklist = wnck_tasklist_new(NULL);
+ 
+-	matewnck_tasklist_set_orientation (tasklist->tasklist, tasklist->orientation);
++	wnck_tasklist_set_orientation (tasklist->tasklist, tasklist->orientation);
+ 
+-	matewnck_tasklist_set_icon_loader(MATEWNCK_TASKLIST(tasklist->tasklist), icon_loader_func, tasklist, NULL);
++	wnck_tasklist_set_icon_loader(WNCK_TASKLIST(tasklist->tasklist), icon_loader_func, tasklist, NULL);
+ 
+ 	g_signal_connect(G_OBJECT(tasklist->tasklist), "destroy", G_CALLBACK(destroy_tasklist), tasklist);
+ 
+--- mate-panel-1.5.5/applets/wncklet/window-menu.c.0026	2013-04-08 02:20.000000000 +0100
++++ mate-panel-1.5.5/applets/wncklet/window-menu.c	2013-04-08 02:20:45.731384647 +0100
+@@ -35,7 +35,7 @@
+ #include <glib/gi18n.h>
+ #include <gdk/gdkkeysyms.h>
+ 
+-#include <libmatewnck/selector.h>
++#include <libwnck/selector.h>
+ 
+ #include "wncklet.h"
+ #include "window-menu.h"
+@@ -181,7 +181,7 @@ static void window_menu_size_allocate(Ma
+ static gboolean window_menu_key_press_event(GtkWidget* widget, GdkEventKey* event, WindowMenu* window_menu)
+ {
+ 	GtkMenuShell* menu_shell;
+-	MatewnckSelector* selector;
++	WnckSelector* selector;
+ 
+ 	switch (event->keyval)
+ 	{
+@@ -191,7 +191,7 @@ static gboolean window_menu_key_press_ev
+ 		case GDK_Return:
+ 		case GDK_space:
+ 		case GDK_KP_Space:
+-			selector = MATEWNCK_SELECTOR(window_menu->selector);
++			selector = WNCK_SELECTOR(window_menu->selector);
+ 			/*
+ 			 * We need to call _gtk_menu_shell_activate() here as is done in
+ 			 * window_key_press_handler in gtkmenubar.c which pops up menu
+@@ -251,7 +251,7 @@ gboolean window_menu_applet_fill(MatePan
+ 	g_free(ui_path);
+ 	g_object_unref(action_group);
+ 
+-	window_menu->selector = matewnck_selector_new();
++	window_menu->selector = wnck_selector_new();
+ 	gtk_container_add(GTK_CONTAINER(window_menu->applet), window_menu->selector);
+ 
+ 	mate_panel_applet_set_background_widget(MATE_PANEL_APPLET(window_menu->applet), GTK_WIDGET(window_menu->selector));
+--- mate-panel-1.5.5/applets/wncklet/wncklet.c.0026	2013-04-08 02:20.000000000 +0100
++++ mate-panel-1.5.5/applets/wncklet/wncklet.c	2013-04-08 02:20:45.741384547 +0100
+@@ -30,8 +30,8 @@
+ 
+ #include <glib/gi18n.h>
+ #include <gtk/gtk.h>
+-#include <libmatewnck/screen.h>
+-#include <libmatewnck/util.h>
++#include <libwnck/screen.h>
++#include <libwnck/util.h>
+ 
+ #include "wncklet.h"
+ #include "window-menu.h"
+@@ -92,16 +92,16 @@ void wncklet_display_help(GtkWidget* wid
+ 	}
+ }
+ 
+-MatewnckScreen* wncklet_get_screen(GtkWidget* applet)
++WnckScreen* wncklet_get_screen(GtkWidget* applet)
+ {
+ 	int screen_num;
+ 
+ 	if (!gtk_widget_has_screen(applet))
+-		return matewnck_screen_get_default();
++		return wnck_screen_get_default();
+ 
+ 	screen_num = gdk_screen_get_number(gtk_widget_get_screen(applet));
+ 
+-	return matewnck_screen_get(screen_num);
++	return wnck_screen_get(screen_num);
+ }
+ 
+ void wncklet_connect_while_alive(gpointer object, const char* signal, GCallback func, gpointer func_data, gpointer alive_object)
+@@ -120,7 +120,7 @@ static gboolean wncklet_factory(MatePane
+ 
+ 	if (!type_registered)
+ 	{
+-		matewnck_set_client_type(MATEWNCK_CLIENT_TYPE_PAGER);
++		wnck_set_client_type(WNCK_CLIENT_TYPE_PAGER);
+ 		type_registered = TRUE;
+ 	}
+ 
+--- mate-panel-1.5.5/applets/wncklet/wncklet.h.0026	2013-04-08 02:20.000000000 +0100
++++ mate-panel-1.5.5/applets/wncklet/wncklet.h	2013-04-08 02:20:45.751384448 +0100
+@@ -24,7 +24,7 @@
+ #ifndef __WNCKLET_H__
+ #define __WNCKLET_H__
+ 
+-#include <libmatewnck/screen.h>
++#include <libwnck/screen.h>
+ 
+ #include <glib.h>
+ #include <gtk/gtk.h>
+@@ -36,7 +36,7 @@ extern "C" {
+ 
+ void wncklet_display_help(GtkWidget* widget, const char* doc_id, const char* link_id, const char* icon_name);
+ 
+-MatewnckScreen* wncklet_get_screen(GtkWidget* applet);
++WnckScreen* wncklet_get_screen(GtkWidget* applet);
+ 
+ void wncklet_connect_while_alive(gpointer object, const char* signal, GCallback func, gpointer func_data, gpointer alive_object);
+ 
+--- mate-panel-1.5.5/applets/wncklet/workspace-switcher.c.0026	2013-04-08 02:20.000000000 +0100
++++ mate-panel-1.5.5/applets/wncklet/workspace-switcher.c	2013-04-08 02:20:45.763384328 +0100
+@@ -1,6 +1,6 @@
+ /* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 8 -*- */
+ /*
+- * libmatewnck based pager applet.
++ * libwnck based pager applet.
+  * (C) 2001 Alexander Larsson
+  * (C) 2001 Red Hat, Inc
+  *
+@@ -21,7 +21,8 @@
+ 
+ #include <glib/gi18n.h>
+ #include <gtk/gtk.h>
+-#include <libmatewnck/libmatewnck.h>
++#define WNCK_I_KNOW_THIS_IS_UNSTABLE
++#include <libwnck/libwnck.h>
+ #include <gio/gio.h>
+ 
+ #include "workspace-switcher.h"
+@@ -53,7 +54,7 @@ typedef struct {
+ 
+ 	GtkWidget* pager;
+ 
+-	MatewnckScreen* screen;
++	WnckScreen* screen;
+ 	PagerWM wm;
+ 
+ 	/* Properties: */
+@@ -72,7 +73,7 @@ typedef struct {
+ 
+ 	GtkOrientation orientation;
+ 	int n_rows;				/* for vertical layout this is cols */
+-	MatewnckPagerDisplayMode display_mode;
++	WnckPagerDisplayMode display_mode;
+ 	gboolean display_all;
+ 
+ 	GSettings* settings;
+@@ -84,14 +85,14 @@ static void display_about_dialog(GtkActi
+ 
+ static void pager_update(PagerData* pager)
+ {
+-	matewnck_pager_set_orientation(MATEWNCK_PAGER(pager->pager), pager->orientation);
+-	matewnck_pager_set_n_rows(MATEWNCK_PAGER(pager->pager), pager->n_rows);
+-	matewnck_pager_set_show_all(MATEWNCK_PAGER(pager->pager), pager->display_all);
++	wnck_pager_set_orientation(WNCK_PAGER(pager->pager), pager->orientation);
++	wnck_pager_set_n_rows(WNCK_PAGER(pager->pager), pager->n_rows);
++	wnck_pager_set_show_all(WNCK_PAGER(pager->pager), pager->display_all);
+ 
+ 	if (pager->wm == PAGER_WM_MARCO)
+-		matewnck_pager_set_display_mode(MATEWNCK_PAGER(pager->pager), pager->display_mode);
++		wnck_pager_set_display_mode(WNCK_PAGER(pager->pager), pager->display_mode);
+ 	else
+-		matewnck_pager_set_display_mode(MATEWNCK_PAGER(pager->pager), MATEWNCK_PAGER_DISPLAY_CONTENT);
++		wnck_pager_set_display_mode(WNCK_PAGER(pager->pager), WNCK_PAGER_DISPLAY_CONTENT);
+ }
+ 
+ static void update_properties_for_wm(PagerData* pager)
+@@ -130,11 +131,11 @@ static void update_properties_for_wm(Pag
+ 		gtk_window_reshow_with_initial_size(GTK_WINDOW(pager->properties_dialog));
+ }
+ 
+-static void window_manager_changed(MatewnckScreen* screen, PagerData* pager)
++static void window_manager_changed(WnckScreen* screen, PagerData* pager)
+ {
+ 	const char *wm_name;
+ 
+-	wm_name = matewnck_screen_get_window_manager_name(screen);
++	wm_name = wnck_screen_get_window_manager_name(screen);
+ 
+ 	if (!wm_name)
+ 		pager->wm = PAGER_WM_UNKNOWN;
+@@ -217,8 +218,8 @@ static gboolean applet_scroll(MatePanelA
+ 	if (event->type != GDK_SCROLL)
+ 		return FALSE;
+ 
+-	index = matewnck_workspace_get_number(matewnck_screen_get_active_workspace(pager->screen));
+-	n_workspaces = matewnck_screen_get_workspace_count(pager->screen);
++	index = wnck_workspace_get_number(wnck_screen_get_active_workspace(pager->screen));
++	n_workspaces = wnck_screen_get_workspace_count(pager->screen);
+ 	n_columns = n_workspaces / pager->n_rows;
+ 
+ 	if (n_workspaces % pager->n_rows != 0)
+@@ -285,7 +286,7 @@ static gboolean applet_scroll(MatePanelA
+ 			break;
+ 	}
+ 
+-	matewnck_workspace_activate(matewnck_screen_get_workspace(pager->screen, index), event->time);
++	wnck_workspace_activate(wnck_screen_get_workspace(pager->screen, index), event->time);
+ 
+ 	return TRUE;
+ }
+@@ -350,11 +351,11 @@ static void display_workspace_names_chan
+ 
+ 	if (value)
+ 	{
+-		pager->display_mode = MATEWNCK_PAGER_DISPLAY_NAME;
++		pager->display_mode = WNCK_PAGER_DISPLAY_NAME;
+ 	}
+ 	else
+ 	{
+-		pager->display_mode = MATEWNCK_PAGER_DISPLAY_CONTENT;
++		pager->display_mode = WNCK_PAGER_DISPLAY_CONTENT;
+ 	}
+ 
+ 	pager_update(pager);
+@@ -435,11 +436,11 @@ gboolean workspace_switcher_applet_fill(
+ 
+ 	if (display_names)
+ 	{
+-		pager->display_mode = MATEWNCK_PAGER_DISPLAY_NAME;
++		pager->display_mode = WNCK_PAGER_DISPLAY_NAME;
+ 	}
+ 	else
+ 	{
+-		pager->display_mode = MATEWNCK_PAGER_DISPLAY_CONTENT;
++		pager->display_mode = WNCK_PAGER_DISPLAY_CONTENT;
+ 	}
+ 
+ 	pager->display_all = g_settings_get_boolean(pager->settings, "display-all-workspaces");
+@@ -457,10 +458,10 @@ gboolean workspace_switcher_applet_fill(
+ 			break;
+ 	}
+ 
+-	pager->pager = matewnck_pager_new(NULL);
++	pager->pager = wnck_pager_new(NULL);
+ 	pager->screen = NULL;
+ 	pager->wm = PAGER_WM_UNKNOWN;
+-	matewnck_pager_set_shadow_type(MATEWNCK_PAGER(pager->pager), GTK_SHADOW_IN);
++	wnck_pager_set_shadow_type(WNCK_PAGER(pager->pager), GTK_SHADOW_IN);
+ 
+ 	g_signal_connect(G_OBJECT(pager->pager), "destroy", G_CALLBACK(destroy_pager), pager);
+ 
+@@ -556,10 +557,10 @@ static void num_rows_value_changed(GtkSp
+ static void update_workspaces_model(PagerData* pager)
+ {
+ 	int nr_ws, i;
+-	MatewnckWorkspace* workspace;
++	WnckWorkspace* workspace;
+ 	GtkTreeIter iter;
+ 
+-	nr_ws = matewnck_screen_get_workspace_count(pager->screen);
++	nr_ws = wnck_screen_get_workspace_count(pager->screen);
+ 
+ 	if (pager->properties_dialog)
+ 	{
+@@ -570,36 +571,36 @@ static void update_workspaces_model(Page
+ 
+ 		for (i = 0; i < nr_ws; i++)
+ 		{
+-			workspace = matewnck_screen_get_workspace(pager->screen, i);
++			workspace = wnck_screen_get_workspace(pager->screen, i);
+ 			gtk_list_store_append(pager->workspaces_store, &iter);
+-			gtk_list_store_set(pager->workspaces_store, &iter, 0, matewnck_workspace_get_name(workspace), -1);
++			gtk_list_store_set(pager->workspaces_store, &iter, 0, wnck_workspace_get_name(workspace), -1);
+ 		}
+ 	}
+ }
+ 
+-static void workspace_renamed(MatewnckWorkspace* space, PagerData* pager)
++static void workspace_renamed(WnckWorkspace* space, PagerData* pager)
+ {
+ 	int i;
+ 	GtkTreeIter iter;
+ 
+-	i = matewnck_workspace_get_number(space);
++	i = wnck_workspace_get_number(space);
+ 
+ 	if (gtk_tree_model_iter_nth_child(GTK_TREE_MODEL(pager->workspaces_store), &iter, NULL, i))
+-		gtk_list_store_set(pager->workspaces_store, &iter, 0, matewnck_workspace_get_name(space), -1);
++		gtk_list_store_set(pager->workspaces_store, &iter, 0, wnck_workspace_get_name(space), -1);
+ }
+ 
+-static void workspace_created(MatewnckScreen* screen, MatewnckWorkspace* space, PagerData* pager)
++static void workspace_created(WnckScreen* screen, WnckWorkspace* space, PagerData* pager)
+ {
+-	g_return_if_fail(MATEWNCK_IS_SCREEN(screen));
++	g_return_if_fail(WNCK_IS_SCREEN(screen));
+ 
+ 	update_workspaces_model(pager);
+ 
+ 	wncklet_connect_while_alive(space, "name_changed", G_CALLBACK(workspace_renamed), pager, pager->properties_dialog);
+ }
+ 
+-static void workspace_destroyed(MatewnckScreen* screen, MatewnckWorkspace* space, PagerData* pager)
++static void workspace_destroyed(WnckScreen* screen, WnckWorkspace* space, PagerData* pager)
+ {
+-	g_return_if_fail(MATEWNCK_IS_SCREEN(screen));
++	g_return_if_fail(WNCK_IS_SCREEN(screen));
+ 	update_workspaces_model(pager);
+ }
+ 
+@@ -610,7 +611,7 @@ static void num_workspaces_value_changed
+ 	 * FIXME: remove this if bug 410520 gets fixed. */
+ 	button->timer_step = 0.2;
+ 
+-	matewnck_screen_change_workspace_count(pager->screen, gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(pager->num_workspaces_spin)));
++	wnck_screen_change_workspace_count(pager->screen, gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(pager->num_workspaces_spin)));
+ }
+ 
+ static gboolean workspaces_tree_focused_out(GtkTreeView* treeview, GdkEventFocus* event, PagerData* pager)
+@@ -625,18 +626,18 @@ static gboolean workspaces_tree_focused_
+ static void workspace_name_edited(GtkCellRendererText* cell_renderer_text, const gchar* path, const gchar* new_text, PagerData* pager)
+ {
+ 	const gint* indices;
+-	MatewnckWorkspace* workspace;
++	WnckWorkspace* workspace;
+ 	GtkTreePath* p;
+ 
+ 	p = gtk_tree_path_new_from_string(path);
+ 	indices = gtk_tree_path_get_indices(p);
+-	workspace = matewnck_screen_get_workspace(pager->screen, indices[0]);
++	workspace = wnck_screen_get_workspace(pager->screen, indices[0]);
+ 
+ 	if (workspace != NULL)
+ 	{
+ 		gchar* temp_name = g_strdup(new_text);
+ 
+-		matewnck_workspace_change_name(workspace, g_strstrip(temp_name));
++		wnck_workspace_change_name(workspace, g_strstrip(temp_name));
+ 
+ 		g_free(temp_name);
+ 	}
+@@ -772,7 +773,7 @@ static void setup_dialog(GtkBuilder* bui
+ 
+ 	g_signal_connect(G_OBJECT(pager->display_workspaces_toggle), "toggled", (GCallback) display_workspace_names_toggled, pager);
+ 
+-	if (pager->display_mode == MATEWNCK_PAGER_DISPLAY_NAME)
++	if (pager->display_mode == WNCK_PAGER_DISPLAY_NAME)
+ 	{
+ 		value = TRUE;
+ 	}
+@@ -813,7 +814,7 @@ static void setup_dialog(GtkBuilder* bui
+ 
+ 	g_signal_connect(WID("done_button"), "clicked", (GCallback) close_dialog, pager);
+ 
+-	gtk_spin_button_set_value(GTK_SPIN_BUTTON(pager->num_workspaces_spin), matewnck_screen_get_workspace_count(pager->screen));
++	gtk_spin_button_set_value(GTK_SPIN_BUTTON(pager->num_workspaces_spin), wnck_screen_get_workspace_count(pager->screen));
+ 	g_signal_connect(G_OBJECT(pager->num_workspaces_spin), "value_changed", (GCallback) num_workspaces_value_changed, pager);
+ 
+ 	wncklet_connect_while_alive(pager->screen, "workspace_created", G_CALLBACK(workspace_created), pager, pager->properties_dialog);
+@@ -833,11 +834,11 @@ static void setup_dialog(GtkBuilder* bui
+ 	gtk_tree_view_append_column(GTK_TREE_VIEW(pager->workspaces_tree), column);
+ 	g_signal_connect(cell, "edited", (GCallback) workspace_name_edited, pager);
+ 
+-	nr_ws = matewnck_screen_get_workspace_count(pager->screen);
++	nr_ws = wnck_screen_get_workspace_count(pager->screen);
+ 
+ 	for (i = 0; i < nr_ws; i++)
+ 	{
+-		wncklet_connect_while_alive(G_OBJECT(matewnck_screen_get_workspace(pager->screen, i)), "name_changed", G_CALLBACK(workspace_renamed), pager, pager->properties_dialog);
++		wncklet_connect_while_alive(G_OBJECT(wnck_screen_get_workspace(pager->screen, i)), "name_changed", G_CALLBACK(workspace_renamed), pager, pager->properties_dialog);
+ 	}
+ 
+ 	update_properties_for_wm(pager);
+--- mate-panel-1.5.5/configure.ac.0026	2013-02-08 09:43:15.000000000 +0100
++++ mate-panel-1.5.5/configure.ac	2013-02-16 19:10:22.952411470 +0100
+@@ -61,7 +61,7 @@ GDK_PIXBUF_REQUIRED=2.7.1
+ PANGO_REQUIRED=1.15.4
+ GLIB_REQUIRED=2.26
+ GTK_REQUIRED=2.19.7
+-LIBMATEWNCK_REQUIRED=1.5.1
++LIBMATEWNCK_REQUIRED=2.30.0
+ LIBMATE_MENU_REQUIRED=1.1.0
+ CAIRO_REQUIRED=1.0.0
+ MATEWEATHER_REQUIRED=1.5.0
+@@ -100,7 +100,7 @@ PKG_CHECK_MODULES(NOTIFICATION_AREA, gtk
+ AC_SUBST(NOTIFICATION_AREA_CFLAGS)
+ AC_SUBST(NOTIFICATION_AREA_LIBS)
+ 
+-PKG_CHECK_MODULES(WNCKLET, gtk+-2.0 >= $GTK_REQUIRED libmatewnck >= $LIBMATEWNCK_REQUIRED)
++PKG_CHECK_MODULES(WNCKLET, gtk+-2.0 >= $GTK_REQUIRED libwnck-1.0 >= $LIBMATEWNCK_REQUIRED)
+ AC_SUBST(WNCKLET_CFLAGS)
+ AC_SUBST(WNCKLET_LIBS)
+  
