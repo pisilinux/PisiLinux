@@ -12,10 +12,15 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
+    pisitools.dosed("configure.ac", "DG_DISABLE_DEPRECATED", deleteLine = True)
     autotools.autoreconf("-fiv")
-    autotools.configure("--with-pic \
-                         --disable-static \
-                         --disable-scrollkeeper")
+    autotools.configure("--enable-manpages \
+                         --disable-strict \
+                         --disable-coverage \
+                         --enable-gcrypt \
+                         --enable-introspection \
+                         --disable-vala \
+                         --disable-static")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 

@@ -14,9 +14,9 @@ shelltools.export("HOME", get.workDIR())
 suffix = "32" if get.buildTYPE() == "emul32" else ""
 
 def setup():
-    shelltools.echo("docs/gtk-doc.make", "EXTRA_DIST=")
-    autotools.autoreconf("-fi")
-    libtools.libtoolize("--force")
+    #shelltools.echo("docs/gtk-doc.make", "EXTRA_DIST=")
+    #autotools.autoreconf("-fi")
+    #libtools.libtoolize("--force")
     options = " ac_cv_header_sys_capability_h=yes \
                 --bindir=/sbin%s \
                 --sbindir=/sbin%s \
@@ -47,7 +47,9 @@ def setup():
                 --enable-gudev \
                 --disable-selinux \
                 --enable-static \
-                --disable-introspection" % ((suffix, )*7)
+                --enable-acl \
+                --enable-kmod \
+                --enable-introspection" % ((suffix, )*7)
     options += " --disable-acl \
                  --disable-qrencode \
                  --disable-static \
@@ -110,11 +112,11 @@ def install():
                 install-sharepkgconfigDATA \
                 install-typelibsDATA \
                 install-dist_docDATA \
-                udev-confdirs \
-                systemd-install-hook \
-                install-pkgincludeHEADERS \
-                rootlibexec_PROGRAMS='' \
-                bin_PROGRAMS='systemd-udevd udevadm' \
+                libudev-install-hook \
+                install-directories-hook \
+                install-dist_bashcompletionDATA \
+                rootlibexec_PROGRAMS='systemd-udevd' \
+                bin_PROGRAMS='udevadm' \
                 lib_LTLIBRARIES='libsystemd-daemon.la libudev.la \
                                  libgudev-1.0.la' \
                 MANPAGES='man/sd-daemon.3 man/sd_notify.3 man/sd_listen_fds.3 \
@@ -136,20 +138,21 @@ def install():
 
     autotools.make("DESTDIR=%s%s %s" % (get.installDIR(), suffix, targets))
     if get.buildTYPE() == "emul32":
-        shelltools.move("%s%s/lib" % (get.installDIR(), suffix), "%s/lib%s" % (get.installDIR(), suffix))
+        shelltools.move("%s%s/lib%s" % (get.installDIR(), suffix, suffix), "%s/lib%s" % (get.installDIR(), suffix))
         shelltools.move("%s%s/usr/lib%s" % (get.installDIR(), suffix, suffix), "%s/usr/lib%s" % (get.installDIR(), suffix))
         #shelltools.unlinkDir("%s%s" % (get.installDIR(), suffix))
         return
     # Create needed directories
     #for d in ("", "net", "pts", "shm", "hugepages"):
          #pisitools.dodir("/lib/udev/devices/%s" % d)
-         
+
     #Create vol_id and scsi_id symlinks in /sbin probably needed by multipath-tools
     pisitools.dosym("/lib/udev/scsi_id", "/sbin/scsi_id")
-    
+
     #Create /sbin/systemd-udevd -> /sbin/udevd sysmlink, we need it for MUDUR, do not touch this sysmlink.
     pisitools.dosym("/sbin/systemd-udevd", "/sbin/udevd")
-    
+    pisitools.dosym("/lib/systemd/systemd-udevd", "/sbin/systemd-udevd")
+
     #Create /etc/udev/rules.d for backward compatibility
     pisitools.dodir("/etc/udev/rules.d")
     pisitools.dodoc("README", "TODO")

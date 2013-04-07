@@ -12,8 +12,9 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    autotools.autoreconf("-fi")
+    autotools.autoreconf("-fiv")
     autotools.configure("--disable-static \
+			 --with-gnu-ld \
                          --disable-gtk-doc-html")
 
 def build():
@@ -22,7 +23,5 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("AUTHORS", "COPYING*", "NEWS", "README")
-
-    #pisitools.removeDir("/usr/share/gtk-doc")
+    
 
