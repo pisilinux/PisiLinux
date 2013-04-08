@@ -136,7 +136,7 @@ def install():
                                         units/systemd-udev-settle.service' \
                 pkginclude_HEADERS='src/systemd/sd-daemon.h'"
 
-    autotools.make("DESTDIR=%s%s %s" % (get.installDIR(), suffix, targets))
+    autotools.make("-j1 DESTDIR=%s%s %s" % (get.installDIR(), suffix, targets))
     if get.buildTYPE() == "emul32":
         shelltools.move("%s%s/lib%s" % (get.installDIR(), suffix, suffix), "%s/lib%s" % (get.installDIR(), suffix))
         shelltools.move("%s%s/usr/lib%s" % (get.installDIR(), suffix, suffix), "%s/usr/lib%s" % (get.installDIR(), suffix))
