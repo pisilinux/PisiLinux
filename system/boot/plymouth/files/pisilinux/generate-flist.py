@@ -52,7 +52,7 @@ def generate_needed_binary_list():
     return binaries
 
 def get_other_file_list():
-    files = ["usr/share/pixmaps/plymouth-pardus.png", "usr/share/themes/charge/charge.plymouth"]
+    files = ["usr/share/pixmaps/plymouth-pisilinux.png", "usr/share/themes/charge/charge.plymouth"]
     for path in paths:
         files.extend(os.popen("find %s -type f" % path[1:]).read().strip().split())
 

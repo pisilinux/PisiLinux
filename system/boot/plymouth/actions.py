@@ -9,7 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-LOGO_FILE = "/usr/share/pixmaps/plymouth-pardus.png"
+LOGO_FILE = "/usr/share/pixmaps/plymouth-pisilinux.png"
 THEMEPATH = "/usr/share/plymouth/themes"
 
 def setup():
