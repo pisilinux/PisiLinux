@@ -15,5 +15,11 @@ def build():
 
 def install():
     kde4.install()
+    
+    # remove conlicks with kdepim  
+    pisitools.remove("/usr/share/akonadi/agents/googlecontactsresource.desktop")
+    pisitools.remove("/usr/share/akonadi/agents/googlecalendarresource.desktop")
+    pisitools.remove("/usr/bin/akonadi_googlecalendar_resource")
+    pisitools.remove("/usr/bin/akonadi_googlecontacts_resource")
 
     pisitools.dodoc("CHANGELOG", "LICENSE", "README", "TODO")
