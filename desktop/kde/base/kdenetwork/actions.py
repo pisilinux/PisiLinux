@@ -13,6 +13,7 @@ NoStrip=["/usr/share"]
 
 def setup():
     kde4.configure("-DWITH_JINGLE=TRUE -DMOZPLUGIN_INSTALL_DIR=/usr/lib/browser-plugins \
+                    -DWITH_GOOGLETALK=ON \
                     -DWITH_Xmms=OFF \
                     -DWITH_LibMeanwhile=OFF \
                     -DWITH_qq=OFF")
