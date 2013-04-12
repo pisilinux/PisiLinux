@@ -9,7 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-SNAPSHOT="20110714"
+SNAPSHOT="20121109"
 
 def build():
     autotools.make("CC='%s' CFLAGS='%s'" % (get.CC(), get.CFLAGS()))
