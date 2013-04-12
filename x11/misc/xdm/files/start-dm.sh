@@ -38,9 +38,9 @@ if [ "x$1" = "x--boot" ]; then
     for x in `grep -o -e "xorg=\w*" /proc/cmdline`; do
         case "$x" in
             xorg=safe)
-                MESA_LIBGL=/usr/lib/mesa/libGL.so.1.2
+                MESA_LIBGL=/usr/lib/mesa/libGL.so.1.2.0
                 if [ "$(readlink /etc/alternatives/libGL)" != "$MESA_LIBGL" ]; then
-                    /usr/sbin/alternatives --set libGL /usr/lib/mesa/libGL.so.1.2
+                    /usr/sbin/alternatives --set libGL /usr/lib/mesa/libGL.so.1.2.0
                     /sbin/ldconfig -X
                 fi
 
