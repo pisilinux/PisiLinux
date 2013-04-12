@@ -25,6 +25,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                                     --skip-grant-tables \
                                     --basedir=/usr \
                                     --datadir=/var/lib/mysql \
+                                    --skip-innodb \
                                     --max_allowed_packet=8M \
                                     --net_buffer_length=16K \
                                     --socket=/run/mysqld/mysqld.sock \
