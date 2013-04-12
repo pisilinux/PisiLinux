@@ -7,6 +7,7 @@
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
+WorkDir = "./"
 
 def install():
     pisitools.insinto("/usr/share/icons", "K-Hi-Lights")
