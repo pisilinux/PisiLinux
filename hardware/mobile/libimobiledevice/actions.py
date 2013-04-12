@@ -10,7 +10,9 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-fiv")
-    autotools.configure("--disable-static")
+    autotools.configure("--disable-static \
+			 --without-cpython \
+			 --disable-static ")
 
     # Remove rpath
     pisitools.dosed("libtool", "^hardcode_libdir_flag_spec=.*", "hardcode_libdir_flag_spec=\"\"")
