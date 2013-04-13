@@ -23,7 +23,7 @@ def build():
 def install():
     autotools.install("DESTDIR=%s" % get.installDIR())
 
-    pisitools.domove("/var/pisi/libgusb-0.1.4-1/install/usr", "/")
+    pisitools.domove("/var/pisi/libgusb-0.1.6-2/install/usr", "/")
     pisitools.removeDir("/var")
 
 
