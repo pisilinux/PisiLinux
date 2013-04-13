@@ -24,8 +24,7 @@ def setup():
                          --enable-iso9660 \
                          --enable-mms \
                          --enable-cue \
-                         --enable-curl \
-                         --with-systemdunitdir=/lib/systemd/system")
+                         --enable-curl")
 
 def build():
     autotools.make()
