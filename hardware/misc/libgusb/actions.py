@@ -14,7 +14,7 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.configure("--prefix=/usr \
 			 --disable-static \
-                         --disable-vala \
+                         --enable-vala \
                          --enable-introspection")
 
 def build():
