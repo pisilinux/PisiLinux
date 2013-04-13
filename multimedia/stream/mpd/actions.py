@@ -22,8 +22,8 @@ def setup():
                          --enable-lastfm \
                          --enable-bzip2 \
                          --enable-iso9660 \
+                         --disable-systemd-daemon \
                          --enable-mms \
-                         --enable-cue \
                          --enable-curl")
 
 def build():
