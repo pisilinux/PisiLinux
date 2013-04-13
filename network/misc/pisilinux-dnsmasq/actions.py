@@ -6,4 +6,4 @@ from pisi.actionsapi import pisitools
 WorkDir = "."
 
 def install():
-	pisitools.dobin('pardus-dnsmasq')
+	pisitools.dobin('pisilinux-dnsmasq')
