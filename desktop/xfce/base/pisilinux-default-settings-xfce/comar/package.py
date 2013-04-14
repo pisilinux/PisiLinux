@@ -10,8 +10,8 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     environments_array = environments.readlines()
     x= 0
     for i in range(0,environments_array.__len__()):
-        if environments_array[i].find("DefaultIconTheme     = 'hicolor'") != -1:
-            environments_array[i] ="    DefaultIconTheme     = 'kfaenza'\n"
+        if environments_array[i].find("DefaultIconTheme     = 'elementary'") != -1:
+            environments_array[i] ="    DefaultIconTheme     = 'elemantary'\n"
             x = 42
             break
     environments.close()
