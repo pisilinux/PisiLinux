@@ -12,7 +12,10 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    autotools.configure()
+    autotools.autoreconf("-fiv")
+    autotools.configure("--disable-static \
+                         --enable-shared \
+                         --enable-introspection")
 
 def build():
     autotools.make()
