@@ -6,7 +6,7 @@ fun! MakeNewPSPEC()
     set nopaste
 
     0 put = '<?xml version=\"1.0\" ?>'
-    put = '<!DOCTYPE PISI SYSTEM \"http://www.pardus.org.tr/projeler/pisi/pisi-spec.dtd\">'
+    put = '<!DOCTYPE PISI SYSTEM \"http://www.pisilinux.org/projeler/pisi/pisi-spec.dtd\">'
     put = '<PISI>'
     put = '    <Source>'
     put = '        <Name></Name>'
