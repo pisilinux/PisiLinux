@@ -21,6 +21,6 @@ def build():
 def install():
     kde4.install()
 
+    shelltools.move("../pics/*.png", "%s/usr/share/kde4/apps/kdm/pics/users" % get.installDIR())
     #this file exceeds 20K limit of kdm, and KDM cannot display that.
     pisitools.remove("/usr/share/kde4/apps/kdm/pics/users/Happy.png")
-    pisitools.insinto("/usr/share/kde4/apps/kdm/pics/users/", "/pics")
