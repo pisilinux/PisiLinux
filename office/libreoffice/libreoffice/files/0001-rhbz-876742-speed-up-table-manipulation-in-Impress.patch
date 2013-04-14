@@ -1,0 +1,365 @@
+From ea34a742dd51dfcd83b5e821208f565715d0f3fd Mon Sep 17 00:00:00 2001
+From: David Tardon <dtardon@redhat.com>
+Date: Fri, 22 Mar 2013 16:49:41 +0100
+Subject: [PATCH] rhbz#876742 speed up table manipulation in Impress
+
+It turns out this is not actually a performance problem but an oversight
+in implementation (or a bug, if you want .-)
+
+Every manipulation with a table (e.g., move, resize; actually even a
+selection of the table) leads to creation of a full copy of the table
+(SdrObject::getFullDragClone()). One of the actions the table copy impl.
+does is to call sdr::CellProperties::SetStyleSheet() on every cell of
+the new table. CellProperties is derived from
+sdr::properties::TextProperties and CellProperties::SetStyleSheet() just
+passes the call to TextProperties::SetStyleSheet(). This is where the
+trouble begins :-)
+
+The SDR representation of a table, SdrTableObj, is derived from
+SdrTextObj. Because of that, SdrTextObj needs to be able to contain more
+than one SdrText (because a table needs one for every cell). This is
+handled correctly by TextProperties. But, because there is no SDR
+representation of a single cell, CellProperties uses the SdrTableObj as
+the SDR object it works on. Therefore TextProperties::SetStyleSheet()
+processes all SdrText objects of the _whole table_, not just a single
+cell. And this is repeated for every other cell...
+
+Change-Id: Iab2e2d0e1e8038710645c0bd24666e6032b0a003
+(cherry picked from commit 91864e19c84ae9834d6e97ee5ddc4db5bf957681)
+Reviewed-on: https://gerrit.libreoffice.org/2925
+Reviewed-by: Fridrich Strba <fridrich@documentfoundation.org>
+Tested-by: Fridrich Strba <fridrich@documentfoundation.org>
+---
+ svx/Package_inc.mk                            |  1 +
+ svx/inc/svx/itextprovider.hxx                 | 42 ++++++++++++++++++++++
+ svx/inc/svx/sdr/properties/textproperties.hxx |  4 +++
+ svx/inc/svx/svdotext.hxx                      |  3 +-
+ svx/source/sdr/properties/textproperties.cxx  | 38 ++++++++++++--------
+ svx/source/table/cell.cxx                     | 52 +++++++++++++++++++++++++++
+ 6 files changed, 125 insertions(+), 15 deletions(-)
+ create mode 100644 svx/inc/svx/itextprovider.hxx
+
+diff --git a/svx/Package_inc.mk b/svx/Package_inc.mk
+index 3eac094..fa3313d 100644
+--- a/svx/Package_inc.mk
++++ b/svx/Package_inc.mk
+@@ -31,6 +31,7 @@ $(eval $(call gb_Package_add_file,svx_inc,inc/svx/xftdiit.hxx,svx/xftdiit.hxx))
+ $(eval $(call gb_Package_add_file,svx_inc,inc/svx/fntctl.hxx,svx/fntctl.hxx))
+ $(eval $(call gb_Package_add_file,svx_inc,inc/svx/svdattr.hxx,svx/svdattr.hxx))
+ $(eval $(call gb_Package_add_file,svx_inc,inc/svx/imapdlg.hxx,svx/imapdlg.hxx))
++$(eval $(call gb_Package_add_file,svx_inc,inc/svx/itextprovider.hxx,svx/itextprovider.hxx))
+ $(eval $(call gb_Package_add_file,svx_inc,inc/svx/linkwarn.hxx,svx/linkwarn.hxx))
+ $(eval $(call gb_Package_add_file,svx_inc,inc/svx/formatpaintbrushctrl.hxx,svx/formatpaintbrushctrl.hxx))
+ $(eval $(call gb_Package_add_file,svx_inc,inc/svx/xcolit.hxx,svx/xcolit.hxx))
+diff --git a/svx/inc/svx/itextprovider.hxx b/svx/inc/svx/itextprovider.hxx
+new file mode 100644
+index 0000000..3202e4d
+--- /dev/null
++++ b/svx/inc/svx/itextprovider.hxx
+@@ -0,0 +1,42 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#if !defined SVX_ITEXTPROVIDER_HXX_INCLUDED
++#define SVX_ITEXTPROVIDER_HXX_INCLUDED
++
++#include <sal/types.h>
++
++#include <svx/svxdllapi.h>
++
++class SdrText;
++
++namespace svx
++{
++
++    /** This interface provides access to text object(s) in an SdrObject.
++
++     */
++    class SVX_DLLPUBLIC ITextProvider
++    {
++    public:
++        /** Return the number of texts available for this object. */
++        virtual sal_Int32 getTextCount() const = 0;
++
++        /** Return the nth available text. */
++        virtual SdrText* getText(sal_Int32 nIndex) const = 0;
++
++    protected:
++        ~ITextProvider() {}
++    };
++
++}
++
++#endif
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/svx/inc/svx/sdr/properties/textproperties.hxx b/svx/inc/svx/sdr/properties/textproperties.hxx
+index ac6a613..456b104 100644
+--- a/svx/inc/svx/sdr/properties/textproperties.hxx
++++ b/svx/inc/svx/sdr/properties/textproperties.hxx
+@@ -20,6 +20,7 @@
+ #ifndef _SDR_PROPERTIES_TEXTPROPERTIES_HXX
+ #define _SDR_PROPERTIES_TEXTPROPERTIES_HXX
+ 
++#include <svx/itextprovider.hxx>
+ #include <svx/sdr/properties/attributeproperties.hxx>
+ #include "svx/svxdllapi.h"
+ 
+@@ -45,6 +46,9 @@ namespace sdr
+             // react on ItemSet changes
+             virtual void ItemSetChanged(const SfxItemSet& rSet);
+ 
++            /// Get the TextProvider related to our SdrObject
++            virtual const svx::ITextProvider& getTextProvider() const;
++
+         public:
+             // basic constructor
+             explicit TextProperties(SdrObject& rObj);
+diff --git a/svx/inc/svx/svdotext.hxx b/svx/inc/svx/svdotext.hxx
+index 5f1eeac..551cf58 100644
+--- a/svx/inc/svx/svdotext.hxx
++++ b/svx/inc/svx/svdotext.hxx
+@@ -21,6 +21,7 @@
+ #define _SVDOTEXT_HXX
+ 
+ #include <vcl/field.hxx>
++#include <svx/itextprovider.hxx>
+ #include <svx/svdoattr.hxx>
+ #include <svx/svdtrans.hxx> // GeoStat
+ #include <tools/datetime.hxx>
+@@ -123,7 +124,7 @@ namespace sdr
+ //   SdrTextObj
+ //************************************************************
+ 
+-class SVX_DLLPUBLIC SdrTextObj : public SdrAttrObj
++class SVX_DLLPUBLIC SdrTextObj : public SdrAttrObj, public svx::ITextProvider
+ {
+ private:
+     // Cell needs access to ImpGetDrawOutliner();
+diff --git a/svx/source/sdr/properties/textproperties.cxx b/svx/source/sdr/properties/textproperties.cxx
+index e4eb5cd..db1a34a 100644
+--- a/svx/source/sdr/properties/textproperties.cxx
++++ b/svx/source/sdr/properties/textproperties.cxx
+@@ -82,14 +82,15 @@ namespace sdr
+         void TextProperties::ItemSetChanged(const SfxItemSet& rSet)
+         {
+             SdrTextObj& rObj = (SdrTextObj&)GetSdrObject();
+-            sal_Int32 nText = rObj.getTextCount();
++            const svx::ITextProvider& rTextProvider(getTextProvider());
++            sal_Int32 nText = rTextProvider.getTextCount();
+ 
+             // #i101556# ItemSet has changed -> new version
+             maVersion++;
+ 
+             while( --nText >= 0 )
+             {
+-                SdrText* pText = rObj.getText( nText );
++                SdrText* pText = rTextProvider.getText( nText );
+ 
+                 OutlinerParaObject* pParaObj = pText ? pText->GetOutlinerParaObject() : 0;
+ 
+@@ -170,10 +171,11 @@ namespace sdr
+             {
+                 SdrOutliner& rOutliner = rObj.ImpGetDrawOutliner();
+ 
+-                sal_Int32 nCount = rObj.getTextCount();
++                const svx::ITextProvider& rTextProvider(getTextProvider());
++                sal_Int32 nCount = rTextProvider.getTextCount();
+                 while( nCount-- )
+                 {
+-                    SdrText* pText = rObj.getText( nCount );
++                    SdrText* pText = rTextProvider.getText( nCount );
+                     OutlinerParaObject* pParaObj = pText->GetOutlinerParaObject();
+                     if( pParaObj )
+                     {
+@@ -223,6 +225,11 @@ namespace sdr
+             }
+         }
+ 
++        const svx::ITextProvider& TextProperties::getTextProvider() const
++        {
++            return static_cast<const SdrTextObj&>(GetSdrObject());
++        }
++
+         void TextProperties::SetStyleSheet(SfxStyleSheet* pNewStyleSheet, sal_Bool bDontRemoveHardAttr)
+         {
+             SdrTextObj& rObj = (SdrTextObj&)GetSdrObject();
+@@ -237,11 +244,12 @@ namespace sdr
+             {
+                 SdrOutliner& rOutliner = rObj.ImpGetDrawOutliner();
+ 
+-                sal_Int32 nText = rObj.getTextCount();
++                const svx::ITextProvider& rTextProvider(getTextProvider());
++                sal_Int32 nText = rTextProvider.getTextCount();
+ 
+                 while( --nText >= 0 )
+                 {
+-                    SdrText* pText = rObj.getText( nText );
++                    SdrText* pText = rTextProvider.getText( nText );
+ 
+                     OutlinerParaObject* pParaObj = pText ? pText->GetOutlinerParaObject() : 0;
+                     if( !pParaObj )
+@@ -396,11 +404,12 @@ namespace sdr
+                 && !rObj.IsLinkedText())
+             {
+                 Outliner* pOutliner = SdrMakeOutliner(OUTLINERMODE_OUTLINEOBJECT, rObj.GetModel());
+-                sal_Int32 nText = rObj.getTextCount();
++                const svx::ITextProvider& rTextProvider(getTextProvider());
++                sal_Int32 nText = rTextProvider.getTextCount();
+ 
+                 while( --nText >= 0 )
+                 {
+-                    SdrText* pText = rObj.getText( nText );
++                    SdrText* pText = rTextProvider.getText( nText );
+ 
+                     OutlinerParaObject* pParaObj = pText ? pText->GetOutlinerParaObject() : 0;
+                     if( !pParaObj )
+@@ -542,6 +551,7 @@ namespace sdr
+             SdrTextObj& rObj = (SdrTextObj&)GetSdrObject();
+             if(rObj.HasText())
+             {
++                const svx::ITextProvider& rTextProvider(getTextProvider());
+                 if(HAS_BASE(SfxStyleSheet, &rBC))
+                 {
+                     SfxSimpleHint* pSimple = PTR_CAST(SfxSimpleHint, &rHint);
+@@ -551,10 +561,10 @@ namespace sdr
+                     {
+                         rObj.SetPortionInfoChecked(sal_False);
+ 
+-                        sal_Int32 nText = rObj.getTextCount();
++                        sal_Int32 nText = rTextProvider.getTextCount();
+                         while( --nText > 0 )
+                         {
+-                            OutlinerParaObject* pParaObj = rObj.getText(nText )->GetOutlinerParaObject();
++                            OutlinerParaObject* pParaObj = rTextProvider.getText( nText )->GetOutlinerParaObject();
+                             if( pParaObj )
+                                 pParaObj->ClearPortionInfo();
+                         }
+@@ -574,10 +584,10 @@ namespace sdr
+                     if(SFX_HINT_DYING == nId)
+                     {
+                         rObj.SetPortionInfoChecked(sal_False);
+-                        sal_Int32 nText = rObj.getTextCount();
++                        sal_Int32 nText = rTextProvider.getTextCount();
+                         while( --nText > 0 )
+                         {
+-                            OutlinerParaObject* pParaObj = rObj.getText(nText )->GetOutlinerParaObject();
++                            OutlinerParaObject* pParaObj = rTextProvider.getText( nText )->GetOutlinerParaObject();
+                             if( pParaObj )
+                                 pParaObj->ClearPortionInfo();
+                         }
+@@ -596,10 +606,10 @@ namespace sdr
+ 
+                         if(!aOldName.Equals(aNewName))
+                         {
+-                            sal_Int32 nText = rObj.getTextCount();
++                            sal_Int32 nText = rTextProvider.getTextCount();
+                             while( --nText > 0 )
+                             {
+-                                OutlinerParaObject* pParaObj = rObj.getText(nText )->GetOutlinerParaObject();
++                                OutlinerParaObject* pParaObj = rTextProvider.getText( nText )->GetOutlinerParaObject();
+                                 if( pParaObj )
+                                     pParaObj->ChangeStyleSheetName(eFamily, aOldName, aNewName);
+                             }
+diff --git a/svx/source/table/cell.cxx b/svx/source/table/cell.cxx
+index e931007..9a52903 100644
+--- a/svx/source/table/cell.cxx
++++ b/svx/source/table/cell.cxx
+@@ -99,6 +99,46 @@ static const SvxItemPropertySet* ImplGetSvxCellPropertySet()
+     return &aSvxCellPropertySet;
+ }
+ 
++namespace
++{
++
++class CellTextProvider : public svx::ITextProvider
++{
++public:
++    explicit CellTextProvider(const sdr::table::CellRef xCell);
++    virtual ~CellTextProvider();
++
++private:
++    virtual sal_Int32 getTextCount() const;
++    virtual SdrText* getText(sal_Int32 nIndex) const;
++
++private:
++    const sdr::table::CellRef m_xCell;
++};
++
++CellTextProvider::CellTextProvider(const sdr::table::CellRef xCell)
++    : m_xCell(xCell)
++{
++}
++
++CellTextProvider::~CellTextProvider()
++{
++}
++
++sal_Int32 CellTextProvider::getTextCount() const
++{
++    return 1;
++}
++
++SdrText* CellTextProvider::getText(sal_Int32 nIndex) const
++{
++    (void) nIndex;
++    assert(nIndex == 0);
++    return m_xCell.get();
++}
++
++}
++
+ namespace sdr
+ {
+     namespace properties
+@@ -109,6 +149,8 @@ namespace sdr
+             // create a new itemset
+             SfxItemSet& CreateObjectSpecificItemSet(SfxItemPool& rPool);
+ 
++            const svx::ITextProvider& getTextProvider() const;
++
+         public:
+             // basic constructor
+             CellProperties(SdrObject& rObj, sdr::table::Cell* pCell );
+@@ -131,6 +173,9 @@ namespace sdr
+             void SetStyleSheet(SfxStyleSheet* pNewStyleSheet, sal_Bool bDontRemoveHardAttr);
+ 
+             sdr::table::CellRef mxCell;
++
++        private:
++            const CellTextProvider maTextProvider;
+         };
+ 
+         // create a new itemset
+@@ -153,15 +198,22 @@ namespace sdr
+                 0, 0));
+         }
+ 
++        const svx::ITextProvider& CellProperties::getTextProvider() const
++        {
++            return maTextProvider;
++        }
++
+         CellProperties::CellProperties(SdrObject& rObj, sdr::table::Cell* pCell)
+         :   TextProperties(rObj)
+         ,   mxCell(pCell)
++        ,   maTextProvider(mxCell)
+         {
+         }
+ 
+         CellProperties::CellProperties(const CellProperties& rProps, SdrObject& rObj, sdr::table::Cell* pCell)
+         :   TextProperties(rProps, rObj)
+         ,   mxCell( pCell )
++        ,   maTextProvider(mxCell)
+         {
+         }
+ 
+-- 
+1.8.1.4
+
