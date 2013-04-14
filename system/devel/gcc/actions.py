@@ -92,7 +92,7 @@ def setup():
                        --with-system-zlib \
                        --with-tune=generic \
                        --enable-gnu-unique-object \
-                       --with-pkgversion="Pardus Linux" \
+                       --with-pkgversion="Pisi Linux" \
                        --disable-libunwind-exceptions \
                        --enable-long-long \
                        --with-bugurl=http://bugs.pisilinux.org' % ( verMajor , get.HOST(), opt_arch, opt_unwind, opt_multilib))
