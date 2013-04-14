@@ -32,9 +32,9 @@ def install():
                     "/usr/bin/smoltGui")
 
 
-    shelltools.touch("%s/etc/smolt/pub-uuid-smolt.pardus.org.tr" % get.installDIR())
-    shelltools.chmod("%s/etc/smolt/pub-uuid-smolt.pardus.org.tr" % get.installDIR(), 0666)
-    shelltools.touch("%s/etc/smolt/smolt-token-smolt.pardus.org.tr" % get.installDIR())
-    shelltools.chmod("%s/etc/smolt/smolt-token-smolt.pardus.org.tr" % get.installDIR(), 0666)
+    shelltools.touch("%s/etc/smolt/pub-uuid-smolt.pisilinux.org" % get.installDIR())
+    shelltools.chmod("%s/etc/smolt/pub-uuid-smolt.pisilinux.org" % get.installDIR(), 0666)
+    shelltools.touch("%s/etc/smolt/smolt-token-smolt.pisilinux.org" % get.installDIR())
+    shelltools.chmod("%s/etc/smolt/smolt-token-smolt.pisilinux.org" % get.installDIR(), 0666)
     shelltools.touch("%s/etc/smolt/uuiddb.cfg" % get.installDIR())
     shelltools.chmod("%s/etc/smolt/uuiddb.cfg" % get.installDIR(), 0666)
