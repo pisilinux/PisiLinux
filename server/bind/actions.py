@@ -26,7 +26,7 @@ def setup():
     pisitools.dosed("bin/rndc/rndc.8", "/etc/rndc.key", "/etc/bind/rndc.key")
 
     # Adjust version
-    pisitools.dosed("version", "^RELEASEVER=.*$", "RELEASEVER=Pardus-Corporate-2")
+    pisitools.dosed("version", "^RELEASEVER=.*$", "RELEASEVER=Pisi Linux-1.0")
 
     libtools.libtoolize("-cf")
     autotools.aclocal("-I m4")

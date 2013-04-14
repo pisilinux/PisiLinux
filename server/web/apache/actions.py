@@ -13,7 +13,7 @@ WorkDir = "httpd-%s" % get.srcVERSION()
 
 def config_layout():
     return """
-<Layout Pardus>
+<Layout PisiLinux>
     prefix:          /usr
     exec_prefix:     /usr
     bindir:          /usr/bin
@@ -77,7 +77,7 @@ def setup():
     shelltools.export("LDFLAGS", "-Wl,-z,relro,-z,now")
 
     autotools.rawConfigure('--with-mpm=prefork \
-                            --enable-layout=Pardus \
+                            --enable-layout=PisiLinux \
                             --enable-mods-shared=all \
                             --with-ssl=/usr \
                             --enable-ssl=shared \

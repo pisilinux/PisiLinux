@@ -48,7 +48,7 @@ L=SomeCity
 O=SomeCompany
 
 # Organizational Unit Name (eg. section)
-OU=Pardus
+OU=PisiLinux
 
 # Common Name (*.example.com is also possible)
 CN=mail.example.com
