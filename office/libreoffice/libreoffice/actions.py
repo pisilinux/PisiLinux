@@ -89,7 +89,7 @@ def setup():
                        --enable-scripting-javascript \
                        --enable-ext-wiki-publisher \
                        --enable-ext-nlpsolver \
-                       --disable-ext-report-builder \
+                       --enable-ext-report-builder \
                        --disable-ext-mysql-connector \
                        --with-system-mysql \
                        --enable-python=system \
