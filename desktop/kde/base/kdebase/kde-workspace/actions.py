@@ -29,7 +29,8 @@ def install():
     shelltools.export("GENKDMCONF_FLAGS", "--no-old")
     kde4.install()
 
-    shelltools.move("../*.colors", "%s/usr/share/kde4/apps/color-schemes" % get.installDIR())
+    shelltools.system("chmod 644 ../*.colors")
+    shelltools.copy("../*.colors", "%s/usr/share/kde4/apps/color-schemes" % get.installDIR())
     pisitools.dodir("/var/lib/kdm")
 
     shelltools.cd("build")
