@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 def setup():
     #autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
-                         --with-gstreamer")
+                         --with-gstreamer-0-10")
 
 def build():
     autotools.make()
