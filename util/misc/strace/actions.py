@@ -16,9 +16,9 @@ def build():
     autotools.make()
 
 def check():
-    autotools.make("check")
+    autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("ChangeLog", "CREDITS", "NEWS", "PORTING", "README", "README-linux", "TODO")
+    pisitools.dodoc("ChangeLog", "CREDITS", "NEWS", "README", "README-linux",)
