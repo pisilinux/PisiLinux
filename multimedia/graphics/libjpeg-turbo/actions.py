@@ -18,4 +18,9 @@ def install():
 
 
     pisitools.dodoc("ChangeLog.txt", "README*")
+    #jpeg-devel confilicts
+    pisitools.remove("/usr/include/jerror.h")
+    pisitools.remove("/usr/include/jconfig.h")
+    pisitools.remove("/usr/include/jpeglib.h")
+    pisitools.remove("/usr/include/jmorecfg.h")
 
