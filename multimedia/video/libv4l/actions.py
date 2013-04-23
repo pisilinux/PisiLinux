@@ -10,8 +10,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--disable-static \
-                         --disable-rpath")
+        autotools.autoreconf("-vfi")
+        autotools.configure("--disable-static \
+			     --disable-rpath")
 
 def build():
     autotools.make()
