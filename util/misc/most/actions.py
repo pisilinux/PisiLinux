@@ -7,7 +7,7 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
-WorkDir = "most-pre5.1-6"
+WorkDir = ""
 
 def setup():
     autotools.configure()
