@@ -76,7 +76,7 @@ def setup():
                        --disable-gnome-vfs \
                        --disable-kde \
                        --enable-kde4 \
-                       --enable-gtk3 \
+                       --enable-gtk2 \
                        --enable-largefile \
                        --enable-lockdown \
                        --enable-mergelibs \
