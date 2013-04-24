@@ -33,7 +33,7 @@ def setup():
                          --disable-illume2 \
                          --disable-doc")
 
-    shelltools.system("patch -p1 < backround-default.patch")
+    #shelltools.system("patch -p1 < backround-default.patch")
 
 def build():
     autotools.make()

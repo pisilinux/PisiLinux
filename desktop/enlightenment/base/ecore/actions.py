@@ -38,7 +38,7 @@ def setup():
                          --enable-epoll \
                          --enable-posix-threads \
                          --disable-debug-threads \
-                         --enable-thread-safety \
+                         --enable-cares \
                          --enable-atfile-source \
                          --enable-ecore-con \
                          --enable-curl \
