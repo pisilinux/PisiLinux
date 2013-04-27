@@ -23,9 +23,10 @@ def setup():
     autotools.autoreconf()
     autotools.configure("--enable-python \
                          --disable-zlib \
-                         --enable-tools \
+                         --disable-tools \
                          --disable-static \
                          --enable-shared \
+                         --enable-pansi \
                          --with-blas='-lf77blas -latlas -lblas' \
                          FFLAGS='%s -I/usr/include/atlas' \
                          CFLAGS='%s -DVF77_ONEUNDERSCORE'" % (get.CFLAGS(), get.CFLAGS()))
