@@ -29,7 +29,7 @@ opt_multilib = "--enable-multilib" if get.ARCH() == "x86_64" else ""
 cflags = "-O2 -g"
 
 
-def removePardusSection(_dir):
+def removePisiLinuxSection(_dir):
     for root, dirs, files in os.walk(_dir):
         for name in files:
             # FIXME: should we do this only on nonshared or all ?
@@ -127,9 +127,9 @@ def install():
     pisitools.dosym("/usr/bin/cpp", "/lib/cpp")
 
     # Remove our options section from crt stuff
-    removePardusSection("%s/usr/lib/" % get.installDIR())
+    removePisiLinuxSection("%s/usr/lib/" % get.installDIR())
     if get.ARCH() == "x86_64":
-        removePardusSection("%s/usr/lib32/" % get.installDIR())
+        removePisiLinuxSection("%s/usr/lib32/" % get.installDIR())
 
 
     # autoload gdb pretty printers
