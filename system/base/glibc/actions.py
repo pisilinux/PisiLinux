@@ -46,7 +46,7 @@ ldconf32bit = """/lib32
 
 
 ### helper functions ###
-def removePardusSection(_dir):
+def removePisiLinuxSection(_dir):
     for root, dirs, files in os.walk(_dir):
         for name in files:
             # FIXME: should we do this only on nonshared or all ?
@@ -112,7 +112,7 @@ def libcInstall(cfg):
     pisitools.dosym("libbsd-compat.a", "/usr/%s/libbsd.a" % cfg["libdir"])
 
     # Remove our options section from crt stuff
-    removePardusSection("%s/usr/%s/" % (get.installDIR(), cfg["libdir"]))
+    removePisiLinuxSection("%s/usr/%s/" % (get.installDIR(), cfg["libdir"]))
 
 
 ### real actions start here ###
