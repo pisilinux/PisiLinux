@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
-import os.path
-import subprocess
+import os
 
 def read_file(path):
     with open(path) as f:
@@ -13,28 +12,37 @@ def write_file(path, content):
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     gcf = "/boot/grub2/grub.cfg"
-    if not os.path.exists(gcf): return
     cfg = read_file(gcf)
-    fix = False
-    buf = []
-    new = []
-    okv = "0.0.0"
-    nkv = open("/etc/kernel/kernel").read().strip()
+    ogp = []
     for line in cfg.split("\n"):
-        if fix:
-            buf.append(line)
-            if line.startswith("\tinitrd"): okv = line.split("-")[1]
-        else: new.append(line)
-        if fix and line.startswith("submenu"):
-            fix = False
-            for l in buf:
-                new.append(l.replace(okv, nkv))
-            buf.pop()
-            for l in buf:
-                new.append("\t" + l.replace(okv, nkv))
-        if line == "### BEGIN /etc/grub.d/10_linux ###": fix = True
-    write_file(gcf, "\n".join(new))
-    write_file("%s.bak" % gcf, cfg)
+        if line.startswith("\tlinux"):
+            ogp = line.split(" ro ")[1].split()
+            break
+
+    gdf = "/etc/default/grub"
+    gdc = read_file(gdf)
+    new = []
+    gcl = []
+    gcld = []
+    for line in gdc.split("\n"):
+        if line.startswith("GRUB_CMDLINE_LINUX_DEFAULT"): gcld = line.split("DEFAULT=")[1][1:-1].split()
+        elif "GRUB_CMDLINE_LINUX=" in line:
+            gcl = line.split("LINUX=")[1][1:-1].split()
+            # remove default options
+            for p in gcld: 
+                if p in ogp: ogp.remove(p)
+            # add options if assigned to GRUB_CMDLINE_LINUX
+            if not line.startswith("#"):
+                for p in gcl: 
+                    if not p in ogp: ogp.append(p)
+            line = 'GRUB_CMDLINE_LINUX="%s"' % " ".join(ogp)
+        new.append(line)
+
+    write_file(gdf, "\n".join(new))
+
+    os.environ["LANG"] = read_file("/etc/mudur/locale").split("\n")[0]
+    os.environ["PATH"] = "/usr/sbin:/usr/bin:/sbin:/bin"
+    os.system("grub2-mkconfig -o %s" % gcf)
 
     # Update GRUB entry
     #if os.path.exists("/boot/grub/grub.conf"):
