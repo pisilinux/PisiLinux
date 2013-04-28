@@ -41,7 +41,6 @@ def install():
     pisitools.insinto("/usr/share/doc/", "bin/*.txt")
     pisitools.insinto("/usr/share/doc/", "bin/*.html")
     pisitools.insinto("/usr/share/pixmaps/", "bin/blender.svg")
-    pisitools.insinto("/usr/lib/", "bin/2.66/python/lib/python3.3/")
     pisitools.insinto("/usr/share/", "bin/2.66/datafiles/locale/")
     pisitools.insinto("/usr/share/blender/", "bin/2.66/scripts")
     
