@@ -9,14 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
+shelltools.export("HOME", get.workDIR())
+
 def setup():
-    shelltools.export("HOME", get.workDIR())
-
-    autotools.autoreconf("-fi")
-    autotools.configure("--disable-gtk-doc \
-                         --disable-static \
-                         --enable-shared")
-
+    autotools.autoreconf("-vif")
+    autotools.configure("--disable-rebuilds \
+			 --disable-static")
 def build():
     autotools.make()
 
