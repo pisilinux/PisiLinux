@@ -5,18 +5,21 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
+
+shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.configure("--prefix=/usr \
-			 --enable-dbus \
-			 --sysconfdir=/etc \
-			 --libexecdir=/usr/lib/workrave \
-			 --disable-pulse \
-			 --enable-gconf \
-			 --disable-gnome3 \
-			 --disable-experimental \
-			 --disable-xml")
+                         --enable-dbus \
+                         --sysconfdir=/etc \
+                         --libexecdir=/usr/lib/workrave \
+                         --disable-pulse \
+                         --enable-gconf \
+                         --disable-gnome3 \
+                         --disable-experimental \
+                         --disable-xml")
 
 def build():
     autotools.make()
