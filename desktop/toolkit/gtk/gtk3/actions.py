@@ -14,7 +14,8 @@ WorkDir = "gtk+-%s" % get.srcVERSION()
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    options = "--with-gdktarget=x11 \
+    options = "--enable-x11-backend \
+               --with-gdktarget=x11 \
                --enable-xinerama \
                --with-xinput=yes \
                --enable-xkb \
@@ -22,7 +23,9 @@ def setup():
                --enable-silent-rules \
                --enable-introspection \
                --enable-gtk2-dependency \
-               --disable-papi"
+               --disable-papi \
+               --disable-wayland-backend \
+	       --disable-wayland-cairo-gl"
 
     shelltools.export("CFLAGS", get.CFLAGS().replace("-fomit-frame-pointer",""))
 
