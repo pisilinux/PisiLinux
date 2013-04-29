@@ -24,8 +24,6 @@ def setup():
                          --disable-config-hal \
                          --enable-xfree86-utils \
                          --enable-xorg \
-                         --disable-xcliplist \
-                         --enable-vnc \
                          --enable-dmx \
                          --enable-xvfb \
                          --disable-xnest \
@@ -34,6 +32,7 @@ def setup():
                          --disable-xfake \
                          --disable-xfbdev \
                          --disable-devel-docs \
+                         --disable-static \
                          --without-doxygen \
                          --with-pic \
                          --without-dtrace \
