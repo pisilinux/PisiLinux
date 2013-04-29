@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 VBoxLibDir = "/usr/lib/virtualbox"
 VBoxDataDir = "/usr/share/virtualbox"
-XorgVersion = "113"
+XorgVersion = "114"
 
 def setup():
     pisitools.dosed("LocalConfig.kmk", "__VBOXLIBDIR__", VBoxLibDir)
