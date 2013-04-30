@@ -18,10 +18,6 @@ def setup():
 def build():
     autotools.make()
 
-def check():
-    autotools.make("-C testsuite check-harder CC='gcc -Wl,--add-needed' CXX='g++ -Wl,--add-needed'")
-    autotools.make("-C testsuite check-cycle CC='gcc -Wl,--add-needed' CXX='g++ -Wl,--add-needed'")
-
 def install():
     autotools.install()
 
