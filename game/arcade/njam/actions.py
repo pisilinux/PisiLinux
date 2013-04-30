@@ -5,7 +5,7 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 #
 # Note : Gentoo ebuild also processes the hiscore.dat file which is not included
-# in the default Makefile but is present in the source tree. Since Pardus does not
+# in the default Makefile but is present in the source tree. Since Pisi Linux does not
 # have a global hiscore directory no such action is taken. Each user will have his/her
 # own hiscore table in the relevant home directory.
 #

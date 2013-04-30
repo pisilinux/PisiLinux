@@ -31,7 +31,7 @@ OPTIMIZATION="%(cflags)s -Os"
         "ldflags"       : get.LDFLAGS(),
         }
 
-def remove_pardus_section(_dir):
+def remove_pisilinux_section(_dir):
     import os
     for k in shelltools.ls(_dir):
         # FIXME: should we do this only on nonshared or all ?
@@ -99,6 +99,6 @@ def install():
     # Create the necessary symlinks into /usr/bin
     #create_symlinks()
 
-    remove_pardus_section("%s/usr/lib/uClibc/usr/lib" % get.installDIR())
+    remove_pisilinux_section("%s/usr/lib/uClibc/usr/lib" % get.installDIR())
 
     pisitools.dodoc("Changelog", "COPYING*", "TODO", "README")

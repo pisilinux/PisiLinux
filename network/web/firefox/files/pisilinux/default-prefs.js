@@ -23,7 +23,7 @@ pref("browser.shell.checkDefaultBrowser", false);
 pref("browser.throbber.url", "chrome://browserconfig.properties");
 pref("general.autoScroll", true);
 pref("general.smoothScroll", false);
-pref("general.useragent.vendor", "Pardus");
+pref("general.useragent.vendor", "Pisi Linux");
 pref("general.useragent.vendorSub", "2011");
 pref("middlemouse.contentLoadURL", false);
 pref("spellchecker.dictionary", "tr-TR");
