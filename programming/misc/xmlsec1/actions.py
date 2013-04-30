@@ -11,7 +11,6 @@ from pisi.actionsapi import pisitools
 WorkDir="xmlsec1-%s" % get.srcVERSION()
 
 def setup():
-    autotools.autoreconf("-vif")
     autotools.configure("--enable-shared \
                          --disable-static")
 
