@@ -14,7 +14,7 @@ shelltools.export("HOME", get.installDIR())
 
 def setup():
     perlmodules.configure("MP_APR_CONFIG=/usr/bin/apr-1-config \
-                           MP_APXS=/usr/sbin/apxs")
+                           MP_APXS=/usr/bin/apxs")
 
 def build():
     perlmodules.make()
