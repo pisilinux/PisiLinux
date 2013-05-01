@@ -9,8 +9,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "iniparser%s" % get.srcVERSION()
-
 def build():
     autotools.make("CC=%s CFLAGS='%s -fPIC' LDFLAGS='%s'" % (get.CC(), get.CFLAGS(), get.LDFLAGS()))
 

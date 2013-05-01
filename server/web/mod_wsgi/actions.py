@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure('--with-apxs=/usr/sbin/apxs \
+    autotools.configure('--with-apxs=/usr/bin/apxs \
                          --with-python=/usr/bin/python')
 
 def build():

@@ -8,19 +8,15 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION())
-
 def setup():
-    autotools.configure("--enable-doc \
-                         --enable-static=no \
-                         --with-blas='-L/usr/lib/ -lblas -lgfortran' \
-                         --with-atlas=yes \
-                         --with-ntl=yes \
-                         --with-docdir=/usr/share/doc/%s" % get.srcNAME() )
-
-    pisitools.dosed("interfaces/Makefile", "^SUBDIRS = .*$", "SUBDIRS = driver kaapi")
-    pisitools.dosed("doc/Makefile", "^LINBOX_DOC_PATH = .*$", "LINBOX_DOC_PATH = %s/usr/share/doc/%s" % (get.installDIR(), get.srcNAME()))
-    pisitools.dosed("doc/Makefile", "mkdir \$\(docdir\)", "mkdir -p $(docdir)")
+    autotools.configure("--enable-shared \
+			 --disable-static \
+			 --enable-drivers  \
+			 --enable-sage      \
+			 --enable-optimization \
+			 --enable-doc \
+			 --with-docdir=/usr/share/doc \
+			 --with-ntl")
 
 def build():
     autotools.make()

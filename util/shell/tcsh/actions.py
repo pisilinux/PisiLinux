@@ -9,8 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    # autotools.configure("--bindir=%s/bin" % get.installDIR())
-    autotools.configure("--prefix=/")
+    autotools.configure("--prefix=/usr --sysconfdir=/etc --bindir=/bin")
 
 def build():
     autotools.make()

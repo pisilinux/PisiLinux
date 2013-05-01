@@ -8,8 +8,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "tftp-hpa-5.0"
-
 def setup():
     autotools.configure()
 

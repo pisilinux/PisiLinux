@@ -7,10 +7,7 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
-
-WorkDir="makeself-2.1.5"
-    
+from pisi.actionsapi import get   
 
 def install():
     pisitools.dobin("makeself.sh")
@@ -19,4 +16,4 @@ def install():
     pisitools.doexe("makeself-header.sh", "/usr/share/makeself/")
     pisitools.doman("makeself.1")    
 
-    pisitools.dodoc("COPYING", "TODO", "README")
+    pisitools.dodoc("COPYING", "README*")

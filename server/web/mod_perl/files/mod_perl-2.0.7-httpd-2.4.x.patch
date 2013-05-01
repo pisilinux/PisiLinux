@@ -1,0 +1,171 @@
+--- mod_perl-2.0.7/src/modules/perl/modperl_apache_compat.h.bero	2012-06-06 17:25:14.671047117 +0200
++++ mod_perl-2.0.7/src/modules/perl/modperl_apache_compat.h	2012-06-06 17:25:29.181047188 +0200
+@@ -65,6 +65,10 @@ AP_DECLARE(const char *) ap_get_server_v
+ 
+ #define MP_HTTPD_OVERRIDE_HTACCESS (OR_LIMIT|OR_OPTIONS|OR_FILEINFO|OR_AUTHCFG|OR_INDEXES)
+ 
++#ifndef OPT_INCNOEXEC
++#define OPT_INCNOEXEC OPT_INCLUDES
++#endif
++
+ #define MP_HTTPD_OVERRIDE_OPTS_UNSET (-1)
+ #define MP_HTTPD_OVERRIDE_OPTS_DEFAULT (OPT_UNSET | \
+                                         OPT_ALL | \
+--- mod_perl-2.0.7/src/modules/perl/modperl_config.c.bero	2012-06-06 17:20:54.959045855 +0200
++++ mod_perl-2.0.7/src/modules/perl/modperl_config.c	2012-06-06 17:24:02.373046766 +0200
+@@ -479,7 +479,7 @@ typedef struct {
+     PerlInterpreter *perl;
+ } svav_param_t;
+ 
+-static void *svav_getstr(void *buf, size_t bufsiz, void *param)
++static apr_status_t svav_getstr(void *buf, apr_size_t bufsiz, void *param)
+ {
+     svav_param_t *svav_param = (svav_param_t *)param;
+     dTHXa(svav_param->perl);
+@@ -488,7 +488,7 @@ static void *svav_getstr(void *buf, size
+     STRLEN n_a;
+ 
+     if (svav_param->ix > AvFILL(av)) {
+-        return NULL;
++        return APR_FROM_OS_ERROR(ENOMEM);
+     }
+ 
+     sv = AvARRAY(av)[svav_param->ix++];
+@@ -496,7 +496,7 @@ static void *svav_getstr(void *buf, size
+ 
+     apr_cpystrn(buf, SvPVX(sv), bufsiz);
+ 
+-    return buf;
++    return APR_SUCCESS;
+ }
+ 
+ const char *modperl_config_insert(pTHX_ server_rec *s,
+--- mod_perl-2.0.7/src/modules/perl/modperl_interp.c.bero	2012-06-06 17:20:28.039045724 +0200
++++ mod_perl-2.0.7/src/modules/perl/modperl_interp.c	2012-06-06 17:20:33.717045751 +0200
+@@ -500,7 +500,7 @@ modperl_interp_t *modperl_interp_select(
+                    "set interp 0x%lx in %s 0x%lx (%s request for %s)\n",
+                    (unsigned long)interp, desc, (unsigned long)p,
+                    (r ? (is_subrequest ? "sub" : "main") : "conn"),
+-                   (r ? r->uri : c->remote_ip));
++                   (r ? r->uri : c->client_ip));
+     }
+ 
+     /* set context (THX) for this thread */
+--- mod_perl-2.0.7/src/modules/perl/modperl_module.c.bero	2012-06-06 17:25:50.951047294 +0200
++++ mod_perl-2.0.7/src/modules/perl/modperl_module.c	2012-06-06 17:27:05.037047654 +0200
+@@ -832,7 +832,7 @@ const char *modperl_module_add(apr_pool_
+ 
+     modperl_module_insert(modp);
+ 
+-    ap_add_loaded_module(modp, p);
++    ap_add_loaded_module(modp, p, modp->name);
+ 
+     apr_pool_cleanup_register(p, modp, modperl_module_remove,
+                               apr_pool_cleanup_null);
+--- mod_perl-2.0.7/xs/Apache2/Log/Apache2__Log.h.bero	2012-06-06 17:27:56.407047904 +0200
++++ mod_perl-2.0.7/xs/Apache2/Log/Apache2__Log.h	2012-06-06 17:37:10.157050652 +0200
+@@ -48,13 +48,13 @@ static void mpxs_ap_log_error(pTHX_ int
+         s = modperl_global_get_server_rec();
+     }
+ 
+-    if ((lmask == APLOG_DEBUG) && (s->loglevel >= APLOG_DEBUG)) {
++    if ((lmask == APLOG_DEBUG) && (s->log.level >= APLOG_DEBUG)) {
+         COP *cop = PL_curcop;
+         file = CopFILE(cop); /* (caller)[1] */
+         line = CopLINE(cop); /* (caller)[2] */
+     }
+ 
+-    if ((s->loglevel >= lmask) &&
++    if ((s->log.level >= lmask) &&
+         SvROK(msg) && (SvTYPE(SvRV(msg)) == SVt_PVCV)) {
+         dSP;
+         ENTER;SAVETMPS;
+@@ -72,10 +72,10 @@ static void mpxs_ap_log_error(pTHX_ int
+     }
+ 
+     if (r) {
+-        ap_log_rerror(file, line, level, 0, r, "%s", str);
++        ap_log_rerror(file, line, APLOG_MODULE_INDEX, level, 0, r, "%s", str);
+     }
+     else {
+-        ap_log_error(file, line, level, 0, s, "%s", str);
++        ap_log_error(file, line, APLOG_MODULE_INDEX, level, 0, s, "%s", str);
+     }
+ 
+     if (svstr) {
+@@ -258,10 +258,10 @@ MP_STATIC XS(MPXS_Apache2__Log_log_xerro
+     msgstr = SvPV(msgsv, n_a);
+ 
+     if (r) {
+-        ap_log_rerror(file, line, level, status, r, "%s", msgstr);
++        ap_log_rerror(file, line, APLOG_MODULE_INDEX, level, status, r, "%s", msgstr);
+     }
+     else {
+-        ap_log_error(file, line, level, status, s, "%s", msgstr);
++        ap_log_error(file, line, APLOG_MODULE_INDEX, level, status, s, "%s", msgstr);
+     }
+ 
+     SvREFCNT_dec(msgsv);
+--- mod_perl-2.0.7/xs/Apache2/ServerUtil/Apache2__ServerUtil.h.bero	2012-06-06 17:38:30.239050986 +0200
++++ mod_perl-2.0.7/xs/Apache2/ServerUtil/Apache2__ServerUtil.h	2012-06-06 17:38:37.357051021 +0200
+@@ -162,8 +162,8 @@ SV *mpxs_Apache2__ServerRec_get_handlers
+ #define mpxs_Apache2__ServerUtil_server(classname) modperl_global_get_server_rec()
+ 
+ #if !defined(OS2) && !defined(WIN32) && !defined(BEOS)  && !defined(NETWARE)
+-#define mpxs_Apache2__ServerUtil_user_id(classname)  unixd_config.user_id
+-#define mpxs_Apache2__ServerUtil_group_id(classname) unixd_config.group_id
++#define mpxs_Apache2__ServerUtil_user_id(classname)  ap_unixd_config.user_id
++#define mpxs_Apache2__ServerUtil_group_id(classname) ap_unixd_config.group_id
+ #else
+ #define mpxs_Apache2__ServerUtil_user_id(classname)  0
+ #define mpxs_Apache2__ServerUtil_group_id(classname) 0
+--- mod_perl-2.0.7/xs/maps/apache2_structures.map.bero	2012-06-06 17:41:45.919051938 +0200
++++ mod_perl-2.0.7/xs/maps/apache2_structures.map	2012-06-06 17:42:01.293051883 +0200
+@@ -106,10 +106,10 @@ $  limit_req_fields
+ <  local_addr
+ <  local_ip
+ <  local_host
+-<  remote_addr
+-   remote_ip
+-<  remote_host
+--  remote_logname
++<  client_addr
++   client_ip
++<  client_host
++-  client_logname
+ <  aborted
+    keepalive
+ ?  double_reverse
+--- mod_perl-2.0.7/xs/tables/current/Apache2/StructureTable.pm.bero	2012-06-06 17:45:40.855053081 +0200
++++ mod_perl-2.0.7/xs/tables/current/Apache2/StructureTable.pm	2012-06-06 17:49:21.927054158 +0200
+@@ -1077,6 +1077,19 @@ $Apache2::StructureTable = [
+     ]
+   },
+   {
++    'type' => 'ap_logconf',
++    'elts' => [
++      {
++        'type' => 'signed char *',
++        'name' => 'module_levels'
++      },
++      {
++       'type' => 'int',
++       'name' => 'level'
++      }
++    ]
++  },
++  {
+     'type' => 'ap_method_list_t',
+     'elts' => [
+       {
+@@ -3244,8 +3257,8 @@ $Apache2::StructureTable = [
+         'name' => 'error_log'
+       },
+       {
+-        'type' => 'int',
+-        'name' => 'loglevel'
++        'type' => 'ap_logconf',
++        'name' => 'log'
+       },
+       {
+         'type' => 'int',
