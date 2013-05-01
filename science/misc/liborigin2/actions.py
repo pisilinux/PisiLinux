@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION().split("_")[1])
-
 def setup():
     shelltools.system('qmake LIBDIR="/usr/lib" BOOSTINC="/usr/include/boost"')
 
