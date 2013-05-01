@@ -8,7 +8,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 
 def build():
-    shelltools.system('/usr/sbin/apxs -c mod_fastcgi.c fcgi*.c')
+    shelltools.system('/usr/bin/apxs -o mod_fastcgi.so -c *.c')
 
 def install():
     pisitools.insinto('/usr/lib/apache2/modules', '.libs/mod_fastcgi.so')
