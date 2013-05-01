@@ -6,11 +6,11 @@
 
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "pynifti-%s" % get.srcVERSION().split("_")[1]
-
 def setup():
+    pisitools.dosed("setup.py", "'--Wl,--no-undefined'")
     pythonmodules.compile()
 
 def install():
