@@ -12,7 +12,14 @@ from pisi.actionsapi import get
 def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
-    cmaketools.configure("-DBUILD_TERMINAL=ON", sourceDir="..")
+    cmaketools.configure("-DBUILD_TERMINAL=ON \
+			  -DQTERMWIDGET_PATH_INCLUDES=/usr/include/qtermwidget \
+			  -DQTERMWIDGET_PATH_LIB=/usr/lib/ \
+			  -DCMAKE_INSTALL_PREFIX=/usr \
+			  -DCMAKE_BUILD_TYPE=release \
+			  -DBUILD_TODOLIST=ON", sourceDir="..")
+			
+    pisitools.dosed("CMakeCache.txt", "LIB_INSTALL_DIR:PATH=/usr/lib64", "LIB_INSTALL_DIR:PATH=/usr/lib")
 
 def build():
     shelltools.cd("build")
