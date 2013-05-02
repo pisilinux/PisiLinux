@@ -8,8 +8,6 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "LaurentGomila-SFML-eebaa27"
-
 def setup():
     pisitools.dosed("CMakeLists.txt", "SFML_BUILD_DOC FALSE", "SFML_BUILD_DOC TRUE")
 

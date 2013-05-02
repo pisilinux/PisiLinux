@@ -10,7 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
-    pythonmodules.compile()
+    pythonmodules.compile("build_ext -i")
 
 def install():
     pythonmodules.install()
@@ -22,5 +22,3 @@ def install():
     # pisitools.remove("/usr/share/python-pysfml/*.pyc")
     # pisitools.remove("/usr/share/python-pysfml/pong/*.pyc")
     # pisitools.remove("/usr/share/python-pysfml/shader/*.pyc")
-
-    pisitools.dodoc("LICENSE.txt", "README.txt")

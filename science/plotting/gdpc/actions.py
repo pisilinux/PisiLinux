@@ -6,10 +6,12 @@
 
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def build():
-    autotools.make()
+    shelltools.export("CFLAGS", "%s -UG_DISABLE_DEPRECATED" % get.CFLAGS())
+    shelltools.system("make LDFLAGS=-lm")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
