@@ -1,0 +1,51 @@
+If on iwl_dump_nic_event_log() error occurs before that function
+initialize buf, we process uninitiated pointer in
+iwl_dbgfs_log_event_read() and can hit "BUG at mm/slub.c:3409"
+
+Resolves:
+https://bugzilla.redhat.com/show_bug.cgi?id=951241
+
+Reported-by: ian.odette@eprize.com
+Cc: stable@vger.kernel.org
+Signed-off-by: Stanislaw Gruszka <sgruszka@redhat.com>
+---
+Patch is only compile tested, but I'm sure it fixes the problem.
+
+ drivers/net/wireless/iwlwifi/dvm/debugfs.c | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/wireless/iwlwifi/dvm/debugfs.c b/drivers/net/wireless/iwlwifi/dvm/debugfs.c
+index 7b8178b..cb6dd58 100644
+--- a/drivers/net/wireless/iwlwifi/dvm/debugfs.c
++++ b/drivers/net/wireless/iwlwifi/dvm/debugfs.c
+@@ -2237,15 +2237,15 @@ static ssize_t iwl_dbgfs_log_event_read(struct file *file,
+ 					 size_t count, loff_t *ppos)
+ {
+ 	struct iwl_priv *priv = file->private_data;
+-	char *buf;
+-	int pos = 0;
+-	ssize_t ret = -ENOMEM;
++	char *buf = NULL;
++	ssize_t ret;
+ 
+-	ret = pos = iwl_dump_nic_event_log(priv, true, &buf, true);
+-	if (buf) {
+-		ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
+-		kfree(buf);
+-	}
++	ret = iwl_dump_nic_event_log(priv, true, &buf, true);
++	if (ret < 0)
++		goto err;
++	ret = simple_read_from_buffer(user_buf, count, ppos, buf, ret);
++err:
++	kfree(buf);
+ 	return ret;
+ }
+ 
+-- 
+1.7.11.7
+
+--
+To unsubscribe from this list: send the line "unsubscribe linux-wireless" in
+the body of a message to majordomo@vger.kernel.org
+More majordomo info at  http://vger.kernel.org/majordomo-info.html
