@@ -1,50 +1,7 @@
-Subject: no sysrq on Cell QS21/QS22 serial console
-From: olh@suse.de
-References: 422987 - LTC47675, 96313 - LTC16841
-Patch-mainline: not yet
-
-
-a POWER4 system in 'full-system-partition' mode has the console device
-on ttyS0. But the user interface to the Linux system console may still
-be on the hardware management console (HMC). If this is the case, there
-is no way to send a break to trigger a sysrq.
-Other setups do already use 'ctrl o' to trigger sysrq. This includes iSeries
-virtual console on tty1 or hvc0, and pSeries LPAR console on hvc0 or hvsi0.
-
-This affects also Cell Blades QS2x.
-
-To limit the 'ctrl o' only to the affected systems, query the model property
-in the device-tree. The patch makes the serial console not-eight-bit-clean.
-Booting with 'console=ttyS0' will disable 'ctrl o', it is only enabled
-with console autodetection.
-
-'ctrl o' is currently mapped to 'flush output', see 'stty -a'
-
-Signed-off-by: Olaf Hering <olh@suse.de>
----
- arch/powerpc/include/asm/serial.h   |    6 ++++
- arch/powerpc/kernel/legacy_serial.c |   52 ++++++++++++++++++++++++++++++++++++
- drivers/tty/serial/8250.c           |    6 ++++
- 3 files changed, 64 insertions(+)
-
---- a/arch/powerpc/include/asm/serial.h
-+++ b/arch/powerpc/include/asm/serial.h
-@@ -15,6 +15,12 @@
- /* Default baud base if not found in device-tree */
- #define BASE_BAUD ( 1843200 / 16 )
- 
-+#if defined(SUPPORT_SYSRQ) && defined(CONFIG_PPC_PSERIES)
-+#undef arch_8250_sysrq_via_ctrl_o
-+extern int do_sysrq_via_ctrl_o;
-+#define arch_8250_sysrq_via_ctrl_o(ch, port) ((ch) == '\x0f' && do_sysrq_via_ctrl_o && uart_handle_break((port)))
-+#endif
-+
- #ifdef CONFIG_PPC_UDBG_16550
- extern void find_legacy_serial_ports(void);
- #else
---- a/arch/powerpc/kernel/legacy_serial.c
-+++ b/arch/powerpc/kernel/legacy_serial.c
-@@ -495,6 +495,55 @@ device_initcall(serial_dev_init);
+diff -ur a/arch/powerpc/kernel/legacy_serial.c b/arch/powerpc/kernel/legacy_serial.c
+--- a/arch/powerpc/kernel/legacy_serial.c	2013-04-22 00:38:45.000000000 +0300
++++ b/arch/powerpc/kernel/legacy_serial.c	2013-04-26 17:30:12.521540957 +0300
+@@ -527,6 +527,55 @@
  
  
  #ifdef CONFIG_SERIAL_8250_CONSOLE
@@ -100,7 +57,7 @@ Signed-off-by: Olaf Hering <olh@suse.de>
  /*
   * This is called very early, as part of console_init() (typically just after
   * time_init()). This function is respondible for trying to find a good
-@@ -563,6 +612,9 @@ static int __init check_legacy_serial_co
+@@ -595,6 +644,9 @@
  	if (i >= legacy_serial_count)
  		goto not_found;
  
@@ -110,9 +67,10 @@ Signed-off-by: Olaf Hering <olh@suse.de>
  	of_node_put(prom_stdout);
  
  	DBG("Found serial console at ttyS%d\n", offset);
---- a/drivers/tty/serial/8250/8250.c
-+++ b/drivers/tty/serial/8250/8250.c
-@@ -102,6 +102,8 @@ static unsigned int skip_txen_test; /* f
+diff -ur a/drivers/tty/serial/8250/8250_core.c b/drivers/tty/serial/8250/8250_core.c
+--- a/drivers/tty/serial/8250/8250_core.c	2013-04-22 00:38:45.000000000 +0300
++++ b/drivers/tty/serial/8250/8250_core.c	2013-04-26 17:33:53.797533296 +0300
+@@ -92,6 +92,8 @@
  #define CONFIG_SERIAL_MANY_PORTS 1
  #endif
  
@@ -121,7 +79,7 @@ Signed-off-by: Olaf Hering <olh@suse.de>
  /*
   * HUB6 is always on.  This will be removed once the header
   * files have been cleaned.
-@@ -1423,7 +1425,11 @@ receive_chars(struct uart_8250_port *up,
+@@ -1358,7 +1360,11 @@
  
  	do {
  		if (likely(lsr & UART_LSR_DR))

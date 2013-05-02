@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 
 NoStrip = ["/lib", "/boot"]
 
-shelltools.export("KBUILD_BUILD_USER", "pisilinux")
+shelltools.export("KBUILD_BUILD_USER", "pardus")
 shelltools.export("KBUILD_BUILD_HOST", "buildfarm")
 shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
 shelltools.export("HOME", get.workDIR())
