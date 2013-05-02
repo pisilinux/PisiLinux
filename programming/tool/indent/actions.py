@@ -10,13 +10,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.touch("man/Makefile.am")
-    shelltools.touch("man/texinfo2man.c")
-
+    autotools.autoreconf("-if")
     autotools.configure("--enable-nls")
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())

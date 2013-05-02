@@ -17,7 +17,7 @@ def build():
     shelltools.export("OS_CXXFLAGS", "%s -fno-strict-aliasing" % get.CXXFLAGS())
 
     shelltools.makedirs("ppd")
-    autotools.make("-C ppd ppd")
+    autotools.make("-C ppd")
 
     autotools.make("V=1")
 
