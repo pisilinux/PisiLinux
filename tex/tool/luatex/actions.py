@@ -19,6 +19,7 @@ def setup():
                           --disable-dump-share \
                           --disable-ptex \
                           --enable-luatex  \
+			  --enable-build-in-source-tree \
                           --without-system-ptexenc \
                           --with-system-graphite \
                           --without-system-icu \
@@ -31,6 +32,7 @@ def setup():
                           --with-system-libpng \
                           --without-system-teckit \
                           --with-system-zlib \
+			  --with-system-zziplib \
                           --with-system-t1lib \
                           --disable-shared \
                           --disable-largefile \
@@ -43,8 +45,6 @@ def build():
     shelltools.cd("source")
     autotools.make()
     autotools.make("-C libs/zziplib")
-    autotools.make("-C libs/obsdcompat")
-    autotools.make("-C texk/kpathsea")
     autotools.make("-C texk/web2c luatex")
 
 def install():
@@ -56,5 +56,5 @@ def install():
 
     ## install luatex reference file
     shelltools.cd("..")
-    pisitools.dodoc("manual/luatexref-t.pdf")
+    pisitools.dodoc("manual/*.pdf")
 
