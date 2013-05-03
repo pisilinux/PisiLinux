@@ -7,12 +7,21 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
-WorkDir="lynx2-8-7"
-
 def setup():
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
-                         --with-ssl \
+                         --enable-warnings \
+                         --enable-8bit-toupper \
+                         --enable-externs \
+                         --enable-cgi-links \
+                         --enable-persistent-cookies \
+                         --enable-prettysrc \
+                         --enable-source-cache \
+                         --enable-charset-choice \
+                         --enable-default-colors \
+                         --enable-nested-tables \
+                         --enable-read-eta \
+                         --with-zlib \
                          --enable-nls \
                          --enable-ipv6 \
                          --mandir=/usr/share/man")
