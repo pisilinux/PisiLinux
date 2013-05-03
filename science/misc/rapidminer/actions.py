@@ -10,14 +10,14 @@ from pisi.actionsapi import shelltools
 
 WorkDir = get.srcNAME()
 
-shelltools.export("JAVA_HOME", "/opt/sun-jdk")
+shelltools.export("JAVAC","/opt/sun-jdk/bin/javac")
+shelltools.export("JAVA_HOME","/opt/sun-jdk")
 
 def setup():
     shelltools.system("ant clean")
 
 def build():
-    shelltools.system("ant createJar")
+    shelltools.system("ant")
 
 def install():
     pisitools.insinto("/usr/share/java/rapidminer", "lib/*")
-
