@@ -22,7 +22,5 @@ def build():
 
 def install():
     autotools.rawInstall("-C src DESTDIR=%s install-data" % get.installDIR())
-
-    pisitools.removeDir("/usr/share/usbip")
-
+    
     pisitools.dodoc("COPYING", "src/README")
