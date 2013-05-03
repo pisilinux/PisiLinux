@@ -6,8 +6,12 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def build():
+    pisitools.dosed("Makefile", "DEFS	=", "DEFS += -DNO_MALLOC_DECL")
+    pisitools.dosed("Makefile", "troff -man detex.1l", "nroff -man detex.1l > detex.1")
+    pisitools.dosed("Makefile", "LEXLIB	= -ll", "LEXLIB	= -lfl")
     autotools.make()
 
 def install():
