@@ -21,9 +21,9 @@ def setup():
                          --disable-qt3 \
                          --disable-qt4 \
                          --disable-doxygen-doc \
-                         --disable-gtk3 \
                          --enable-introspection \
                          --enable-mono \
+                         --enable-gtk3 \
                          --enable-compat-howl \
                          --enable-compat-libdns_sd \
                          --with-systemdsystemunitdir=/lib/systemd/system \
