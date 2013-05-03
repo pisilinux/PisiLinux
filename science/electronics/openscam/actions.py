@@ -5,7 +5,9 @@
 
 from pisi.actionsapi import scons
 from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
+shelltools.export("HOME", get.workDIR())
 
 def build():
     scons.make("-C cbang compiler=gnu")
