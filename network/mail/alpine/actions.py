@@ -12,7 +12,7 @@ def setup():
     autotools.autoreconf("-fi")
 
     #as-needed fix from Gentoo
-    pisitools.dosed("alpine/Makefile.in", "@LIBS@$", "@LIBS@ -lpam")
+    pisitools.dosed("alpine/Makefile.in", "@LIBS@$", "@LIBS@ -lpam -lkrb5")
 
     autotools.configure("--disable-static \
                          --enable-from-encoding \
