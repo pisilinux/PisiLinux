@@ -31,6 +31,8 @@ def install():
     pisitools.dodir("/usr/bin")
     pisitools.dodir("/usr/sbin")
     autotools.install()
+    
+    pisitools.insinto("/usr/share/doc/qpopper-4.1.0/", "GUIDE.pdf")
 
     #pisitools.removeDir("/usr/share")
 
