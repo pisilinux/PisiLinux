@@ -9,8 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf()
-
+    #autotools.autoreconf()
     autotools.configure("--enable-smtp \
                          --enable-pop \
                          --enable-imap \
