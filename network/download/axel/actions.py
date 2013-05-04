@@ -26,5 +26,3 @@ def install():
     autotools.install()
     shelltools.move("install/*", "%s/" % get.installDIR()) 
     shelltools.makedirs("%s/etc" % get.installDIR()) 
-    
-    pisitools.domove("axelrc", "/etc/")
