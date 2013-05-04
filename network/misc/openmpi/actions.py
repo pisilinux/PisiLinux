@@ -12,6 +12,9 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
+    # Disable test causing sandbox violations
+    pisitools.dosed("test/util/Makefile.in", "^(check_PROGRAMS.*?)\sopal_path_nfs\$\(EXEEXT\)", "\\1")
+
     shelltools.export("LDFLAGS","%s -Wl,-z,noexecstack" % get.LDFLAGS())
 
     autotools.configure("--enable-pretty-print-stacktrace \
