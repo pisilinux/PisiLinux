@@ -5,7 +5,10 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import autotools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
+
+shelltools.export("HOME", get.workDIR())
 
 def setup():
     #amulegui is buggy: http://wiki.amule.org/index.php/AMuleGUI
