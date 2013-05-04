@@ -10,8 +10,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 from pisi.actionsapi import kde4
 
-WorkDir = "%s-%s-kde4.3.1" % (get.srcNAME(), get.srcVERSION())
-
 shelltools.export("HOME", get.workDIR())
 
 def setup():
