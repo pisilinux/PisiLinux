@@ -44,10 +44,10 @@ def install():
             for name in files:
                 shelltools.chmod(os.path.join(root, name), 0755)
 
-    # copy config file to texmf-config
-    pisitools.dodir("/etc/texmf/tex/context/config")
-    shelltools.copy("%s/usr/share/texmf-dist/tex/context/config/cont-usr.tex" % get.installDIR(), \
-                    "%s/etc/texmf/tex/context/config/cont-usr.tex" % get.installDIR())
+#    # copy config file to texmf-config
+#    pisitools.dodir("/etc/texmf/tex/context/config")
+#    shelltools.copy("%s/usr/share/texmf-dist/tex/context/config/cont-usr.tex" % get.installDIR(), \
+#                    "%s/etc/texmf/tex/context/config/cont-usr.tex" % get.installDIR())
 
     # old packages, we will not provide them
     pisitools.remove("/usr/share/texmf-dist/tex/plain/config/omega.ini")
