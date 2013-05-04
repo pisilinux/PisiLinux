@@ -25,7 +25,7 @@ def setup():
                --enable-gtk2-dependency \
                --disable-papi \
                --disable-wayland-backend \
-	       --disable-wayland-cairo-gl"
+	           --disable-wayland-cairo-gl"
 
     shelltools.export("CFLAGS", get.CFLAGS().replace("-fomit-frame-pointer",""))
 
