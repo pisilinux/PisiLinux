@@ -15,7 +15,7 @@ def setup():
     shelltools.system("./autogen.sh --noconfig")
     autotools.configure("--enable-mysql --enable-fc --enable-efficiency \
                         --enable-snmp --disable-static \
-                        --localstatedir=/var/lib")
+                        --localstatedir=/var")
 
 def build():
     autotools.make()
