@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.rawConfigure("--prefix=/usr \
-                            --disable-bundled-qca")
+                            --disable-aspell")
 
 def build():
     autotools.make()
