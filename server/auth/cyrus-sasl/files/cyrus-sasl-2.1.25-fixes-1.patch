@@ -1,0 +1,368 @@
+Submitted By:            Armin K. <krejzi at email dot com>
+Date:                    2012-04-01
+Initial Package Version: 2.1.25
+Upstream Status:         Unknown
+Origin:                  Debian
+Description:             Various package fixes, including BDB 5.x build fix, LDAPDB and GSSAPI build
+                         fixes, plugin loading fixes, documentation typos, dovecot authentification fixes
+                         and shadow authentification fix.
+
+--- cyrus-sasl.orig/lib/checkpw.c	2009-12-03 20:07:01.000000000 +0100
++++ cyrus-sasl/lib/checkpw.c	2012-04-01 12:30:31.124336510 +0200
+@@ -587,16 +587,14 @@
+ 	    /* Timeout. */
+ 	    errno = ETIMEDOUT;
+ 	    return -1;
+-	case +1:
+-	    if (FD_ISSET(fd, &rfds)) {
+-		/* Success, file descriptor is readable. */
+-		return 0;
+-	    }
+-	    return -1;
+ 	case -1:
+ 	    if (errno == EINTR || errno == EAGAIN)
+ 		continue;
+ 	default:
++	    if (FD_ISSET(fd, &rfds)) {
++		/* Success, file descriptor is readable. */
++		return 0;
++	    }
+ 	    /* Error catch-all. */
+ 	    return -1;
+ 	}
+--- cyrus-sasl.orig/lib/common.c	2011-09-02 14:58:01.000000000 +0200
++++ cyrus-sasl/lib/common.c	2012-04-01 12:27:52.893087046 +0200
+@@ -818,7 +818,7 @@
+     result = sasl_canonuser_add_plugin("INTERNAL", internal_canonuser_init);
+     if(result != SASL_OK) return result;    
+ 
+-    if (!free_mutex) {
++    if (!free_mutex || free_mutex == 0x1) {
+ 	free_mutex = sasl_MUTEX_ALLOC();
+     }
+     if (!free_mutex) return SASL_FAIL;
+@@ -838,6 +838,11 @@
+ 
+   /* serialize disposes. this is necessary because we can't
+      dispose of conn->mutex if someone else is locked on it */
++
++  if (!free_mutex || free_mutex == 0x1)
++    free_mutex = sasl_MUTEX_ALLOC();
++  if (!free_mutex) return SASL_FAIL;
++
+   result = sasl_MUTEX_LOCK(free_mutex);
+   if (result!=SASL_OK) return;
+   
+--- cyrus-sasl.orig/lib/dlopen.c	2009-12-03 20:07:01.000000000 +0100
++++ cyrus-sasl/lib/dlopen.c	2012-04-01 12:29:44.564379243 +0200
+@@ -247,105 +247,6 @@
+     return result;
+ }
+ 
+-/* this returns the file to actually open.
+- *  out should be a buffer of size PATH_MAX
+- *  and may be the same as in. */
+-
+-/* We'll use a static buffer for speed unless someone complains */
+-#define MAX_LINE 2048
+-
+-static int _parse_la(const char *prefix, const char *in, char *out) 
+-{
+-    FILE *file;
+-    size_t length;
+-    char line[MAX_LINE];
+-    char *ntmp = NULL;
+-
+-    if(!in || !out || !prefix || out == in) return SASL_BADPARAM;
+-
+-    /* Set this so we can detect failure */
+-    *out = '\0';
+-
+-    length = strlen(in);
+-
+-    if (strcmp(in + (length - strlen(LA_SUFFIX)), LA_SUFFIX)) {
+-	if(!strcmp(in + (length - strlen(SO_SUFFIX)),SO_SUFFIX)) {
+-	    /* check for a .la file */
+-	    strcpy(line, prefix);
+-	    strcat(line, in);
+-	    length = strlen(line);
+-	    *(line + (length - strlen(SO_SUFFIX))) = '\0';
+-	    strcat(line, LA_SUFFIX);
+-	    file = fopen(line, "r");
+-	    if(file) {
+-		/* We'll get it on the .la open */
+-		fclose(file);
+-		return SASL_FAIL;
+-	    }
+-	}
+-	strcpy(out, prefix);
+-	strcat(out, in);
+-	return SASL_OK;
+-    }
+-
+-    strcpy(line, prefix);
+-    strcat(line, in);
+-
+-    file = fopen(line, "r");
+-    if(!file) {
+-	_sasl_log(NULL, SASL_LOG_WARN,
+-		  "unable to open LA file: %s", line);
+-	return SASL_FAIL;
+-    }
+-    
+-    while(!feof(file)) {
+-	if(!fgets(line, MAX_LINE, file)) break;
+-	if(line[strlen(line) - 1] != '\n') {
+-	    _sasl_log(NULL, SASL_LOG_WARN,
+-		      "LA file has too long of a line: %s", in);
+-	    return SASL_BUFOVER;
+-	}
+-	if(line[0] == '\n' || line[0] == '#') continue;
+-	if(!strncmp(line, "dlname=", sizeof("dlname=") - 1)) {
+-	    /* We found the line with the name in it */
+-	    char *end;
+-	    char *start;
+-	    size_t len;
+-	    end = strrchr(line, '\'');
+-	    if(!end) continue;
+-	    start = &line[sizeof("dlname=")-1];
+-	    len = strlen(start);
+-	    if(len > 3 && start[0] == '\'') {
+-		ntmp=&start[1];
+-		*end='\0';
+-		/* Do we have dlname="" ? */
+-		if(ntmp == end) {
+-		    _sasl_log(NULL, SASL_LOG_DEBUG,
+-			      "dlname is empty in .la file: %s", in);
+-		    return SASL_FAIL;
+-		}
+-		strcpy(out, prefix);
+-		strcat(out, ntmp);
+-	    }
+-	    break;
+-	}
+-    }
+-    if(ferror(file) || feof(file)) {
+-	_sasl_log(NULL, SASL_LOG_WARN,
+-		  "Error reading .la: %s\n", in);
+-	fclose(file);
+-	return SASL_FAIL;
+-    }
+-    fclose(file);
+-
+-    if(!(*out)) {
+-	_sasl_log(NULL, SASL_LOG_WARN,
+-		  "Could not find a dlname line in .la file: %s", in);
+-	return SASL_FAIL;
+-    }
+-
+-    return SASL_OK;
+-}
+ #endif /* DO_DLOPEN */
+ 
+ /* loads a plugin library */
+@@ -499,18 +400,18 @@
+ 		if (length + pos>=PATH_MAX) continue; /* too big */
+ 
+ 		if (strcmp(dir->d_name + (length - strlen(SO_SUFFIX)),
+-			   SO_SUFFIX)
+-		    && strcmp(dir->d_name + (length - strlen(LA_SUFFIX)),
+-			   LA_SUFFIX))
++			   SO_SUFFIX))
+ 		    continue;
+ 
++		/* We only use .so files for loading plugins */
++
+ 		memcpy(name,dir->d_name,length);
+ 		name[length]='\0';
+ 
+-		result = _parse_la(prefix, name, tmp);
+-		if(result != SASL_OK)
+-		    continue;
+-		
++		/* Create full name with path */
++		strncpy(tmp, prefix, PATH_MAX);
++		strncat(tmp, name, PATH_MAX);
++
+ 		/* skip "lib" and cut off suffix --
+ 		   this only need be approximate */
+ 		strcpy(plugname, name + 3);
+--- cyrus-sasl.orig/plugins/gssapi.c	2011-05-11 21:25:55.000000000 +0200
++++ cyrus-sasl/plugins/gssapi.c	2012-04-01 12:30:17.442055118 +0200
+@@ -370,7 +370,7 @@
+     }
+     
+     if (output_token->value && output) {
+-	unsigned char * p = (unsigned char *) text->encode_buf;
++	int len;
+ 	
+ 	ret = _plug_buf_alloc(text->utils,
+ 			      &(text->encode_buf),
+@@ -384,11 +384,8 @@
+ 	    return ret;
+ 	}
+ 	
+-	p[0] = (output_token->length>>24) & 0xFF;
+-	p[1] = (output_token->length>>16) & 0xFF;
+-	p[2] = (output_token->length>>8) & 0xFF;
+-	p[3] = output_token->length & 0xFF;
+-
++	len = htonl(output_token->length);
++	memcpy(text->encode_buf, &len, 4);
+ 	memcpy(text->encode_buf + 4, output_token->value, output_token->length);
+     }
+     
+@@ -1480,10 +1477,10 @@
+ 	}
+ 
+ 	/* Setup req_flags properly */
+-	req_flags = GSS_C_INTEG_FLAG;
++	req_flags = GSS_C_MUTUAL_FLAG | GSS_C_SEQUENCE_FLAG;
+ 	if (params->props.max_ssf > params->external_ssf) {
+ 	    /* We are requesting a security layer */
+-	    req_flags |= GSS_C_MUTUAL_FLAG | GSS_C_SEQUENCE_FLAG;
++	    req_flags |= GSS_C_INTEG_FLAG;
+ 	    /* Any SSF bigger than 1 is confidentiality. */
+ 	    /* Let's check if the client of the API requires confidentiality,
+ 	       and it wasn't already provided by an external layer */
+--- cyrus-sasl.orig/plugins/ldapdb.c	2011-05-11 21:25:55.000000000 +0200
++++ cyrus-sasl/plugins/ldapdb.c	2012-04-01 12:29:19.622866806 +0200
+@@ -251,6 +251,8 @@
+ 
+ #if defined(LDAP_PROXY_AUTHZ_FAILURE)
+ 	case LDAP_PROXY_AUTHZ_FAILURE:
++#elif defined(LDAP_X_PROXY_AUTHZ_FAILURE)
++	case LDAP_X_PROXY_AUTHZ_FAILURE:
+ #endif
+ 	case LDAP_INAPPROPRIATE_AUTH:
+ 	case LDAP_INVALID_CREDENTIALS:
+--- cyrus-sasl.orig/saslauthd/auth_rimap.c	2009-12-03 20:07:03.000000000 +0100
++++ cyrus-sasl/saslauthd/auth_rimap.c	2012-04-01 12:30:31.123336490 +0200
+@@ -1,3 +1,4 @@
++
+ /* MODULE: auth_rimap */
+ 
+ /* COPYRIGHT
+@@ -367,6 +368,30 @@
+     alarm(NETWORK_IO_TIMEOUT);
+     rc = read(s, rbuf, sizeof(rbuf));
+     alarm(0);
++    if ( rc>0 ) {
++        /* check if there is more to read */
++        fd_set         perm;
++        int            fds, ret;
++        struct timeval timeout;
++
++        FD_ZERO(&perm);
++        FD_SET(s, &perm);
++        fds = s +1;
++
++        timeout.tv_sec  = 1;
++        timeout.tv_usec = 0;
++        while( select (fds, &perm, NULL, NULL, &timeout ) >0 ) {
++           if ( FD_ISSET(s, &perm) ) {
++              ret = read(s, rbuf+rc, sizeof(rbuf)-rc);
++              if ( ret<0 ) {
++                 rc = ret;
++                 break;
++              } else {
++                 rc += ret;
++              }
++           }
++        }
++    }
+     if (rc == -1) {
+ 	syslog(LOG_WARNING, "auth_rimap: read (banner): %m");
+ 	(void) close(s);
+@@ -456,6 +481,30 @@
+     alarm(NETWORK_IO_TIMEOUT);
+     rc = read(s, rbuf, sizeof(rbuf));
+     alarm(0);
++    if ( rc>0 ) {
++        /* check if there is more to read */
++        fd_set         perm;
++        int            fds, ret;
++        struct timeval timeout;
++
++        FD_ZERO(&perm);
++        FD_SET(s, &perm);
++        fds = s +1;
++
++        timeout.tv_sec  = 1;
++        timeout.tv_usec = 0;
++        while( select (fds, &perm, NULL, NULL, &timeout ) >0 ) {
++           if ( FD_ISSET(s, &perm) ) {
++              ret = read(s, rbuf+rc, sizeof(rbuf)-rc);
++              if ( ret<0 ) {
++                 rc = ret;
++                 break;
++              } else {
++                 rc += ret;
++              }
++           }
++        }
++    }
+     (void) close(s);			/* we're done with the remote */
+     if (rc == -1) {
+ 	syslog(LOG_WARNING, "auth_rimap: read (response): %m");
+--- cyrus-sasl.orig/saslauthd/auth_shadow.c	2009-12-03 20:07:03.000000000 +0100
++++ cyrus-sasl/saslauthd/auth_shadow.c	2012-04-01 12:28:24.619737694 +0200
+@@ -36,6 +36,7 @@
+ 
+ #ifdef AUTH_SHADOW
+ 
++#define _XOPEN_SOURCE
+ #define PWBUFSZ 256 /***SWB***/
+ 
+ # include <unistd.h>
+--- cyrus-sasl.orig/saslauthd/saslauthd.mdoc	2009-12-03 20:07:03.000000000 +0100
++++ cyrus-sasl/saslauthd/saslauthd.mdoc	2012-04-01 12:26:58.090964382 +0200
+@@ -10,7 +10,7 @@
+ .\" manpage in saslauthd.8 whenever you change this source
+ .\" version. Only the pre-formatted manpage is installed.
+ .\"
+-.Dd 10 24 2002
++.Dd October 24 2002
+ .Dt SASLAUTHD 8
+ .Os "CMU-SASL"
+ .Sh NAME
+@@ -216,7 +216,7 @@
+ .Em (All platforms that support OpenLDAP 2.0 or higher)
+ .Pp
+ Authenticate against an ldap server.  The ldap configuration parameters are
+-read from /usr/local/etc/saslauthd.conf.  The location of this file can be
++read from /etc/saslauthd.conf.  The location of this file can be
+ changed with the -O parameter. See the LDAP_SASLAUTHD file included with the
+ distribution for the list of available parameters.
+ .It Li sia
+@@ -249,7 +249,7 @@
+ .Bl -tag -width "/var/run/saslauthd/mux"
+ .It Pa /var/run/saslauthd/mux
+ The default communications socket.
+-.It Pa /usr/local/etc/saslauthd.conf
++.It Pa /etc/saslauthd.conf
+ The default configuration file for ldap support.
+ .El
+ .Sh SEE ALSO
+--- cyrus-sasl.orig/sasldb/db_berkeley.c	2011-09-02 14:58:02.000000000 +0200
++++ cyrus-sasl/sasldb/db_berkeley.c	2012-04-01 12:29:02.720519690 +0200
+@@ -101,7 +101,7 @@
+     ret = db_create(mbdb, NULL, 0);
+     if (ret == 0 && *mbdb != NULL)
+     {
+-#if DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR >= 1
++#if (DB_VERSION_MAJOR > 4) || ((DB_VERSION_MAJOR == 4) && (DB_VERSION_MINOR >= 1))
+ 	ret = (*mbdb)->open(*mbdb, NULL, path, NULL, DB_HASH, flags, 0660);
+ #else
+ 	ret = (*mbdb)->open(*mbdb, path, NULL, DB_HASH, flags, 0660);
+--- cyrus-sasl.orig/utils/dbconverter-2.c	2003-02-13 20:56:17.000000000 +0100
++++ cyrus-sasl/utils/dbconverter-2.c	2012-04-01 12:29:02.722519730 +0200
+@@ -214,7 +214,7 @@
+     ret = db_create(mbdb, NULL, 0);
+     if (ret == 0 && *mbdb != NULL)
+     {
+-#if DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR >= 1
++#if (DB_VERSION_MAJOR > 4) || ((DB_VERSION_MAJOR == 4) && (DB_VERSION_MINOR >= 1))
+ 	ret = (*mbdb)->open(*mbdb, NULL, path, NULL, DB_HASH, DB_CREATE, 0664);
+ #else
+ 	ret = (*mbdb)->open(*mbdb, path, NULL, DB_HASH, DB_CREATE, 0664);
