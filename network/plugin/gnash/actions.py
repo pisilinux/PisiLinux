@@ -20,18 +20,18 @@ def setup():
                          --disable-rpath \
                          --disable-jemalloc \
                          --disable-docbook \
+                         --disable-ghelp \
+                         --disable-testsuite \
+                         --without-swfdec-testsuite \
+                         --without-ming \
                          --enable-python \
                          --enable-cygnal \
                          --enable-doublebuf \
                          --enable-renderer=all \
-                         --enable-hwaccel=vaapi \
                          --enable-extensions=ALL \
                          --enable-media=gst \
                          --enable-gui=gtk,kde4,sdl,fb \
                          --with-plugins-install=system \
-                         --with-gstpbutils-registry=/usr/lib/gstreamer-0.10 \
-                         --with-gstpbutils-incl=/usr/include/gstreamer-0.10 \
-                         --with-gstpbutils-lib=/usr/lib \
                          --with-npapi-plugindir=/usr/lib/browser-plugins \
                          ")
 #                         --enable-media=ffmpeg,gst \
