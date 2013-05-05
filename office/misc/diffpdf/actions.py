@@ -5,10 +5,14 @@
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import qt4
 
 
 def setup():
+    shelltools.system("lrelease diffpdf_cz.ts diffpdf_cz.qm")
+    shelltools.system("lrelease diffpdf_de.ts diffpdf_de.qm")
+    shelltools.system("lrelease diffpdf_fr.ts diffpdf_fr.qm")
     qt4.configure()
 
 def build():
