@@ -14,7 +14,7 @@ def setup():
 
 def build():
     autotools.make("-j1 CPPOPTS=\"%s\" \
-                    XX_LIBS=\"-luniconf -lcrypt\" \
+                    XX_LIBS=\"-luniconf -lcrypt -lstdc++\" \
                     WVLINK_CC=%s \
                     LDOPTS=\"%s\" \
                     PREFIX=/usr \
