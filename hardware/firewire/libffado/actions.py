@@ -9,8 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import scons
 from pisi.actionsapi import get
 
-WorkDir = "libffado-2.1.0"
-
 shelltools.export("HOME", get.workDIR())
 shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
 
