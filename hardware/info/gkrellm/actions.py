@@ -6,10 +6,12 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 
 def build():
+    shelltools.export("LDFLAGS", "%s -lgmodule-2.0" % get.LDFLAGS())
     autotools.make('CC=%s \
                     INSTALLROOT=/usr \
                     INCLUDEDIR=/usr/include/gkrellm2 \
