@@ -27,7 +27,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s docdir=/usr/share/doc/gperftools" % get.installDIR())
 
-    for f in ["INSTALL", "README_windows.txt"]:
-        pisitools.remove("/usr/share/doc/google-perftools/%s" % f)
-
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README", "TODO")
