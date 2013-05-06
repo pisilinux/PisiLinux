@@ -12,6 +12,7 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
+	#pisitools.dosed("src/CMakeLists.txt", "KDE_KDEUI_LIBS}", "KDE_KDEUI_LIBS} -lkdeui -lQtGui -lkdecore -lQtCore ")
     kde4.configure()
 
 def build():
