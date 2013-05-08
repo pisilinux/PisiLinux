@@ -14,12 +14,11 @@ shelltools.export("XDG_CONFIG_HOME", get.workDIR())
 
 def setup():
     autotools.configure("--enable-subversion \
-                         --enable-monoextensions \
-                         --enable-gnome-platform \
-                         --enable-c \
-                         --enable-versioncontrol \
-                         --disable-update-mimedb \
-                         --disable-update-desktopdb")
+                            --enable-monoextensions \
+                            --disable-macplatform \
+                            --enable-git \
+                            --disable-update-mimedb \
+                            --disable-update-desktopdb")
 
 def build():
     autotools.make("DESTDIR=%s -j1" % get.installDIR())
