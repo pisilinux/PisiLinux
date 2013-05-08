@@ -10,12 +10,10 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    #autotools.autoreconf("-vif")
-    shelltools.system("NOCONFIGURE=yes ./autogen.sh")
+    autotools.autoreconf("-vif")
     autotools.configure("--disable-static \
                          --with-gtk=2.0 \
                          --disable-schemas-install")
-
 def build():
     autotools.make()
 
