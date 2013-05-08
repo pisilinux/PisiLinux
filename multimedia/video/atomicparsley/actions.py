@@ -9,11 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "wez-atomicparsley-36099586d4c2"
-
 def setup():
-    shelltools.system("./autogen.sh")
-    autotools.configure()
+	shelltools.system("./autogen.sh")
+	autotools.configure()
 
 def build():
     autotools.make()
@@ -22,4 +20,4 @@ def install():
     autotools.install()
     pisitools.dosym("AtomicParsley","/usr/bin/atomicparsley")
 
-    pisitools.dodoc("Changes.txt", "README.txt")
+    pisitools.dodoc("Changes.txt", "COPYING", "README.md")
