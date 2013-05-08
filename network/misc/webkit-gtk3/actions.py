@@ -21,6 +21,7 @@ docs = ["AUTHORS", "ChangeLog", "COPYING.LIB", "THANKS", \
         "LICENSE-LGPL-2", "LICENSE-LGPL-2.1", "LICENSE"]
 
 def setup():
+    autotools.autoreconf("-fi")
     pisitools.dosed("configure", " -O2", opt)
     autotools.configure("--enable-dependency-tracking \
                          --with-gnu-ld \

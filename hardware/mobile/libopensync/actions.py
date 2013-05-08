@@ -4,23 +4,21 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import autotools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
 def setup():
-    pisitools.dosed(".", "-Werror", namePattern = "^Makefile.am$", level = 1)
-
-    autotools.autoreconf("-fi")
-
-    autotools.configure("--enable-python --disable-debug --enable-engine --enable-tools")
+	pisitools.dosed("opensync/opensync_internals.h", "<glib/gprintf.h>", "<glib.h>")
+	pisitools.dosed("opensync/opensync_list.c", "<glib/gmem.h>", "<glib.h>")
+	cmaketools.configure()
 
 def build():
-    autotools.make()
+    cmaketools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("COPYING", "AUTHORS")
