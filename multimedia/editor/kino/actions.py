@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vif")
-    pisitools.dosed("configure", 'LIBS="-lXext', 'LIBS="-lXext -lX11')
+    pisitools.dosed("configure", 'LIBS="-lXext', 'LIBS="-lXext -lX11 -lavcodec -lavutil')
     pisitools.dosed("src/Makefile.in", r"\$\(LIBQUICKTIME_LIBS\) \\", r" \\")
     pisitools.dosed("src/Makefile.in", r"(^\s*\$\(SRC_LIBS\))", r"\1 $(LIBQUICKTIME_LIBS)")
     pisitools.dosed("src/filehandler.h", r"^#include <quicktime\.h>", '#include <lqt/quicktime.h>')
