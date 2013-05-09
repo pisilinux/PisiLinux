@@ -10,12 +10,12 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.rawConfigure("--prefix=/usr \
-							--disable-static \
-							--enable-shared \
-							--enable-gstreamer \
-							--enable-mplayer \
-							--enable-vlc \
-							--enable-xine")
+			    --disable-static \
+			    --enable-shared \
+			    --enable-gstreamer \
+			    --enable-mplayer \
+			    --enable-vlc \
+		            --enable-xine")
 
 def build():
     autotools.make()
