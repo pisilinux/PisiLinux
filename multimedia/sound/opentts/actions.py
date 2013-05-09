@@ -6,13 +6,16 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vfi")
+    shelltools.export("LDFLAGS", "%s -lm" % get.LDFLAGS())
     autotools.configure("--disable-static \
                          --without-ibmtts \
                          --without-nas \
-                         --with-flite \
+                         --without-flite \
                          --with-alsa \
                          --with-espeak \
                          --with-libao \
