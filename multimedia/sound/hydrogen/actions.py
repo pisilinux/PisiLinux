@@ -5,28 +5,18 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import autotools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import scons
 from pisi.actionsapi import get
 
-#WorkDir = "hydrogen-%s" % get.srcVERSION().replace("_", "-")
+def setup():
+	cmaketools.configure()
 
 def build():
-    shelltools.export("QTDIR", get.qtDIR())
-    scons.make("prefix=/usr \
-                DESTDIR=%s \
-                lash=1 \
-                portaudio=1 \
-                portmidi=1 \
-                oss=0 \
-                optflags=\"%s\"" % (get.installDIR(), get.CFLAGS()))
+	cmaketools.make()
 
 def install():
-    shelltools.export("QTDIR", get.qtDIR())
-    scons.install(prefix="/usr")
-
-    pisitools.domove("/usr/share/pixmaps/h2-icon.svg", "/usr/share/icons/hicolor/scalable/apps")
-    pisitools.removeDir("/usr/share/pixmaps")
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "README.txt", "COPYING")
