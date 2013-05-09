@@ -14,7 +14,10 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     pisitools.dosed("config.make.in", "^elispdir = .*$", "elispdir = $(datadir)/emacs/site-lisp/lilypond")
 
-    autotools.configure("--with-ncsb-dir=/usr/share/fonts/default/ghostscript")
+    autotools.configure("--with-ncsb-dir=/usr/share/fonts/default/ghostscript \
+						 --disable-documentation \
+						 --disable-optimising \
+						 --disable-pipe")
 
 def build():
     shelltools.export("LC_ALL", "C")
