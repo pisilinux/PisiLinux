@@ -6,15 +6,18 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import get
 
 def setup():
-    autotools.configure()
+	autotools.autoreconf("-vif")
+	autotools.configure()
 
 def build():
     autotools.make()
 
 def install():
-    autotools.install()
-
-    pisitools.dodoc("TODO", "COPYING", "README", "ChangeLog", "THANKS")
-    pisitools.dohtml("doc/EasyTAG_Documentation.html")
+	autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+	
+	pisitools.dodoc("TODO", "COPYING", "README", "ChangeLog", "THANKS")
+	
+	pisitools.dohtml("doc/EasyTAG_Documentation.html")
