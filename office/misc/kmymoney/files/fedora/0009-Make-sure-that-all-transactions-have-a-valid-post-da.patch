@@ -1,0 +1,74 @@
+From 7f6279ce15de7be11362de28ff3d76be9643a515 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cristian=20One=C8=9B?= <onet.cristian@gmail.com>
+Date: Sun, 25 Nov 2012 15:47:17 +0200
+Subject: [PATCH 09/22] Make sure that all transactions have a valid post date
+ when a consistency check is run.
+
+Also make sure that MyMoneyReport::validDateRange returns a valid
+date range no matter what data is in the file. This avoids having
+a run-away kmymoney process when opening reports.
+
+BUG: 310265
+(cherry picked from commit 7465f1bf1e11dd615aeb2a3ae8de04be44ac5713)
+---
+ kmymoney/mymoney/mymoneyfile.cpp   | 11 +++++++++++
+ kmymoney/mymoney/mymoneyreport.cpp | 12 ++++++++++--
+ 2 files changed, 21 insertions(+), 2 deletions(-)
+
+diff --git a/kmymoney/mymoney/mymoneyfile.cpp b/kmymoney/mymoney/mymoneyfile.cpp
+index f837a0b..a6c2a77 100644
+--- a/kmymoney/mymoney/mymoneyfile.cpp
++++ b/kmymoney/mymoney/mymoneyfile.cpp
+@@ -34,6 +34,7 @@
+ 
+ #include <kdebug.h>
+ #include <klocale.h>
++#include <kglobal.h>
+ 
+ // ----------------------------------------------------------------------------
+ // Project Includes
+@@ -2001,6 +2002,16 @@ const QStringList MyMoneyFile::consistencyCheck(void)
+         t.modifySplit(s);
+       }
+     }
++
++    // make sure that the transaction's post date is valid
++    if (!t.postDate().isValid()) {
++      tChanged = true;
++      t.setPostDate(t.entryDate().isValid() ? t.entryDate() : QDate::currentDate());
++      rc << i18n("  * Transaction '%1' has an invalid post date.", t.id());
++      rc << i18n("    The post date was updated to '%1'.", KGlobal::locale()->formatDate(t.postDate(), KLocale::ShortDate));
++      ++problemCount;
++    }
++
+     if (tChanged) {
+       d->m_storage->modifyTransaction(t);
+     }
+diff --git a/kmymoney/mymoney/mymoneyreport.cpp b/kmymoney/mymoney/mymoneyreport.cpp
+index b58708a..f90deb9 100644
+--- a/kmymoney/mymoney/mymoneyreport.cpp
++++ b/kmymoney/mymoney/mymoneyreport.cpp
+@@ -205,10 +205,18 @@ void MyMoneyReport::validDateRange(QDate& _db, QDate& _de)
+ 
+     if (!list.isEmpty()) {
+       qSort(list);
++      // try to use the post dates
+       tmpBegin = list.front().postDate();
+       tmpEnd = list.back().postDate();
+-    } else {
+-      tmpBegin = QDate(QDate::currentDate().year(), 1, 1);    // the first date in the file
++      // if the post dates are not valid try the entry dates
++      if (!tmpBegin.isValid())
++        tmpBegin = list.front().entryDate();
++      if (!tmpEnd.isValid())
++        tmpEnd = list.back().entryDate();
++    }
++    // make sure that we leave this function with valid dates no mather what
++    if (!tmpBegin.isValid() || !tmpEnd.isValid() || tmpBegin > tmpEnd) {
++      tmpBegin = QDate(QDate::currentDate().year(), 1, 1);   // the first date in the file
+       tmpEnd = QDate(QDate::currentDate().year(), 12, 31);   // the last date in the file
+     }
+     if (!_db.isValid())
+-- 
+1.8.1.4
+

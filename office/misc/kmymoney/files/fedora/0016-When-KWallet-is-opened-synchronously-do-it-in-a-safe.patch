@@ -1,0 +1,161 @@
+From b0fc54586ba21048fb3cf510bf56a7dc55428ef6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cristian=20One=C8=9B?= <onet.cristian@gmail.com>
+Date: Wed, 28 Nov 2012 22:09:28 +0200
+Subject: [PATCH 16/22] When KWallet is opened synchronously do it in a safe
+ way.
+
+BUG: 255764
+REVIEW: 107507
+(cherry picked from commit 6c88ffd84de50af557cc92dfe043adf9872606f8)
+---
+ kmymoney/kmymoney.cpp                              |  5 +++
+ .../ofximport/dialogs/konlinebankingstatus.cpp     |  2 +-
+ .../ofximport/dialogs/mymoneyofxconnector.cpp      | 44 +++++++++++++++++++---
+ .../ofximport/dialogs/mymoneyofxconnector.h        |  7 ++++
+ kmymoney/plugins/ofximport/ofximporterplugin.cpp   |  4 +-
+ 5 files changed, 53 insertions(+), 9 deletions(-)
+
+diff --git a/kmymoney/kmymoney.cpp b/kmymoney/kmymoney.cpp
+index 512b88f..03f9e44 100644
+--- a/kmymoney/kmymoney.cpp
++++ b/kmymoney/kmymoney.cpp
+@@ -3485,6 +3485,10 @@ void KMyMoneyApp::slotAccountEdit(void)
+             category = true;
+             break;
+         }
++
++        // set a status message so that the application can't be closed until the editing is done
++        slotStatusMsg(caption);
++
+         QString tid = file->openingBalanceTransaction(d->m_selectedAccount);
+         MyMoneyTransaction t;
+         MyMoneySplit s0, s1;
+@@ -3574,6 +3578,7 @@ void KMyMoneyApp::slotAccountEdit(void)
+         }
+ 
+         delete dlg;
++        ready();
+       } else {
+         QPointer<KEditLoanWizard> wizard = new KEditLoanWizard(d->m_selectedAccount);
+         connect(wizard, SIGNAL(newCategory(MyMoneyAccount&)), this, SLOT(slotCategoryNew(MyMoneyAccount&)));
+diff --git a/kmymoney/plugins/ofximport/dialogs/konlinebankingstatus.cpp b/kmymoney/plugins/ofximport/dialogs/konlinebankingstatus.cpp
+index faf7757..fbc09d4 100644
+--- a/kmymoney/plugins/ofximport/dialogs/konlinebankingstatus.cpp
++++ b/kmymoney/plugins/ofximport/dialogs/konlinebankingstatus.cpp
+@@ -104,7 +104,7 @@ KOnlineBankingStatus::KOnlineBankingStatus(const MyMoneyAccount& acc, QWidget *p
+   if (Wallet::keyDoesNotExist(Wallet::NetworkWallet(), Wallet::PasswordFolder(), key)) {
+     pwd = settings.value("password");
+   } else {
+-    Wallet *wallet = Wallet::openWallet(Wallet::NetworkWallet(), qApp->activeWindow()->winId(), Wallet::Synchronous);
++    Wallet *wallet = openSynchronousWallet();
+     if (wallet) {
+       wallet->setFolder(Wallet::PasswordFolder());
+       wallet->readPassword(key, pwd);
+diff --git a/kmymoney/plugins/ofximport/dialogs/mymoneyofxconnector.cpp b/kmymoney/plugins/ofximport/dialogs/mymoneyofxconnector.cpp
+index 4fc0c0d..dfaf557 100644
+--- a/kmymoney/plugins/ofximport/dialogs/mymoneyofxconnector.cpp
++++ b/kmymoney/plugins/ofximport/dialogs/mymoneyofxconnector.cpp
+@@ -41,6 +41,7 @@
+ #include <kcombobox.h>
+ #include <kpassworddialog.h>
+ #include <KWallet/Wallet>
++#include <KMainWindow>
+ 
+ // ----------------------------------------------------------------------------
+ // Project Includes
+@@ -170,13 +171,8 @@ QString MyMoneyOfxConnector::password(void) const
+   QString key = OFX_PASSWORD_KEY(m_fiSettings.value("url"), m_fiSettings.value("uniqueId"));
+   QString pwd = m_fiSettings.value("password");
+ 
+-  // make sure, we have a reference to an active window, otherwise use 0 as ID
+-  WId winId = 0;
+-  if (qApp->activeWindow())
+-    winId = qApp->activeWindow()->winId();
+-
+   // now check for the wallet
+-  Wallet *wallet = Wallet::openWallet(Wallet::NetworkWallet(), winId, Wallet::Synchronous);
++  Wallet *wallet = openSynchronousWallet();
+   if (wallet
+       && !Wallet::keyDoesNotExist(Wallet::NetworkWallet(), Wallet::PasswordFolder(), key)) {
+     wallet->setFolder(Wallet::PasswordFolder());
+@@ -763,3 +759,39 @@ MyMoneyOfxConnector::Tag MyMoneyOfxConnector::investmentTransaction(const MyMone
+   return Tag("ERROR").element("DETAILS", "This transaction contains an unsupported action type");
+ }
+ #endif
++
++KWallet::Wallet *openSynchronousWallet()
++{
++  using KWallet::Wallet;
++
++  // first handle the simple case in which we already use the wallet but need the object again in
++  // this case the wallet access permission dialog will no longer appear so we don't need to pass
++  // a valid window id or do anything special since the function call should return immediately
++  const bool alreadyUsingTheWallet = Wallet::users(Wallet::NetworkWallet()).contains("KMyMoney");
++  if (alreadyUsingTheWallet) {
++    return Wallet::openWallet(Wallet::NetworkWallet(), 0, Wallet::Synchronous);
++  }
++
++  // search for a suitable parent for the wallet than needs to be deactivated while the
++  // wallet access permission dialog is not dismissed with either accept or reject
++  KWallet::Wallet *wallet = 0;
++  QWidget *parentWidgetForWallet = 0;
++  if (qApp->activeModalWidget()) {
++    parentWidgetForWallet = qApp->activeModalWidget();
++  } else if (qApp->activeWindow()) {
++    parentWidgetForWallet = qApp->activeWindow();
++  } else {
++    QList<KMainWindow *> mainWindowList = KMainWindow::memberList();
++    if (!mainWindowList.isEmpty())
++      parentWidgetForWallet = mainWindowList.front();
++  }
++  // only open the wallet synchronously if we have a valid parent otherwise crashes could occur
++  if (parentWidgetForWallet) {
++    // while the wallet is being opened disable the widget to prevent input processing
++    const bool enabled = parentWidgetForWallet->isEnabled();
++    parentWidgetForWallet->setEnabled(false);
++    wallet = Wallet::openWallet(Wallet::NetworkWallet(), parentWidgetForWallet->winId(), Wallet::Synchronous);
++    parentWidgetForWallet->setEnabled(enabled);
++  }
++  return wallet;
++}
+diff --git a/kmymoney/plugins/ofximport/dialogs/mymoneyofxconnector.h b/kmymoney/plugins/ofximport/dialogs/mymoneyofxconnector.h
+index 5538a5d..adc68f7 100644
+--- a/kmymoney/plugins/ofximport/dialogs/mymoneyofxconnector.h
++++ b/kmymoney/plugins/ofximport/dialogs/mymoneyofxconnector.h
+@@ -121,4 +121,11 @@ private:
+   MyMoneyKeyValueContainer m_fiSettings;
+ };
+ 
++// open a synchronous wallet in a safe way (the function is here because the wallet is only used in the OFX plugin)
++namespace KWallet
++{
++  class Wallet;
++}
++KWallet::Wallet *openSynchronousWallet();
++
+ #endif // OFXCONNECTOR_H
+diff --git a/kmymoney/plugins/ofximport/ofximporterplugin.cpp b/kmymoney/plugins/ofximport/ofximporterplugin.cpp
+index 2a82566..43c9bc8 100644
+--- a/kmymoney/plugins/ofximport/ofximporterplugin.cpp
++++ b/kmymoney/plugins/ofximport/ofximporterplugin.cpp
+@@ -69,7 +69,7 @@ public:
+   QStringList m_warnings;
+   QStringList m_errors;
+   KOnlineBankingStatus* m_statusDlg;
+-  Wallet  *m_wallet;
++  Wallet *m_wallet;
+ };
+ 
+ 
+@@ -622,7 +622,7 @@ MyMoneyKeyValueContainer OfxImporterPlugin::onlineBankingSettings(const MyMoneyK
+     kvp.deletePair("kmmofx-headerVersion");
+     kvp.deletePair("password");
+ 
+-    d->m_wallet = Wallet::openWallet(Wallet::NetworkWallet(), d->m_statusDlg->winId(), Wallet::Synchronous);
++    d->m_wallet = openSynchronousWallet();
+     if (d->m_wallet && (d->m_wallet->hasFolder(KWallet::Wallet::PasswordFolder()) ||
+                         d->m_wallet->createFolder(KWallet::Wallet::PasswordFolder())) &&
+         d->m_wallet->setFolder(KWallet::Wallet::PasswordFolder())) {
+-- 
+1.8.1.4
+
