@@ -6,7 +6,10 @@
 
 from pisi.actionsapi import qt4
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
+
+shelltools.export("HOME", get.workDIR())
 
 def setup():
     qt4.configure(parameters="LIBDIR=/usr/lib")
