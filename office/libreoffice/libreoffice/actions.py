@@ -56,6 +56,7 @@ def setup():
                        --libdir=/usr/lib --mandir=/usr/share/man \
                        --enable-release-build \
                        --enable-verbose \
+                       --enable-split-app-modules \
                        --disable-dependency-tracking \
                        --disable-rpath \
                        --disable-crashdump \
