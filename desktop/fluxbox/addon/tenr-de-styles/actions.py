@@ -5,12 +5,14 @@
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def install():
-    for d in ["bora_green", "bora_blue", "bora_black", "zimek_green", "zimek_bisque", \
-              "zimek_darkblue", "green_tea", "ostrich", "carp", "arch", "bloe"]:
-        pisitools.unlinkDir(d)
-
-    pisitools.insinto("/usr/share/fluxbox/styles/", "*")
-
-    pisitools.dodoc("License")
+	shelltools.cd("styles")
+	for d in ["green_tea", "ostrich", "carp"]:
+		pisitools.unlinkDir(d)
+	
+	shelltools.cd("..")
+	pisitools.insinto("/usr/share/fluxbox/styles/", "*")
+	
+	pisitools.dodoc("License")
