@@ -36,5 +36,3 @@ def install():
     pisitools.insinto("/etc", "utils/mount/nfsmount.conf")
 
     pisitools.domove("/usr/sbin/rpc.statd", "/sbin/")
-
-    pisitools.dodoc("ChangeLog", "README")
