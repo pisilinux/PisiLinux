@@ -9,8 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 from pisi.actionsapi import qt4
 
-WorkDir="qwtplot3d"
-
 def setup():
     qt4.configure()
 
