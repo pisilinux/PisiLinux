@@ -16,19 +16,16 @@ def setup():
                          --enable-wxwidgets \
                          --enable-lzo \
                          --enable-bz2 \
-                         --with-flac \
-                         --disable-qt4")
+                         --with-flac")
 
 def build():
-    autotools.make('STRIP="true"')
+	shelltools.system("rake")
 
 def install():
-    autotools.rawInstall('DESTDIR="%s" STRIP="true"' % get.installDIR())
-
-    for f in ["examples", "doc/mkvmerge-gui.html", "doc/images"]:
-        if shelltools.isFile(f) or shelltools.isDirectory(f):
-            pisitools.insinto(docdir, f)
-
-    # pisitools.insinto("/usr/share/pixmaps", "src/mmg/matroskalogo_big.xpm", "mmg.xpm")
-
-    pisitools.dodoc("AUTHORS", "ChangeLog", "README", "TODO")
+	shelltools.system('rake install DESTDIR="%s"' % get.installDIR())
+	
+	for f in ["examples", "doc/mkvmerge-gui.html", "doc/images"]:
+		if shelltools.isFile(f) or shelltools.isDirectory(f):
+			pisitools.insinto(docdir, f)
+			
+	pisitools.dodoc("AUTHORS", "ChangeLog", "README", "TODO")
