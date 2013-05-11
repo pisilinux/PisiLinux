@@ -6,22 +6,26 @@
 
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
     pisitools.dosed("examples/CMakeLists.txt", "\$\{DATA_DIR\}\/examples", "/usr/share/plplot")
     pisitools.dosed("examples/*/CMakeLists.txt", "\$\{DATA_DIR\}\/examples", "/usr/share/plplot")
     pisitools.dosed("cmake/modules/instdirs.cmake", "\$\{VERSION\}", "")
     pisitools.dosed("cmake/modules/instdirs.cmake", "doc\/\$\{PACKAGE\}", "doc/plplot/${PF}")
+    pisitools.dosed("cmake/modules/tcl-related.cmake", "3.4 3.3 3.2 3", "4.0.0 3.4 3.3 3.2 3")
 
     cmaketools.configure("-DUSE_RPATH=OFF     \
                           -DENABLE_ada=OFF    \
                           -DHAVE_ADA_2007=OFF \
+						  -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
                           -DENABLE_d=OFF      \
                           -DENABLE_octave=OFF \
                           -DENABLE_java=OFF")
 
 def build():
-    cmaketools.make()
+	shelltools.system("make")
+    #cmaketools.make()
 
 def install():
     cmaketools.install()
