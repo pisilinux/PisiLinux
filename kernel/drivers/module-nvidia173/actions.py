@@ -49,7 +49,7 @@ def install():
     pisitools.insinto(libdir, "usr/lib/*")
 
     # Symlinks
-    pisitools.dosym("libGL.so.%s" % version, "%s/libGL.so.1.2" % libdir)
+    pisitools.dosym("libGL.so.%s" % version, "%s/libGL.so.1.2.0" % libdir)
     pisitools.dosym("libGLcore.so.%s" % version, "%s/libGLcore.so.1" % libdir)
 
     pisitools.dosym("libXvMCNVIDIA.so.%s" % version, "%s/libXvMCNVIDIA.so.1" % libdir)
