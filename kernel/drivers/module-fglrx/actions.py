@@ -38,7 +38,7 @@ def setup():
     pisitools.dosed("%s/make.sh" % BuildDir, r"^uname_r=.*", "uname_r=%s" % KDIR)
     pisitools.dosed("common/etc/ati/authatieventsd.sh", "/var/lib/xdm/authdir/authfiles", "/var/run/xauth")
 
-    shelltools.system("patch -p1 < do_mmap.patch")
+    #shelltools.system("patch -p1 < do_mmap.patch")
     shelltools.system("patch -p1 < desktop-files.patch")
     shelltools.system("patch -p1 < ati-powermode.patch")
 
