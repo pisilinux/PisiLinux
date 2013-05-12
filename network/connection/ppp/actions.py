@@ -37,4 +37,4 @@ def install():
 
     pisitools.dodoc("Changes*", "README*", "FAQ")
     
-    pisitools.removeDir("var")
+    pisitools.removeDir("/run")
