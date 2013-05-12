@@ -23,7 +23,7 @@ def setup():
     shelltools.system("sh NVIDIA-Linux-%s-%s-pkg0.run -x --target tmp" % (arch, version))
     shelltools.move("tmp/*", ".")
 
-    shelltools.system("patch -p0 < no-smbus.patch")
+    shelltools.system("patch -p0 < 173.14.36-37.patch")
 
     # Our libc is TLS enabled so use TLS library
     shelltools.unlink("usr/lib/*-tls.so*")
@@ -48,7 +48,7 @@ def install():
     pisitools.insinto(libdir, "usr/lib/*")
 
     # Symlinks
-    pisitools.dosym("libGL.so.%s" % version, "%s/libGL.so.1.2" % libdir)
+    pisitools.dosym("libGL.so.%s" % version, "%s/libGL.so.1.2.0" % libdir)
     pisitools.dosym("libGLcore.so.%s" % version, "%s/libGLcore.so.1" % libdir)
 
     pisitools.dosym("libXvMCNVIDIA.so.%s" % version, "%s/libXvMCNVIDIA.so.1" % libdir)
