@@ -6,10 +6,11 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--enable-osc")
+	shelltools.system("./configure --prefix=/usr --mandir=/usr/share/man --enable-osc LDFLAGS=-ldl")
 
 def build():
     autotools.make()
