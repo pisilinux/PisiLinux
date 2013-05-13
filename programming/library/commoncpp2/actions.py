@@ -8,12 +8,12 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.autoreconf("-vif")
     autotools.configure("--with-gnutls \
                          --with-openssl \
                          --enable-debug \
                          --with-ipv6 \
-                         --disable-static")
+                         --disable-static \
+                         --enable-rpath")
 
 def build():
     autotools.make()
