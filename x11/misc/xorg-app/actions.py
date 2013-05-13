@@ -8,7 +8,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 WorkDir = "."
-SkipList = (".", "filelist", "patches", "pisiBuildState")
+SkipList = (".", "filelist", "patches", "pisiBuildState", "tmp")
 
 shelltools.export("HOME", get.workDIR())
 
