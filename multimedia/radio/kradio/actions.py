@@ -10,6 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 WorkDir = "kradio4-%s" % get.srcVERSION().replace("_", "-")
+shelltools.export("HOME", get.workDIR()) 
 
 def setup():
     pisitools.dosed("CMakeLists.txt", "share\/doc\/kradio4", "share/doc/kradio")
