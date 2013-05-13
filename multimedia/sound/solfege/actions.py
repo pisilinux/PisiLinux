@@ -6,8 +6,10 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
+    shelltools.export("HOME", get.workDIR())
     autotools.configure('--disable-pygtk-test \
                          --disable-oss-sound \
                          --enable-docbook-stylesheet')
