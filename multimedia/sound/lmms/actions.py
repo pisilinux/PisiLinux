@@ -10,6 +10,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("plugins/zynaddsubfx/LocalZynAddSubFx.cpp", "unlink", "remove")
+
     shelltools.makedirs("build")
     shelltools.cd("build")
 
