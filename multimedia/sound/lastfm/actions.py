@@ -16,7 +16,7 @@ def setup():
     shelltools.unlink("i18n/lastfm_tr.ts")
     shelltools.move("lastfm_tr.ts","i18n/lastfm_tr.ts")
 
-    shelltools.system("qmake LastFM.pro")
+    shelltools.system('qmake LastFM.pro -config release LIBS+="-lz -lX11"')
 
 def build():
     autotools.make()
