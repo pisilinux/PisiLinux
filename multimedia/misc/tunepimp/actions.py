@@ -10,9 +10,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 
-WorkDir = "libtunepimp-%s" % get.srcVERSION()
-
 def setup():
+    shelltools.system("sed -i -e 's, mp4,,' plugins/Makefile.am")
+    shelltools.system("sed -i -e 's,mp4v2,mp4v3,' configure.in")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static")
 
