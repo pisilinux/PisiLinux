@@ -10,10 +10,10 @@ from pisi.actionsapi import qt4
 from pisi.actionsapi import get
 
 def setup():
-    for i in ["speex", "speexbuild", "celt-0.7.0-build", "celt-0.7.0-src"]:
-        shelltools.unlinkDir(i)
-
-    qt4.configure(parameters='QMAKE_CFLAGS_RELEASE="%s" \
+	pisitools.dosed("src/mumble/AudioInput.cpp", "CELT_SET_VBR_RATE", "CELT_SET_BITRATE")
+	for i in ["speex", "speexbuild", "celt-0.11.0-build", "celt-0.11.0-src"]:
+		shelltools.unlinkDir(i)
+	qt4.configure(parameters='QMAKE_CFLAGS_RELEASE="%s" \
                   QMAKE_CXXFLAGS_RELEASE="%s" \
                   CONFIG+=no-bundled-speex \
                   CONFIG+=no-bundled-celt \
@@ -24,7 +24,7 @@ def setup():
                   DEFINES+=PLUGIN_PATH=/usr/lib/mumble \
                   DEFINIES+=NO_UPDATE_CHECK \
                   DEFINES+=DEFAULT_SOUNDSYSTEM=PulseAudio' % (get.CFLAGS(), get.CXXFLAGS()))
-
+	
 def build():
     qt4.make()
 
