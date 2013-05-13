@@ -10,8 +10,8 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS", "%s -D__STDC_CONSTANT_MACROS" % get.CFLAGS())
-    autotools.configure()
+    #shelltools.export("CFLAGS", "%s -D__STDC_CONSTANT_MACROS" % get.CFLAGS())
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()
