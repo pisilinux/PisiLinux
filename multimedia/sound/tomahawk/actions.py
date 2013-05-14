@@ -13,6 +13,7 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure("-DBUILD_RELEASE:BOOL=ON")
+    pisitools.dosed("build/CMakeCache.txt", "CMAKE_INSTALL_LIBDIR:PATH=lib64", "CMAKE_INSTALL_LIBDIR:PATH=lib")
 
 def build():
     kde4.make()
