@@ -6,6 +6,10 @@
 
 from pisi.actionsapi import kde4
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
+
+shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure("-DBUILD_RELEASE:BOOL=ON")
@@ -16,4 +20,4 @@ def build():
 def install():
     kde4.install()
 
-    pisitools.dodoc("AUTHORS", "README", "LICENSE*")
+    pisitools.dodoc("AUTHORS", "README*", "LICENSE*")
