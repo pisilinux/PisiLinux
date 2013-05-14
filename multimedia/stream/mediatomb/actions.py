@@ -11,11 +11,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    #fixing wrong header and library locations for ffmpeg
-    pisitools.dosed("configure", "ffmpeg/avformat.h", "libavformat/avformat.h")
-    pisitools.dosed("configure.ac", "ffmpeg/avformat.h", "libavformat/avformat.h")
-    pisitools.dosed("src/metadata/ffmpeg_handler.cc", "ffmpeg/avformat.h", "libavformat/avformat.h")
-
     #configuring with ffmpeg
     autotools.configure("--disable-static \
                          --enable-libmagic \
