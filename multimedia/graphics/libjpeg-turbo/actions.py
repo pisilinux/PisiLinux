@@ -16,9 +16,10 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-
-    pisitools.dodoc("ChangeLog.txt", "README*")
+    pisitools.insinto("/usr/share/doc/libjpeg-turbo/", "ChangeLog.txt")
+    pisitools.insinto("/usr/share/doc/libjpeg-turbo/", "README*")
     #jpeg-devel confilicts
+    pisitools.remove("/usr/share/doc/README")
     pisitools.remove("/usr/include/jerror.h")
     pisitools.remove("/usr/include/jconfig.h")
     pisitools.remove("/usr/include/jpeglib.h")
