@@ -8,6 +8,7 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
 def setup():
+    autotools.autoreconf("-fi")
     if not get.buildTYPE() == "emul32":
         autotools.configure("--with-jpeg8")
     else:
@@ -20,8 +21,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     if get.buildTYPE() == "emul32": return
-
-    pisitools.dodoc("ChangeLog.txt", "README*")
 
     # provide jpegint.h as it is required by various software
     pisitools.insinto("/usr/lib/include", "jpegint.h")
