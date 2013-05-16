@@ -11,6 +11,7 @@ from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
 WorkDir = "Linux-PAM-%s" % get.srcVERSION()
+shelltools.export("HOME", get.workDIR())
 
 def setup():
     shelltools.export("CFLAGS", "%s -fPIC -D_GNU_SOURCE" % get.CFLAGS())
