@@ -38,10 +38,6 @@ def install():
     for data in ["VERSION","pkginfo","README","config_template"]:
         pisitools.remove("/usr/%s" % data)
 
-    for directory in ["link", "man/web"]:
-        pisitools.removeDir("/usr/%s" % directory)
-
-    pisitools.domove("/usr/misc", "/usr/share/netpbm")
     pisitools.domove("/usr/man", "/usr/share")
 
     # remove conflicts with jbigkit
