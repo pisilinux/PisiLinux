@@ -9,6 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
+shelltools.export("HOME", get.workDIR()) 
+
 def setup():
     autotools.configure("--with-config-file=/etc/GNUstep/GNUstep.conf \
                         --with-layout=fhs \
@@ -16,7 +18,6 @@ def setup():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    autotools.rawInstall("-C Documentation DESTDIR=%s  GNUSTEP_MAKEFILES=%s/usr/share/GNUstep/Makefiles" % (get.installDIR(), get.installDIR()))
 
     shelltools.makedirs("%s/etc/profile.d" % get.installDIR())
     shelltools.copy("GNUstep.sh", "%s/etc/profile.d/GNUstep.sh" % get.installDIR())
