@@ -1,24 +1,22 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-from pisi.actionsapi import cmaketools
-from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
+from pisi.actionsapi import pisitools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 
-WorkDir = "k3d-source-0.8.0.1"
-
 def setup():
-	shelltools.makedirs("build")
-	shelltools.cd("build")
-	cmaketools.configure(installPrefix="/usr", sourceDir = "..")
+    shelltools.makedirs("build")
+    shelltools.cd("build")
+    cmaketools.configure("-DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
+                          -DPYTHON_LIBRARY=/usr/lib/libpython2.7.so", sourceDir = "..")
 
 def build():
-	shelltools.cd("build")
-	cmaketools.make()
+    shelltools.cd("build")
+    cmaketools.make()
 
 def install():
-	shelltools.cd("build")
-	cmaketools.rawInstall("PREFIX=%s" % get.installDIR(), "libdir=%s/usr/lib" % get.installDIR())
-	shelltools.cd("..")
-	pisitools.dodoc("AUTHORS", "COPYING", "INSTALL", "README")
+    pisitools.dodoc("AUTHORS", "COPYING", "INSTALL", "README")
+    shelltools.cd("build")
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
