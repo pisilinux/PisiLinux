@@ -9,11 +9,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 
-WorkDir = "pyv4l-%s" % get.srcVERSION()
-examples = "%s/%s/examples" % (get.docDIR(), get.srcNAME())
-
-def setup():
-    shelltools.chmod("examples/*", 0644)
+WorkDir="v4l2-%s" % get.srcVERSION()
 
 def build():
     pythonmodules.compile()
@@ -21,8 +17,4 @@ def build():
 def install():
     pythonmodules.install()
 
-    pisitools.dodoc("COPYING")
-    pisitools.dohtml("doc/*")
-
-    pisitools.insinto(examples, "examples/*")
-
+    pisitools.dodoc("AUTHORS", "LICENSE","NEWS", "README")
