@@ -63,7 +63,6 @@ def setup():
                        --disable-epm \
                        --disable-online-update \
                        --disable-pch \
-                       --disable-cve-tests \
                        --with-system-jars \
                        --with-system-libs \
                        --with-system-mythes \
