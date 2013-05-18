@@ -15,8 +15,8 @@ suffix = "32" if get.buildTYPE() == "emul32" else ""
 
 def setup():
     #shelltools.echo("docs/gtk-doc.make", "EXTRA_DIST=")
-    #autotools.autoreconf("-fi")
-    #libtools.libtoolize("--force")
+    autotools.autoreconf("-fi")
+    libtools.libtoolize("--force")
     options = " ac_cv_header_sys_capability_h=yes \
                 --bindir=/sbin%s \
                 --sbindir=/sbin%s \
