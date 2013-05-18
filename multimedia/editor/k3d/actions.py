@@ -7,6 +7,7 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 
 def setup():
+    pisitools.flags("+DdDOUBLE")
     shelltools.makedirs("build")
     shelltools.cd("build")
     cmaketools.configure("-DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
