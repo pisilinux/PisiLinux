@@ -40,6 +40,7 @@ def build():
     pisitools.dosed("doc/rxvt-tabbed", "RXVT_BASENAME = \"rxvt\"", "RXVT_BASENAME = \"urxvt\"")
 
 def install():
+    shelltools.export("TERMINFO", "%s/usr/share/terminfo" % get.installDIR())
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.insinto("/usr/share/terminfo/r", "doc/etc/rxvt-unicode.terminfo", "rxvt-unicode")

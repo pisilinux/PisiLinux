@@ -53,6 +53,7 @@ def setup():
     options += " --disable-acl \
                  --disable-qrencode \
                  --disable-static \
+                 --disable-microhttpd \
                  --without-python" if get.buildTYPE() == "emul32" else ""
     autotools.configure(options)
 

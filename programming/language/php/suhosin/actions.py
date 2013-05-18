@@ -7,6 +7,10 @@
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
+
+shelltools.export("HOME", get.workDIR())
+shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
 
 def setup():
     shelltools.system("phpize")
@@ -20,6 +24,7 @@ def check():
 
 
 def install():
-    autotools.rawInstall()
     pisitools.insinto("/usr/lib/php/modules","modules/*.so")
     pisitools.insinto("/etc/php/ext","suhosin.ini")
+    
+    pisitools.dodoc("Changelog", "CREDITS")
