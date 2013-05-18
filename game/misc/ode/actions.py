@@ -6,12 +6,10 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS","%s -fomit-frame-pointer -ffast-math" % get.CFLAGS())
-    shelltools.export("CXXFLAGS","%s -fomit-frame-pointer -ffast-math" % get.CFLAGS())
+    pisitools.flags("+fomit-frame-pointer +ffast-math")
 
     autotools.configure("--disable-static \
                          --enable-shared \
@@ -19,6 +17,8 @@ def setup():
                          --with-trimesh=opcode \
                          --enable-new-trimesh \
                          --with-drawstuff=X11 \
+                         --enable-libccd \
+                         --enable-double-precision \
                          --disable-dependency-tracking")
 
 def build():
