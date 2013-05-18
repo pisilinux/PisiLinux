@@ -23,6 +23,7 @@ def setup():
                          --enable-R-profiling \
                          --enable-R-shlib \
                          --enable-shared \
+                         --enable-prebuilt-html \
                          --disable-openmp \
                          --with-blas=-lblas \
                          --with-lapack \
