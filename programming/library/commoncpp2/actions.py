@@ -13,7 +13,8 @@ def setup():
                          --enable-debug \
                          --with-ipv6 \
                          --disable-static \
-                         --disable-rpath")
+                         --disable-rpath \
+                         --disable-dependency-tracking")
 
 def build():
     autotools.make()
