@@ -9,13 +9,15 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure('--with-apxs=/usr/bin/apxs \
-                         --with-python=/usr/bin/python')
+    pisitools.ldflags("+lpython3/ +lpthread +ldl +lutil +lm")
+	
+    autotools.configure("--with-apxs=/usr/bin/apxs \
+                         --with-python=/usr/bin/python")
 
 def build():
     autotools.make()
 
 def install():
-    autotools.rawInstall('DESTDIR=%s' % get.installDIR())
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc('README')
+    pisitools.dodoc("README")
