@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.ldflags("+lpython3/ +lpthread +ldl +lutil +lm")
+    pisitools.ldflags("+lpython3 +lpthread +ldl +lutil +lm")
 	
     autotools.configure("--with-apxs=/usr/bin/apxs \
                          --with-python=/usr/bin/python")
