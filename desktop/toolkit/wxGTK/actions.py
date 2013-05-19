@@ -48,16 +48,17 @@ def setup():
 
 def build():
     autotools.make()
-    autotools.make("-C contrib")
-    autotools.make("-C locale allmo")
+    #autotools.make("-C src")
+    #autotools.make("-C locale allmo")
 
 def install():
     autotools.install()
-    autotools.install("-C contrib")
+    #autotools.install("-C contrib")
 
     pisitools.remove("/usr/bin/wx-config")
-    pisitools.dosym("/usr/lib/wx/config/gtk2-unicode-release-2.8", "/usr/bin/wx-config")
+    pisitools.dosym("/usr/lib/wx/config/gtk2-unicode-2.9", "/usr/bin/wx-config")
 
-    pisitools.remove("/usr/share/locale/it/LC_MESSAGES/wxmsw.mo")
-
+    #pisitools.remove("/usr/share/locale/it/LC_MESSAGES/wxmsw.mo")
+    
+    pisitools.dohtml("wxPython-2.9.4.0/docs/wx/")
     pisitools.dodoc("docs/*.txt", "docs/*.htm")
