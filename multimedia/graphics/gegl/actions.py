@@ -38,8 +38,8 @@ def setup():
                          --with-exiv2 \
                          --with-umfpack \
                          --disable-static \
-                         --disable-docs \
                          --disable-gtk-doc \
+                         --enable-gtk-doc-html=no \
                          --disable-workshop")
 
 def build():
