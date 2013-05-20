@@ -13,31 +13,33 @@ def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--enable-mmx \
                          --enable-sse \
-                         --with-cairo \
-                         --with-graphviz \
+                         --includedir=/usr/include \
+                         --datadir=/usr/share \
                          --with-pic \
                          --with-gio \
                          --with-gtk \
-                         --with-gdk-pixbuf \
-                         --with-libjpeg \
-                         --with-libopenraw \
-                         --includedir=/usr/include \
-                         --datadir=/usr/share \
-                         --with-libpng \
-                         --with-jasper \
-                         --with-librsvg \
-                         --with-libspiro \
-                         --with-libv4l \
-                         --with-lua \
-                         --with-exiv2 \
-                         --with-umfpack \
-                         --with-openexr \
+                         --with-cairo \
                          --with-pango \
                          --with-pangocairo \
+                         --with-gdk-pixbuf \
+                         --with-lensfun \
+                         --with-libjpeg \
+                         --with-libpng \
+                         --with-librsvg \
+                         --with-openexr \
                          --with-sdl \
+                         --with-libopenraw \
+                         --with-jasper \
+                         --with-graphviz \
+                         --with-lua \
+                         --without-libavformat \
+                         --with-libv4l \
+                         --with-libspiro \
+                         --with-exiv2 \
+                         --with-umfpack \
                          --disable-static \
                          --disable-gtk-doc \
-                         --disable-workshop") # causes sandbox violations when enabled
+                         --disable-workshop")
 
 def build():
     autotools.make()
