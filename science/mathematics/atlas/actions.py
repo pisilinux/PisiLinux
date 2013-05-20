@@ -33,7 +33,8 @@ def setup():
                        -Fa alg '-g -Wa,--noexecstack -fPIC' \
                        -D c -DWALL \
                        -b %(bits)s \
-                       --with-netlib-lapack=/usr/lib/liblapack.a" % cfg)
+                       --with-netlib-lapack=/usr/lib/liblapack.a \
+					   -Ss f77lib 'gfortran --print-file-name=libgfortran.so'" % cfg)
 
     # Fix architecture detection
     if get.ARCH() == "x86_64":
@@ -48,7 +49,7 @@ def setup():
 
 def build():
     autotools.make("-C build -j1")
-    #autotools.make("-C build/lib shared -j1")
+    autotools.make("-C build/lib shared -j1")
 
 def install():
     pisitools.dodoc("README", "doc/*")
