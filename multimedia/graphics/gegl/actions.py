@@ -38,6 +38,7 @@ def setup():
                          --with-exiv2 \
                          --with-umfpack \
                          --disable-static \
+                         --disable-docs \
                          --disable-gtk-doc \
                          --disable-workshop")
 
