@@ -9,11 +9,10 @@ from pisi.actionsapi import pisitools
 
 def setup():
     autotools.configure("--with-gnutls \
-                         --with-openssl \
+                         --without-openssl \
                          --enable-debug \
                          --with-ipv6 \
                          --disable-static \
-                         --disable-rpath \
                          --disable-dependency-tracking")
 
 def build():
