@@ -9,9 +9,8 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    cflags = "%s -fno-strict-aliasing" % get.CFLAGS()
-    shelltools.export("CFLAGS", cflags)
-    shelltools.export("CXXFLAGS", cflags)
+    pisitools.flags("+fno-strict-aliasing")
+    pisitools.dosed("configure", '(wx_cv_std_libpath="lib)64"', r'\1"')
 
     autotools.configure("--enable-gtk2 \
                          --enable-shared \
