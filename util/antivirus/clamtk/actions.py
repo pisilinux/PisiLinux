@@ -7,6 +7,7 @@
 import os
 import fnmatch
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import get
 
 
 def setup():
@@ -15,7 +16,7 @@ def setup():
 
 def install():
     pisitools.dobin("clamtk")
-    pisitools.insinto("/usr/lib", "lib", "ClamTk")
+    pisitools.dolib("lib/*", "/usr/lib/perl5/vendor_perl/"+ get.curPERL()+ "/ClamTk")
     pisitools.doman("clamtk.1.gz")
     pisitools.insinto("/usr/share/applications", "clamtk.desktop")
     #pisitools.insinto("/usr/share/pixmaps", "clamtk.png")
