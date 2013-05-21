@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fiv")
+#    autotools.autoreconf("-fiv")
     autotools.configure("--disable-static \
                          --enable-keyring \
                          --enable-bash-completion \
