@@ -40,6 +40,7 @@ def setup():
                          --disable-static \
                          --disable-gtk-doc \
                          --enable-gtk-doc-html=no \
+                         --disable-docs=yes \
                          --disable-workshop")
 
 def build():
