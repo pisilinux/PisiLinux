@@ -37,11 +37,6 @@ def setup():
 									--enable-ufomodel \
 									--disable-uforadiant \
 									--enable-ufoslicer ")
-    #autotools.configure("")
-                         #--bindir= \
-                         #--datarootdir="datadir/base" \
-                         #--datadir="datadir" \
-
 
 def build():
     autotools.make()
