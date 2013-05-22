@@ -18,15 +18,26 @@ def setup():
     shelltools.export("CXXFLAGS", "%s -mmmx -msse" % get.CXXFLAGS())
 
     shelltools.makedirs("base")
-    autotools.configure('--enable-release \
-                         --enable-dedicated \
-                         --enable-client \
-                         --enable-ufo2map \
-                         --localedir="%s/base/i18n" \
-                         --disable-uforadiant \
-                         --disable-paranoid \
-                         --disable-profiling \
-                         --disable-hardlinkedgame' % datadir)
+    shelltools.system("./configure 	--prefix=/usr \
+									--bindir=/usr/bin \
+									--datadir=/usr/share/ufoai \
+									--localedir=/usr/share/locale \
+									--enable-release \
+									--enable-sse \
+									--enable-cgame-campaign \
+									--enable-cgame-multiplayer \
+									--enable-cgame-skirmish \
+									--enable-cgame-staticcampaign \
+									--enable-game \
+									--enable-memory \
+									--enable-testall \
+									--enable-ufo2map \
+									--enable-ufoded \
+									--enable-ufo \
+									--enable-ufomodel \
+									--disable-uforadiant \
+									--enable-ufoslicer ")
+    #autotools.configure("")
                          #--bindir= \
                          #--datarootdir="datadir/base" \
                          #--datadir="datadir" \
