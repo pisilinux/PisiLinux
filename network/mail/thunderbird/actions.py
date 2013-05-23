@@ -30,14 +30,12 @@ def build():
     #for locale in locales:
         #autotools.make("-C mail/locales langpack-%s" % locale)
         #pisitools.copy("mozilla/dist/xpi-stage/locale-%s/chrome/%s.manifest" % (locale, locale), "mozilla/dist/bin/chrome/")
-
+"""
     # Build enigmail
-    """
     shelltools.cd("mailnews/extensions/enigmail")
     shelltools.system("./makemake -r")
     autotools.make()
     autotools.make("xpi")
-    """
 
 def install_enigmail():
     # Install enigmail
@@ -63,8 +61,7 @@ def install_enigmail():
     pisitools.removeDir("%s/platform" % MOZAPPDIR)
     pisitools.removeDir("%s/wrappers" % MOZAPPDIR)
     pisitools.removeDir("%s/enigmail*.xpi" % MOZAPPDIR)
-
-
+"""
 def install():
     pisitools.insinto("/usr/lib/", "mozilla/dist/bin", "MozillaThunderbird", sym=False)
 
@@ -79,9 +76,9 @@ def install():
     pisitools.insinto("%s/defaults/pref" % MOZAPPDIR, ".pisilinux-default-prefs.js", "all-pisilinux.js")
     
     # Empty fake files to get Turkish spell check support working
-    #pisitools.dodir("%s/extensions/langpack-tr@thunderbird.mozilla.org/dictionaries" % MOZAPPDIR)
-    #shelltools.touch("%s/%s/%s/dictionaries/tr-TR.aff" % (get.installDIR(), MOZAPPDIR, "extensions/langpack-tr@thunderbird.mozilla.org"))
-    #shelltools.touch("%s/%s/%s/dictionaries/tr-TR.dic" % (get.installDIR(), MOZAPPDIR, "extensions/langpack-tr@thunderbird.mozilla.org"))
+    pisitools.dodir("%s/extensions/langpack-tr@thunderbird.mozilla.org/dictionaries" % MOZAPPDIR)
+    shelltools.touch("%s/%s/%s/dictionaries/tr-TR.aff" % (get.installDIR(), MOZAPPDIR, "extensions/langpack-tr@thunderbird.mozilla.org"))
+    shelltools.touch("%s/%s/%s/dictionaries/tr-TR.dic" % (get.installDIR(), MOZAPPDIR, "extensions/langpack-tr@thunderbird.mozilla.org"))
     
     pisitools.removeDir("%s/dictionaries" % MOZAPPDIR)
     pisitools.dosym("/usr/share/hunspell", "%s/dictionaries" % MOZAPPDIR)
@@ -90,7 +87,7 @@ def install():
     pisitools.remove("/usr/lib/MozillaThunderbird/.purgecaches")
 
     # Remove this to avoid spellchecking dictionary detection problems
-    #pisitools.remove("/usr/lib/MozillaThunderbird/defaults/pref/all-l10n.js")
+    pisitools.remove("/usr/lib/MozillaThunderbird/defaults/pref/all-l10n.js")
 
     # Install icons
     pisitools.insinto("/usr/share/pixmaps", "other-licenses/branding/thunderbird/mailicon256.png", "thunderbird.png")
