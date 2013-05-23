@@ -29,6 +29,7 @@ pref("middlemouse.contentLoadURL", false);
 pref("spellchecker.dictionary", "tr-TR");
 pref("startup.homepage_override_url", "chrome://browserconfig.properties");
 pref("intl.locale.matchOS", true);
+pref("media.peerconnection.enabled", true);
 
 // Disable addon check UI, starting from release 8.0
 pref("dom.ipc.plugins.enabled.nswrapper*",  false);
