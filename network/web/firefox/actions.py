@@ -22,6 +22,13 @@ ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else 
 #locales = ["de", "es-AR", "es-ES", "fr", "hu", "it", "nl", "pl", "ru", "sv-SE", "tr"]
 
 def setup():
+    # LOCALE
+    shelltools.system("rm -rf langpack-ff/*/browser/defaults")
+    # replace browserconfig.properties
+    for locale in ["-".join(ls.split("@")[0].split("-")[1:]) for ls in shelltools.ls("langpack-ff")]:
+        print "Replacing browser.properties for %s locale" % locale
+        shelltools.copy("browserconfig.properties", "langpack-ff/langpack-%s@firefox.mozilla.org/browser/chrome/%s/locale/branding/" % (locale, locale))
+
     # Mozilla sticks on with autoconf-213
     shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
 
@@ -36,7 +43,7 @@ def setup():
     shelltools.makedirs(ObjDir)
     shelltools.cd(ObjDir)
 
-    shelltools.system("../configure --prefix=/usr --libdir=/usr/lib --disable-strip --disable-install-strip") 
+    shelltools.system("../configure --prefix=/usr --libdir=/usr/lib --disable-strip --disable-install-strip")
 
 def build():
     # FIXME: Change library path and version with variables
@@ -72,15 +79,15 @@ def install():
         #pisitools.remove("/usr/lib/MozillaFirefox/extensions/langpack-%s@firefox.mozilla.org/chrome/%s/locale/branding/browserconfig.properties" % (locale, locale))
         #pisitools.dosym("../../../../../../browserconfig.properties", "/usr/lib/MozillaFirefox/extensions/langpack-%s@firefox.mozilla.org/chrome/%s/locale/branding/browserconfig.properties" % (locale, locale))
 
+    # Install language packs
+    pisitools.insinto("/usr/lib/MozillaFirefox/browser/extensions", "./langpack-ff/*")
+
     pisitools.dodir("/usr/lib/MozillaFirefox/dictionaries")
     shelltools.touch("%s%s/dictionaries/tr-TR.aff" % (get.installDIR(), "/usr/lib/MozillaFirefox"))
     shelltools.touch("%s%s/dictionaries/tr-TR.dic" % (get.installDIR(), "/usr/lib/MozillaFirefox"))
-    
-    # Install fix language packs
-    pisitools.insinto("/usr/lib/MozillaFirefox/extensions", "./langpack-ff/*")
 
     # Create profile dir, we'll copy bookmarks.html in post-install script
-    pisitools.dodir("/usr/lib/MozillaFirefox/defaults/profile")
+    pisitools.dodir("/usr/lib/MozillaFirefox/browser/defaults/profile")
 
     # Install branding icon
     pisitools.insinto("/usr/share/pixmaps", "browser/branding/official/default256.png", "firefox.png")

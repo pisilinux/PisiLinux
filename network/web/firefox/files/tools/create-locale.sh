@@ -1,8 +1,8 @@
 #!/bin/bash
 
 CHANNEL="release"
-RELEASE_TAG="FIREFOX_16_0_RELEASE"
-VERSION="16.0"
+RELEASE_TAG="FIREFOX_21_0_RELEASE"
+VERSION="21.0"
 
 # These are Pisi Linux supported languages. This list may changed by time to time
 LOCALES="be ca de es-AR es-ES fr hu it nl pl ru sv-SE tr"
