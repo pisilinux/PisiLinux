@@ -17,9 +17,9 @@ def setup():
                          --enable-docbook-stylesheet')
 
 def build():
-    autotools.make()
+    autotools.make("skipmanual=yes")
 
 def install():
-    autotools.install()
+    autotools.install("nopycompile=YES skipmanual=yes install")
 
     pisitools.dodoc('README', 'FAQ', 'COPYING', 'ChangeLog', 'AUTHORS')
