@@ -12,6 +12,9 @@ from pisi.actionsapi import get
 
 WorkDir = "portmidi"
 
+shelltools.export("JAVAC","/opt/sun-jdk/bin/javac")
+shelltools.export("JAVA_HOME","/opt/sun-jdk")
+
 def setup():
     cmaketools.configure("-DCMAKE_SKIP_BUILD_RPATH=1 \
                           -DLIB_INSTALL_DIR=/usr/lib \
