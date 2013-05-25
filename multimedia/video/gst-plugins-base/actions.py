@@ -19,7 +19,7 @@ def setup():
                          --enable-gnome-vfs \
                          --enable-libvisual \
                          --enable-experimental \
-                         --enable-introspection=no \
+                         --enable-introspection=yes \
                          --with-package-name='PisiLinux gstreamer-plugins-base package' \
                          --with-package-origin='http://www.pisilinux.org'")
                          
