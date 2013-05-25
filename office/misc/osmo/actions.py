@@ -9,8 +9,7 @@ from pisi.actionsapi import pisitools
 
 
 def setup():
-    autotools.configure("--disable-dependency-tracking \
-                         --with-libsyncml")
+    autotools.configure("--disable-dependency-tracking")
 
 def build():
     autotools.make()
