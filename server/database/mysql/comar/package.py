@@ -2,8 +2,10 @@
 
 import os
 import time
+import subprocess
 
 PIDFILE = "/run/mysqld/mysqld.pid"
+SOCKFILE = "/run/mysqld/mysqld.sock"
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     os.system("/bin/chown -R mysql:mysql /var/lib/mysql")
@@ -17,19 +19,25 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     os.system("/bin/chmod -R 0755 /run/mysqld")
 
     # On first install...
-    if not os.access("/var/lib/mysql/mysql", os.F_OK):
-        os.system("/usr/bin/mysql_install_db --datadir=/var/lib/mysql --basedir=/usr --user=mysql")
+    if not os.path.exists("/var/lib/mysql/mysql"):
+        # Create the database
+        subprocess.call(['/usr/bin/mysql_install_db', '--datadir=/var/lib/mysql', '--user=mysql'])
+
+        # First start.
+        subprocess.call(['/usr/sbin/mysqld', '--user=mysql', '--skip-grant-tables', '--basedir=/usr', '--datadir=/var/lib/mysql', '--skip-innodb', '--max_allowed_packet=8M', '--net_buffer_length=16K', '--socket=%s' % SOCKFILE, '--pidfile=%s' % PIDFILE])
+	
+	#os.system("/usr/bin/mysql_install_db --datadir=/var/lib/mysql --basedir=/usr --user=mysql")
 
         # Run MySQL
-        os.system("/usr/sbin/mysqld --user=mysql \
-                                    --skip-grant-tables \
-                                    --basedir=/usr \
-                                    --datadir=/var/lib/mysql \
-                                    --skip-innodb \
-                                    --max_allowed_packet=8M \
-                                    --net_buffer_length=16K \
-                                    --socket=/run/mysqld/mysqld.sock \
-                                    --pid-file=/run/mysqld/mysqld.pid &")
+        #os.system("/usr/sbin/mysqld --user=mysql \
+        #                            --skip-grant-tables \
+        #                            --basedir=/usr \
+        #                            --datadir=/var/lib/mysql \
+        #                            --skip-innodb \
+        #                            --max_allowed_packet=8M \
+        #                            --net_buffer_length=16K \
+        #                            --socket=/run/mysqld/mysqld.sock \
+        #                            --pid-file=/run/mysqld/mysqld.pid &")
 
 
         # Sleep for a while
