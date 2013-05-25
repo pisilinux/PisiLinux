@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-fi")
-    autotools.configure()
+    autotools.configure("--with-moc=/usr/bin/moc --disable-static --prefix=/usr")
 
 def build():
     autotools.make()
