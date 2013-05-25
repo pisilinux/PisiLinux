@@ -57,7 +57,7 @@ def setup():
                          --disable-debug" % conf)
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
     autotools.rawInstall('prefix=%(installdir)s/usr \
