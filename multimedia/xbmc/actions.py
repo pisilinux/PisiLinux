@@ -35,3 +35,5 @@ def install():
     autotools.install()
     pisitools.doman("docs/manpages/*")
     pisitools.dodoc("README","*.txt","LICENSE.GPL")
+    
+    pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
