@@ -12,7 +12,7 @@ from pisi.actionsapi import libtools
 def setup():
     libtools.libtoolize("--copy --force")
 
-    autotools.configure("--man-prefix=/usr/share/man")
+    autotools.configure("--man-prefix=/usr/share/man --extra-libs=dl")
 
 def build():
     autotools.make()
