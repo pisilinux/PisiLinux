@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-WorkDir="gluon-gluon"
 shelltools.export("HOME", get.workDIR())
 
 def setup():
