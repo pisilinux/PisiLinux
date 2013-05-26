@@ -8,15 +8,11 @@ import fnmatch
 def updateData(filepath):
     parse = piksemel.parse(filepath)
 
-    iconFound = False
-
     for icon in parse.tags("File"):
         path = icon.getTagData("Path")
-        if path.startswith("usr/share/icons/hicolor") and not iconFound:
+        if path.startswith("usr/share/icons/hicolor"):
             os.system("/usr/bin/gtk-update-icon-cache -f /usr/share/icons/hicolor")
-            iconFound = True
-            if immoduleFound:
-                return
+            break
 
 def setupPackage(metapath, filepath):
     updateData(filepath)
