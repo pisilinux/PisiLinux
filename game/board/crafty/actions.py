@@ -11,12 +11,7 @@ from pisi.actionsapi import get
 arch = get.ARCH()
 
 def setup():
-    pisitools.dosed("option.c", "\"crafty.hlp\"", "\"/usr/share/crafty/crafty.hlp\"")
     pisitools.dosed("Makefile", "-lpthread", "-pthread")
-    pisitools.dosed("Makefile", "\-pg -Wwrite-strings -Wcast-qual -Wshadow", "%s" % get.CFLAGS())
-    pisitools.dosed("Makefile", "\-Wconversion -W -Wall -ansi -pedantic -pipe", "")
-    pisitools.dosed("Makefile", "CXFLAGS=''", "CXXFLAGS='%s'" % get.CXXFLAGS())
-    pisitools.dosed("Makefile", "\$\(opt\) -DTRACE -DINLINE64 -DCPUS=2", "$(opt) -DTRACE -DINLINE64 -DCPUS=8")
     pisitools.dosed("Makefile", "CC=gcc CXX=g\+\+", "CC=%s CXX=%s" % (get.CC(), get.CXX()))
     if arch == "i686":
         pisitools.dosed("Makefile", "-DINLINE64", "-DINLINE32")
