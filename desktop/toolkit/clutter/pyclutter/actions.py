@@ -9,15 +9,19 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-
 def setup():
     # for underlinking
     pisitools.dosed("clutter/Makefile.am", "pardusPythonVersion", get.curPYTHON())
-    autotools.autoreconf("-fi")
-    autotools.configure()
+    autotools.autoreconf("-i")
+    shelltools.system("PYTHON=/usr/bin/python2.7")
+    shelltools.export("CXXFLAGS", "%s -I/usr/include/clutter-1.0" % get.CXXFLAGS())
+    #shelltools.export("CPPFLAGS", "%s -I/usr/include/clutter-1.0" % get.CPPFLAGS())
+    shelltools.export("CXXFLAGS", "%s -I/usr/include/json-glib-1.0" % get.CXXFLAGS())
+    #shelltools.export("CPPFLAGS", "%s -I/usr/include/json-glib-1.0" % get.CPPFLAGS())
+    autotools.configure("--enable-docs")
 
 def build():
-    autotools.make()
+    autotools.make("-j1")
 
 def install():
     autotools.rawInstall('DESTDIR=%s INSTALL="install -p"' % get.installDIR())
