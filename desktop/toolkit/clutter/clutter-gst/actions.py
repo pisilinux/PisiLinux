@@ -9,13 +9,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-##WorkDir = "clutter-gst"
+shelltools.export("HOME", get.workDIR())
 
 def setup():
     # guess we should update to new autoconf
     shelltools.system("gtkdocize")
     autotools.autoreconf("-fi")
-    autotools.configure()
+    autotools.configure("--disable-static --enable-introspection")
 
 def build():
     autotools.make()
