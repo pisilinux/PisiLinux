@@ -36,5 +36,5 @@ def install():
     pisitools.dodir("/etc/ppp/peers")
 
     pisitools.dodoc("Changes*", "README*", "FAQ")
-    
+
     pisitools.removeDir("var")
