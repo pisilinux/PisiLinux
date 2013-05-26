@@ -23,5 +23,5 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dohtml("doc/gnugo/*.html")
+    pisitools.dohtml("doc/gnugo*.html")
     pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "TODO", "THANKS", "README")
