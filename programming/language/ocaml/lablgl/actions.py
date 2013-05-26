@@ -9,14 +9,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir="lablGL-%s" % get.srcVERSION()
 Base = "%s/usr/lib/ocaml" % get.installDIR()
 
 def setup():
     shelltools.system('echo "COPTS= -c -O %s" >> Makefile.config' % get.CFLAGS())
 
 def build():
-    autotools.make("-j1 all opt")
+    autotools.make("-j1 lib")
 
 def install():
     shelltools.makedirs("%s/usr/bin" % get.installDIR())
