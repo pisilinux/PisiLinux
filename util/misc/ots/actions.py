@@ -10,11 +10,15 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-WorkDir = "ots-0.5.0"
-
 def setup():
     shelltools.touch("gtk-doc.make")
-    autotools.configure('--disable-static')
+    shelltools.system('sed -i -e "s/en.xml$//" dic/Makefile.am')
+
+    autotools.autoreconf("-vif")
+    libtools.libtoolize("--force")
+
+    autotools.configure('--prefix=/usr \
+                         --disable-static')
 
 def build():
     autotools.make("-j1")
