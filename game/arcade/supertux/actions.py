@@ -12,6 +12,7 @@ from pisi.actionsapi import get
 def setup():
     shelltools.export("CFLAGS", "%s -I/usr/include/squirrel" % get.CFLAGS())
     shelltools.export("CXXFLAGS", "%s -I/usr/include/squirrel" % get.CXXFLAGS())
+    pisitools.dosed("src/addon/addon_manager.cpp", "#  include <curl/types.h>", "")
     shelltools.makedirs("build")
     shelltools.cd("build")
     cmaketools.configure("-DINSTALL_SUBDIR_SHARE=share/supertux2 -DINSTALL_SUBDIR_BIN=bin", sourceDir="..")
