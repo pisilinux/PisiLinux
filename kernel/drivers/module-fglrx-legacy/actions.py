@@ -41,6 +41,10 @@ def setup():
     shelltools.system("patch -p1 < do_mmap.patch")
     shelltools.system("patch -p1 < desktop-files.patch")
     shelltools.system("patch -p1 < ati-powermode.patch")
+    shelltools.system("patch -p1 < fix-build-kernel-3.8.patch")
+
+    pisitools.dosed("./", "linux/version.h", "generated/uapi/linux/version.h", namePattern = ".*\.(c|h|sh)$")
+    pisitools.dosed("common/lib/modules/fglrx/build_mod/firegl_public.c", "(#define __AGP__BUILTIN__)", r"\1\n#ifndef VM_RESERVED\n#define VM_RESERVED (VM_DONTEXPAND | VM_DONTDUMP)\n#endif")
 
 def build():
     if get.buildTYPE() == "emul32":
