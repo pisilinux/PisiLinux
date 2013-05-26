@@ -29,3 +29,10 @@ def install():
     kde4.install("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("COPYING*", "README", "doc/status.txt")
+    
+    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaDarker.colors")
+    pisitools.remove("/usr/share/kde4/apps/color-schemes/Krita50.colors")
+    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBlender.colors")
+    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBrighter.colors")
+    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBright.colors")
+    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaDark.colors")
