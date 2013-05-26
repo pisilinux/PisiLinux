@@ -104,10 +104,5 @@ def install():
     for icon in ("128x128", "48x48", "32x32", "16x16"):
          pisitools.insinto("/usr/share/icons/hicolor/%s/apps/" % icon, "share/icons/%s/vlc*.png" % icon)
 
-    # Fix Firefox plugin location
-    # pisitools.domove("/usr/lib/mozilla/plugins/*", "/usr/lib/browser-plugins")
-    # pisitools.remove("/usr/lib/browser-plugins/*.la")
-    # pisitools.removeDir("/usr/lib/mozilla/")
-
     pisitools.dodoc("AUTHORS", "THANKS", "NEWS", "README", "COPYING")
 
