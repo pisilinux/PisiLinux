@@ -10,10 +10,10 @@ from pisi.actionsapi import pisitools
 
 def setup():
     autotools.configure()
-    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
+    #pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
-    autotools.make()
+    autotools.make("-j1")
 
 def install():
     autotools.install()
