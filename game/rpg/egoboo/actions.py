@@ -14,6 +14,7 @@ WorkDir = "egoboo-%s" % get.srcVERSION()
 data = "/usr/share/egoboo"
 
 def setup():
+    shelltools.export("LDFLAGS", "%s -lm" % get.LDFLAGS())
     pisitools.dosed("src/game/Makefile", "-Os", get.CFLAGS())
     pisitools.dosed("src/game/Makefile", "= gcc", get.CC())
     #for f in docs:
