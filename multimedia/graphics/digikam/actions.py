@@ -14,6 +14,7 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     kde4.configure("-DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_SKIP_RPATH=ON \
+                    -DENABLE_LCMS2=ON \
                     -DDIGIKAMSC_USE_PRIVATE_KDEGRAPHICS=OFF")
 
 def build():
@@ -23,5 +24,5 @@ def install():
     kde4.install()
 
     pisitools.dodoc("NEWS", "README")
-    
-    pisitools.remove("/usr/share/locale/*/LC_MESSAGES/libkipi.mo")    
+
+    pisitools.remove("/usr/share/locale/*/LC_MESSAGES/libkipi.mo")
