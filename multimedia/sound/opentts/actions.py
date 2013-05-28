@@ -30,5 +30,7 @@ def install():
     # Remove redundant conf files
     pisitools.removeDir("/usr/share/opentts")
 
-    pisitools.dodoc("AUTHORS", "COPYING", "README")
-
+    pisitools.dodoc("AUTHORS", "COPYING", "README")   
+    
+    pisitools.remove("/usr/lib/libdumbtts.so")
+    pisitools.remove("/usr/lib/libdumbtts.so.0")
