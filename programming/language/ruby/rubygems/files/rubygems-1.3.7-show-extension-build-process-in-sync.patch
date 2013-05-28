@@ -1,0 +1,93 @@
+--- rubygems-1.3.7/lib/rubygems/ext/builder.rb.debug	2010-10-08 02:18:49.000000000 +0900
++++ rubygems-1.3.7/lib/rubygems/ext/builder.rb	2010-10-08 04:58:02.000000000 +0900
+@@ -11,6 +11,52 @@
+     $1.downcase
+   end
+ 
++  def self.get_status_of_forked_command(command, results)
++    iopipe_r, iopipe_w = IO.pipe
++
++    child_pid = fork{
++      # Child
++      $stdin.close
++      iopipe_r.close
++      $stdout.reopen(iopipe_w)
++      #  redirect
++      $stderr.reopen(iopipe_w)
++
++      puts "#{command}"
++      exec "#{command}"
++
++      puts "Executing #{command} failed."
++      exit 127
++    }
++
++    iopipe_w.close
++    output = ""
++    read_size = 0
++
++    if (child_pid < 0) then
++      raise Gem::InstallError, "Forking process of #{command} failed\n"
++    end
++
++    iopipe_r.each{|line|
++      output += line
++      if Gem.configuration.really_verbose then
++        puts "#{line}" if Gem.configuration.really_verbose
++      else
++        read_size += line.size
++        if read_size >= 128 then
++          print "."
++          $stdout.flush
++          read_size -= 128
++        end
++      end
++    }
++    results << output
++    print "\n" if not Gem.configuration.really_verbose
++
++    child_pid, status = Process.waitpid2(child_pid)
++    return status
++  end
++
+   def self.make(dest_path, results)
+     unless File.exist? 'Makefile' then
+       raise Gem::InstallError, "Makefile not found:\n\n#{results.join "\n"}" 
+@@ -29,11 +75,10 @@
+ 
+     ['', ' install'].each do |target|
+       cmd = "#{make_program}#{target}"
+-      results << cmd
+-      results << `#{cmd} #{redirector}`
++      status = self.get_status_of_forked_command(cmd, results)
+ 
+       raise Gem::InstallError, "make#{target} failed:\n\n#{results}" unless
+-        $?.success?
++        status.success?
+     end
+   end
+ 
+@@ -42,10 +87,8 @@
+   end
+ 
+   def self.run(command, results)
+-    results << command
+-    results << `#{command} #{redirector}`
+-
+-    unless $?.success? then
++    status = self.get_status_of_forked_command(command, results)
++    unless status.success? then
+       raise Gem::InstallError, "#{class_name} failed:\n\n#{results.join "\n"}"
+     end
+   end
+--- rubygems-1.3.7/lib/rubygems/installer.rb.debug	2010-10-08 02:18:49.000000000 +0900
++++ rubygems-1.3.7/lib/rubygems/installer.rb	2010-10-08 04:58:11.000000000 +0900
+@@ -464,8 +464,6 @@
+         Dir.chdir File.join(@gem_dir, File.dirname(extension))
+         results = builder.build(extension, @gem_dir, dest_path, results)
+ 
+-        say results.join("\n") if Gem.configuration.really_verbose
+-
+       rescue => ex
+         results = results.join "\n"
+ 
