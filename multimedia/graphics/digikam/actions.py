@@ -15,6 +15,7 @@ def setup():
     kde4.configure("-DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_SKIP_RPATH=ON \
                     -DENABLE_LCMS2=ON \
+                    -DImageMagick_MagickCore_LIBRARY=/usr/lib/libMagickCore-6.Q16HDRI.so \
                     -DDIGIKAMSC_USE_PRIVATE_KDEGRAPHICS=OFF")
 
 def build():
