@@ -10,12 +10,15 @@ from pisi.actionsapi import pisitools
 def setup():
     #autotools.autoreconf("-vif")
     autotools.configure("--enable-static=no \
-			 --enable-introspection=yes")
+                         --enable-introspection=yes")
 
 def build():
     autotools.make()
 
 def install():
     autotools.install()
+    
+    pisitools.domove("/usr/share/gtk-doc/html/gtkextra/*", "/usr/share/gtk-doc/html/gtkextra3")
+    pisitools.removeDir("/usr/share/gtk-doc/html/gtkextra/")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "README")
