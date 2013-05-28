@@ -8,8 +8,6 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "slimevolley"
-
 def setup():
     cmaketools.configure("-DCMAKE_VERBOSE_MAKEFILE=TRUE \
                           -DNO_NET=1")
