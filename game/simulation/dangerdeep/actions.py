@@ -27,4 +27,3 @@ def install():
     pisitools.insinto("/usr/share/pixmaps", "dftd_icon.png", "dangerdeep.png")
     #pisitools.doman("doc/man/dangerdeep.6")
     pisitools.dodoc("README", "CREDITS", "ChangeLog", "LICENSE")
-
