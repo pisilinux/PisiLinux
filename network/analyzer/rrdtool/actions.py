@@ -12,6 +12,7 @@ from pisi.actionsapi import get
 
 
 def setup():
+    pisitools.dosed("bindings/ruby/main.c", "(ruby\.h)", r"ruby-2.0.0/\1")
     shelltools.export("AUTOPOINT", "/bin/true")
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-silent-rules \
