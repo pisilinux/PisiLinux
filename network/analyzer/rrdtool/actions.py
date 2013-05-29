@@ -13,7 +13,6 @@ from pisi.actionsapi import get
 
 def setup():
     shelltools.export("AUTOPOINT", "/bin/true")
-    pisitools.dosed("bindings/Makefile.in", "(\$\(RUBY\)\sextconf\.rb)", r"\1 --vendor")
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-silent-rules \
                          --disable-static \
