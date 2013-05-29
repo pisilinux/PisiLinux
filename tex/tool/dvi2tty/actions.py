@@ -14,4 +14,7 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
+    #Remove man page conflicts (texlive-bin)
+    pisitools.remove("/usr/share/man/man1/disdvi.1")
+
     pisitools.dodoc("COPYING", "README", "Changelog")
