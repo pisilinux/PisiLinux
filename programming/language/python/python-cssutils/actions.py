@@ -25,3 +25,5 @@ def install():
 
     pisitools.dodoc("COPYING*", "PKG-INFO", "README.txt")
     #pisitools.dohtml("docs/html/*")
+    
+    pisitools.remove("/usr/lib/python2.7/site-packages/tests/__init__.py")
