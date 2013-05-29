@@ -11,3 +11,5 @@ from pisi.actionsapi import get
 def install():
     pythonmodules.install()
     pisitools.insinto("%s/%s" % (get.docDIR(), get.srcNAME()), "docs/*")
+    
+    pisitools.removeDir("/usr/lib/python2.7/site-packages/tests")
