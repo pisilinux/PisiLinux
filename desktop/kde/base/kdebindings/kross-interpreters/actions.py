@@ -29,8 +29,8 @@ def setup():
     kde4.configure("-DBUILD_csharp=OFF \
                     -DENABLE_KROSSFALCON=OFF \
                     -DENABLE_PHP-QT=ON \
-                    -DRUBY_SITE_LIB_DIR=/usr/lib/ruby/site_ruby/1.8 \
-                    -DRUBY_SITE_ARCH_DIR=/usr/lib/ruby/site_ruby/1.8/i686-linux")
+                    -DRUBY_SITE_LIB_DIR=/usr/lib/ruby/site_ruby/2.0.0 \
+                    -DRUBY_SITE_ARCH_DIR=/usr/lib/ruby/site_ruby/2.0.0/x86_64-linux")
 
 def build():
     kde4.make()
