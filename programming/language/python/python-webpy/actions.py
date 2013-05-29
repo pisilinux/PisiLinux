@@ -6,13 +6,11 @@
 
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
-
-WorkDir = "web.py-%s" % get.srcVERSION()
 
 def build():
     pythonmodules.compile()
 
 def install():
     pythonmodules.install()
-
+    
+    pisitools.rename("/usr/lib/python2.7/site-packages/web/__init__.py", "___init___.py")
