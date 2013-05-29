@@ -12,9 +12,8 @@ from pisi.actionsapi import get
 
 
 def setup():
-    pisitools.dosed("bindings/Makefile.am", '(rubyhdrdir="\$\(includedir\))', r'\1/ruby-2.0.0')
     shelltools.export("AUTOPOINT", "/bin/true")
-    autotools.autoreconf("-vfi")
+#    autotools.autoreconf("-vfi")
     autotools.configure("--disable-silent-rules \
                          --disable-static \
                          --disable-rpath \
@@ -25,9 +24,9 @@ def setup():
                          --enable-python \
                          --with-rrd-default-font=/usr/share/fonts/dejavu/DejaVuSansMono.ttf \
                          --with-perl-options='installdirs=vendor destdir=%(DESTDIR)s' \
-                         --with-ruby-options='sitedir=%(DESTDIR)s/usr/lib/ruby' \
+                        --with-ruby-options='sitedir=%(DESTDIR)s/usr/lib/ruby' \
                          " % {"DESTDIR": get.installDIR()})
-
+ 
     pisitools.dosed("Makefile", "^RRDDOCDIR.*$", "RRDDOCDIR=${datadir}/doc/${PACKAGE}")
     pisitools.dosed("doc/Makefile", "^RRDDOCDIR.*$", "RRDDOCDIR=${datadir}/doc/${PACKAGE}")
     pisitools.dosed("bindings/Makefile", "^RRDDOCDIR.*$", "RRDDOCDIR=${datadir}/doc/${PACKAGE}")
@@ -37,7 +36,7 @@ def build():
     autotools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    autotools.rawInstall("DESTDIR=%s includedir=/usr/include" % get.installDIR())
 
     # remove unnecessary files
     perlmodules.removePacklist()
