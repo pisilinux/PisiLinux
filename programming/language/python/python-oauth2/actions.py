@@ -13,4 +13,5 @@ def build():
 
 def install():
     pythonmodules.install()
-
+    
+    pisitools.removeDir("/usr/lib/python2.7/site-packages/tests")
