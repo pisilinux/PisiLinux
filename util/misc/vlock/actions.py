@@ -20,6 +20,10 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    
+    # fix conficts package kbd
+    pisitools.rename("/usr/bin/vlock", "vlock.sh")
+    pisitools.rename("/usr/share/man/man1/vlock.1","vlock.sh.1")
+    
     pisitools.dodoc("ChangeLog", "COPYING", "PLUGINS", "README*", "SECURITY", "STYLE", "TODO")
 
