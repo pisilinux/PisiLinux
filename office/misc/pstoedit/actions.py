@@ -10,7 +10,6 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.dosed("configure.ac", "-pedantic ", "")
-    pisitools.dosed("configure.ac", "CXXFLAGS=\"-g\"", "")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
                          --with-emf \
