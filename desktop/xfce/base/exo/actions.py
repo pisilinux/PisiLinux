@@ -10,7 +10,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-#    shelltools.system('NOCONFIGURE=1 xdt-autogen')
     autotools.configure("--sysconfdir=/etc \
                          --libexecdir=/usr/lib/xfce4 \
                          --localstatedir=/var \
