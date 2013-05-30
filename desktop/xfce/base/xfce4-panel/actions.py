@@ -21,7 +21,4 @@ def install():
 
     pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
 
-    # Panel config files are already in pardus-default-settings-xfce.
-    #pisitools.removeDir("/etc")
-
     pisitools.dodoc("AUTHORS", "COPYING", "ChangeLog", "NEWS", "README", "TODO")
