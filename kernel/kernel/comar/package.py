@@ -12,21 +12,20 @@ def write_file(path, content):
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     gcf = "/boot/grub2/grub.cfg"
-    cfg = read_file(gcf)
+    if not os.path.isfile(gcf): return
+
     ogp = []
-    if os.path.isfile(gcf):
-        for line in cfg.split("\n"):
-            if line.startswith("\tlinux"):
-                ogp = line.split(" ro ")[1].split()
-                break
+    for line in read_file(gcf).split("\n"):
+        if line.startswith("\tlinux"):
+            ogp = line.split(" ro ")[1].split()
+            break
 
     gdf = "/etc/default/grub"
-    gdc = read_file(gdf)
     new = []
     gcl = []
     gcld = []
     if os.path.isfile(gdf):
-        for line in gdc.split("\n"):
+        for line in read_file(gdf).split("\n"):
             if line.startswith("GRUB_CMDLINE_LINUX_DEFAULT"): gcld = line.split("DEFAULT=")[1][1:-1].split()
             elif "GRUB_CMDLINE_LINUX=" in line:
                 gcl = line.split("LINUX=")[1][1:-1].split()
