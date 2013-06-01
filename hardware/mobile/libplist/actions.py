@@ -9,7 +9,14 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure("-DCMAKE_SKIP_RPATH=ON")
+    cmaketools.configure("-DCMAKE_SKIP_RPATH=ON \
+                          -DCMAKE_INSTALL_PREFIX=/usr \
+                          -DCMAKE_INSTALL_LIBDIR=/usr/lib \
+                          -DCMAKE_VERBOSE_MAKEFILE=TRUE \
+                          -DPYTHON_VERSION=2.7 \
+                          -DPYTHON_LIBRARY=/usr/lib/python2.7 \
+                          -DENABLE_SWIG=OFF \
+                          -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 ")
 
 def build():
     cmaketools.make()
