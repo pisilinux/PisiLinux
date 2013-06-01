@@ -24,7 +24,7 @@ def setup():
                          --with-dbus-service-dir=/usr/share/dbus-1/services")
 
 def build():
-    autotools.make()
+    autotools.make("-j1")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
