@@ -17,8 +17,8 @@ def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-dependency-tracking \
                          --with-gio \
-                         --enable-gtk3=no \
-                         --enable-nautilus=no \
+                         --disable-nautilus \
+                         --disable-gtk3
                          --with-libgpod \
                          --with-libnotify \
                          --with-libmusicbrainz3 \
