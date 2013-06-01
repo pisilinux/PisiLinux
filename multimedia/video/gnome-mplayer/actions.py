@@ -18,7 +18,7 @@ def setup():
     autotools.configure("--disable-dependency-tracking \
                          --with-gio \
                          --disable-nautilus \
-                         --disable-gtk3
+                         --disable-gtk3 \
                          --with-libgpod \
                          --with-libnotify \
                          --with-libmusicbrainz3 \
