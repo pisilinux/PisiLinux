@@ -10,4 +10,4 @@ from pisi.actionsapi import pisitools
 def install():
     pythonmodules.install()
 
-    pisitools.dodoc("ChangeLog", "README")
+    pisitools.dodoc("ChangeLog")
