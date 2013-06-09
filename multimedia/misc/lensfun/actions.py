@@ -15,7 +15,9 @@ def setup():
 
     autotools.rawConfigure("--prefix=/%s --mode=release --staticlibs=NO --target=..generic --vectorization=" % get.defaultprefixDIR())
     pisitools.dosed("config.mak", "CONF_DOCDIR=.*", "CONF_DOCDIR=/usr/share/doc/lensfun/")
+    
+def build():
+    autotools.make()
 
 def install():
     autotools.install("INSTALL_PREFIX=%s V=1" % get.installDIR())
-
