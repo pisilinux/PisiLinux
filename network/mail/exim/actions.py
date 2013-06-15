@@ -10,6 +10,8 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 import subprocess
 
+shelltools.export("HOME", "%s" % get.workDIR())
+
 def setup():
     shutil.copy("/var/pisi/exim-4.80.1-1/work/exim-4.80.1/src/EDITME","/var/pisi/exim-4.80.1-1/work/exim-4.80.1/Local/Makefile")
     shutil.copy("/var/pisi/exim-4.80.1-1/work/exim-4.80.1/exim_monitor/EDITME","/var/pisi/exim-4.80.1-1/work/exim-4.80.1/Local/eximon.conf")   
