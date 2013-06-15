@@ -24,5 +24,6 @@ def build():
 
 def install():
     autotools.install()
-    shelltools.move("install/*", "%s/" % get.installDIR()) 
+    shelltools.move("install/*", "%s/" % get.installDIR())
+    pisitools.domove("/axelrc", "/etc")
     shelltools.makedirs("%s/etc" % get.installDIR()) 
