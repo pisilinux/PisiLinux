@@ -9,13 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-
 shelltools.export("HOME", "%s" % get.workDIR())
-# WorkDir = ""
-# NoStrip = "/"
 
 def setup():
-    #autotools.autoreconf("-fiv")
     autotools.configure("\
                          --enable-egl-backend \
                          --enable-evdev-input \
