@@ -15,6 +15,7 @@ def setup():
                           -DCMAKE_BUILD_TYPE=Release \
                           -DENABLE_POLICYKIT=ON \
                           -DBUNDLE_XDG_UTILS=NO \
+                          -DLIB_SUFFIX=/usr/lib \
                           -DSYSCONF_INSTALL_DIR=/etc \
                           -DCMAKE_SKIP_RPATH=ON")
 
