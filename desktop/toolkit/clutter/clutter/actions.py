@@ -15,12 +15,14 @@ shelltools.export("HOME", "%s" % get.workDIR())
 # NoStrip = "/"
 
 def setup():
-    autotools.autoreconf("-fiv")
-    autotools.configure("--prefix=/usr \
-                         --with-json=system \
+    #autotools.autoreconf("-fiv")
+    autotools.configure("\
+                         --enable-egl-backend \
+                         --enable-evdev-input \
                          --enable-introspection \
                          --disable-static \
-                         --enable-shared ")
+                         --enable-shared \
+                        ")
 
 def build():
     autotools.make()
