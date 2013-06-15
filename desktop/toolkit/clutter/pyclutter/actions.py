@@ -18,6 +18,7 @@ def setup():
     #shelltools.export("CPPFLAGS", "%s -I/usr/include/clutter-1.0" % get.CPPFLAGS())
     shelltools.export("CXXFLAGS", "%s -I/usr/include/json-glib-1.0" % get.CXXFLAGS())
     #shelltools.export("CPPFLAGS", "%s -I/usr/include/json-glib-1.0" % get.CPPFLAGS())
+    pisitools.dosed("clutter/pyclutter.h", r"#include <cogl/cogl-pango.h>", r"#include <cogl-pango/cogl-pango.h>\n#include <GL/gl.h>")
     autotools.configure("--enable-docs")
 
 def build():
