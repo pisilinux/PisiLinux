@@ -9,10 +9,8 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-WorkDir='hedgewars-src-%s' % get.srcVERSION()
-
 def setup():
-    cmaketools.configure()
+    cmaketools.configure("-DNOSERVER=1")
 
 def build():
     cmaketools.make()
