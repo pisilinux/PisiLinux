@@ -28,14 +28,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s MKDIR_P='mkdir -p'" % get.installDIR())
-    #pisitools.insinto("/usr/bin/", "src/celestia/celestia")
-    #pisitools.insinto("/usr/bin/", "src/celestia/kde/data/celestia.desktop")
-    #pisitools.insinto("/usr/bin/", "src/celestia/celestia")
-    #pisitools.insinto("/usr/bin/", "src/celestia/celestia")
-    #pisitools.insinto("/usr/bin/", "src/celestia/celestia")
-    #pisitools.insinto("/usr/bin/", "src/celestia/celestia")
-    #pisitools.insinto("/usr/bin/", "src/celestia/celestia")
-    #pisitools.insinto("/usr/bin/", "src/celestia/celestia")
     
-    pisitools.dodoc("ABOUT-NLS", "AUTHORS", "COPYING", "README", "TRANSLATORS", "locale/COPYING_*")  
-    
+    pisitools.dodoc("ABOUT-NLS", "AUTHORS", "COPYING", "README", "TRANSLATORS", "locale/COPYING_*")
