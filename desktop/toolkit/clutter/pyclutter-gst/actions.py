@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "pyclutter-gst"
-
 def setup():
     # for underlinking
     pisitools.dosed("clutter-gst/Makefile.am", "pardusPythonVersion", get.curPYTHON())
