@@ -9,6 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
+    pisitools.dosed("Makefile", "/share/doc/fotoxx", "/share/doc/$(PF)")
+    pisitools.dosed("Makefile", "xdg-desktop-menu", "#xdg-desktop-menu")
     autotools.make('PREFIX="/usr" \
                     CXXFLAGS="%s" \
                     LDFLAGS="%s"' % (get.CXXFLAGS(), get.LDFLAGS()))
