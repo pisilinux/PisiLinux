@@ -13,9 +13,17 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.autoreconf("-fiv")
-    autotools.configure("--disable-static \
+    autotools.configure("\
+                         --disable-static \
                          --with-pic \
-                         --enable-introspection=yes")
+                         --enable-introspection=yes \
+                         --enable-cairo=yes \
+                         --enable-gdk-pixbuf=yes \
+                         --enable-cogl-pango=yes \
+                         --enable-glx=yes \
+                         --enable-gles1=yes \
+                         --enable-gles2=yes \
+                        ")
 
 def build():
     autotools.make()
