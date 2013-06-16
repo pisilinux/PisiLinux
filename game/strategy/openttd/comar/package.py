@@ -20,9 +20,9 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                 elif line.startswith('mono_font'):
                     print("%s= Dejavu Sans Mono" % line.split('=')[0])
                 elif line.startswith('small_size') or line.startswith('mono_size'):
-                    print("%s= 10" % line.split('=')[0])
-                elif line.startswith('medium_size'):
                     print("%s= 12" % line.split('=')[0])
+                elif line.startswith('medium_size'):
+                    print("%s= 14" % line.split('=')[0])
                 elif line.startswith('large_size'):
                     print("%s= 16" % line.split('=')[0])
                 else: print line
