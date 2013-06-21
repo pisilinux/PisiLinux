@@ -16,11 +16,11 @@ def setup():
                          --enable-aiglx \
                          --enable-glx-tls \
                          --enable-composite \
+                         --enable-xcsecurity \
                          --enable-record \
                          --enable-dri \
                          --enable-dri2 \
                          --enable-config-udev \
-                         --disable-config-dbus \
                          --disable-config-hal \
                          --enable-xfree86-utils \
                          --enable-xorg \
@@ -28,6 +28,9 @@ def setup():
                          --enable-xvfb \
                          --disable-xnest \
                          --enable-kdrive \
+                         --enable-kdrive-evdev \
+                         --enable-kdrive-kbd \
+                         --enable-kdrive-mouse \
                          --enable-xephyr \
                          --disable-xfake \
                          --disable-xfbdev \

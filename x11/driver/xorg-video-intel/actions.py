@@ -8,7 +8,10 @@ from pisi.actionsapi import pisitools
 
 
 def setup():
-    autotools.configure("--enable-dri")
+    autotools.configure("\
+                         --disable-static \
+                         --enable-dri \
+                         ")
 
 def build():
     autotools.make()

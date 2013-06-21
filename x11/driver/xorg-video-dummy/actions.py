@@ -8,10 +8,8 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 
-WorkDir = "xf86-video-dummy-%s" % get.srcVERSION()
-
 def setup():
-    autotools.configure()
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()

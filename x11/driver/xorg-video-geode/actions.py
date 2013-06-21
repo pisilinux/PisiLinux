@@ -8,8 +8,11 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    #autotools.autoreconf("-vif")
-    autotools.configure()
+    autotools.autoreconf("-vif")
+    autotools.configure("\
+                         --disable-static \
+                         --enable-visibility\
+                        ")
 
 def build():
     autotools.make()

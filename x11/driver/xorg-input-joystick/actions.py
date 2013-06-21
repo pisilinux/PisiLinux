@@ -7,8 +7,6 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
-WorkDir = "xf86-input-joystick-%s" % get.srcVERSION()
-
 def setup():
     autotools.configure()
 

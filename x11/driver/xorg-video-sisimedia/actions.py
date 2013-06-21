@@ -7,15 +7,13 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-#WorkDir = "xf86-video-sis-%s" % get.srcVERSION()
-
 def setup():
     pisitools.dosed("src/Makefile.am", "sis_drv", "sisimedia_drv")
     pisitools.dosed("src/sis.h", '"sis"', '"sisimedia"')
     pisitools.dosed("src/sis_driver.c", "sisModuleData", "sisimediaModuleData")
 
     autotools.autoreconf("-vif")
-    autotools.configure()
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()

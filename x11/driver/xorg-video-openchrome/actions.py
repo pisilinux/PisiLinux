@@ -5,14 +5,17 @@
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
 from pisi.actionsapi import autotools
-from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
-
-WorkDir = "xf86-video-openchrome-%s" % get.srcVERSION()
 
 def setup():
     autotools.autoreconf("-vif")
-    autotools.configure("--enable-dri")
+    autotools.configure("\
+                         --disable-static \
+                         --enable-dri \
+                         --enable-viaregtool \
+                         --enable-debug \
+                         --enable-xv-debug \
+                        ")
 
 def build():
     autotools.make()

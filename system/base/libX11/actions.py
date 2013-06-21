@@ -8,18 +8,16 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
+shelltools.export("HOME", get.workDIR())
+
 def setup():
-    autotools.configure("--disable-static \
-                         --disable-specs \
-                         --without-xmlto")
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    if get.buildTYPE() == "emul32":
-        pisitools.removeDir("/usr/lib32/X11")
-        return
+    if get.buildTYPE() == "emul32": return
 
     pisitools.dodoc("AUTHORS", "COPYING", "NEWS", "README")

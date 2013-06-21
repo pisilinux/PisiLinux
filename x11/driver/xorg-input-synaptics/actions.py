@@ -7,11 +7,12 @@ from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
-WorkDir = "xf86-input-synaptics-%s" % get.srcVERSION()
-
 def setup():
     autotools.autoreconf("-vif")
-    autotools.configure()
+    autotools.configure("\
+                         --disable-static \
+                         --disable-silent-rules \
+                        ")
 
 def build():
     autotools.make()

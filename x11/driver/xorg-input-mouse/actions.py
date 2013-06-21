@@ -8,10 +8,12 @@ from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
-WorkDir = "xf86-input-mouse-%s" % get.srcVERSION()
-
 def setup():
-    autotools.configure()
+    autotools.autoreconf("-fiv")
+    autotools.configure("\
+                         --disable-static \
+                         --disable-silent-rules \
+                        ")
 
 def build():
     autotools.make()

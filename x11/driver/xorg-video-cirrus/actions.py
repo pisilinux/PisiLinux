@@ -8,10 +8,9 @@ from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
-WorkDir = "xf86-video-cirrus-%s" % get.srcVERSION()
-
 def setup():
-    autotools.configure()
+    autotools.autoreconf("-fiv")
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()

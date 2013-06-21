@@ -8,10 +8,11 @@ from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
-WorkDir = "xf86-video-glint-%s" % get.srcVERSION()
-
 def setup():
-    autotools.configure()
+    autotools.configure("\
+                         --disable-static \
+                         --disable-dri \
+                        ")
 
 def build():
     autotools.make()
