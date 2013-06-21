@@ -9,11 +9,6 @@ from pisi.actionsapi import get
 
 NoStrip = ["/"]
 
-# Use dynamic skype in i686, static in x86_64
-WorkDir = "%s%s-%s" % (get.srcNAME(),
-                       "_static" if get.ARCH() == "x86_64" else "",
-                       get.srcVERSION())
-
 def install():
     for data in ["avatars","lang","sounds"]:
         pisitools.insinto("/usr/share/skype",data)
