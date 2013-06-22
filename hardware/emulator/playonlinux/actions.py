@@ -33,3 +33,5 @@ def install():
     shelltools.unlink("%s/usr/bin/playonlinux" % get.installDIR())
 
     shelltools.sym("%s/usr/share/playonlinux/playonlinux" % get.installDIR(), "%s/usr/bin/playonlinux" % get.installDIR() )
+    
+    pisitools.dosed("playonlinux", "python2.6 mainwindow.py", "python2.7 mainwindow.py")
