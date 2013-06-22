@@ -19,4 +19,5 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("COPY*", "README", "ChangeLog", "NEWS", "AUTHORS")
+    pisitools.removeDir("/usr/doc") 
 
