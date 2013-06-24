@@ -13,8 +13,6 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --enable-cli \
-                         --enable-gtk \
-                         --enable-libnotify \
                          --enable-daemon")
 
 
