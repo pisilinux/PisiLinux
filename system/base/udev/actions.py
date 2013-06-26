@@ -17,6 +17,7 @@ def setup():
     #shelltools.echo("docs/gtk-doc.make", "EXTRA_DIST=")
     autotools.autoreconf("-fi")
     libtools.libtoolize("--force")
+
     options = " ac_cv_header_sys_capability_h=yes \
                 --bindir=/sbin%s \
                 --sbindir=/sbin%s \
@@ -28,6 +29,7 @@ def setup():
                 --with-html-dir=/usr/share/doc/udev/html \
                 --with-rootlibdir=/lib%s \
                 --with-rootprefix= \
+                --without-python \
                 --disable-audit \
                 --disable-coredump \
                 --disable-hostnamed \
@@ -49,12 +51,16 @@ def setup():
                 --enable-static \
                 --enable-acl \
                 --enable-kmod \
-                --enable-introspection" % ((suffix, )*7)
-    options += " --disable-acl \
-                 --disable-qrencode \
-                 --disable-static \
-                 --disable-microhttpd \
-                 --without-python" if get.buildTYPE() == "emul32" else ""
+                --enable-keymap \
+                --enable-introspection \
+               " % ((suffix, )*7)
+
+    options += "--disable-acl \
+                --disable-qrencode \
+                --disable-static \
+                --disable-microhttpd \
+               " if get.buildTYPE() == "emul32" else ""
+
     autotools.configure(options)
 
 def build():
@@ -72,6 +78,10 @@ def build():
                 v4l_id \
                 accelerometer \
                 mtd_probe \
+                keymap \
+                libgudev-1.0.la"
+
+    targets += "\
                 man/sd_is_fifo.3 \
                 man/sd_notify.3 \
                 man/sd_listen_fds.3 \
@@ -79,8 +89,7 @@ def build():
                 man/udev.7 \
                 man/udevadm.8 \
                 man/systemd-udevd.8 \
-                keymap \
-                libgudev-1.0.la"
+               " if not get.buildTYPE() == "emul32" else ""
 
     autotools.make(targets)
 
@@ -92,7 +101,7 @@ def build():
 #~ 
 
 def install():
-    targets ="  install-libLTLIBRARIES \
+    targets = " install-libLTLIBRARIES \
                 install-includeHEADERS \
                 install-libgudev_includeHEADERS \
                 install-binPROGRAMS \
@@ -105,9 +114,6 @@ def install():
                 install-dist_udevkeymapforcerelDATA \
                 install-dist_udevrulesDATA \
                 install-girDATA \
-                install-man3 \
-                install-man7 \
-                install-man8 \
                 install-nodist_systemunitDATA \
                 install-pkgconfiglibDATA \
                 install-sharepkgconfigDATA \
@@ -120,6 +126,20 @@ def install():
                 bin_PROGRAMS='udevadm' \
                 lib_LTLIBRARIES='libsystemd-daemon.la libudev.la \
                                  libgudev-1.0.la' \
+                pkgconfiglib_DATA='src/libsystemd-daemon/libsystemd-daemon.pc src/libudev/libudev.pc \
+                                   src/gudev/gudev-1.0.pc' \
+                dist_systemunit_DATA='units/systemd-udevd-control.socket \
+                                      units/systemd-udevd-kernel.socket' \
+                nodist_systemunit_DATA='units/systemd-udevd.service \
+                                        units/systemd-udev-trigger.service \
+                                        units/systemd-udev-settle.service' \
+                pkginclude_HEADERS='src/systemd/sd-daemon.h' \
+              "
+
+    targets += "\
+                install-man3 \
+                install-man7 \
+                install-man8 \
                 MANPAGES='man/sd-daemon.3 man/sd_notify.3 man/sd_listen_fds.3 \
                           man/sd_is_fifo.3 man/sd_booted.3 man/udev.7 man/udevadm.8 \
                           man/systemd-udevd.service.8' \
@@ -128,14 +148,7 @@ def install():
                                 man/SD_LISTEN_FDS_START.3 man/SD_EMERG.3 man/SD_ALERT.3 \
                                 man/SD_CRIT.3 man/SD_ERR.3 man/SD_WARNING.3 man/SD_NOTICE.3 \
                                 man/SD_INFO.3 man/SD_DEBUG.3 man/systemd-udevd.8' \
-                pkgconfiglib_DATA='src/libsystemd-daemon/libsystemd-daemon.pc src/libudev/libudev.pc \
-                                   src/gudev/gudev-1.0.pc' \
-                dist_systemunit_DATA='units/systemd-udevd-control.socket \
-                                      units/systemd-udevd-kernel.socket' \
-                nodist_systemunit_DATA='units/systemd-udevd.service \
-                                        units/systemd-udev-trigger.service \
-                                        units/systemd-udev-settle.service' \
-                pkginclude_HEADERS='src/systemd/sd-daemon.h'"
+               " if not get.buildTYPE() == "emul32" else ""
 
     autotools.make("-j1 DESTDIR=%s%s %s" % (get.installDIR(), suffix, targets))
     if get.buildTYPE() == "emul32":
