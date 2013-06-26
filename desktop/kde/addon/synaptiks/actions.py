@@ -36,3 +36,4 @@ def install():
     pisitools.domo("po/it.po", "it", "synaptiks.mo")
     pisitools.domo("po/ru.po", "ru", "synaptiks.mo")
     pisitools.domo("po/uk.po", "uk", "synaptiks.mo")
+    pisitools.domo("po/po_synaptiks-tr.po", "tr", "synaptiks.mo")
