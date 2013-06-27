@@ -10,9 +10,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("DSOFLAGS", get.LDFLAGS())
-    shelltools.export("CFLAGS", "%s -DLDAP_DEPRECATED" % get.CFLAGS())
-    shelltools.export("LDFLAGS", "%s -lgcrypt" % get.LDFLAGS())
+#    shelltools.export("DSOFLAGS", get.LDFLAGS())
+#    shelltools.export("CFLAGS", "%s -DLDAP_DEPRECATED" % get.CFLAGS())
+#    shelltools.export("LDFLAGS", "%s -lgcrypt" % get.LDFLAGS())
 
     # pdftops from cups is currently overridden by our additional file
 
@@ -51,9 +51,6 @@ def setup():
                --with-systemdsystemunitdir=/lib/systemd/system' % get.CFLAGS()
 
     if get.buildTYPE() == "emul32":
-        shelltools.export("CC", "%s -m32" % get.CC())
-        shelltools.export("CXX", "%s -m32" % get.CXX())
-
         options += ' --disable-avahi \
                      --disable-gssapi \
                      --without-php \
@@ -64,7 +61,7 @@ def setup():
     autotools.configure(options)
 
 def build():
-    autotools.make("-j1 V=1")
+    autotools.make("V=1")
 
 #def check():
     #autotools.make("check")
@@ -76,7 +73,6 @@ def install():
         pisitools.removeDir("/usr/bin32")
         pisitools.removeDir("/usr/sbin32")
         pisitools.removeDir("/usr/serverbin32")
-        pisitools.removeDir("var/run")
         return
     else:
         autotools.rawInstall("BUILDROOT=%s" % get.installDIR())
