@@ -12,6 +12,7 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
+    pisitools.dosed("avahi-daemon/avahi-daemon.conf", "^#(disallow-other-stacks=)no", "\\1yes")
     autotools.autoreconf("-fi")
     # --with-systemdsystemunitdir=/lib/systemd/system
     autotools.configure("--with-distro=none \
