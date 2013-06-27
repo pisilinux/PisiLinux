@@ -11,13 +11,13 @@ from pisi.actionsapi import get
 
 def setup():
     # Remove local copies for system libs
-    for directory in ["expat", "freetype", "jasper", "jpeg", "lcms", "lcms2", "libpng", "openjpeg", "tiff", "zlib"]:
+    for directory in ["cups/libs", "expat", "freetype", "jpeg", "lcms", "lcms2", "libpng", "openjpeg", "tiff", "zlib"]:
         shelltools.unlinkDir(directory)
 
-    shelltools.export("CFLAGS", "%s -fno-strict-aliasing" % get.CFLAGS())
+    pisitools.flags("+fno-strict-aliasing")
 
     autotools.autoreconf("-fi")
-    
+
     options = "--disable-compile-inits \
                --disable-gtk \
                --enable-dynamic \
@@ -26,19 +26,19 @@ def setup():
                --with-drivers=ALL \
                --with-libpaper \
                --with-jbig2dec \
-               --with-jasper \
                --enable-fontconfig \
                --enable-freetype \
                --without-luratech \
                --with-system-libtiff \
-               --with-omni \
+               --without-omni \
                --with-x \
                --with-fontpath=/usr/share/fonts:/usr/share/fonts/default/ghostscript:/usr/share/cups/fonts:/usr/share/fonts/TTF:/usr/share/fonts/Type1:/usr/share/poppler/cMap/*"
-    options += " --disable-cups" if get.buildTYPE() == "emul32" else " --enable-cups"
+    options += " --disable-cups" if get.buildTYPE() == "emul32" else " --enable-cups --with-install-cups"
 
     autotools.configure(options)
 
     shelltools.cd("ijs/")
+    pisitools.dosed("configure.ac", "AM_PROG_CC_STDC", "AC_PROG_CC")
     shelltools.system("./autogen.sh \
                        --prefix=/usr \
                        --mandir=/usr/share/man \
@@ -54,30 +54,7 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     autotools.rawInstall("DESTDIR=%s" % get.installDIR(), "soinstall")
-
-    # For cjk stuff
-    #pisitools.dodir("/usr/share/ghostscript/Resource/Init")
-
-    # Install missing header
-    #pisitools.insinto("/usr/include/ghostscript", "base/errors.h")
-
-    # Install ijs
     autotools.rawInstall("-C ijs DESTDIR=%s" % get.installDIR())
-    pisitools.removeDir("/usr/lib/pkgconfig")
-
-    # Remove ijs examples
-    pisitools.remove("/usr/bin/ijs_*_example")
-    pisitools.remove("/usr/lib/libijs-0.35.so")
-    pisitools.remove("/usr/share/man/man1/ijs-config.1")
-    pisitools.remove("/usr/lib/libijs.so")
-    pisitools.remove("/usr/include/ijs/ijs_client.h")
-    pisitools.remove("/usr/bin/ijs-config")
-    pisitools.remove("/usr/include/ijs/ijs_server.h")
-    pisitools.remove("/usr/include/ijs/ijs.h")
-
-    # Install docs
-    #pisitools.remove("/usr/share/doc/ghostscript/*.htm*")
-    #pisitools.remove("/usr/share/doc/ghostscript/*.css")
 
     pisitools.dohtml("doc/*")
     pisitools.dodoc("doc/AUTHORS", "doc/COPYING")
