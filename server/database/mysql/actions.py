@@ -75,12 +75,7 @@ def install():
     pisitools.remove("/usr/share/mysql/mysql.server")
     pisitools.remove("/usr/share/mysql/binary-configure")
     pisitools.remove("/usr/share/mysql/mysql-log-rotate")
-    pisitools.remove("/usr/share/mysql/my-*.cnf")
-    pisitools.remove("/usr/share/mysql/config.*")
-    #pisitools.removeDir("/usr/share/aclocal")
-
-    # Move libs to /usr/lib
-    #pisitools.domove("/usr/lib/mysql/libmysqlclient*.so*", "/usr/lib")
+    #pisitools.remove("/usr/share/mysql/my-*.cnf")
 
     # Links to libs
     pisitools.dosym("../libmysqlclient.so", "/usr/lib/mysql/libmysqlclient.so")
@@ -90,7 +85,7 @@ def install():
     pisitools.removeDir("/usr/mysql-test")
     pisitools.removeDir("/usr/data")
     pisitools.removeDir("/usr/sql-bench")
-    
+
     # Config
     pisitools.insinto("/etc/mysql", "scripts/mysqlaccess.conf")
 
