@@ -13,7 +13,7 @@ import os
 
 WorkDir = "mozilla-release"
 NoStrip = ["/usr/include", "/usr/share/idl"]
-XulVersion = "21.0"
+XulVersion = "22.0"
 XulDir = "/usr/lib/%s-%s" % (get.srcNAME(), XulVersion)
 ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else "obj-%s-pc-linux-gnu" % get.ARCH()
 
