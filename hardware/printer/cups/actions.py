@@ -10,11 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-#    shelltools.export("DSOFLAGS", get.LDFLAGS())
-#    shelltools.export("CFLAGS", "%s -DLDAP_DEPRECATED" % get.CFLAGS())
-#    shelltools.export("LDFLAGS", "%s -lgcrypt" % get.LDFLAGS())
-
-    # pdftops from cups is currently overridden by our additional file
+    pisitools.flags("+fstack-protector-all +DLDAP_DEPRECATED=1")
 
     # For --enable-avahi
     autotools.aclocal("-I config-scripts")
@@ -25,11 +21,9 @@ def setup():
                --with-system-groups=lpadmin \
                --with-docdir=/usr/share/cups/html \
                --with-dbusdir=/etc/dbus-1 \
-               --with-pdftops=pdftops \
                --with-optim="%s -fstack-protector-all -DLDAP_DEPRECATED=1" \
                --with-php=/usr/bin/php-cgi \
                --without-java \
-               --enable-slp \
                --enable-acl \
                --enable-libpaper \
                --enable-debug \
@@ -37,18 +31,15 @@ def setup():
                --enable-gssapi \
                --enable-dbus \
                --enable-pam \
-               --enable-png \
-               --enable-jpeg \
-               --enable-tiff \
                --enable-relro \
                --enable-dnssd \
                --enable-browsing \
-               --enable-ldap \
                --enable-threads \
                --enable-gnutls \
                --disable-launchd \
                --without-rcdir \
-               --with-systemdsystemunitdir=/lib/systemd/system' % get.CFLAGS()
+               --libdir=/usr/lib \
+              ' % get.CFLAGS()
 
     if get.buildTYPE() == "emul32":
         options += ' --disable-avahi \
