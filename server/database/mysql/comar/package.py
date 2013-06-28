@@ -10,11 +10,12 @@ SOCKFILE = "/run/mysqld/mysqld.sock"
 TMPFILE = "/tmp/pisilinux.sql"
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
-    if fromRelease in [str(r) for r in range(1,4)]:
+    if fromRelease and fromRelease in [str(r) for r in range(1,4)]:
         os.system("rm -rf /var/lib/mysql/*")
-        os.remove("/etc/mysql/my.cnf")
-        shutil.copy2("/etc/mysql/my.cnf.newconfig", "/etc/mysql/my.cnf")
-        os.remove("/etc/mysql/my.cnf.newconfig")
+        if os.path.exists("/etc/mysql/my.cnf.newconfig"):
+            if os.path.exists("/etc/mysql/my.cnf"): os.remove("/etc/mysql/my.cnf")
+            shutil.copy2("/etc/mysql/my.cnf.newconfig", "/etc/mysql/my.cnf")
+            os.remove("/etc/mysql/my.cnf.newconfig")
 
     os.system("/bin/chown -R mysql:mysql /var/lib/mysql")
     os.system("/bin/chmod -R 0750 /var/lib/mysql")
