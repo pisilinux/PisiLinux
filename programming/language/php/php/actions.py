@@ -85,7 +85,8 @@ def setup():
                       --with-mcrypt=/usr/bin/mcrypt \
                       --with-imap=shared \
                       --with-openssl=shared \
-                      --with-imap-ssl"
+                      --with-imap-ssl \
+		      --with-mysql-sock=/run/mysqld/mysqld.sock"
 
     # Enable FastCGI, needs Apache disabled
     shelltools.cd("fcgi")
@@ -144,3 +145,6 @@ def install():
     # Operations for php-imap package
     pisitools.dosym("/etc/php/ext/11-php-imap.ini", "/etc/php/cli/ext/11-php-imap.ini")
     pisitools.dosym("/etc/php/ext/11-php-imap.ini", "/etc/php/apache2/ext/11-php-imap.ini")
+    
+    #Session path to /tmp
+    pisitools.dosed("%s/etc/php/*/php.ini" % get.installDIR(), ";session.save_path = \"/var/lib/php5\"", "session.save_path = \"/tmp\"")
