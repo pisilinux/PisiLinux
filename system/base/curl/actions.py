@@ -10,12 +10,17 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.flags("-D_FORTIFY_SOURCE=\d")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
+                         --disable-dependency-tracking \
                          --disable-ldap \
+                         --disable-ldaps \
                          --with-ssl \
+                         --with-zlib \
                          --with-libidn \
                          --with-libssh2 \
+                         --without-librtmp \
                          --enable-ipv6 \
                          --enable-http \
                          --enable-ftp \
@@ -26,8 +31,9 @@ def setup():
                          --enable-telnet \
                          --enable-largefile \
                          --enable-nonblocking \
-                         --without-librtmp \
                          --enable-threaded-resolver \
+                         --enable-hidden-symbols \
+                         --disable-versioned-symbols \
                          --with-ca-bundle=/etc/pki/tls/certs/ca-bundle.crt")
 
 def build():
