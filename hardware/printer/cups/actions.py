@@ -75,7 +75,7 @@ def install():
         pisitools.removeDir("/usr/serverbin32")
         return
     else:
-        autotools.rawInstall("BUILDROOT=%s" % get.installDIR())
+        autotools.rawInstall("BUILDROOT=%s install-headers install-libs install-data install-exec" % get.installDIR())
 
     pisitools.dodir("/usr/share/cups/profiles")
 
