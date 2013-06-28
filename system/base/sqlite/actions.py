@@ -11,16 +11,8 @@ from pisi.actionsapi import get
 
     # Use secure delete. Even if the data is deleted with sqlite query, the traces of the deleted data still remains in the file
     # but cannot be seen with sqlite query. However, it can be seen by opening the file with a text editor.
-    # SQLITE_SECURE_DELETE overwrites written data with zeros.        
+    # SQLITE_SECURE_DELETE overwrites written data with zeros.
 def setup():
-    options = "--disable-static \
-               --enable-readline \
-               --enable-threadsafe"
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-
     shelltools.export("CFLAGS", "%s \
                        -DSQLITE_SECURE_DELETE=1 \
                        -DSQLITE_ENABLE_UNLOCK_NOTIFY=1 \
@@ -29,7 +21,9 @@ def setup():
                        -DSQLITE_ENABLE_FTS3=3 \
                        -DSQLITE_ENABLE_RTREE=1 \
                        -O3 -DNDEBUG=1 -fno-strict-aliasing" % get.CFLAGS())
-    autotools.configure(options)
+    autotools.configure("--disable-static \
+                         --enable-readline \
+                         --enable-threadsafe")
 
 def build():
     autotools.make()
