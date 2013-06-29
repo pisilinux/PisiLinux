@@ -12,9 +12,7 @@ from pisi.actionsapi import get
 def setup():
     pisitools.dosed("src/bluetooth.conf", '(group=")plugdev', r"\1removable")
     autotools.autoreconf("-fi")
-    # Enable hid2hci in next releases as udev dropped that again
     autotools.configure("--enable-network \
-                         --disable-systemd \
                          --enable-hid2hci \
                          --enable-serial \
                          --enable-input \
@@ -34,7 +32,8 @@ def setup():
                          --enable-pcmcia \
                          --with-systemdunitdir=/lib/systemd/system \
                          --with-ouifile=/usr/share/misc/oui.txt \
-                         --disable-hid2hci \
+                         --enable-hid2hci \
+                         --enable-wiimote \
                          --libexecdir=/lib")
 def build():
     autotools.make()
