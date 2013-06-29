@@ -67,27 +67,24 @@ def build():
 def install():
     autotools.rawInstall("-f client.mk DESTDIR=%s" % get.installDIR())
 
-    # Any reason to do this renaming ?
-    pisitools.rename("/usr/lib/%s-%s" % (get.srcNAME(), get.srcVERSION()), "MozillaFirefox")
-
     pisitools.remove("/usr/bin/firefox") # new Additional File  will replace that
 
     #install locales
     #for locale in locales:
-        #pisitools.insinto("/usr/lib/MozillaFirefox/extensions/langpack-%s@firefox.mozilla.org" % locale, "%s/dist/xpi-stage/locale-%s/*" % (ObjDir, locale), sym=False)
-        #pisitools.removeDir("/usr/lib/MozillaFirefox/extensions/langpack-%s@firefox.mozilla.org/defaults" % locale)
-        #pisitools.remove("/usr/lib/MozillaFirefox/extensions/langpack-%s@firefox.mozilla.org/chrome/%s/locale/branding/browserconfig.properties" % (locale, locale))
-        #pisitools.dosym("../../../../../../browserconfig.properties", "/usr/lib/MozillaFirefox/extensions/langpack-%s@firefox.mozilla.org/chrome/%s/locale/branding/browserconfig.properties" % (locale, locale))
+        #pisitools.insinto("/usr/lib/firefox/extensions/langpack-%s@firefox.mozilla.org" % locale, "%s/dist/xpi-stage/locale-%s/*" % (ObjDir, locale), sym=False)
+        #pisitools.removeDir("/usr/lib/firefox/extensions/langpack-%s@firefox.mozilla.org/defaults" % locale)
+        #pisitools.remove("/usr/lib/firefox/extensions/langpack-%s@firefox.mozilla.org/chrome/%s/locale/branding/browserconfig.properties" % (locale, locale))
+        #pisitools.dosym("../../../../../../browserconfig.properties", "/usr/lib/firefox/extensions/langpack-%s@firefox.mozilla.org/chrome/%s/locale/branding/browserconfig.properties" % (locale, locale))
 
     # Install language packs
-    pisitools.insinto("/usr/lib/MozillaFirefox/browser/extensions", "./langpack-ff/*")
+    pisitools.insinto("/usr/lib/firefox/browser/extensions", "./langpack-ff/*")
 
-    pisitools.dodir("/usr/lib/MozillaFirefox/dictionaries")
-    shelltools.touch("%s%s/dictionaries/tr-TR.aff" % (get.installDIR(), "/usr/lib/MozillaFirefox"))
-    shelltools.touch("%s%s/dictionaries/tr-TR.dic" % (get.installDIR(), "/usr/lib/MozillaFirefox"))
+    pisitools.dodir("/usr/lib/firefox/dictionaries")
+    shelltools.touch("%s%s/dictionaries/tr-TR.aff" % (get.installDIR(), "/usr/lib/firefox"))
+    shelltools.touch("%s%s/dictionaries/tr-TR.dic" % (get.installDIR(), "/usr/lib/firefox"))
 
     # Create profile dir, we'll copy bookmarks.html in post-install script
-    pisitools.dodir("/usr/lib/MozillaFirefox/browser/defaults/profile")
+    pisitools.dodir("/usr/lib/firefox/browser/defaults/profile")
 
     # Install branding icon
     pisitools.insinto("/usr/share/pixmaps", "browser/branding/official/default256.png", "firefox.png")
