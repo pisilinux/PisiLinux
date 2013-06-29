@@ -10,7 +10,7 @@ from pisi.actionsapi import shelltools
 
 def setup():
     if get.buildTYPE() == "emul32":
-        shelltools.system('patch -p0 -i "../remove-graphite.patch"')
+        #shelltools.system('patch -p0 -i "../remove-graphite.patch"')
         autotools.autoreconf("-fiv")
     autotools.configure("--disable-static")
 
