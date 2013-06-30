@@ -41,6 +41,7 @@ ldirs = ("/usr/lib/libreoffice/help/%s",
          "/usr/lib/libreoffice/share/extensions/wiki-publisher/help/%s")
 
 def setup():
+    pisitools.dosed("configure.ac", "mdds >= 0.8.1", "mdds >= 0.8.0")
     vars = {"lang": langs,
             "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
@@ -49,7 +50,6 @@ def setup():
     autotools.autoconf()
     shelltools.touch("autogen.lastrun")
     autotools.rawConfigure('--with-vendor="PisiLinux" \
-                       --with-unix-wrapper="libreoffice" \
                        --with-ant-home="/usr/share/ant" \
                        --with-jdk-home="/opt/sun-jdk" \
                        --prefix=/usr --exec-prefix=/usr --sysconfdir=/etc \
@@ -76,7 +76,6 @@ def setup():
                        --disable-gnome-vfs \
                        --disable-kde \
                        --enable-kde4 \
-                       --enable-gtk2 \
                        --enable-largefile \
                        --enable-lockdown \
                        --enable-mergelibs \
@@ -89,10 +88,8 @@ def setup():
                        --enable-scripting-javascript \
                        --enable-ext-wiki-publisher \
                        --enable-ext-nlpsolver \
-                       --enable-ext-report-builder \
-                       --disable-ext-mysql-connector \
+                       --disable-python \
                        --with-system-mysql \
-                       --enable-python=system \
                        --enable-cairo-canvas \
                        --with-system-cairo \
                        --without-fonts \
@@ -110,14 +107,16 @@ def setup():
                        --with-system-libwpg \
                        --with-system-libwps \
                        --with-system-libvisio \
-                       --with-system-mdds \
                        --with-system-redland \
                        --with-system-ucpp \
                        --with-system-dicts \
                        --with-system-libexttextcat \
                        --with-system-nss \
+                       --without-system-orcus \
+                       --without-system-mdds \
+                       --without-system-libmwaw \
+                       --without-system-libodfgen \
                        --without-system-hsqldb \
-                       --without-system-mozilla \
                        --without-myspell-dicts \
                        --without-system-npapi-headers \
                        --with-external-dict-dir=/usr/share/hunspell \
