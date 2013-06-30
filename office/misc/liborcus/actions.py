@@ -10,11 +10,8 @@ from pisi.actionsapi import shelltools
 
 
 def setup():
-    autotools.configure("--disable-debug \
-			 --disable-static \
-			 --disable-werror  \
-			 --with-pic 	    \
-			 --disable-spreadsheet-model")
+    shelltools.system("./autogen.sh")
+    autotools.configure()
 
 def build():
     autotools.make()
