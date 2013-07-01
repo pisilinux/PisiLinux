@@ -64,6 +64,11 @@ def install():
         pisitools.removeDir("/usr/bin32")
         pisitools.removeDir("/usr/sbin32")
         pisitools.removeDir("/usr/serverbin32")
+
+        # remove files now part of cups-filters
+        pisitools.remove("/usr/share/cups/data/testprint")
+        pisitools.removeDir("/usr/share/cups/banners")
+        pisitools.dodir("/usr/share/cups/banners")
         return
     else:
         autotools.rawInstall("BUILDROOT=%s install-headers install-libs install-data install-exec" % get.installDIR())
