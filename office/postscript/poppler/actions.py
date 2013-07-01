@@ -30,11 +30,6 @@ def setup():
                      --disable-poppler-cpp \
                      --disable-poppler-qt4"
 
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-        shelltools.export("CXXFLAGS", "%s -m32" % get.CXXFLAGS())
-        shelltools.export("PKG_CONFIG_PATH", "/usr/lib32/pkgconfig")
-
-    autotools.autoreconf("-fi")
     autotools.configure(options)
 
 def build():
