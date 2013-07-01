@@ -41,7 +41,6 @@ ldirs = ("/usr/lib/libreoffice/help/%s",
          "/usr/lib/libreoffice/share/extensions/wiki-publisher/help/%s")
 
 def setup():
-    pisitools.dosed("configure.ac", "mdds >= 0.8.1", "mdds >= 0.8.0")
     vars = {"lang": langs,
             "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
@@ -89,7 +88,6 @@ def setup():
                        --enable-ext-wiki-publisher \
                        --enable-ext-nlpsolver \
                        --disable-python \
-                       --with-system-mysql \
                        --enable-cairo-canvas \
                        --with-system-cairo \
                        --without-fonts \
