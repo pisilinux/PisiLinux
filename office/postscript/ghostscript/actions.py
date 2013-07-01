@@ -33,7 +33,7 @@ def setup():
                --without-omni \
                --with-x \
                --with-fontpath=/usr/share/fonts:/usr/share/fonts/default/ghostscript:/usr/share/cups/fonts:/usr/share/fonts/TTF:/usr/share/fonts/Type1:/usr/share/poppler/cMap/*"
-    options += " --disable-cups" if get.buildTYPE() == "emul32" else " --enable-cups --with-install-cups"
+    options += " --disable-cups --libdir=/usr/lib32" if get.buildTYPE() == "emul32" else " --enable-cups --with-install-cups"
 
     autotools.configure(options)
 
@@ -54,7 +54,7 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     autotools.rawInstall("DESTDIR=%s" % get.installDIR(), "soinstall")
-    autotools.rawInstall("-C ijs DESTDIR=%s" % get.installDIR())
+    if not get.buildTYPE() == "emul32": autotools.rawInstall("-C ijs DESTDIR=%s" % get.installDIR())
 
     pisitools.dohtml("doc/*")
     pisitools.dodoc("doc/AUTHORS", "doc/COPYING")
