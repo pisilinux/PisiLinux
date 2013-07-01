@@ -19,7 +19,7 @@ def setup():
                           --disable-dump-share \
                           --disable-ptex \
                           --enable-luatex  \
-			  --enable-build-in-source-tree \
+                          --enable-build-in-source-tree \
                           --without-system-ptexenc \
                           --with-system-graphite \
                           --without-system-icu \
@@ -32,7 +32,7 @@ def setup():
                           --with-system-libpng \
                           --without-system-teckit \
                           --with-system-zlib \
-			  --with-system-zziplib \
+                          --with-system-zziplib \
                           --with-system-t1lib \
                           --disable-shared \
                           --disable-largefile \
