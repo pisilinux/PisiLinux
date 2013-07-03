@@ -26,10 +26,10 @@ def setup():
     filteredCFLAGS = get.CFLAGS().replace("-g3", "-g")
     filteredCXXFLAGS = get.CXXFLAGS().replace("-g3", "-g")
 
-    vars = {"PISILINUX_CC" :       get.CC() + " -m32" if get.buildTYPE() == "emul32" else "",
-            "PISILINUX_CXX":       get.CXX() + " -m32" if get.buildTYPE() == "emul32" else "",
-            "PISILINUX_CFLAGS":    filteredCFLAGS + " -m32" if get.buildTYPE() == "emul32" else "",
-            "PISILINUX_LDFLAGS":   get.LDFLAGS() + " -m32" if get.buildTYPE() == "emul32" else ""}
+    vars = {"PISILINUX_CC" :       get.CC() + (" -m32" if get.buildTYPE() == "emul32" else ""),
+            "PISILINUX_CXX":       get.CXX() + (" -m32" if get.buildTYPE() == "emul32" else ""),
+            "PISILINUX_CFLAGS":    filteredCFLAGS + (" -m32" if get.buildTYPE() == "emul32" else ""),
+            "PISILINUX_LDFLAGS":   get.LDFLAGS() + (" -m32" if get.buildTYPE() == "emul32" else "")}
 
     for k, v in vars.items():
         pisitools.dosed("mkspecs/common/g++-base.conf", k, v)
