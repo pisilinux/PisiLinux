@@ -26,10 +26,10 @@ def setup():
     filteredCFLAGS = get.CFLAGS().replace("-g3", "-g")
     filteredCXXFLAGS = get.CXXFLAGS().replace("-g3", "-g")
 
-    vars = {"PARDUS_CC" :       get.CC(),
-            "PARDUS_CXX":       get.CXX(),
-            "PARDUS_CFLAGS":    filteredCFLAGS,
-            "PARDUS_LDFLAGS":   get.LDFLAGS()}
+    vars = {"PISILINUX_CC" :       get.CC() + " -m32" if get.buildTYPE() == "emul32" else "",
+            "PISILINUX_CXX":       get.CXX() + " -m32" if get.buildTYPE() == "emul32" else "",
+            "PISILINUX_CFLAGS":    filteredCFLAGS + " -m32" if get.buildTYPE() == "emul32" else "",
+            "PISILINUX_LDFLAGS":   get.LDFLAGS() + " -m32" if get.buildTYPE() == "emul32" else ""}
 
     for k, v in vars.items():
         pisitools.dosed("mkspecs/common/g++-base.conf", k, v)
@@ -130,18 +130,18 @@ def install():
         qt4.install("INSTALL_ROOT=%s32" % get.installDIR())
         shelltools.move("%s32/usr/lib32" % get.installDIR(), "%s/usr" % get.installDIR())
         return
-        
+
     qt4.install()
     pisitools.dodir(qt4.bindir)
 
     #Remove phonon, we use KDE's phonon but we have to build Qt with Phonon support for webkit and some other stuff
     pisitools.remove("%s/libphonon*" % qt4.libdir)
     pisitools.removeDir("%s/phonon" % qt4.includedir)
-    # -no-phonon-backend : pisitools.removeDir("%s/phonon_backend" % qt4.plugindir)
+    pisitools.removeDir("%s/phonon_backend" % qt4.plugindir)
     pisitools.remove("%s/pkgconfig/phonon*" % qt4.libdir)
     # Phonon 4.5 provides libphononwidgets.so file
     pisitools.remove("%s/designer/libphononwidgets.so" % qt4.plugindir)
-    
+
     #Remove lost /usr/tests directory
     pisitools.removeDir("usr/tests")
 

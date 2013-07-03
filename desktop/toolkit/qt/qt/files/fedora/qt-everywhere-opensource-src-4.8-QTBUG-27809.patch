@@ -1,0 +1,57 @@
+commit 22b493d3523140e14df433cd8a49292b7f73f21c
+Author: Peter Seiderer <Peter.Seiderer@gmx.de>
+Date:   Sat May 11 07:49:47 2013 +0200
+
+    Fix multiple calls to QDBusPendingReply::waitForFinished on separate objects
+    
+    QTBUG-27809
+    
+    Change-Id: If1691052ed1542e0e865c83df7b5737761a2bc86
+
+diff --git a/src/dbus/qdbusintegrator.cpp b/src/dbus/qdbusintegrator.cpp
+index 96e4a12..1007f1a 100644
+--- a/src/dbus/qdbusintegrator.cpp
++++ b/src/dbus/qdbusintegrator.cpp
+@@ -1774,14 +1774,11 @@ void QDBusConnectionPrivate::waitForFinished(QDBusPendingCallPrivate *pcall)
+         pcall->waitForFinishedCondition.wait(&pcall->mutex);
+     } else {
+         pcall->waitingForFinished = true;
+-        pcall->mutex.unlock();
+-
+         {
+             QDBusDispatchLocker locker(PendingCallBlockAction, this);
+             q_dbus_pending_call_block(pcall->pending);
+-            // QDBusConnectionPrivate::processFinishedCall() is called automatically
++            processFinishedCall(pcall);
+         }
+-        pcall->mutex.lock();
+     }
+ }
+ 
+@@ -1789,8 +1786,6 @@ void QDBusConnectionPrivate::processFinishedCall(QDBusPendingCallPrivate *call)
+ {
+     QDBusConnectionPrivate *connection = const_cast<QDBusConnectionPrivate *>(call->connection);
+ 
+-    QMutexLocker locker(&call->mutex);
+-
+     QDBusMessage &msg = call->replyMessage;
+     if (call->pending) {
+         // decode the message
+@@ -1824,7 +1819,8 @@ void QDBusConnectionPrivate::processFinishedCall(QDBusPendingCallPrivate *call)
+         q_dbus_pending_call_unref(call->pending);
+     call->pending = 0;
+ 
+-    locker.unlock();
++    if (call->waitingForFinished)
++        call->waitForFinishedCondition.wakeAll();
+ 
+     // Are there any watchers?
+     if (call->watcherHelper)
+@@ -2009,7 +2005,6 @@ QDBusPendingCallPrivate *QDBusConnectionPrivate::sendWithReplyAsync(const QDBusM
+             q_dbus_message_unref(msg);
+ 
+             pcall->pending = pending;
+-            q_dbus_pending_call_set_notify(pending, qDBusResultReceived, pcall, 0);
+ 
+             return pcall;
+         } else {
