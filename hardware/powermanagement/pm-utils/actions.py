@@ -13,7 +13,6 @@ def setup():
     # Drop man pages to regenerate them
     shelltools.unlink("man/*.[18]")
 
-    autotools.autoreconf("-fi")
     autotools.configure()
 
 def build():

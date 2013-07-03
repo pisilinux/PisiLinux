@@ -15,6 +15,8 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.configure("--disable-static \
                          --disable-gtk-doc \
+                         --disable-systemd \
+                         --enable-deprecated \
                          --enable-introspection")
 
 def build():
