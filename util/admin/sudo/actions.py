@@ -13,8 +13,6 @@ def setup():
     shelltools.export("CFLAGS", "%s -fpie" % get.CFLAGS())
     shelltools.export("LDFLAGS","%s -pie" % get.LDFLAGS())
 
-    #shelltools.unlink("acsite.m4")
-    #shelltools.move("aclocal.m4 acinclude.m4")
     autotools.autoreconf("-fi")
 
     autotools.configure("--libexecdir=/usr/libexec/sudo \
@@ -38,10 +36,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    # for LDAP
-    pisitools.dobin("sudoers2ldif")
-
-    pisitools.domo("tr.po","tr", "sudo.mo")
-
-    pisitools.dodoc("PORTING", "LICENSE", "UPGRADE", "README.LDAP",
-                    "README", "TROUBLESHOOTING")
+    pisitools.dodoc("README.LDAP", "README")
