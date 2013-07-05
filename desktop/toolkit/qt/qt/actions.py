@@ -137,7 +137,8 @@ def install():
     #Remove phonon, we use KDE's phonon but we have to build Qt with Phonon support for webkit and some other stuff
     pisitools.remove("%s/libphonon*" % qt4.libdir)
     pisitools.removeDir("%s/phonon" % qt4.includedir)
-    pisitools.removeDir("%s/phonon_backend" % qt4.plugindir)
+    if shelltools.isDirectory("%s/%s/phonon_backend" % (get.installDIR(), qt4.plugindir)):
+        pisitools.removeDir("%s/phonon_backend" % qt4.plugindir)
     pisitools.remove("%s/pkgconfig/phonon*" % qt4.libdir)
     # Phonon 4.5 provides libphononwidgets.so file
     pisitools.remove("%s/designer/libphononwidgets.so" % qt4.plugindir)
