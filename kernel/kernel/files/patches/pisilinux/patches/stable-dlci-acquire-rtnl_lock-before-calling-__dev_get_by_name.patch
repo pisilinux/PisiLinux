@@ -1,0 +1,60 @@
+From 11eb2645cbf38a08ae491bf6c602eea900ec0bb5 Mon Sep 17 00:00:00 2001
+From: Zefan Li <lizefan@huawei.com>
+Date: Wed, 26 Jun 2013 15:29:54 +0800
+Subject: dlci: acquire rtnl_lock before calling __dev_get_by_name()
+
+From: Zefan Li <lizefan@huawei.com>
+
+commit 11eb2645cbf38a08ae491bf6c602eea900ec0bb5 upstream.
+
+Otherwise the net device returned can be freed at anytime.
+
+Signed-off-by: Li Zefan <lizefan@huawei.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/net/wan/dlci.c |   14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+--- a/drivers/net/wan/dlci.c
++++ b/drivers/net/wan/dlci.c
+@@ -385,20 +385,24 @@ static int dlci_del(struct dlci_add *dlc
+ 	struct net_device	*master, *slave;
+ 	int			err;
+ 
++	rtnl_lock();
++
+ 	/* validate slave device */
+ 	master = __dev_get_by_name(&init_net, dlci->devname);
+-	if (!master)
+-		return -ENODEV;
++	if (!master) {
++		err = -ENODEV;
++		goto out;
++	}
+ 
+ 	if (netif_running(master)) {
+-		return -EBUSY;
++		err = -EBUSY;
++		goto out;
+ 	}
+ 
+ 	dlp = netdev_priv(master);
+ 	slave = dlp->slave;
+ 	flp = netdev_priv(slave);
+ 
+-	rtnl_lock();
+ 	err = (*flp->deassoc)(slave, master);
+ 	if (!err) {
+ 		list_del(&dlp->list);
+@@ -407,8 +411,8 @@ static int dlci_del(struct dlci_add *dlc
+ 
+ 		dev_put(slave);
+ 	}
++out:
+ 	rtnl_unlock();
+-
+ 	return err;
+ }
+ 
