@@ -17,22 +17,17 @@ emul32_libs = "libpulsecommon-%s.la \
                libpulse-mainloop-glib.la" % get.srcVERSION()
 
 def setup():
-    # Disable as-needed for now as it doesn't compile
-    # Lennart has introduced a circular dep in the libraries. libpulse requires
-    # libpulsecommon but libpulsecommon requires libpulse.
-    shelltools.export("LDFLAGS", "%s -Wl,--no-as-needed" % get.LDFLAGS())
-
-    autotools.autoreconf("-fi")
-    libtools.libtoolize()
+#    autotools.autoreconf("-fi")
+#    libtools.libtoolize()
 
     options = "--disable-dependency-tracking \
                --disable-static \
                --disable-rpath \
-               --disable-hal \
                --disable-jack \
                --with-system-user=pulse \
                --with-system-group=pulse \
-               --with-access-group=pulse-access"
+               --with-access-group=pulse-access \
+               --with-database=tdb"
 
     if get.buildTYPE() == "emul32":
         options += " --libdir=/usr/lib32 \
@@ -53,6 +48,7 @@ def setup():
         shelltools.export("CC", "%s -m32" % get.CC())
 
     autotools.configure(options)
+    pisitools.dosed("libtool", "CC(\s-shared\s)", r"CC -Wl,-O1,--as-needed\1")
 
 
 def build():
@@ -77,6 +73,14 @@ def install():
         return
 
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+
+    # Disable autospawn by default
+    shelltools.system("sed -e '/autospawn/iautospawn=no' -i '%s/etc/pulse/client.conf'" % get.installDIR())
+    # Speed up pulseaudio shutdown
+    # Lower resample quality, saves CPU
+    shelltools.system("sed -e '/exit-idle-time/iexit-idle-time=0' \
+                       -e '/resample-method/iresample-method=speex-float-0' \
+                       -i '%s/etc/pulse/daemon.conf'" % get.installDIR())
 
     # Needed for service.py
     pisitools.dodir("/run/pulse")
