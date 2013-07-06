@@ -13,6 +13,8 @@ def setup():
     autotools.autoreconf("-vif")
     autotools.configure("--disable-static \
                          --with-cd-paranoia-name=libcdio-paranoia \
+                         --disable-vcd-info \
+                         --enable-cpp-progs \
                          --disable-rpath")
 
 def build():
@@ -21,11 +23,7 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % (get.installDIR()))
 
-    pkgconfig = ["libcdio_paranoia.pc","libcdio_cdda.pc",\
-                 "libiso9660++.pc","libcdio++.pc"]
-    for file in pkgconfig:
-        pisitools.insinto("/usr/lib/pkgconfig",file)
-
-    shelltools.chmod("%s/usr/lib/*" % get.installDIR(), 0644)
+    pisitools.dosed("%s/usr/include/cdio/version.h" % get.installDIR(), '%s[^"]+' % get.srcVERSION(), get.srcVERSION())
+    pisitools.dosed("%s/usr/include/cdio/cdio_config.h" % get.installDIR(), "#define\s(CDIO_LIBCDIO_SOURCE_PATH).*", r"#undef \1")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "README", "THANKS")
