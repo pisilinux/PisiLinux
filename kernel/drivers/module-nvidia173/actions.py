@@ -34,6 +34,8 @@ def setup():
     shelltools.echo("ld.so.conf", libdir)
     shelltools.echo("XvMCConfig", "%s/libXvMCNVIDIA.so" % libdir)
 
+    shelltools.system("patch --remove-empty-files --no-backup-if-mismatch -p1 -i fix-build-with-linux-3.10.patch")
+
 def build():
     shelltools.export("SYSSRC", "/lib/modules/%s/build" % KDIR)
     shelltools.cd("usr/src/nv")
