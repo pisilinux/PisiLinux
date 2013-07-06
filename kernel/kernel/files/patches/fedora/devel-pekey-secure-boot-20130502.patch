@@ -1,0 +1,5912 @@
+From 888c361d20210d39863ba6f2b71adb84e0a926a7 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Fri, 18 Jan 2013 13:53:35 +0000
+Subject: [PATCH 01/47] KEYS: Load *.x509 files into kernel keyring
+
+Load all the files matching the pattern "*.x509" that are to be found in kernel
+base source dir and base build dir into the module signing keyring.
+
+The "extra_certificates" file is then redundant.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+---
+ kernel/Makefile              | 35 +++++++++++++++++++++++++++++------
+ kernel/modsign_certificate.S |  3 +--
+ 2 files changed, 30 insertions(+), 8 deletions(-)
+
+diff --git a/kernel/Makefile b/kernel/Makefile
+index d1574d4..64c97da 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -141,17 +141,40 @@ $(obj)/timeconst.h: $(obj)/hz.bc $(src)/timeconst.bc FORCE
+ 	$(call if_changed,bc)
+ 
+ ifeq ($(CONFIG_MODULE_SIG),y)
++###############################################################################
+ #
+-# Pull the signing certificate and any extra certificates into the kernel
++# Roll all the X.509 certificates that we can find together and pull
++# them into the kernel.
+ #
++###############################################################################
++X509_CERTIFICATES-y := $(wildcard *.x509) $(wildcard $(srctree)/*.x509)
++X509_CERTIFICATES-$(CONFIG_MODULE_SIG) += signing_key.x509
++X509_CERTIFICATES := $(sort $(X509_CERTIFICATES-y))
++
++ifeq ($(X509_CERTIFICATES),)
++$(warning *** No X.509 certificates found ***)
++endif
++
++ifneq ($(wildcard $(obj)/.x509.list),)
++ifneq ($(shell cat $(obj)/.x509.list),$(X509_CERTIFICATES))
++$(info X.509 certificate list changed)
++$(shell rm $(obj)/.x509.list)
++endif
++endif
++
++kernel/modsign_certificate.o: $(obj)/x509_certificate_list
+ 
+-quiet_cmd_touch = TOUCH   $@
+-      cmd_touch = touch   $@
++quiet_cmd_x509certs  = CERTS   $@
++      cmd_x509certs  = cat $(X509_CERTIFICATES) /dev/null >$@
++targets += $(obj)/x509_certificate_list
++$(obj)/x509_certificate_list: $(X509_CERTIFICATES) $(obj)/.x509.list
++	$(call if_changed,x509certs)
+ 
+-extra_certificates:
+-	$(call cmd,touch)
++targets += $(obj)/.x509.list
++$(obj)/.x509.list:
++	@echo $(X509_CERTIFICATES) >$@
+ 
+-kernel/modsign_certificate.o: signing_key.x509 extra_certificates
++clean-files := x509_certificate_list .x509.list
+ 
+ ###############################################################################
+ #
+diff --git a/kernel/modsign_certificate.S b/kernel/modsign_certificate.S
+index 246b4c6..0a60203 100644
+--- a/kernel/modsign_certificate.S
++++ b/kernel/modsign_certificate.S
+@@ -14,6 +14,5 @@
+ 	.section ".init.data","aw"
+ 
+ GLOBAL(modsign_certificate_list)
+-	.incbin "signing_key.x509"
+-	.incbin "extra_certificates"
++	.incbin "kernel/x509_certificate_list"
+ GLOBAL(modsign_certificate_list_end)
+-- 
+1.8.1.4
+
+
+From 26a6bf8ffbe82d706c6de06746d760d9bc425ee5 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 18:39:54 +0000
+Subject: [PATCH 02/47] KEYS: Separate the kernel signature checking keyring
+ from module signing
+
+Separate the kernel signature checking keyring from module signing so that it
+can be used by code other than the module-signing code.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+---
+ include/keys/system_keyring.h |  23 ++++++++++
+ init/Kconfig                  |  13 ++++++
+ kernel/Makefile               |  17 ++++---
+ kernel/modsign_pubkey.c       | 104 ------------------------------------------
+ kernel/module-internal.h      |   2 -
+ kernel/module_signing.c       |   3 +-
+ kernel/system_certificates.S  |  18 ++++++++
+ kernel/system_keyring.c       | 101 ++++++++++++++++++++++++++++++++++++++++
+ 8 files changed, 168 insertions(+), 113 deletions(-)
+ create mode 100644 include/keys/system_keyring.h
+ delete mode 100644 kernel/modsign_pubkey.c
+ create mode 100644 kernel/system_certificates.S
+ create mode 100644 kernel/system_keyring.c
+
+diff --git a/include/keys/system_keyring.h b/include/keys/system_keyring.h
+new file mode 100644
+index 0000000..8dabc39
+--- /dev/null
++++ b/include/keys/system_keyring.h
+@@ -0,0 +1,23 @@
++/* System keyring containing trusted public keys.
++ *
++ * Copyright (C) 2013 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#ifndef _KEYS_SYSTEM_KEYRING_H
++#define _KEYS_SYSTEM_KEYRING_H
++
++#ifdef CONFIG_SYSTEM_TRUSTED_KEYRING
++
++#include <linux/key.h>
++
++extern struct key *system_trusted_keyring;
++
++#endif
++
++#endif /* _KEYS_SYSTEM_KEYRING_H */
+diff --git a/init/Kconfig b/init/Kconfig
+index a76d131..b9d8870 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -1615,6 +1615,18 @@ config BASE_SMALL
+ 	default 0 if BASE_FULL
+ 	default 1 if !BASE_FULL
+ 
++config SYSTEM_TRUSTED_KEYRING
++	bool "Provide system-wide ring of trusted keys"
++	depends on KEYS
++	help
++	  Provide a system keyring to which trusted keys can be added.  Keys in
++	  the keyring are considered to be trusted.  Keys may be added at will
++	  by the kernel from compiled-in data and from hardware key stores, but
++	  userspace may only add extra keys if those keys can be verified by
++	  keys already in the keyring.
++
++	  Keys in this keyring are used by module signature checking.
++
+ menuconfig MODULES
+ 	bool "Enable loadable module support"
+ 	help
+@@ -1687,6 +1699,7 @@ config MODULE_SRCVERSION_ALL
+ config MODULE_SIG
+ 	bool "Module signature verification"
+ 	depends on MODULES
++	select SYSTEM_TRUSTED_KEYRING
+ 	select KEYS
+ 	select CRYPTO
+ 	select ASYMMETRIC_KEY_TYPE
+diff --git a/kernel/Makefile b/kernel/Makefile
+index 64c97da..ecff938 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -52,8 +52,9 @@ obj-$(CONFIG_SMP) += spinlock.o
+ obj-$(CONFIG_DEBUG_SPINLOCK) += spinlock.o
+ obj-$(CONFIG_PROVE_LOCKING) += spinlock.o
+ obj-$(CONFIG_UID16) += uid16.o
++obj-$(CONFIG_SYSTEM_TRUSTED_KEYRING) += system_keyring.o system_certificates.o
+ obj-$(CONFIG_MODULES) += module.o
+-obj-$(CONFIG_MODULE_SIG) += module_signing.o modsign_pubkey.o modsign_certificate.o
++obj-$(CONFIG_MODULE_SIG) += module_signing.o
+ obj-$(CONFIG_KALLSYMS) += kallsyms.o
+ obj-$(CONFIG_BSD_PROCESS_ACCT) += acct.o
+ obj-$(CONFIG_KEXEC) += kexec.o
+@@ -140,13 +141,14 @@ targets += timeconst.h
+ $(obj)/timeconst.h: $(obj)/hz.bc $(src)/timeconst.bc FORCE
+ 	$(call if_changed,bc)
+ 
+-ifeq ($(CONFIG_MODULE_SIG),y)
+ ###############################################################################
+ #
+-# Roll all the X.509 certificates that we can find together and pull
+-# them into the kernel.
++# Roll all the X.509 certificates that we can find together and pull them into
++# the kernel so that they get loaded into the system trusted keyring during
++# boot.
+ #
+ ###############################################################################
++ifeq ($(CONFIG_SYSTEM_TRUSTED_KEYRING),y)
+ X509_CERTIFICATES-y := $(wildcard *.x509) $(wildcard $(srctree)/*.x509)
+ X509_CERTIFICATES-$(CONFIG_MODULE_SIG) += signing_key.x509
+ X509_CERTIFICATES := $(sort $(X509_CERTIFICATES-y))
+@@ -162,10 +164,11 @@ $(shell rm $(obj)/.x509.list)
+ endif
+ endif
+ 
+-kernel/modsign_certificate.o: $(obj)/x509_certificate_list
++kernel/system_certificates.o: $(obj)/x509_certificate_list
+ 
+ quiet_cmd_x509certs  = CERTS   $@
+-      cmd_x509certs  = cat $(X509_CERTIFICATES) /dev/null >$@
++      cmd_x509certs  = cat $(X509_CERTIFICATES) /dev/null >$@ $(foreach X509,$(X509_CERTIFICATES),; echo "  - Including cert $(X509)")
++
+ targets += $(obj)/x509_certificate_list
+ $(obj)/x509_certificate_list: $(X509_CERTIFICATES) $(obj)/.x509.list
+ 	$(call if_changed,x509certs)
+@@ -175,7 +178,9 @@ $(obj)/.x509.list:
+ 	@echo $(X509_CERTIFICATES) >$@
+ 
+ clean-files := x509_certificate_list .x509.list
++endif
+ 
++ifeq ($(CONFIG_MODULE_SIG),y)
+ ###############################################################################
+ #
+ # If module signing is requested, say by allyesconfig, but a key has not been
+diff --git a/kernel/modsign_pubkey.c b/kernel/modsign_pubkey.c
+deleted file mode 100644
+index 2b6e699..0000000
+--- a/kernel/modsign_pubkey.c
++++ /dev/null
+@@ -1,104 +0,0 @@
+-/* Public keys for module signature verification
+- *
+- * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
+- * Written by David Howells (dhowells@redhat.com)
+- *
+- * This program is free software; you can redistribute it and/or
+- * modify it under the terms of the GNU General Public Licence
+- * as published by the Free Software Foundation; either version
+- * 2 of the Licence, or (at your option) any later version.
+- */
+-
+-#include <linux/kernel.h>
+-#include <linux/sched.h>
+-#include <linux/cred.h>
+-#include <linux/err.h>
+-#include <keys/asymmetric-type.h>
+-#include "module-internal.h"
+-
+-struct key *modsign_keyring;
+-
+-extern __initdata const u8 modsign_certificate_list[];
+-extern __initdata const u8 modsign_certificate_list_end[];
+-
+-/*
+- * We need to make sure ccache doesn't cache the .o file as it doesn't notice
+- * if modsign.pub changes.
+- */
+-static __initdata const char annoy_ccache[] = __TIME__ "foo";
+-
+-/*
+- * Load the compiled-in keys
+- */
+-static __init int module_verify_init(void)
+-{
+-	pr_notice("Initialise module verification\n");
+-
+-	modsign_keyring = keyring_alloc(".module_sign",
+-					KUIDT_INIT(0), KGIDT_INIT(0),
+-					current_cred(),
+-					((KEY_POS_ALL & ~KEY_POS_SETATTR) |
+-					 KEY_USR_VIEW | KEY_USR_READ),
+-					KEY_ALLOC_NOT_IN_QUOTA, NULL);
+-	if (IS_ERR(modsign_keyring))
+-		panic("Can't allocate module signing keyring\n");
+-
+-	return 0;
+-}
+-
+-/*
+- * Must be initialised before we try and load the keys into the keyring.
+- */
+-device_initcall(module_verify_init);
+-
+-/*
+- * Load the compiled-in keys
+- */
+-static __init int load_module_signing_keys(void)
+-{
+-	key_ref_t key;
+-	const u8 *p, *end;
+-	size_t plen;
+-
+-	pr_notice("Loading module verification certificates\n");
+-
+-	end = modsign_certificate_list_end;
+-	p = modsign_certificate_list;
+-	while (p < end) {
+-		/* Each cert begins with an ASN.1 SEQUENCE tag and must be more
+-		 * than 256 bytes in size.
+-		 */
+-		if (end - p < 4)
+-			goto dodgy_cert;
+-		if (p[0] != 0x30 &&
+-		    p[1] != 0x82)
+-			goto dodgy_cert;
+-		plen = (p[2] << 8) | p[3];
+-		plen += 4;
+-		if (plen > end - p)
+-			goto dodgy_cert;
+-
+-		key = key_create_or_update(make_key_ref(modsign_keyring, 1),
+-					   "asymmetric",
+-					   NULL,
+-					   p,
+-					   plen,
+-					   (KEY_POS_ALL & ~KEY_POS_SETATTR) |
+-					   KEY_USR_VIEW,
+-					   KEY_ALLOC_NOT_IN_QUOTA);
+-		if (IS_ERR(key))
+-			pr_err("MODSIGN: Problem loading in-kernel X.509 certificate (%ld)\n",
+-			       PTR_ERR(key));
+-		else
+-			pr_notice("MODSIGN: Loaded cert '%s'\n",
+-				  key_ref_to_ptr(key)->description);
+-		p += plen;
+-	}
+-
+-	return 0;
+-
+-dodgy_cert:
+-	pr_err("MODSIGN: Problem parsing in-kernel X.509 certificate list\n");
+-	return 0;
+-}
+-late_initcall(load_module_signing_keys);
+diff --git a/kernel/module-internal.h b/kernel/module-internal.h
+index 24f9247..915e123 100644
+--- a/kernel/module-internal.h
++++ b/kernel/module-internal.h
+@@ -9,6 +9,4 @@
+  * 2 of the Licence, or (at your option) any later version.
+  */
+ 
+-extern struct key *modsign_keyring;
+-
+ extern int mod_verify_sig(const void *mod, unsigned long *_modlen);
+diff --git a/kernel/module_signing.c b/kernel/module_signing.c
+index f2970bd..0034e36 100644
+--- a/kernel/module_signing.c
++++ b/kernel/module_signing.c
+@@ -14,6 +14,7 @@
+ #include <crypto/public_key.h>
+ #include <crypto/hash.h>
+ #include <keys/asymmetric-type.h>
++#include <keys/system_keyring.h>
+ #include "module-internal.h"
+ 
+ /*
+@@ -157,7 +158,7 @@ static struct key *request_asymmetric_key(const char *signer, size_t signer_len,
+ 
+ 	pr_debug("Look up: \"%s\"\n", id);
+ 
+-	key = keyring_search(make_key_ref(modsign_keyring, 1),
++	key = keyring_search(make_key_ref(system_trusted_keyring, 1),
+ 			     &key_type_asymmetric, id);
+ 	if (IS_ERR(key))
+ 		pr_warn("Request for unknown module key '%s' err %ld\n",
+diff --git a/kernel/system_certificates.S b/kernel/system_certificates.S
+new file mode 100644
+index 0000000..86240df
+--- /dev/null
++++ b/kernel/system_certificates.S
+@@ -0,0 +1,18 @@
++/* SYMBOL_PREFIX defined on commandline from CONFIG_SYMBOL_PREFIX */
++#ifndef SYMBOL_PREFIX
++#define ASM_SYMBOL(sym) sym
++#else
++#define PASTE2(x,y) x##y
++#define PASTE(x,y) PASTE2(x,y)
++#define ASM_SYMBOL(sym) PASTE(SYMBOL_PREFIX, sym)
++#endif
++
++#define GLOBAL(name)	\
++	.globl ASM_SYMBOL(name);	\
++	ASM_SYMBOL(name):
++
++	.section ".init.data","aw"
++
++GLOBAL(system_certificate_list)
++	.incbin "kernel/x509_certificate_list"
++GLOBAL(system_certificate_list_end)
+diff --git a/kernel/system_keyring.c b/kernel/system_keyring.c
+new file mode 100644
+index 0000000..a3ca76f
+--- /dev/null
++++ b/kernel/system_keyring.c
+@@ -0,0 +1,101 @@
++/* System trusted keyring for trusted public keys
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#include <linux/export.h>
++#include <linux/kernel.h>
++#include <linux/sched.h>
++#include <linux/cred.h>
++#include <linux/err.h>
++#include <keys/asymmetric-type.h>
++#include <keys/system_keyring.h>
++#include "module-internal.h"
++
++struct key *system_trusted_keyring;
++EXPORT_SYMBOL_GPL(system_trusted_keyring);
++
++extern __initdata const u8 system_certificate_list[];
++extern __initdata const u8 system_certificate_list_end[];
++
++/*
++ * Load the compiled-in keys
++ */
++static __init int system_trusted_keyring_init(void)
++{
++	pr_notice("Initialise system trusted keyring\n");
++
++	system_trusted_keyring =
++		keyring_alloc(".system_keyring",
++			      KUIDT_INIT(0), KGIDT_INIT(0), current_cred(),
++			      ((KEY_POS_ALL & ~KEY_POS_SETATTR) |
++			       KEY_USR_VIEW | KEY_USR_READ),
++			      KEY_ALLOC_NOT_IN_QUOTA, NULL);
++	if (IS_ERR(system_trusted_keyring))
++		panic("Can't allocate system trusted keyring\n");
++
++	return 0;
++}
++
++/*
++ * Must be initialised before we try and load the keys into the keyring.
++ */
++device_initcall(system_trusted_keyring_init);
++
++/*
++ * Load the compiled-in list of X.509 certificates.
++ */
++static __init int load_system_certificate_list(void)
++{
++	key_ref_t key;
++	const u8 *p, *end;
++	size_t plen;
++
++	pr_notice("Loading compiled-in X.509 certificates\n");
++
++	end = system_certificate_list_end;
++	p = system_certificate_list;
++	while (p < end) {
++		/* Each cert begins with an ASN.1 SEQUENCE tag and must be more
++		 * than 256 bytes in size.
++		 */
++		if (end - p < 4)
++			goto dodgy_cert;
++		if (p[0] != 0x30 &&
++		    p[1] != 0x82)
++			goto dodgy_cert;
++		plen = (p[2] << 8) | p[3];
++		plen += 4;
++		if (plen > end - p)
++			goto dodgy_cert;
++
++		key = key_create_or_update(make_key_ref(system_trusted_keyring, 1),
++					   "asymmetric",
++					   NULL,
++					   p,
++					   plen,
++					   (KEY_POS_ALL & ~KEY_POS_SETATTR) |
++					   KEY_USR_VIEW,
++					   KEY_ALLOC_NOT_IN_QUOTA);
++		if (IS_ERR(key))
++			pr_err("Problem loading in-kernel X.509 certificate (%ld)\n",
++			       PTR_ERR(key));
++		else
++			pr_notice("Loaded X.509 cert '%s'\n",
++				  key_ref_to_ptr(key)->description);
++		p += plen;
++	}
++
++	return 0;
++
++dodgy_cert:
++	pr_err("Problem parsing in-kernel X.509 certificate list\n");
++	return 0;
++}
++late_initcall(load_system_certificate_list);
+-- 
+1.8.1.4
+
+
+From 4e2b0f425d73360fc40b8719b36e6e3ca94d458e Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Thu, 17 Jan 2013 16:25:00 +0000
+Subject: [PATCH 03/47] KEYS: Add a 'trusted' flag and a 'trusted only' flag
+
+Add KEY_FLAG_TRUSTED to indicate that a key either comes from a trusted source
+or had a cryptographic signature chain that led back to a trusted key the
+kernel already possessed.
+
+Add KEY_FLAGS_TRUSTED_ONLY to indicate that a keyring will only accept links to
+keys marked with KEY_FLAGS_TRUSTED.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ include/linux/key-type.h | 1 +
+ include/linux/key.h      | 3 +++
+ kernel/system_keyring.c  | 4 +++-
+ security/keys/key.c      | 8 ++++++++
+ security/keys/keyring.c  | 4 ++++
+ 5 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/key-type.h b/include/linux/key-type.h
+index 518a53a..f942b2d 100644
+--- a/include/linux/key-type.h
++++ b/include/linux/key-type.h
+@@ -45,6 +45,7 @@ struct key_preparsed_payload {
+ 	const void	*data;		/* Raw data */
+ 	size_t		datalen;	/* Raw datalen */
+ 	size_t		quotalen;	/* Quota length for proposed payload */
++	bool		trusted;	/* True if key is trusted */
+ };
+ 
+ typedef int (*request_key_actor_t)(struct key_construction *key,
+diff --git a/include/linux/key.h b/include/linux/key.h
+index 4dfde11..0b32a09 100644
+--- a/include/linux/key.h
++++ b/include/linux/key.h
+@@ -162,6 +162,8 @@ struct key {
+ #define KEY_FLAG_NEGATIVE	5	/* set if key is negative */
+ #define KEY_FLAG_ROOT_CAN_CLEAR	6	/* set if key can be cleared by root without permission */
+ #define KEY_FLAG_INVALIDATED	7	/* set if key has been invalidated */
++#define KEY_FLAG_TRUSTED	8	/* set if key is trusted */
++#define KEY_FLAG_TRUSTED_ONLY	9	/* set if keyring only accepts links to trusted keys */
+ 
+ 	/* the description string
+ 	 * - this is used to match a key against search criteria
+@@ -203,6 +205,7 @@ extern struct key *key_alloc(struct key_type *type,
+ #define KEY_ALLOC_IN_QUOTA	0x0000	/* add to quota, reject if would overrun */
+ #define KEY_ALLOC_QUOTA_OVERRUN	0x0001	/* add to quota, permit even if overrun */
+ #define KEY_ALLOC_NOT_IN_QUOTA	0x0002	/* not in quota */
++#define KEY_ALLOC_TRUSTED	0x0004	/* Key should be flagged as trusted */
+ 
+ extern void key_revoke(struct key *key);
+ extern void key_invalidate(struct key *key);
+diff --git a/kernel/system_keyring.c b/kernel/system_keyring.c
+index a3ca76f..dae8778 100644
+--- a/kernel/system_keyring.c
++++ b/kernel/system_keyring.c
+@@ -40,6 +40,7 @@ static __init int system_trusted_keyring_init(void)
+ 	if (IS_ERR(system_trusted_keyring))
+ 		panic("Can't allocate system trusted keyring\n");
+ 
++	set_bit(KEY_FLAG_TRUSTED_ONLY, &system_trusted_keyring->flags);
+ 	return 0;
+ }
+ 
+@@ -82,7 +83,8 @@ static __init int load_system_certificate_list(void)
+ 					   plen,
+ 					   (KEY_POS_ALL & ~KEY_POS_SETATTR) |
+ 					   KEY_USR_VIEW,
+-					   KEY_ALLOC_NOT_IN_QUOTA);
++					   KEY_ALLOC_NOT_IN_QUOTA |
++					   KEY_ALLOC_TRUSTED);
+ 		if (IS_ERR(key))
+ 			pr_err("Problem loading in-kernel X.509 certificate (%ld)\n",
+ 			       PTR_ERR(key));
+diff --git a/security/keys/key.c b/security/keys/key.c
+index 8fb7c7b..f3de9e4 100644
+--- a/security/keys/key.c
++++ b/security/keys/key.c
+@@ -299,6 +299,8 @@ struct key *key_alloc(struct key_type *type, const char *desc,
+ 
+ 	if (!(flags & KEY_ALLOC_NOT_IN_QUOTA))
+ 		key->flags |= 1 << KEY_FLAG_IN_QUOTA;
++	if (flags & KEY_ALLOC_TRUSTED)
++		key->flags |= 1 << KEY_FLAG_TRUSTED;
+ 
+ 	memset(&key->type_data, 0, sizeof(key->type_data));
+ 
+@@ -813,6 +815,7 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
+ 	prep.data = payload;
+ 	prep.datalen = plen;
+ 	prep.quotalen = ktype->def_datalen;
++	prep.trusted = flags & KEY_ALLOC_TRUSTED;
+ 	if (ktype->preparse) {
+ 		ret = ktype->preparse(&prep);
+ 		if (ret < 0) {
+@@ -826,6 +829,11 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
+ 			goto error_free_prep;
+ 	}
+ 
++	key_ref = ERR_PTR(-EPERM);
++	if (!prep.trusted && test_bit(KEY_FLAG_TRUSTED_ONLY, &keyring->flags))
++		goto error_free_prep;
++	flags |= prep.trusted ? KEY_ALLOC_TRUSTED : 0;
++
+ 	ret = __key_link_begin(keyring, ktype, description, &prealloc);
+ 	if (ret < 0) {
+ 		key_ref = ERR_PTR(ret);
+diff --git a/security/keys/keyring.c b/security/keys/keyring.c
+index 6ece7f2..f18d7ff 100644
+--- a/security/keys/keyring.c
++++ b/security/keys/keyring.c
+@@ -1006,6 +1006,10 @@ int key_link(struct key *keyring, struct key *key)
+ 	key_check(keyring);
+ 	key_check(key);
+ 
++	if (test_bit(KEY_FLAG_TRUSTED_ONLY, &keyring->flags) &&
++	    !test_bit(KEY_FLAG_TRUSTED, &key->flags))
++		return -EPERM;
++
+ 	ret = __key_link_begin(keyring, key->type, key->description, &prealloc);
+ 	if (ret == 0) {
+ 		ret = __key_link_check_live_key(keyring, key);
+-- 
+1.8.1.4
+
+
+From 3deae827abdd3de9b7976b423279812d7559e580 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:32 +0000
+Subject: [PATCH 04/47] KEYS: Rename public key parameter name arrays
+
+Rename the arrays of public key parameters (public key algorithm names, hash
+algorithm names and ID type names) so that the array name ends in "_name".
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/public_key.c      | 14 +++++++-------
+ crypto/asymmetric_keys/x509_public_key.c |  8 ++++----
+ include/crypto/public_key.h              |  6 +++---
+ kernel/module_signing.c                  |  4 ++--
+ 4 files changed, 16 insertions(+), 16 deletions(-)
+
+diff --git a/crypto/asymmetric_keys/public_key.c b/crypto/asymmetric_keys/public_key.c
+index cb2e291..b313df1 100644
+--- a/crypto/asymmetric_keys/public_key.c
++++ b/crypto/asymmetric_keys/public_key.c
+@@ -22,13 +22,13 @@
+ 
+ MODULE_LICENSE("GPL");
+ 
+-const char *const pkey_algo[PKEY_ALGO__LAST] = {
++const char *const pkey_algo_name[PKEY_ALGO__LAST] = {
+ 	[PKEY_ALGO_DSA]		= "DSA",
+ 	[PKEY_ALGO_RSA]		= "RSA",
+ };
+-EXPORT_SYMBOL_GPL(pkey_algo);
++EXPORT_SYMBOL_GPL(pkey_algo_name);
+ 
+-const char *const pkey_hash_algo[PKEY_HASH__LAST] = {
++const char *const pkey_hash_algo_name[PKEY_HASH__LAST] = {
+ 	[PKEY_HASH_MD4]		= "md4",
+ 	[PKEY_HASH_MD5]		= "md5",
+ 	[PKEY_HASH_SHA1]	= "sha1",
+@@ -38,13 +38,13 @@ const char *const pkey_hash_algo[PKEY_HASH__LAST] = {
+ 	[PKEY_HASH_SHA512]	= "sha512",
+ 	[PKEY_HASH_SHA224]	= "sha224",
+ };
+-EXPORT_SYMBOL_GPL(pkey_hash_algo);
++EXPORT_SYMBOL_GPL(pkey_hash_algo_name);
+ 
+-const char *const pkey_id_type[PKEY_ID_TYPE__LAST] = {
++const char *const pkey_id_type_name[PKEY_ID_TYPE__LAST] = {
+ 	[PKEY_ID_PGP]		= "PGP",
+ 	[PKEY_ID_X509]		= "X509",
+ };
+-EXPORT_SYMBOL_GPL(pkey_id_type);
++EXPORT_SYMBOL_GPL(pkey_id_type_name);
+ 
+ /*
+  * Provide a part of a description of the key for /proc/keys.
+@@ -56,7 +56,7 @@ static void public_key_describe(const struct key *asymmetric_key,
+ 
+ 	if (key)
+ 		seq_printf(m, "%s.%s",
+-			   pkey_id_type[key->id_type], key->algo->name);
++			   pkey_id_type_name[key->id_type], key->algo->name);
+ }
+ 
+ /*
+diff --git a/crypto/asymmetric_keys/x509_public_key.c b/crypto/asymmetric_keys/x509_public_key.c
+index 06007f0..afbbc36 100644
+--- a/crypto/asymmetric_keys/x509_public_key.c
++++ b/crypto/asymmetric_keys/x509_public_key.c
+@@ -49,7 +49,7 @@ static int x509_check_signature(const struct public_key *pub,
+ 	/* Allocate the hashing algorithm we're going to need and find out how
+ 	 * big the hash operational data will be.
+ 	 */
+-	tfm = crypto_alloc_shash(pkey_hash_algo[cert->sig_hash_algo], 0, 0);
++	tfm = crypto_alloc_shash(pkey_hash_algo_name[cert->sig_hash_algo], 0, 0);
+ 	if (IS_ERR(tfm))
+ 		return (PTR_ERR(tfm) == -ENOENT) ? -ENOPKG : PTR_ERR(tfm);
+ 
+@@ -117,7 +117,7 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 
+ 	pr_devel("Cert Issuer: %s\n", cert->issuer);
+ 	pr_devel("Cert Subject: %s\n", cert->subject);
+-	pr_devel("Cert Key Algo: %s\n", pkey_algo[cert->pkey_algo]);
++	pr_devel("Cert Key Algo: %s\n", pkey_algo_name[cert->pkey_algo]);
+ 	pr_devel("Cert Valid From: %04ld-%02d-%02d %02d:%02d:%02d\n",
+ 		 cert->valid_from.tm_year + 1900, cert->valid_from.tm_mon + 1,
+ 		 cert->valid_from.tm_mday, cert->valid_from.tm_hour,
+@@ -127,8 +127,8 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 		 cert->valid_to.tm_mday, cert->valid_to.tm_hour,
+ 		 cert->valid_to.tm_min,  cert->valid_to.tm_sec);
+ 	pr_devel("Cert Signature: %s + %s\n",
+-		 pkey_algo[cert->sig_pkey_algo],
+-		 pkey_hash_algo[cert->sig_hash_algo]);
++		 pkey_algo_name[cert->sig_pkey_algo],
++		 pkey_hash_algo_name[cert->sig_hash_algo]);
+ 
+ 	if (!cert->fingerprint || !cert->authority) {
+ 		pr_warn("Cert for '%s' must have SubjKeyId and AuthKeyId extensions\n",
+diff --git a/include/crypto/public_key.h b/include/crypto/public_key.h
+index f5b0224..619d570 100644
+--- a/include/crypto/public_key.h
++++ b/include/crypto/public_key.h
+@@ -22,7 +22,7 @@ enum pkey_algo {
+ 	PKEY_ALGO__LAST
+ };
+ 
+-extern const char *const pkey_algo[PKEY_ALGO__LAST];
++extern const char *const pkey_algo_name[PKEY_ALGO__LAST];
+ 
+ enum pkey_hash_algo {
+ 	PKEY_HASH_MD4,
+@@ -36,7 +36,7 @@ enum pkey_hash_algo {
+ 	PKEY_HASH__LAST
+ };
+ 
+-extern const char *const pkey_hash_algo[PKEY_HASH__LAST];
++extern const char *const pkey_hash_algo_name[PKEY_HASH__LAST];
+ 
+ enum pkey_id_type {
+ 	PKEY_ID_PGP,		/* OpenPGP generated key ID */
+@@ -44,7 +44,7 @@ enum pkey_id_type {
+ 	PKEY_ID_TYPE__LAST
+ };
+ 
+-extern const char *const pkey_id_type[PKEY_ID_TYPE__LAST];
++extern const char *const pkey_id_type_name[PKEY_ID_TYPE__LAST];
+ 
+ /*
+  * Cryptographic data for the public-key subtype of the asymmetric key type.
+diff --git a/kernel/module_signing.c b/kernel/module_signing.c
+index 0034e36..0b6b870 100644
+--- a/kernel/module_signing.c
++++ b/kernel/module_signing.c
+@@ -55,7 +55,7 @@ static struct public_key_signature *mod_make_digest(enum pkey_hash_algo hash,
+ 	/* Allocate the hashing algorithm we're going to need and find out how
+ 	 * big the hash operational data will be.
+ 	 */
+-	tfm = crypto_alloc_shash(pkey_hash_algo[hash], 0, 0);
++	tfm = crypto_alloc_shash(pkey_hash_algo_name[hash], 0, 0);
+ 	if (IS_ERR(tfm))
+ 		return (PTR_ERR(tfm) == -ENOENT) ? ERR_PTR(-ENOPKG) : ERR_CAST(tfm);
+ 
+@@ -218,7 +218,7 @@ int mod_verify_sig(const void *mod, unsigned long *_modlen)
+ 		return -ENOPKG;
+ 
+ 	if (ms.hash >= PKEY_HASH__LAST ||
+-	    !pkey_hash_algo[ms.hash])
++	    !pkey_hash_algo_name[ms.hash])
+ 		return -ENOPKG;
+ 
+ 	key = request_asymmetric_key(sig, ms.signer_len,
+-- 
+1.8.1.4
+
+
+From 2acf1a703de1213ad85515a71873f57535dc057d Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:33 +0000
+Subject: [PATCH 05/47] KEYS: Move the algorithm pointer array from x509 to
+ public_key.c
+
+Move the public-key algorithm pointer array from x509_public_key.c to
+public_key.c as it isn't X.509 specific.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/public_key.c      |  8 ++++++++
+ crypto/asymmetric_keys/x509_public_key.c | 11 +----------
+ include/crypto/public_key.h              |  1 +
+ 3 files changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/crypto/asymmetric_keys/public_key.c b/crypto/asymmetric_keys/public_key.c
+index b313df1..796ce08 100644
+--- a/crypto/asymmetric_keys/public_key.c
++++ b/crypto/asymmetric_keys/public_key.c
+@@ -28,6 +28,14 @@ const char *const pkey_algo_name[PKEY_ALGO__LAST] = {
+ };
+ EXPORT_SYMBOL_GPL(pkey_algo_name);
+ 
++const struct public_key_algorithm *pkey_algo[PKEY_ALGO__LAST] = {
++#if defined(CONFIG_PUBLIC_KEY_ALGO_RSA) || \
++	defined(CONFIG_PUBLIC_KEY_ALGO_RSA_MODULE)
++	[PKEY_ALGO_RSA]		= &RSA_public_key_algorithm,
++#endif
++};
++EXPORT_SYMBOL_GPL(pkey_algo);
++
+ const char *const pkey_hash_algo_name[PKEY_HASH__LAST] = {
+ 	[PKEY_HASH_MD4]		= "md4",
+ 	[PKEY_HASH_MD5]		= "md5",
+diff --git a/crypto/asymmetric_keys/x509_public_key.c b/crypto/asymmetric_keys/x509_public_key.c
+index afbbc36..fe38628 100644
+--- a/crypto/asymmetric_keys/x509_public_key.c
++++ b/crypto/asymmetric_keys/x509_public_key.c
+@@ -23,15 +23,6 @@
+ #include "public_key.h"
+ #include "x509_parser.h"
+ 
+-static const
+-struct public_key_algorithm *x509_public_key_algorithms[PKEY_ALGO__LAST] = {
+-	[PKEY_ALGO_DSA]		= NULL,
+-#if defined(CONFIG_PUBLIC_KEY_ALGO_RSA) || \
+-	defined(CONFIG_PUBLIC_KEY_ALGO_RSA_MODULE)
+-	[PKEY_ALGO_RSA]		= &RSA_public_key_algorithm,
+-#endif
+-};
+-
+ /*
+  * Check the signature on a certificate using the provided public key
+  */
+@@ -174,7 +165,7 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 		goto error_free_cert;
+ 	}
+ 
+-	cert->pub->algo = x509_public_key_algorithms[cert->pkey_algo];
++	cert->pub->algo = pkey_algo[cert->pkey_algo];
+ 	cert->pub->id_type = PKEY_ID_X509;
+ 
+ 	/* Check the signature on the key */
+diff --git a/include/crypto/public_key.h b/include/crypto/public_key.h
+index 619d570..46bde25 100644
+--- a/include/crypto/public_key.h
++++ b/include/crypto/public_key.h
+@@ -23,6 +23,7 @@ enum pkey_algo {
+ };
+ 
+ extern const char *const pkey_algo_name[PKEY_ALGO__LAST];
++extern const struct public_key_algorithm *pkey_algo[PKEY_ALGO__LAST];
+ 
+ enum pkey_hash_algo {
+ 	PKEY_HASH_MD4,
+-- 
+1.8.1.4
+
+
+From 3cc2c6f01277dfa00106c3e4f3f3ab8184025b90 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:33 +0000
+Subject: [PATCH 06/47] KEYS: Store public key algo ID in public_key struct
+
+Store public key algo ID in public_key struct for reference purposes.  This
+allows it to be removed from the x509_certificate struct and used to find a
+default in public_key_verify_signature().
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/x509_cert_parser.c | 5 +++--
+ crypto/asymmetric_keys/x509_parser.h      | 1 -
+ crypto/asymmetric_keys/x509_public_key.c  | 4 ++--
+ include/crypto/public_key.h               | 1 +
+ 4 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/crypto/asymmetric_keys/x509_cert_parser.c b/crypto/asymmetric_keys/x509_cert_parser.c
+index 7fabc4c..a583930 100644
+--- a/crypto/asymmetric_keys/x509_cert_parser.c
++++ b/crypto/asymmetric_keys/x509_cert_parser.c
+@@ -343,8 +343,9 @@ int x509_extract_key_data(void *context, size_t hdrlen,
+ 	if (ctx->last_oid != OID_rsaEncryption)
+ 		return -ENOPKG;
+ 
+-	/* There seems to be an extraneous 0 byte on the front of the data */
+-	ctx->cert->pkey_algo = PKEY_ALGO_RSA;
++	ctx->cert->pub->pkey_algo = PKEY_ALGO_RSA;
++
++	/* Discard the BIT STRING metadata */
+ 	ctx->key = value + 1;
+ 	ctx->key_size = vlen - 1;
+ 	return 0;
+diff --git a/crypto/asymmetric_keys/x509_parser.h b/crypto/asymmetric_keys/x509_parser.h
+index f86dc5f..e583ad0 100644
+--- a/crypto/asymmetric_keys/x509_parser.h
++++ b/crypto/asymmetric_keys/x509_parser.h
+@@ -20,7 +20,6 @@ struct x509_certificate {
+ 	char		*authority;		/* Authority key fingerprint as hex */
+ 	struct tm	valid_from;
+ 	struct tm	valid_to;
+-	enum pkey_algo	pkey_algo : 8;		/* Public key algorithm */
+ 	enum pkey_algo	sig_pkey_algo : 8;	/* Signature public key algorithm */
+ 	enum pkey_hash_algo sig_hash_algo : 8;	/* Signature hash algorithm */
+ 	const void	*tbs;			/* Signed data */
+diff --git a/crypto/asymmetric_keys/x509_public_key.c b/crypto/asymmetric_keys/x509_public_key.c
+index fe38628..fac574c 100644
+--- a/crypto/asymmetric_keys/x509_public_key.c
++++ b/crypto/asymmetric_keys/x509_public_key.c
+@@ -108,7 +108,7 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 
+ 	pr_devel("Cert Issuer: %s\n", cert->issuer);
+ 	pr_devel("Cert Subject: %s\n", cert->subject);
+-	pr_devel("Cert Key Algo: %s\n", pkey_algo_name[cert->pkey_algo]);
++	pr_devel("Cert Key Algo: %s\n", pkey_algo_name[cert->pub->pkey_algo]);
+ 	pr_devel("Cert Valid From: %04ld-%02d-%02d %02d:%02d:%02d\n",
+ 		 cert->valid_from.tm_year + 1900, cert->valid_from.tm_mon + 1,
+ 		 cert->valid_from.tm_mday, cert->valid_from.tm_hour,
+@@ -165,7 +165,7 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 		goto error_free_cert;
+ 	}
+ 
+-	cert->pub->algo = pkey_algo[cert->pkey_algo];
++	cert->pub->algo = pkey_algo[cert->pub->pkey_algo];
+ 	cert->pub->id_type = PKEY_ID_X509;
+ 
+ 	/* Check the signature on the key */
+diff --git a/include/crypto/public_key.h b/include/crypto/public_key.h
+index 46bde25..05778df 100644
+--- a/include/crypto/public_key.h
++++ b/include/crypto/public_key.h
+@@ -60,6 +60,7 @@ struct public_key {
+ #define PKEY_CAN_DECRYPT	0x02
+ #define PKEY_CAN_SIGN		0x04
+ #define PKEY_CAN_VERIFY		0x08
++	enum pkey_algo pkey_algo : 8;
+ 	enum pkey_id_type id_type : 8;
+ 	union {
+ 		MPI	mpi[5];
+-- 
+1.8.1.4
+
+
+From 7dcc63793a873198d3b3c4299f896e2896292d84 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:34 +0000
+Subject: [PATCH 07/47] KEYS: Split public_key_verify_signature() and make
+ available
+
+Modify public_key_verify_signature() so that it now takes a public_key struct
+rather than a key struct and supply a wrapper that takes a key struct.  The
+wrapper is then used by the asymmetric key subtype and the modified function is
+used by X.509 self-signature checking and can be used by PKCS#7 also.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/public_key.c      | 40 +++++++++++++++++++++++++-------
+ crypto/asymmetric_keys/public_key.h      |  6 +++++
+ crypto/asymmetric_keys/x509_public_key.c |  2 +-
+ 3 files changed, 39 insertions(+), 9 deletions(-)
+
+diff --git a/crypto/asymmetric_keys/public_key.c b/crypto/asymmetric_keys/public_key.c
+index 796ce08..49ac8d8 100644
+--- a/crypto/asymmetric_keys/public_key.c
++++ b/crypto/asymmetric_keys/public_key.c
+@@ -86,21 +86,45 @@ EXPORT_SYMBOL_GPL(public_key_destroy);
+ /*
+  * Verify a signature using a public key.
+  */
+-static int public_key_verify_signature(const struct key *key,
+-				       const struct public_key_signature *sig)
++int public_key_verify_signature(const struct public_key *pk,
++				const struct public_key_signature *sig)
+ {
+-	const struct public_key *pk = key->payload.data;
++	const struct public_key_algorithm *algo;
++
++	BUG_ON(!pk);
++	BUG_ON(!pk->mpi[0]);
++	BUG_ON(!pk->mpi[1]);
++	BUG_ON(!sig);
++	BUG_ON(!sig->digest);
++	BUG_ON(!sig->mpi[0]);
++
++	algo = pk->algo;
++	if (!algo) {
++		if (pk->pkey_algo >= PKEY_ALGO__LAST)
++			return -ENOPKG;
++		algo = pkey_algo[pk->pkey_algo];
++		if (!algo)
++			return -ENOPKG;
++	}
+ 
+-	if (!pk->algo->verify_signature)
++	if (!algo->verify_signature)
+ 		return -ENOTSUPP;
+ 
+-	if (sig->nr_mpi != pk->algo->n_sig_mpi) {
++	if (sig->nr_mpi != algo->n_sig_mpi) {
+ 		pr_debug("Signature has %u MPI not %u\n",
+-			 sig->nr_mpi, pk->algo->n_sig_mpi);
++			 sig->nr_mpi, algo->n_sig_mpi);
+ 		return -EINVAL;
+ 	}
+ 
+-	return pk->algo->verify_signature(pk, sig);
++	return algo->verify_signature(pk, sig);
++}
++EXPORT_SYMBOL_GPL(public_key_verify_signature);
++
++static int public_key_verify_signature_2(const struct key *key,
++					 const struct public_key_signature *sig)
++{
++	const struct public_key *pk = key->payload.data;
++	return public_key_verify_signature(pk, sig);
+ }
+ 
+ /*
+@@ -111,6 +135,6 @@ struct asymmetric_key_subtype public_key_subtype = {
+ 	.name			= "public_key",
+ 	.describe		= public_key_describe,
+ 	.destroy		= public_key_destroy,
+-	.verify_signature	= public_key_verify_signature,
++	.verify_signature	= public_key_verify_signature_2,
+ };
+ EXPORT_SYMBOL_GPL(public_key_subtype);
+diff --git a/crypto/asymmetric_keys/public_key.h b/crypto/asymmetric_keys/public_key.h
+index 5e5e356..5c37a22 100644
+--- a/crypto/asymmetric_keys/public_key.h
++++ b/crypto/asymmetric_keys/public_key.h
+@@ -28,3 +28,9 @@ struct public_key_algorithm {
+ };
+ 
+ extern const struct public_key_algorithm RSA_public_key_algorithm;
++
++/*
++ * public_key.c
++ */
++extern int public_key_verify_signature(const struct public_key *pk,
++				       const struct public_key_signature *sig);
+diff --git a/crypto/asymmetric_keys/x509_public_key.c b/crypto/asymmetric_keys/x509_public_key.c
+index fac574c..8cb2f70 100644
+--- a/crypto/asymmetric_keys/x509_public_key.c
++++ b/crypto/asymmetric_keys/x509_public_key.c
+@@ -76,7 +76,7 @@ static int x509_check_signature(const struct public_key *pub,
+ 	if (ret < 0)
+ 		goto error_mpi;
+ 
+-	ret = pub->algo->verify_signature(pub, sig);
++	ret = public_key_verify_signature(pub, sig);
+ 
+ 	pr_debug("Cert Verification: %d\n", ret);
+ 
+-- 
+1.8.1.4
+
+
+From da18477d1a1987dce0f3c5f78b62e5b223e2bf90 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:35 +0000
+Subject: [PATCH 08/47] KEYS: Store public key algo ID in public_key_signature
+ struct
+
+Store public key algorithm ID in public_key_signature struct for reference
+purposes.  This allows a public_key_signature struct to be embedded in
+struct x509_certificate and struct pkcs7_message more easily.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ include/crypto/public_key.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/include/crypto/public_key.h b/include/crypto/public_key.h
+index 05778df..b34fda4 100644
+--- a/include/crypto/public_key.h
++++ b/include/crypto/public_key.h
+@@ -90,6 +90,7 @@ struct public_key_signature {
+ 	u8 *digest;
+ 	u8 digest_size;			/* Number of bytes in digest */
+ 	u8 nr_mpi;			/* Occupancy of mpi[] */
++	enum pkey_algo pkey_algo : 8;
+ 	enum pkey_hash_algo pkey_hash_algo : 8;
+ 	union {
+ 		MPI mpi[2];
+-- 
+1.8.1.4
+
+
+From 29d80acc90a95ef5614cf36d4e30835bcc014cc4 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:35 +0000
+Subject: [PATCH 09/47] X.509: struct x509_certificate needs struct tm
+ declaring
+
+struct x509_certificate needs struct tm declaring by #inclusion of linux/time.h
+prior to its definition.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/x509_parser.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/crypto/asymmetric_keys/x509_parser.h b/crypto/asymmetric_keys/x509_parser.h
+index e583ad0..2d01182 100644
+--- a/crypto/asymmetric_keys/x509_parser.h
++++ b/crypto/asymmetric_keys/x509_parser.h
+@@ -9,6 +9,7 @@
+  * 2 of the Licence, or (at your option) any later version.
+  */
+ 
++#include <linux/time.h>
+ #include <crypto/public_key.h>
+ 
+ struct x509_certificate {
+-- 
+1.8.1.4
+
+
+From ba3ba9e41abb17a7632075668e4f0a30edb59896 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:35 +0000
+Subject: [PATCH 10/47] X.509: Add bits needed for PKCS#7
+
+PKCS#7 validation requires access to the serial number and the raw names in an
+X.509 certificate.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/x509.asn1          |  2 +-
+ crypto/asymmetric_keys/x509_cert_parser.c | 17 +++++++++++++++++
+ crypto/asymmetric_keys/x509_parser.h      | 10 ++++++++--
+ 3 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/crypto/asymmetric_keys/x509.asn1 b/crypto/asymmetric_keys/x509.asn1
+index bf32b3d..aae0cde 100644
+--- a/crypto/asymmetric_keys/x509.asn1
++++ b/crypto/asymmetric_keys/x509.asn1
+@@ -6,7 +6,7 @@ Certificate ::= SEQUENCE {
+ 
+ TBSCertificate ::= SEQUENCE {
+ 	version           [ 0 ]	Version DEFAULT,
+-	serialNumber		CertificateSerialNumber,
++	serialNumber		CertificateSerialNumber ({ x509_note_serial }),
+ 	signature		AlgorithmIdentifier ({ x509_note_pkey_algo }),
+ 	issuer			Name ({ x509_note_issuer }),
+ 	validity		Validity,
+diff --git a/crypto/asymmetric_keys/x509_cert_parser.c b/crypto/asymmetric_keys/x509_cert_parser.c
+index a583930..08bebf1 100644
+--- a/crypto/asymmetric_keys/x509_cert_parser.c
++++ b/crypto/asymmetric_keys/x509_cert_parser.c
+@@ -209,6 +209,19 @@ int x509_note_signature(void *context, size_t hdrlen,
+ }
+ 
+ /*
++ * Note the certificate serial number
++ */
++int x509_note_serial(void *context, size_t hdrlen,
++		     unsigned char tag,
++		     const void *value, size_t vlen)
++{
++	struct x509_parse_context *ctx = context;
++	ctx->cert->raw_serial = value;
++	ctx->cert->raw_serial_size = vlen;
++	return 0;
++}
++
++/*
+  * Note some of the name segments from which we'll fabricate a name.
+  */
+ int x509_extract_name_segment(void *context, size_t hdrlen,
+@@ -320,6 +333,8 @@ int x509_note_issuer(void *context, size_t hdrlen,
+ 		     const void *value, size_t vlen)
+ {
+ 	struct x509_parse_context *ctx = context;
++	ctx->cert->raw_issuer = value;
++	ctx->cert->raw_issuer_size = vlen;
+ 	return x509_fabricate_name(ctx, hdrlen, tag, &ctx->cert->issuer, vlen);
+ }
+ 
+@@ -328,6 +343,8 @@ int x509_note_subject(void *context, size_t hdrlen,
+ 		      const void *value, size_t vlen)
+ {
+ 	struct x509_parse_context *ctx = context;
++	ctx->cert->raw_subject = value;
++	ctx->cert->raw_subject_size = vlen;
+ 	return x509_fabricate_name(ctx, hdrlen, tag, &ctx->cert->subject, vlen);
+ }
+ 
+diff --git a/crypto/asymmetric_keys/x509_parser.h b/crypto/asymmetric_keys/x509_parser.h
+index 2d01182..a6ce46f 100644
+--- a/crypto/asymmetric_keys/x509_parser.h
++++ b/crypto/asymmetric_keys/x509_parser.h
+@@ -24,9 +24,15 @@ struct x509_certificate {
+ 	enum pkey_algo	sig_pkey_algo : 8;	/* Signature public key algorithm */
+ 	enum pkey_hash_algo sig_hash_algo : 8;	/* Signature hash algorithm */
+ 	const void	*tbs;			/* Signed data */
+-	size_t		tbs_size;		/* Size of signed data */
++	unsigned	tbs_size;		/* Size of signed data */
++	unsigned	sig_size;		/* Size of sigature */
+ 	const void	*sig;			/* Signature data */
+-	size_t		sig_size;		/* Size of sigature */
++	const void	*raw_serial;		/* Raw serial number in ASN.1 */
++	unsigned	raw_serial_size;
++	unsigned	raw_issuer_size;
++	const void	*raw_issuer;		/* Raw issuer name in ASN.1 */
++	const void	*raw_subject;		/* Raw subject name in ASN.1 */
++	unsigned	raw_subject_size;
+ };
+ 
+ /*
+-- 
+1.8.1.4
+
+
+From 4d2f837ab3629d5b4b3bac2bbdbdf2d0060e74a8 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:36 +0000
+Subject: [PATCH 11/47] X.509: Embed public_key_signature struct and create
+ filler function
+
+Embed a public_key_signature struct in struct x509_certificate, eliminating
+now unnecessary fields, and split x509_check_signature() to create a filler
+function for it that attaches a digest of the signed data and an MPI that
+represents the signature data.  x509_free_certificate() is then modified to
+deal with these.
+
+Whilst we're at it, export both x509_check_signature() and the new
+x509_get_sig_params().
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/x509_cert_parser.c | 30 +++++------
+ crypto/asymmetric_keys/x509_parser.h      | 14 ++++--
+ crypto/asymmetric_keys/x509_public_key.c  | 83 +++++++++++++++++--------------
+ 3 files changed, 73 insertions(+), 54 deletions(-)
+
+diff --git a/crypto/asymmetric_keys/x509_cert_parser.c b/crypto/asymmetric_keys/x509_cert_parser.c
+index 08bebf1..931f069 100644
+--- a/crypto/asymmetric_keys/x509_cert_parser.c
++++ b/crypto/asymmetric_keys/x509_cert_parser.c
+@@ -47,6 +47,8 @@ void x509_free_certificate(struct x509_certificate *cert)
+ 		kfree(cert->subject);
+ 		kfree(cert->fingerprint);
+ 		kfree(cert->authority);
++		kfree(cert->sig.digest);
++		mpi_free(cert->sig.rsa.s);
+ 		kfree(cert);
+ 	}
+ }
+@@ -152,33 +154,33 @@ int x509_note_pkey_algo(void *context, size_t hdrlen,
+ 		return -ENOPKG; /* Unsupported combination */
+ 
+ 	case OID_md4WithRSAEncryption:
+-		ctx->cert->sig_hash_algo = PKEY_HASH_MD5;
+-		ctx->cert->sig_pkey_algo = PKEY_ALGO_RSA;
++		ctx->cert->sig.pkey_hash_algo = PKEY_HASH_MD5;
++		ctx->cert->sig.pkey_algo = PKEY_ALGO_RSA;
+ 		break;
+ 
+ 	case OID_sha1WithRSAEncryption:
+-		ctx->cert->sig_hash_algo = PKEY_HASH_SHA1;
+-		ctx->cert->sig_pkey_algo = PKEY_ALGO_RSA;
++		ctx->cert->sig.pkey_hash_algo = PKEY_HASH_SHA1;
++		ctx->cert->sig.pkey_algo = PKEY_ALGO_RSA;
+ 		break;
+ 
+ 	case OID_sha256WithRSAEncryption:
+-		ctx->cert->sig_hash_algo = PKEY_HASH_SHA256;
+-		ctx->cert->sig_pkey_algo = PKEY_ALGO_RSA;
++		ctx->cert->sig.pkey_hash_algo = PKEY_HASH_SHA256;
++		ctx->cert->sig.pkey_algo = PKEY_ALGO_RSA;
+ 		break;
+ 
+ 	case OID_sha384WithRSAEncryption:
+-		ctx->cert->sig_hash_algo = PKEY_HASH_SHA384;
+-		ctx->cert->sig_pkey_algo = PKEY_ALGO_RSA;
++		ctx->cert->sig.pkey_hash_algo = PKEY_HASH_SHA384;
++		ctx->cert->sig.pkey_algo = PKEY_ALGO_RSA;
+ 		break;
+ 
+ 	case OID_sha512WithRSAEncryption:
+-		ctx->cert->sig_hash_algo = PKEY_HASH_SHA512;
+-		ctx->cert->sig_pkey_algo = PKEY_ALGO_RSA;
++		ctx->cert->sig.pkey_hash_algo = PKEY_HASH_SHA512;
++		ctx->cert->sig.pkey_algo = PKEY_ALGO_RSA;
+ 		break;
+ 
+ 	case OID_sha224WithRSAEncryption:
+-		ctx->cert->sig_hash_algo = PKEY_HASH_SHA224;
+-		ctx->cert->sig_pkey_algo = PKEY_ALGO_RSA;
++		ctx->cert->sig.pkey_hash_algo = PKEY_HASH_SHA224;
++		ctx->cert->sig.pkey_algo = PKEY_ALGO_RSA;
+ 		break;
+ 	}
+ 
+@@ -203,8 +205,8 @@ int x509_note_signature(void *context, size_t hdrlen,
+ 		return -EINVAL;
+ 	}
+ 
+-	ctx->cert->sig = value;
+-	ctx->cert->sig_size = vlen;
++	ctx->cert->raw_sig = value;
++	ctx->cert->raw_sig_size = vlen;
+ 	return 0;
+ }
+ 
+diff --git a/crypto/asymmetric_keys/x509_parser.h b/crypto/asymmetric_keys/x509_parser.h
+index a6ce46f..6b1d877 100644
+--- a/crypto/asymmetric_keys/x509_parser.h
++++ b/crypto/asymmetric_keys/x509_parser.h
+@@ -21,18 +21,17 @@ struct x509_certificate {
+ 	char		*authority;		/* Authority key fingerprint as hex */
+ 	struct tm	valid_from;
+ 	struct tm	valid_to;
+-	enum pkey_algo	sig_pkey_algo : 8;	/* Signature public key algorithm */
+-	enum pkey_hash_algo sig_hash_algo : 8;	/* Signature hash algorithm */
+ 	const void	*tbs;			/* Signed data */
+ 	unsigned	tbs_size;		/* Size of signed data */
+-	unsigned	sig_size;		/* Size of sigature */
+-	const void	*sig;			/* Signature data */
++	unsigned	raw_sig_size;		/* Size of sigature */
++	const void	*raw_sig;		/* Signature data */
+ 	const void	*raw_serial;		/* Raw serial number in ASN.1 */
+ 	unsigned	raw_serial_size;
+ 	unsigned	raw_issuer_size;
+ 	const void	*raw_issuer;		/* Raw issuer name in ASN.1 */
+ 	const void	*raw_subject;		/* Raw subject name in ASN.1 */
+ 	unsigned	raw_subject_size;
++	struct public_key_signature sig;	/* Signature parameters */
+ };
+ 
+ /*
+@@ -40,3 +39,10 @@ struct x509_certificate {
+  */
+ extern void x509_free_certificate(struct x509_certificate *cert);
+ extern struct x509_certificate *x509_cert_parse(const void *data, size_t datalen);
++
++/*
++ * x509_public_key.c
++ */
++extern int x509_get_sig_params(struct x509_certificate *cert);
++extern int x509_check_signature(const struct public_key *pub,
++				struct x509_certificate *cert);
+diff --git a/crypto/asymmetric_keys/x509_public_key.c b/crypto/asymmetric_keys/x509_public_key.c
+index 8cb2f70..b7c81d8 100644
+--- a/crypto/asymmetric_keys/x509_public_key.c
++++ b/crypto/asymmetric_keys/x509_public_key.c
+@@ -24,72 +24,83 @@
+ #include "x509_parser.h"
+ 
+ /*
+- * Check the signature on a certificate using the provided public key
++ * Set up the signature parameters in an X.509 certificate.  This involves
++ * digesting the signed data and extracting the signature.
+  */
+-static int x509_check_signature(const struct public_key *pub,
+-				const struct x509_certificate *cert)
++int x509_get_sig_params(struct x509_certificate *cert)
+ {
+-	struct public_key_signature *sig;
+ 	struct crypto_shash *tfm;
+ 	struct shash_desc *desc;
+ 	size_t digest_size, desc_size;
++	void *digest;
+ 	int ret;
+ 
+ 	pr_devel("==>%s()\n", __func__);
+-	
++
++	if (cert->sig.rsa.s)
++		return 0;
++
++	cert->sig.rsa.s = mpi_read_raw_data(cert->raw_sig, cert->raw_sig_size);
++	if (!cert->sig.rsa.s)
++		return -ENOMEM;
++	cert->sig.nr_mpi = 1;
++
+ 	/* Allocate the hashing algorithm we're going to need and find out how
+ 	 * big the hash operational data will be.
+ 	 */
+-	tfm = crypto_alloc_shash(pkey_hash_algo_name[cert->sig_hash_algo], 0, 0);
++	tfm = crypto_alloc_shash(pkey_hash_algo_name[cert->sig.pkey_hash_algo], 0, 0);
+ 	if (IS_ERR(tfm))
+ 		return (PTR_ERR(tfm) == -ENOENT) ? -ENOPKG : PTR_ERR(tfm);
+ 
+ 	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+ 	digest_size = crypto_shash_digestsize(tfm);
+ 
+-	/* We allocate the hash operational data storage on the end of our
+-	 * context data.
++	/* We allocate the hash operational data storage on the end of the
++	 * digest storage space.
+ 	 */
+ 	ret = -ENOMEM;
+-	sig = kzalloc(sizeof(*sig) + desc_size + digest_size, GFP_KERNEL);
+-	if (!sig)
+-		goto error_no_sig;
++	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
++	if (!digest)
++		goto error;
+ 
+-	sig->pkey_hash_algo	= cert->sig_hash_algo;
+-	sig->digest		= (u8 *)sig + sizeof(*sig) + desc_size;
+-	sig->digest_size	= digest_size;
++	cert->sig.digest = digest;
++	cert->sig.digest_size = digest_size;
+ 
+-	desc = (void *)sig + sizeof(*sig);
+-	desc->tfm	= tfm;
+-	desc->flags	= CRYPTO_TFM_REQ_MAY_SLEEP;
++	desc = digest + digest_size;
++	desc->tfm = tfm;
++	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+ 
+ 	ret = crypto_shash_init(desc);
+ 	if (ret < 0)
+ 		goto error;
++	might_sleep();
++	ret = crypto_shash_finup(desc, cert->tbs, cert->tbs_size, digest);
++error:
++	crypto_free_shash(tfm);
++	pr_devel("<==%s() = %d\n", __func__, ret);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(x509_get_sig_params);
+ 
+-	ret = -ENOMEM;
+-	sig->rsa.s = mpi_read_raw_data(cert->sig, cert->sig_size);
+-	if (!sig->rsa.s)
+-		goto error;
++/*
++ * Check the signature on a certificate using the provided public key
++ */
++int x509_check_signature(const struct public_key *pub,
++			 struct x509_certificate *cert)
++{
++	int ret;
+ 
+-	ret = crypto_shash_finup(desc, cert->tbs, cert->tbs_size, sig->digest);
+-	if (ret < 0)
+-		goto error_mpi;
++	pr_devel("==>%s()\n", __func__);
+ 
+-	ret = public_key_verify_signature(pub, sig);
++	ret = x509_get_sig_params(cert);
++	if (ret < 0)
++		return ret;
+ 
++	ret = public_key_verify_signature(pub, &cert->sig);
+ 	pr_debug("Cert Verification: %d\n", ret);
+-
+-error_mpi:
+-	mpi_free(sig->rsa.s);
+-error:
+-	kfree(sig);
+-error_no_sig:
+-	crypto_free_shash(tfm);
+-
+-	pr_devel("<==%s() = %d\n", __func__, ret);
+ 	return ret;
+ }
++EXPORT_SYMBOL_GPL(x509_check_signature);
+ 
+ /*
+  * Attempt to parse a data blob for a key as an X509 certificate.
+@@ -118,8 +129,8 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 		 cert->valid_to.tm_mday, cert->valid_to.tm_hour,
+ 		 cert->valid_to.tm_min,  cert->valid_to.tm_sec);
+ 	pr_devel("Cert Signature: %s + %s\n",
+-		 pkey_algo_name[cert->sig_pkey_algo],
+-		 pkey_hash_algo_name[cert->sig_hash_algo]);
++		 pkey_algo_name[cert->sig.pkey_algo],
++		 pkey_hash_algo_name[cert->sig.pkey_hash_algo]);
+ 
+ 	if (!cert->fingerprint || !cert->authority) {
+ 		pr_warn("Cert for '%s' must have SubjKeyId and AuthKeyId extensions\n",
+-- 
+1.8.1.4
+
+
+From 822175026ad1d4640240d1fdd77b1f45ddd9e7a9 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:36 +0000
+Subject: [PATCH 12/47] X.509: Check the algorithm IDs obtained from parsing an
+ X.509 certificate
+
+Check that the algorithm IDs obtained from the ASN.1 parse by OID lookup
+corresponds to algorithms that are available to us.
+
+Reported-by: Kees Cook <keescook@chromium.org>
+Signed-off-by: David Howells <dhowells@redhat.com>
+---
+ crypto/asymmetric_keys/x509_public_key.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/crypto/asymmetric_keys/x509_public_key.c b/crypto/asymmetric_keys/x509_public_key.c
+index b7c81d8..eb368d4 100644
+--- a/crypto/asymmetric_keys/x509_public_key.c
++++ b/crypto/asymmetric_keys/x509_public_key.c
+@@ -119,6 +119,17 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 
+ 	pr_devel("Cert Issuer: %s\n", cert->issuer);
+ 	pr_devel("Cert Subject: %s\n", cert->subject);
++
++	if (cert->pub->pkey_algo >= PKEY_ALGO__LAST ||
++	    cert->sig.pkey_algo >= PKEY_ALGO__LAST ||
++	    cert->sig.pkey_hash_algo >= PKEY_HASH__LAST ||
++	    !pkey_algo[cert->pub->pkey_algo] ||
++	    !pkey_algo[cert->sig.pkey_algo] ||
++	    !pkey_hash_algo_name[cert->sig.pkey_hash_algo]) {
++		ret = -ENOPKG;
++		goto error_free_cert;
++	}
++
+ 	pr_devel("Cert Key Algo: %s\n", pkey_algo_name[cert->pub->pkey_algo]);
+ 	pr_devel("Cert Valid From: %04ld-%02d-%02d %02d:%02d:%02d\n",
+ 		 cert->valid_from.tm_year + 1900, cert->valid_from.tm_mon + 1,
+-- 
+1.8.1.4
+
+
+From 4a1a540f79d36d8b0b8970ea638648cef080057b Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:37 +0000
+Subject: [PATCH 13/47] X.509: Handle certificates that lack an
+ authorityKeyIdentifier field
+
+Handle certificates that lack an authorityKeyIdentifier field by assuming
+they're self-signed and checking their signatures against themselves.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/x509_public_key.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/crypto/asymmetric_keys/x509_public_key.c b/crypto/asymmetric_keys/x509_public_key.c
+index eb368d4..0f55e3b 100644
+--- a/crypto/asymmetric_keys/x509_public_key.c
++++ b/crypto/asymmetric_keys/x509_public_key.c
+@@ -143,8 +143,8 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 		 pkey_algo_name[cert->sig.pkey_algo],
+ 		 pkey_hash_algo_name[cert->sig.pkey_hash_algo]);
+ 
+-	if (!cert->fingerprint || !cert->authority) {
+-		pr_warn("Cert for '%s' must have SubjKeyId and AuthKeyId extensions\n",
++	if (!cert->fingerprint) {
++		pr_warn("Cert for '%s' must have a SubjKeyId extension\n",
+ 			cert->subject);
+ 		ret = -EKEYREJECTED;
+ 		goto error_free_cert;
+@@ -190,8 +190,9 @@ static int x509_key_preparse(struct key_preparsed_payload *prep)
+ 	cert->pub->algo = pkey_algo[cert->pub->pkey_algo];
+ 	cert->pub->id_type = PKEY_ID_X509;
+ 
+-	/* Check the signature on the key */
+-	if (strcmp(cert->fingerprint, cert->authority) == 0) {
++	/* Check the signature on the key if it appears to be self-signed */
++	if (!cert->authority ||
++	    strcmp(cert->fingerprint, cert->authority) == 0) {
+ 		ret = x509_check_signature(cert->pub, cert);
+ 		if (ret < 0)
+ 			goto error_free_cert;
+-- 
+1.8.1.4
+
+
+From f5e443e719cfb7cae2aea764ad3c9ec9ffba4f60 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:37 +0000
+Subject: [PATCH 14/47] X.509: Export certificate parse and free functions
+
+Export certificate parse and free functions for use by modules.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Reviewed-by: Josh Boyer <jwboyer@redhat.com>
+---
+ crypto/asymmetric_keys/x509_cert_parser.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/crypto/asymmetric_keys/x509_cert_parser.c b/crypto/asymmetric_keys/x509_cert_parser.c
+index 931f069..9cf0e16 100644
+--- a/crypto/asymmetric_keys/x509_cert_parser.c
++++ b/crypto/asymmetric_keys/x509_cert_parser.c
+@@ -11,6 +11,7 @@
+ 
+ #define pr_fmt(fmt) "X.509: "fmt
+ #include <linux/kernel.h>
++#include <linux/export.h>
+ #include <linux/slab.h>
+ #include <linux/err.h>
+ #include <linux/oid_registry.h>
+@@ -52,6 +53,7 @@ void x509_free_certificate(struct x509_certificate *cert)
+ 		kfree(cert);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(x509_free_certificate);
+ 
+ /*
+  * Parse an X.509 certificate
+@@ -97,6 +99,7 @@ error_no_ctx:
+ error_no_cert:
+ 	return ERR_PTR(ret);
+ }
++EXPORT_SYMBOL_GPL(x509_cert_parse);
+ 
+ /*
+  * Note an OID when we find one for later processing when we know how
+-- 
+1.8.1.4
+
+
+From 792a56d205765cf4ece16868929ad5fbe6b89df4 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:38 +0000
+Subject: [PATCH 15/47] PKCS#7: Implement a parser [RFC 2315]
+
+Implement a parser for a PKCS#7 signed-data message as described in part of
+RFC 2315.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/Kconfig        |   9 +
+ crypto/asymmetric_keys/Makefile       |  13 ++
+ crypto/asymmetric_keys/pkcs7.asn1     | 127 +++++++++++++
+ crypto/asymmetric_keys/pkcs7_parser.c | 326 ++++++++++++++++++++++++++++++++++
+ crypto/asymmetric_keys/pkcs7_parser.h |  65 +++++++
+ include/linux/oid_registry.h          |   1 +
+ 6 files changed, 541 insertions(+)
+ create mode 100644 crypto/asymmetric_keys/pkcs7.asn1
+ create mode 100644 crypto/asymmetric_keys/pkcs7_parser.c
+ create mode 100644 crypto/asymmetric_keys/pkcs7_parser.h
+
+diff --git a/crypto/asymmetric_keys/Kconfig b/crypto/asymmetric_keys/Kconfig
+index 6d2c2ea..413f3f6 100644
+--- a/crypto/asymmetric_keys/Kconfig
++++ b/crypto/asymmetric_keys/Kconfig
+@@ -35,4 +35,13 @@ config X509_CERTIFICATE_PARSER
+ 	  data and provides the ability to instantiate a crypto key from a
+ 	  public key packet found inside the certificate.
+ 
++config PKCS7_MESSAGE_PARSER
++	tristate "PKCS#7 message parser"
++	depends on X509_CERTIFICATE_PARSER
++	select ASN1
++	select OID_REGISTRY
++	help
++	  This option provides support for parsing PKCS#7 format messages for
++	  signature data and provides the ability to verify the signature.
++
+ endif # ASYMMETRIC_KEY_TYPE
+diff --git a/crypto/asymmetric_keys/Makefile b/crypto/asymmetric_keys/Makefile
+index 0727204..59d8cad 100644
+--- a/crypto/asymmetric_keys/Makefile
++++ b/crypto/asymmetric_keys/Makefile
+@@ -25,3 +25,16 @@ $(obj)/x509_rsakey-asn1.o: $(obj)/x509_rsakey-asn1.c $(obj)/x509_rsakey-asn1.h
+ 
+ clean-files	+= x509-asn1.c x509-asn1.h
+ clean-files	+= x509_rsakey-asn1.c x509_rsakey-asn1.h
++
++#
++# PKCS#7 message handling
++#
++obj-$(CONFIG_PKCS7_MESSAGE_PARSER) += pkcs7_message.o
++pkcs7_message-y := \
++	pkcs7-asn1.o \
++	pkcs7_parser.o
++
++$(obj)/pkcs7_parser.o: $(obj)/pkcs7-asn1.h
++$(obj)/pkcs7-asn1.o: $(obj)/pkcs7-asn1.c $(obj)/pkcs7-asn1.h
++
++clean-files	+= pkcs7-asn1.c pkcs7-asn1.h
+diff --git a/crypto/asymmetric_keys/pkcs7.asn1 b/crypto/asymmetric_keys/pkcs7.asn1
+new file mode 100644
+index 0000000..7bf91ed
+--- /dev/null
++++ b/crypto/asymmetric_keys/pkcs7.asn1
+@@ -0,0 +1,127 @@
++PKCS7ContentInfo ::= SEQUENCE {
++	contentType	ContentType,
++	content		[0] EXPLICIT SignedData OPTIONAL
++}
++
++ContentType ::= OBJECT IDENTIFIER ({ pkcs7_note_OID })
++
++SignedData ::= SEQUENCE {
++	version			INTEGER,
++	digestAlgorithms	DigestAlgorithmIdentifiers ({ pkcs7_note_digest_algo }),
++	contentInfo		ContentInfo,
++	certificates		CHOICE {
++		certSet		[0] IMPLICIT ExtendedCertificatesAndCertificates,
++		certSequence	[2] IMPLICIT Certificates
++	} OPTIONAL ({ pkcs7_note_certificate_list }),
++	crls CHOICE {
++		crlSet		[1] IMPLICIT CertificateRevocationLists,
++		crlSequence	[3] IMPLICIT CRLSequence
++	} OPTIONAL,
++	signerInfos		SignerInfos
++}
++
++ContentInfo ::= SEQUENCE {
++	contentType	ContentType,
++	content		[0] EXPLICIT Data OPTIONAL
++}
++
++Data ::= ANY ({ pkcs7_note_data })
++
++DigestAlgorithmIdentifiers ::= CHOICE {
++	daSet			SET OF DigestAlgorithmIdentifier,
++	daSequence		SEQUENCE OF DigestAlgorithmIdentifier
++}
++
++DigestAlgorithmIdentifier ::= SEQUENCE {
++	algorithm   OBJECT IDENTIFIER ({ pkcs7_note_OID }),
++	parameters  ANY OPTIONAL
++}
++
++--
++-- Certificates and certificate lists
++--
++ExtendedCertificatesAndCertificates ::= SET OF ExtendedCertificateOrCertificate
++
++ExtendedCertificateOrCertificate ::= CHOICE {
++  certificate		Certificate,				-- X.509
++  extendedCertificate	[0] IMPLICIT ExtendedCertificate	-- PKCS#6
++}
++
++ExtendedCertificate ::= Certificate -- cheating
++
++Certificates ::= SEQUENCE OF Certificate
++
++CertificateRevocationLists ::= SET OF CertificateList
++
++CertificateList ::= SEQUENCE OF Certificate -- This may be defined incorrectly
++
++CRLSequence ::= SEQUENCE OF CertificateList
++
++Certificate ::= ANY ({ pkcs7_extract_cert }) -- X.509
++
++--
++-- Signer information
++--
++SignerInfos ::= CHOICE {
++	siSet		SET OF SignerInfo,
++	siSequence	SEQUENCE OF SignerInfo
++}
++
++SignerInfo ::= SEQUENCE {
++	version			INTEGER,
++	issuerAndSerialNumber	IssuerAndSerialNumber,
++	digestAlgorithm		DigestAlgorithmIdentifier ({ pkcs7_note_digest_algo }),
++	authenticatedAttributes	CHOICE {
++		aaSet		[0] IMPLICIT SetOfAuthenticatedAttribute
++					({ pkcs7_note_set_of_authattrs }),
++		aaSequence	[2] EXPLICIT SEQUENCE OF AuthenticatedAttribute
++			-- Explicit because easier to compute digest on
++			-- sequence of attributes and then reuse encoded
++			-- sequence in aaSequence.
++	} OPTIONAL,
++	digestEncryptionAlgorithm
++				DigestEncryptionAlgorithmIdentifier ({ pkcs7_note_pkey_algo }),
++	encryptedDigest		EncryptedDigest,
++	unauthenticatedAttributes CHOICE {
++		uaSet		[1] IMPLICIT SET OF UnauthenticatedAttribute,
++		uaSequence	[3] IMPLICIT SEQUENCE OF UnauthenticatedAttribute
++	} OPTIONAL
++}
++
++IssuerAndSerialNumber ::= SEQUENCE {
++	issuer			Name ({ pkcs7_note_issuer }),
++	serialNumber		CertificateSerialNumber ({ pkcs7_note_serial })
++}
++
++CertificateSerialNumber ::= INTEGER
++
++SetOfAuthenticatedAttribute ::= SET OF AuthenticatedAttribute
++
++AuthenticatedAttribute ::= SEQUENCE {
++	type			OBJECT IDENTIFIER ({ pkcs7_note_OID }),
++	values			SET OF ANY ({ pkcs7_note_authenticated_attr })
++}
++
++UnauthenticatedAttribute ::= SEQUENCE {
++	type			OBJECT IDENTIFIER ({ pkcs7_note_OID }),
++	values			SET OF ANY
++}
++
++DigestEncryptionAlgorithmIdentifier ::= SEQUENCE {
++	algorithm		OBJECT IDENTIFIER ({ pkcs7_note_OID }),
++	parameters		ANY OPTIONAL
++}
++
++EncryptedDigest ::= OCTET STRING ({ pkcs7_note_signature })
++
++---
++--- X.500 Name
++---
++Name ::= SEQUENCE OF RelativeDistinguishedName
++
++RelativeDistinguishedName ::= SET OF AttributeValueAssertion
++
++AttributeValueAssertion ::= SEQUENCE {
++	attributeType		OBJECT IDENTIFIER ({ pkcs7_note_OID }),
++	attributeValue		ANY
++}
+diff --git a/crypto/asymmetric_keys/pkcs7_parser.c b/crypto/asymmetric_keys/pkcs7_parser.c
+new file mode 100644
+index 0000000..231aff9
+--- /dev/null
++++ b/crypto/asymmetric_keys/pkcs7_parser.c
+@@ -0,0 +1,326 @@
++/* PKCS#7 parser
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#define pr_fmt(fmt) "PKCS7: "fmt
++#include <linux/kernel.h>
++#include <linux/export.h>
++#include <linux/slab.h>
++#include <linux/err.h>
++#include <linux/oid_registry.h>
++#include "public_key.h"
++#include "pkcs7_parser.h"
++#include "pkcs7-asn1.h"
++
++struct pkcs7_parse_context {
++	struct pkcs7_message	*msg;		/* Message being constructed */
++	struct x509_certificate *certs;		/* Certificate cache */
++	struct x509_certificate **ppcerts;
++	unsigned long	data;			/* Start of data */
++	enum OID	last_oid;		/* Last OID encountered */
++};
++
++/*
++ * Free a PKCS#7 message
++ */
++void pkcs7_free_message(struct pkcs7_message *pkcs7)
++{
++	struct x509_certificate *cert;
++
++	if (pkcs7) {
++		while (pkcs7->certs) {
++			cert = pkcs7->certs;
++			pkcs7->certs = cert->next;
++			x509_free_certificate(cert);
++		}
++		while (pkcs7->crl) {
++			cert = pkcs7->crl;
++			pkcs7->crl = cert->next;
++			x509_free_certificate(cert);
++		}
++		kfree(pkcs7->sig.digest);
++		mpi_free(pkcs7->sig.mpi[0]);
++		kfree(pkcs7);
++	}
++}
++EXPORT_SYMBOL_GPL(pkcs7_free_message);
++
++/*
++ * Parse a PKCS#7 message
++ */
++struct pkcs7_message *pkcs7_parse_message(const void *data, size_t datalen)
++{
++	struct pkcs7_parse_context *ctx;
++	struct pkcs7_message *msg;
++	long ret;
++
++	ret = -ENOMEM;
++	msg = kzalloc(sizeof(struct pkcs7_message), GFP_KERNEL);
++	if (!msg)
++		goto error_no_sig;
++	ctx = kzalloc(sizeof(struct pkcs7_parse_context), GFP_KERNEL);
++	if (!ctx)
++		goto error_no_ctx;
++
++	ctx->msg = msg;
++	ctx->data = (unsigned long)data;
++	ctx->ppcerts = &ctx->certs;
++
++	/* Attempt to decode the signature */
++	ret = asn1_ber_decoder(&pkcs7_decoder, ctx, data, datalen);
++	if (ret < 0)
++		goto error_decode;
++
++	while (ctx->certs) {
++		struct x509_certificate *cert = ctx->certs;
++		ctx->certs = cert->next;
++		x509_free_certificate(cert);
++	}
++	kfree(ctx);
++	return msg;
++
++error_decode:
++	kfree(ctx);
++error_no_ctx:
++	pkcs7_free_message(msg);
++error_no_sig:
++	return ERR_PTR(ret);
++}
++EXPORT_SYMBOL_GPL(pkcs7_parse_message);
++
++/*
++ * Note an OID when we find one for later processing when we know how
++ * to interpret it.
++ */
++int pkcs7_note_OID(void *context, size_t hdrlen,
++		   unsigned char tag,
++		   const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++
++	ctx->last_oid = look_up_OID(value, vlen);
++	if (ctx->last_oid == OID__NR) {
++		char buffer[50];
++		sprint_oid(value, vlen, buffer, sizeof(buffer));
++		printk("PKCS7: Unknown OID: [%lu] %s\n",
++		       (unsigned long)value - ctx->data, buffer);
++	}
++	return 0;
++}
++
++/*
++ * Note the digest algorithm for the signature.
++ */
++int pkcs7_note_digest_algo(void *context, size_t hdrlen,
++			   unsigned char tag,
++			   const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++
++	switch (ctx->last_oid) {
++	case OID_md4:
++		ctx->msg->sig.pkey_hash_algo = PKEY_HASH_MD4;
++		break;
++	case OID_md5:
++		ctx->msg->sig.pkey_hash_algo = PKEY_HASH_MD5;
++		break;
++	case OID_sha1:
++		ctx->msg->sig.pkey_hash_algo = PKEY_HASH_SHA1;
++		break;
++	case OID_sha256:
++		ctx->msg->sig.pkey_hash_algo = PKEY_HASH_SHA256;
++		break;
++	default:
++		printk("Unsupported digest algo: %u\n", ctx->last_oid);
++		return -ENOPKG;
++	}
++	return 0;
++}
++
++/*
++ * Note the public key algorithm for the signature.
++ */
++int pkcs7_note_pkey_algo(void *context, size_t hdrlen,
++			 unsigned char tag,
++			 const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++
++	switch (ctx->last_oid) {
++	case OID_rsaEncryption:
++		ctx->msg->sig.pkey_algo = PKEY_ALGO_RSA;
++		break;
++	default:
++		printk("Unsupported pkey algo: %u\n", ctx->last_oid);
++		return -ENOPKG;
++	}
++	return 0;
++}
++
++/*
++ * Extract a certificate and store it in the context.
++ */
++int pkcs7_extract_cert(void *context, size_t hdrlen,
++		       unsigned char tag,
++		       const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++	struct x509_certificate *cert;
++
++	if (tag != ((ASN1_UNIV << 6) | ASN1_CONS_BIT | ASN1_SEQ)) {
++		pr_debug("Cert began with tag %02x at %lu\n",
++			 tag, (unsigned long)ctx - ctx->data);
++		return -EBADMSG;
++	}
++
++	/* We have to correct for the header so that the X.509 parser can start
++	 * from the beginning.  Note that since X.509 stipulates DER, there
++	 * probably shouldn't be an EOC trailer - but it is in PKCS#7 (which
++	 * stipulates BER).
++	 */
++	value -= hdrlen;
++	vlen += hdrlen;
++
++	if (((u8*)value)[1] == 0x80)
++		vlen += 2; /* Indefinite length - there should be an EOC */
++
++	cert = x509_cert_parse(value, vlen);
++	if (IS_ERR(cert))
++		return PTR_ERR(cert);
++
++	pr_debug("Got cert for %s\n", cert->subject);
++	pr_debug("- fingerprint %s\n", cert->fingerprint);
++
++	*ctx->ppcerts = cert;
++	ctx->ppcerts = &cert->next;
++	return 0;
++}
++
++/*
++ * Save the certificate list
++ */
++int pkcs7_note_certificate_list(void *context, size_t hdrlen,
++				unsigned char tag,
++				const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++
++	pr_devel("Got cert list (%02x)\n", tag);
++
++	*ctx->ppcerts = ctx->msg->certs;
++	ctx->msg->certs = ctx->certs;
++	ctx->certs = NULL;
++	ctx->ppcerts = &ctx->certs;
++	return 0;
++}
++
++/*
++ * Extract the data from the signature and store that and its content type OID
++ * in the context.
++ */
++int pkcs7_note_data(void *context, size_t hdrlen,
++		    unsigned char tag,
++		    const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++
++	pr_debug("Got data\n");
++
++	ctx->msg->data = value;
++	ctx->msg->data_len = vlen;
++	ctx->msg->data_hdrlen = hdrlen;
++	ctx->msg->data_type = ctx->last_oid;
++	return 0;
++}
++
++/*
++ * Parse authenticated attributes
++ */
++int pkcs7_note_authenticated_attr(void *context, size_t hdrlen,
++				  unsigned char tag,
++				  const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++
++	pr_devel("AuthAttr: %02x %zu [%*ph]\n", tag, vlen, (unsigned)vlen, value);
++
++	switch (ctx->last_oid) {
++	case OID_messageDigest:
++		if (tag != ASN1_OTS)
++			return -EBADMSG;
++		ctx->msg->msgdigest = value;
++		ctx->msg->msgdigest_len = vlen;
++		return 0;
++	default:
++		return 0;
++	}
++}
++
++/*
++ * Note the set of auth attributes for digestion purposes [RFC2315 9.3]
++ */
++int pkcs7_note_set_of_authattrs(void *context, size_t hdrlen,
++				unsigned char tag,
++				const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++
++	/* We need to switch the 'CONT 0' to a 'SET OF' when we digest */
++	ctx->msg->authattrs = value - (hdrlen - 1);
++	ctx->msg->authattrs_len = vlen + (hdrlen - 1);
++	return 0;
++}
++
++/*
++ * Note the issuing certificate serial number
++ */
++int pkcs7_note_serial(void *context, size_t hdrlen,
++		      unsigned char tag,
++		      const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++	ctx->msg->raw_serial = value;
++	ctx->msg->raw_serial_size = vlen;
++	return 0;
++}
++
++/*
++ * Note the issuer's name
++ */
++int pkcs7_note_issuer(void *context, size_t hdrlen,
++		      unsigned char tag,
++		      const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++	ctx->msg->raw_issuer = value;
++	ctx->msg->raw_issuer_size = vlen;
++	return 0;
++}
++
++/*
++ * Note the signature data
++ */
++int pkcs7_note_signature(void *context, size_t hdrlen,
++			 unsigned char tag,
++			 const void *value, size_t vlen)
++{
++	struct pkcs7_parse_context *ctx = context;
++	MPI mpi;
++
++	BUG_ON(ctx->msg->sig.pkey_algo != PKEY_ALGO_RSA);
++
++	mpi = mpi_read_raw_data(value, vlen);
++	if (!mpi)
++		return -ENOMEM;
++
++	ctx->msg->sig.mpi[0] = mpi;
++	ctx->msg->sig.nr_mpi = 1;
++	return 0;
++}
+diff --git a/crypto/asymmetric_keys/pkcs7_parser.h b/crypto/asymmetric_keys/pkcs7_parser.h
+new file mode 100644
+index 0000000..5415857
+--- /dev/null
++++ b/crypto/asymmetric_keys/pkcs7_parser.h
+@@ -0,0 +1,65 @@
++/* PKCS#7 crypto data parser internal definitions
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#include <linux/oid_registry.h>
++#include "x509_parser.h"
++
++#define kenter(FMT, ...) \
++	pr_devel("==> %s("FMT")\n", __func__, ##__VA_ARGS__)
++#define kleave(FMT, ...) \
++	pr_devel("<== %s()"FMT"\n", __func__, ##__VA_ARGS__)
++
++struct pkcs7_message {
++	struct x509_certificate *certs;	/* Certificate list */
++	struct x509_certificate *crl;	/* Revocation list */
++	struct x509_certificate *signer; /* Signing certificate (in ->certs) */
++
++	/* Content Data (or NULL) */
++	enum OID	data_type;	/* Type of Data */
++	size_t		data_len;	/* Length of Data */
++	size_t		data_hdrlen;	/* Length of Data ASN.1 header */
++	const void	*data;		/* Content Data (or 0) */
++
++	/* Message digest - the digest of the Content Data (or NULL) */
++	const void	*msgdigest;
++	unsigned	msgdigest_len;
++
++	/* Authenticated Attribute data (or NULL) */
++	unsigned	authattrs_len;
++	const void	*authattrs;
++
++	/* Issuing cert serial number and issuer's name */
++	const void	*raw_serial;
++	unsigned	raw_serial_size;
++	unsigned	raw_issuer_size;
++	const void	*raw_issuer;
++
++	/* Message signature.
++	 *
++	 * This contains the generated digest of _either_ the Content Data or
++	 * the Authenticated Attributes [RFC2315 9.3].  If the latter, one of
++	 * the attributes contains the digest of the the Content Data within
++	 * it.
++	 */
++	struct public_key_signature sig;
++};
++
++/*
++ * pkcs7_parser.c
++ */
++extern struct pkcs7_message *pkcs7_parse_message(const void *data,
++						 size_t datalen);
++extern void pkcs7_free_message(struct pkcs7_message *pkcs7);
++
++/*
++ * pkcs7_verify.c
++ */
++extern int pkcs7_verify(struct pkcs7_message *pkcs7);
+diff --git a/include/linux/oid_registry.h b/include/linux/oid_registry.h
+index 6926db7..edeff85 100644
+--- a/include/linux/oid_registry.h
++++ b/include/linux/oid_registry.h
+@@ -55,6 +55,7 @@ enum OID {
+ 	OID_certAuthInfoAccess,		/* 1.3.6.1.5.5.7.1.1 */
+ 	OID_msOutlookExpress,		/* 1.3.6.1.4.1.311.16.4 */
+ 	OID_sha1,			/* 1.3.14.3.2.26 */
++	OID_sha256,			/* 2.16.840.1.101.3.4.2.1 */
+ 
+ 	/* Distinguished Name attribute IDs [RFC 2256] */
+ 	OID_commonName,			/* 2.5.4.3 */
+-- 
+1.8.1.4
+
+
+From 3b4b82eecde52c1bd75ab11ef7f8a5c13ec73c40 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:38 +0000
+Subject: [PATCH 16/47] PKCS#7: Digest the data in a signed-data message
+
+Digest the data in a PKCS#7 signed-data message and attach to the
+public_key_signature struct contained in the pkcs7_message struct.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/Makefile       |   3 +-
+ crypto/asymmetric_keys/pkcs7_verify.c | 134 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 136 insertions(+), 1 deletion(-)
+ create mode 100644 crypto/asymmetric_keys/pkcs7_verify.c
+
+diff --git a/crypto/asymmetric_keys/Makefile b/crypto/asymmetric_keys/Makefile
+index 59d8cad..b6b39e7 100644
+--- a/crypto/asymmetric_keys/Makefile
++++ b/crypto/asymmetric_keys/Makefile
+@@ -32,7 +32,8 @@ clean-files	+= x509_rsakey-asn1.c x509_rsakey-asn1.h
+ obj-$(CONFIG_PKCS7_MESSAGE_PARSER) += pkcs7_message.o
+ pkcs7_message-y := \
+ 	pkcs7-asn1.o \
+-	pkcs7_parser.o
++	pkcs7_parser.o \
++	pkcs7_verify.o
+ 
+ $(obj)/pkcs7_parser.o: $(obj)/pkcs7-asn1.h
+ $(obj)/pkcs7-asn1.o: $(obj)/pkcs7-asn1.c $(obj)/pkcs7-asn1.h
+diff --git a/crypto/asymmetric_keys/pkcs7_verify.c b/crypto/asymmetric_keys/pkcs7_verify.c
+new file mode 100644
+index 0000000..2f9f26c
+--- /dev/null
++++ b/crypto/asymmetric_keys/pkcs7_verify.c
+@@ -0,0 +1,134 @@
++/* Verify the signature on a PKCS#7 message.
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#define pr_fmt(fmt) "PKCS7: "fmt
++#include <linux/kernel.h>
++#include <linux/export.h>
++#include <linux/slab.h>
++#include <linux/err.h>
++#include <linux/asn1.h>
++#include <crypto/hash.h>
++#include "public_key.h"
++#include "pkcs7_parser.h"
++
++/*
++ * Digest the relevant parts of the PKCS#7 data
++ */
++static int pkcs7_digest(struct pkcs7_message *pkcs7)
++{
++	struct crypto_shash *tfm;
++	struct shash_desc *desc;
++	size_t digest_size, desc_size;
++	void *digest;
++	int ret;
++
++	kenter(",%u", pkcs7->sig.pkey_hash_algo);
++
++	if (pkcs7->sig.pkey_hash_algo >= PKEY_HASH__LAST ||
++	    !pkey_hash_algo_name[pkcs7->sig.pkey_hash_algo])
++		return -ENOPKG;
++
++	/* Allocate the hashing algorithm we're going to need and find out how
++	 * big the hash operational data will be.
++	 */
++	tfm = crypto_alloc_shash(pkey_hash_algo_name[pkcs7->sig.pkey_hash_algo],
++				 0, 0);
++	if (IS_ERR(tfm))
++		return (PTR_ERR(tfm) == -ENOENT) ? -ENOPKG : PTR_ERR(tfm);
++
++	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
++	pkcs7->sig.digest_size = digest_size = crypto_shash_digestsize(tfm);
++
++	ret = -ENOMEM;
++	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
++	if (!digest)
++		goto error_no_desc;
++
++	desc = digest + digest_size;
++	desc->tfm   = tfm;
++	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
++
++	/* Digest the message [RFC2315 9.3] */
++	ret = crypto_shash_init(desc);
++	if (ret < 0)
++		goto error;
++	ret = crypto_shash_finup(desc, pkcs7->data, pkcs7->data_len, digest);
++	if (ret < 0)
++		goto error;
++	pr_devel("MsgDigest = [%*ph]\n", 8, digest);
++
++	/* However, if there are authenticated attributes, there must be a
++	 * message digest attribute amongst them which corresponds to the
++	 * digest we just calculated.
++	 */
++	if (pkcs7->msgdigest) {
++		u8 tag;
++
++		if (pkcs7->msgdigest_len != pkcs7->sig.digest_size) {
++			pr_debug("Invalid digest size (%u)\n",
++				 pkcs7->msgdigest_len);
++			ret = -EBADMSG;
++			goto error;
++		}
++
++		if (memcmp(digest, pkcs7->msgdigest, pkcs7->msgdigest_len) != 0) {
++			pr_debug("Message digest doesn't match\n");
++			ret = -EKEYREJECTED;
++			goto error;
++		}
++
++		/* We then calculate anew, using the authenticated attributes
++		 * as the contents of the digest instead.  Note that we need to
++		 * convert the attributes from a CONT.0 into a SET before we
++		 * hash it.
++		 */
++		memset(digest, 0, pkcs7->sig.digest_size);
++
++		ret = crypto_shash_init(desc);
++		if (ret < 0)
++			goto error;
++		tag = ASN1_CONS_BIT | ASN1_SET;
++		ret = crypto_shash_update(desc, &tag, 1);
++		if (ret < 0)
++			goto error;
++		ret = crypto_shash_finup(desc, pkcs7->authattrs,
++					 pkcs7->authattrs_len, digest);
++		if (ret < 0)
++			goto error;
++		pr_devel("AADigest = [%*ph]\n", 8, digest);
++	}
++
++	pkcs7->sig.digest = digest;
++	digest = NULL;
++
++error:
++	kfree(digest);
++error_no_desc:
++	crypto_free_shash(tfm);
++	kleave(" = %d\n", ret);
++	return ret;
++}
++
++/*
++ * Verify a PKCS#7 message
++ */
++int pkcs7_verify(struct pkcs7_message *pkcs7)
++{
++	int ret;
++
++	/* First of all, digest the data in the PKCS#7 message */
++	ret = pkcs7_digest(pkcs7);
++	if (ret < 0)
++		return ret;
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(pkcs7_verify);
+-- 
+1.8.1.4
+
+
+From e67fed4626a30dd11967abad9187013ff4185991 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:39 +0000
+Subject: [PATCH 17/47] PKCS#7: Find the right key in the PKCS#7 key list and
+ verify the signature
+
+Find the appropriate key in the PKCS#7 key list and verify the signature with
+it.  There may be several keys in there forming a chain.  Any link in that
+chain or the root of that chain may be in our keyrings.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/pkcs7_verify.c | 61 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 61 insertions(+)
+
+diff --git a/crypto/asymmetric_keys/pkcs7_verify.c b/crypto/asymmetric_keys/pkcs7_verify.c
+index 2f9f26c..3f6f0e2 100644
+--- a/crypto/asymmetric_keys/pkcs7_verify.c
++++ b/crypto/asymmetric_keys/pkcs7_verify.c
+@@ -118,6 +118,53 @@ error_no_desc:
+ }
+ 
+ /*
++ * Find the key (X.509 certificate) to use to verify a PKCS#7 message.  PKCS#7
++ * uses the issuer's name and the issuing certificate serial number for
++ * matching purposes.  These must match the certificate issuer's name (not
++ * subject's name) and the certificate serial number [RFC 2315 6.7].
++ */
++static int pkcs7_find_key(struct pkcs7_message *pkcs7)
++{
++	struct x509_certificate *x509;
++
++	kenter("%u,%u", pkcs7->raw_serial_size, pkcs7->raw_issuer_size);
++
++	for (x509 = pkcs7->certs; x509; x509 = x509->next) {
++		pr_devel("- x509 %u,%u\n",
++			 x509->raw_serial_size, x509->raw_issuer_size);
++
++		/* I'm _assuming_ that the generator of the PKCS#7 message will
++		 * encode the fields from the X.509 cert in the same way in the
++		 * PKCS#7 message - but I can't be 100% sure of that.  It's
++		 * possible this will need element-by-element comparison.
++		 */
++		if (x509->raw_serial_size != pkcs7->raw_serial_size ||
++		    memcmp(x509->raw_serial, pkcs7->raw_serial,
++			   pkcs7->raw_serial_size) != 0)
++			continue;
++		pr_devel("Found cert serial match\n");
++
++		if (x509->raw_issuer_size != pkcs7->raw_issuer_size ||
++		    memcmp(x509->raw_issuer, pkcs7->raw_issuer,
++			   pkcs7->raw_issuer_size) != 0) {
++			pr_warn("X.509 subject and PKCS#7 issuer don't match\n");
++			continue;
++		}
++
++		if (x509->pub->pkey_algo != pkcs7->sig.pkey_algo) {
++			pr_warn("X.509 algo and PKCS#7 sig algo don't match\n");
++			continue;
++		}
++
++		pkcs7->signer = x509;
++		return 0;
++	}
++	pr_warn("Issuing X.509 cert not found (#%*ph)\n",
++		pkcs7->raw_serial_size, pkcs7->raw_serial);
++	return -ENOKEY;
++}
++
++/*
+  * Verify a PKCS#7 message
+  */
+ int pkcs7_verify(struct pkcs7_message *pkcs7)
+@@ -129,6 +176,20 @@ int pkcs7_verify(struct pkcs7_message *pkcs7)
+ 	if (ret < 0)
+ 		return ret;
+ 
++	/* Find the key for the message signature */
++	ret = pkcs7_find_key(pkcs7);
++	if (ret < 0)
++		return ret;
++
++	pr_devel("Found X.509 cert\n");
++
++	/* Verify the PKCS#7 binary against the key */
++	ret = public_key_verify_signature(pkcs7->signer->pub, &pkcs7->sig);
++	if (ret < 0)
++		return ret;
++
++	pr_devel("Verified signature\n");
++
+ 	return 0;
+ }
+ EXPORT_SYMBOL_GPL(pkcs7_verify);
+-- 
+1.8.1.4
+
+
+From 87ec8d783c887617ee6e85f66a9ce1a03c627e87 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:39 +0000
+Subject: [PATCH 18/47] PKCS#7: Verify internal certificate chain
+
+Verify certificate chain in the X.509 certificates contained within the PKCS#7
+message as far as possible.  If any signature that we should be able to verify
+fails, we reject the whole lot.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/pkcs7_verify.c | 67 ++++++++++++++++++++++++++++++++++-
+ crypto/asymmetric_keys/x509_parser.h  |  1 +
+ 2 files changed, 67 insertions(+), 1 deletion(-)
+
+diff --git a/crypto/asymmetric_keys/pkcs7_verify.c b/crypto/asymmetric_keys/pkcs7_verify.c
+index 3f6f0e2..b3774bd 100644
+--- a/crypto/asymmetric_keys/pkcs7_verify.c
++++ b/crypto/asymmetric_keys/pkcs7_verify.c
+@@ -165,6 +165,70 @@ static int pkcs7_find_key(struct pkcs7_message *pkcs7)
+ }
+ 
+ /*
++ * Verify the internal certificate chain as best we can.
++ */
++static int pkcs7_verify_sig_chain(struct pkcs7_message *pkcs7)
++{
++	struct x509_certificate *x509 = pkcs7->signer, *p;
++	int ret;
++
++	kenter("");
++
++	for (;;) {
++		pr_debug("verify %s: %s\n", x509->subject, x509->fingerprint);
++		ret = x509_get_sig_params(x509);
++		if (ret < 0)
++			return ret;
++
++		if (x509->issuer)
++			pr_debug("- issuer %s\n", x509->issuer);
++		if (x509->authority)
++			pr_debug("- authkeyid %s\n", x509->authority);
++
++		if (!x509->authority ||
++		    (x509->subject &&
++		     strcmp(x509->subject, x509->authority) == 0)) {
++			/* If there's no authority certificate specified, then
++			 * the certificate must be self-signed and is the root
++			 * of the chain.  Likewise if the cert is its own
++			 * authority.
++			 */
++			pr_debug("- no auth?\n");
++			if (x509->raw_subject_size != x509->raw_issuer_size ||
++			    memcmp(x509->raw_subject, x509->raw_issuer,
++				   x509->raw_issuer_size) != 0)
++				return 0;
++
++			ret = x509_check_signature(x509->pub, x509);
++			if (ret < 0)
++				return ret;
++			x509->signer = x509;
++			pr_debug("- self-signed\n");
++			return 0;
++		}
++
++		for (p = pkcs7->certs; p; p = p->next)
++			if (!p->signer &&
++			    p->raw_subject_size == x509->raw_issuer_size &&
++			    strcmp(p->fingerprint, x509->authority) == 0 &&
++			    memcmp(p->raw_subject, x509->raw_issuer,
++				   x509->raw_issuer_size) == 0)
++				goto found_issuer;
++		pr_debug("- top\n");
++		return 0;
++
++	found_issuer:
++		pr_debug("- issuer %s\n", p->subject);
++		ret = x509_check_signature(p->pub, x509);
++		if (ret < 0)
++			return ret;
++		x509->signer = p;
++		x509 = p;
++		might_sleep();
++	}
++}
++
++/*
+  * Verify a PKCS#7 message
+  */
+ int pkcs7_verify(struct pkcs7_message *pkcs7)
+@@ -190,6 +254,7 @@ int pkcs7_verify(struct pkcs7_message *pkcs7)
+ 
+ 	pr_devel("Verified signature\n");
+ 
+-	return 0;
++	/* Verify the internal certificate chain */
++	return pkcs7_verify_sig_chain(pkcs7);
+ }
+ EXPORT_SYMBOL_GPL(pkcs7_verify);
+diff --git a/crypto/asymmetric_keys/x509_parser.h b/crypto/asymmetric_keys/x509_parser.h
+index 6b1d877..5e35fba 100644
+--- a/crypto/asymmetric_keys/x509_parser.h
++++ b/crypto/asymmetric_keys/x509_parser.h
+@@ -14,6 +14,7 @@
+ 
+ struct x509_certificate {
+ 	struct x509_certificate *next;
++	const struct x509_certificate *signer;	/* Certificate that signed this one */
+ 	struct public_key *pub;			/* Public key details */
+ 	char		*issuer;		/* Name of certificate issuer */
+ 	char		*subject;		/* Name of certificate subject */
+-- 
+1.8.1.4
+
+
+From cc6c40318a05330e4bb201b35378d7c0a0278aaa Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:42 +0000
+Subject: [PATCH 19/47] PKCS#7: Find intersection between PKCS#7 message and
+ known, trusted keys
+
+Find the intersection between the X.509 certificate chain contained in a PKCS#7
+message and a set of keys that we already know and trust.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/Makefile       |   1 +
+ crypto/asymmetric_keys/pkcs7_parser.h |   7 ++
+ crypto/asymmetric_keys/pkcs7_trust.c  | 149 ++++++++++++++++++++++++++++++++++
+ 3 files changed, 157 insertions(+)
+ create mode 100644 crypto/asymmetric_keys/pkcs7_trust.c
+
+diff --git a/crypto/asymmetric_keys/Makefile b/crypto/asymmetric_keys/Makefile
+index b6b39e7..d63cb43 100644
+--- a/crypto/asymmetric_keys/Makefile
++++ b/crypto/asymmetric_keys/Makefile
+@@ -33,6 +33,7 @@ obj-$(CONFIG_PKCS7_MESSAGE_PARSER) += pkcs7_message.o
+ pkcs7_message-y := \
+ 	pkcs7-asn1.o \
+ 	pkcs7_parser.o \
++	pkcs7_trust.o \
+ 	pkcs7_verify.o
+ 
+ $(obj)/pkcs7_parser.o: $(obj)/pkcs7-asn1.h
+diff --git a/crypto/asymmetric_keys/pkcs7_parser.h b/crypto/asymmetric_keys/pkcs7_parser.h
+index 5415857..ffa72dc 100644
+--- a/crypto/asymmetric_keys/pkcs7_parser.h
++++ b/crypto/asymmetric_keys/pkcs7_parser.h
+@@ -60,6 +60,13 @@ extern struct pkcs7_message *pkcs7_parse_message(const void *data,
+ extern void pkcs7_free_message(struct pkcs7_message *pkcs7);
+ 
+ /*
++ * pkcs7_trust.c
++ */
++extern int pkcs7_validate_trust(struct pkcs7_message *pkcs7,
++				struct key *trust_keyring,
++				bool *_trusted);
++
++/*
+  * pkcs7_verify.c
+  */
+ extern int pkcs7_verify(struct pkcs7_message *pkcs7);
+diff --git a/crypto/asymmetric_keys/pkcs7_trust.c b/crypto/asymmetric_keys/pkcs7_trust.c
+new file mode 100644
+index 0000000..cc226f5
+--- /dev/null
++++ b/crypto/asymmetric_keys/pkcs7_trust.c
+@@ -0,0 +1,149 @@
++/* Validate the trust chain of a PKCS#7 message.
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#define pr_fmt(fmt) "PKCS7: "fmt
++#include <linux/kernel.h>
++#include <linux/export.h>
++#include <linux/slab.h>
++#include <linux/err.h>
++#include <linux/asn1.h>
++#include <linux/key.h>
++#include <keys/asymmetric-type.h>
++#include "public_key.h"
++#include "pkcs7_parser.h"
++
++/*
++ * Request an asymmetric key.
++ */
++static struct key *pkcs7_request_asymmetric_key(
++	struct key *keyring,
++	const char *signer, size_t signer_len,
++	const char *authority, size_t auth_len)
++{
++	key_ref_t key;
++	char *id;
++
++	kenter(",%zu,,%zu", signer_len, auth_len);
++
++	/* Construct an identifier. */
++	id = kmalloc(signer_len + 2 + auth_len + 1, GFP_KERNEL);
++	if (!id)
++		return ERR_PTR(-ENOMEM);
++
++	memcpy(id, signer, signer_len);
++	id[signer_len + 0] = ':';
++	id[signer_len + 1] = ' ';
++	memcpy(id + signer_len + 2, authority, auth_len);
++	id[signer_len + 2 + auth_len] = 0;
++
++	pr_debug("Look up: \"%s\"\n", id);
++
++	key = keyring_search(make_key_ref(keyring, 1),
++			     &key_type_asymmetric, id);
++	if (IS_ERR(key))
++		pr_debug("Request for module key '%s' err %ld\n",
++			 id, PTR_ERR(key));
++	kfree(id);
++
++	if (IS_ERR(key)) {
++		switch (PTR_ERR(key)) {
++			/* Hide some search errors */
++		case -EACCES:
++		case -ENOTDIR:
++		case -EAGAIN:
++			return ERR_PTR(-ENOKEY);
++		default:
++			return ERR_CAST(key);
++		}
++	}
++
++	pr_devel("<==%s() = 0 [%x]\n", __func__, key_serial(key_ref_to_ptr(key)));
++	return key_ref_to_ptr(key);
++}
++
++/*
++ * Validate that the certificate chain inside the PKCS#7 message intersects
++ * keys we already know and trust.
++ */
++int pkcs7_validate_trust(struct pkcs7_message *pkcs7,
++			 struct key *trust_keyring,
++			 bool *_trusted)
++{
++	struct public_key_signature *sig = &pkcs7->sig;
++	struct x509_certificate *x509, *last = NULL;
++	struct key *key;
++	bool trusted;
++	int ret;
++
++	kenter("");
++
++	for (x509 = pkcs7->signer; x509; x509 = x509->next) {
++		/* Look to see if this certificate is present in the trusted
++		 * keys.
++		 */
++		key = pkcs7_request_asymmetric_key(
++			trust_keyring,
++			x509->subject, strlen(x509->subject),
++			x509->fingerprint, strlen(x509->fingerprint));
++		if (!IS_ERR(key))
++			/* One of the X.509 certificates in the PKCS#7 message
++			 * is apparently the same as one we already trust.
++			 * Verify that the trusted variant can also validate
++			 * the signature on the descendent.
++			 */
++			goto matched;
++		if (key == ERR_PTR(-ENOMEM))
++			return -ENOMEM;
++
++		 /* Self-signed certificates form roots of their own, and if we
++		  * don't know them, then we can't accept them.
++		  */
++		if (x509->next == x509) {
++			kleave(" = -EKEYREJECTED [unknown self-signed]");
++			return -EKEYREJECTED;
++		}
++
++		might_sleep();
++		last = x509;
++		sig = &last->sig;
++	}
++
++	/* No match - see if the root certificate has a signer amongst the
++	 * trusted keys.
++	 */
++	if (!last || !last->issuer || !last->authority) {
++		kleave(" = -EKEYREJECTED [no backref]");
++		return -EKEYREJECTED;
++	}
++
++	key = pkcs7_request_asymmetric_key(
++		trust_keyring,
++		last->issuer, strlen(last->issuer),
++		last->authority, strlen(last->authority));
++	if (IS_ERR(key))
++		return PTR_ERR(key) == -ENOMEM ? -ENOMEM : -EKEYREJECTED;
++
++matched:
++	ret = verify_signature(key, sig);
++	trusted = test_bit(KEY_FLAG_TRUSTED, &key->flags);
++	key_put(key);
++	if (ret < 0) {
++		if (ret == -ENOMEM)
++			return ret;
++		kleave(" = -EKEYREJECTED [verify %d]", ret);
++		return -EKEYREJECTED;
++	}
++
++	*_trusted = trusted;
++	kleave(" = 0");
++	return 0;
++}
++EXPORT_SYMBOL_GPL(pkcs7_validate_trust);
+-- 
+1.8.1.4
+
+
+From f20b0d77771133bd0d7e89932fef494f00687607 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:39 +0000
+Subject: [PATCH 20/47] Provide PE binary definitions
+
+Provide some PE binary structural and constant definitions as taken from the
+pesign package sources.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ include/linux/pe.h | 448 +++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 448 insertions(+)
+ create mode 100644 include/linux/pe.h
+
+diff --git a/include/linux/pe.h b/include/linux/pe.h
+new file mode 100644
+index 0000000..9234aef
+--- /dev/null
++++ b/include/linux/pe.h
+@@ -0,0 +1,448 @@
++/*
++ * Copyright 2011 Red Hat, Inc.
++ * All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; version 2 of the License.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ *
++ * Author(s): Peter Jones <pjones@redhat.com>
++ */
++#ifndef __LINUX_PE_H
++#define __LINUX_PE_H
++
++#include <linux/types.h>
++
++#define MZ_MAGIC	0x5a4d	/* "MZ" */
++
++struct mz_hdr {
++	uint16_t magic;		/* MZ_MAGIC */
++	uint16_t lbsize;	/* size of last used block */
++	uint16_t blocks;	/* pages in file, 0x3 */
++	uint16_t relocs;	/* relocations */
++	uint16_t hdrsize;	/* header size in "paragraphs" */
++	uint16_t min_extra_pps;	/* .bss */
++	uint16_t max_extra_pps;	/* runtime limit for the arena size */
++	uint16_t ss;		/* relative stack segment */
++	uint16_t sp;		/* initial %sp register */
++	uint16_t checksum;	/* word checksum */
++	uint16_t ip;		/* initial %ip register */
++	uint16_t cs;		/* initial %cs relative to load segment */
++	uint16_t reloc_table_offset;	/* offset of the first relocation */
++	uint16_t overlay_num;	/* overlay number.  set to 0. */
++	uint16_t reserved0[4];	/* reserved */
++	uint16_t oem_id;	/* oem identifier */
++	uint16_t oem_info;	/* oem specific */
++	uint16_t reserved1[10];	/* reserved */
++	uint32_t peaddr;	/* address of pe header */
++	char     message[64];	/* message to print */
++};
++
++struct mz_reloc {
++	uint16_t offset;
++	uint16_t segment;
++};
++
++#define PE_MAGIC		0x00004550	/* "PE\0\0" */
++#define PE_OPT_MAGIC_PE32	0x010b
++#define PE_OPT_MAGIC_PE32_ROM	0x0107
++#define PE_OPT_MAGIC_PE32PLUS	0x020b
++
++/* machine type */
++#define	IMAGE_FILE_MACHINE_UNKNOWN	0x0000
++#define	IMAGE_FILE_MACHINE_AM33		0x01d3
++#define	IMAGE_FILE_MACHINE_AMD64	0x8664
++#define	IMAGE_FILE_MACHINE_ARM		0x01c0
++#define	IMAGE_FILE_MACHINE_ARMV7	0x01c4
++#define	IMAGE_FILE_MACHINE_EBC		0x0ebc
++#define	IMAGE_FILE_MACHINE_I386		0x014c
++#define	IMAGE_FILE_MACHINE_IA64		0x0200
++#define	IMAGE_FILE_MACHINE_M32R		0x9041
++#define	IMAGE_FILE_MACHINE_MIPS16	0x0266
++#define	IMAGE_FILE_MACHINE_MIPSFPU	0x0366
++#define	IMAGE_FILE_MACHINE_MIPSFPU16	0x0466
++#define	IMAGE_FILE_MACHINE_POWERPC	0x01f0
++#define	IMAGE_FILE_MACHINE_POWERPCFP	0x01f1
++#define	IMAGE_FILE_MACHINE_R4000	0x0166
++#define	IMAGE_FILE_MACHINE_SH3		0x01a2
++#define	IMAGE_FILE_MACHINE_SH3DSP	0x01a3
++#define	IMAGE_FILE_MACHINE_SH3E		0x01a4
++#define	IMAGE_FILE_MACHINE_SH4		0x01a6
++#define	IMAGE_FILE_MACHINE_SH5		0x01a8
++#define	IMAGE_FILE_MACHINE_THUMB	0x01c2
++#define	IMAGE_FILE_MACHINE_WCEMIPSV2	0x0169
++
++/* flags */
++#define IMAGE_FILE_RELOCS_STRIPPED           0x0001
++#define IMAGE_FILE_EXECUTABLE_IMAGE          0x0002
++#define IMAGE_FILE_LINE_NUMS_STRIPPED        0x0004
++#define IMAGE_FILE_LOCAL_SYMS_STRIPPED       0x0008
++#define IMAGE_FILE_AGGRESSIVE_WS_TRIM        0x0010
++#define IMAGE_FILE_LARGE_ADDRESS_AWARE       0x0020
++#define IMAGE_FILE_16BIT_MACHINE             0x0040
++#define IMAGE_FILE_BYTES_REVERSED_LO         0x0080
++#define IMAGE_FILE_32BIT_MACHINE             0x0100
++#define IMAGE_FILE_DEBUG_STRIPPED            0x0200
++#define IMAGE_FILE_REMOVABLE_RUN_FROM_SWAP   0x0400
++#define IMAGE_FILE_NET_RUN_FROM_SWAP         0x0800
++#define IMAGE_FILE_SYSTEM                    0x1000
++#define IMAGE_FILE_DLL                       0x2000
++#define IMAGE_FILE_UP_SYSTEM_ONLY            0x4000
++#define IMAGE_FILE_BYTES_REVERSED_HI         0x8000
++
++struct pe_hdr {
++	uint32_t magic;		/* PE magic */
++	uint16_t machine;	/* machine type */
++	uint16_t sections;	/* number of sections */
++	uint32_t timestamp;	/* time_t */
++	uint32_t symbol_table;	/* symbol table offset */
++	uint32_t symbols;	/* number of symbols */
++	uint16_t opt_hdr_size;	/* size of optional header */
++	uint16_t flags;		/* flags */
++};
++
++#define IMAGE_FILE_OPT_ROM_MAGIC	0x107
++#define IMAGE_FILE_OPT_PE32_MAGIC	0x10b
++#define IMAGE_FILE_OPT_PE32_PLUS_MAGIC	0x20b
++
++#define IMAGE_SUBSYSTEM_UNKNOWN			 0
++#define IMAGE_SUBSYSTEM_NATIVE			 1
++#define IMAGE_SUBSYSTEM_WINDOWS_GUI		 2
++#define IMAGE_SUBSYSTEM_WINDOWS_CUI		 3
++#define IMAGE_SUBSYSTEM_POSIX_CUI		 7
++#define IMAGE_SUBSYSTEM_WINDOWS_CE_GUI		 9
++#define IMAGE_SUBSYSTEM_EFI_APPLICATION		10
++#define IMAGE_SUBSYSTEM_EFI_BOOT_SERVICE_DRIVER	11
++#define IMAGE_SUBSYSTEM_EFI_RUNTIME_DRIVER	12
++#define IMAGE_SUBSYSTEM_EFI_ROM_IMAGE		13
++#define IMAGE_SUBSYSTEM_XBOX			14
++
++#define IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE          0x0040
++#define IMAGE_DLL_CHARACTERISTICS_FORCE_INTEGRITY       0x0080
++#define IMAGE_DLL_CHARACTERISTICS_NX_COMPAT             0x0100
++#define IMAGE_DLLCHARACTERISTICS_NO_ISOLATION           0x0200
++#define IMAGE_DLLCHARACTERISTICS_NO_SEH                 0x0400
++#define IMAGE_DLLCHARACTERISTICS_NO_BIND                0x0800
++#define IMAGE_DLLCHARACTERISTICS_WDM_DRIVER             0x2000
++#define IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE  0x8000
++
++/* the fact that pe32 isn't padded where pe32+ is 64-bit means union won't
++ * work right.  vomit. */
++struct pe32_opt_hdr {
++	/* "standard" header */
++	uint16_t magic;		/* file type */
++	uint8_t  ld_major;	/* linker major version */
++	uint8_t  ld_minor;	/* linker minor version */
++	uint32_t text_size;	/* size of text section(s) */
++	uint32_t data_size;	/* size of data section(s) */
++	uint32_t bss_size;	/* size of bss section(s) */
++	uint32_t entry_point;	/* file offset of entry point */
++	uint32_t code_base;	/* relative code addr in ram */
++	uint32_t data_base;	/* relative data addr in ram */
++	/* "windows" header */
++	uint32_t image_base;	/* preferred load address */
++	uint32_t section_align;	/* alignment in bytes */
++	uint32_t file_align;	/* file alignment in bytes */
++	uint16_t os_major;	/* major OS version */
++	uint16_t os_minor;	/* minor OS version */
++	uint16_t image_major;	/* major image version */
++	uint16_t image_minor;	/* minor image version */
++	uint16_t subsys_major;	/* major subsystem version */
++	uint16_t subsys_minor;	/* minor subsystem version */
++	uint32_t win32_version;	/* reserved, must be 0 */
++	uint32_t image_size;	/* image size */
++	uint32_t header_size;	/* header size rounded up to
++				   file_align */
++	uint32_t csum;		/* checksum */
++	uint16_t subsys;	/* subsystem */
++	uint16_t dll_flags;	/* more flags! */
++	uint32_t stack_size_req;/* amt of stack requested */
++	uint32_t stack_size;	/* amt of stack required */
++	uint32_t heap_size_req;	/* amt of heap requested */
++	uint32_t heap_size;	/* amt of heap required */
++	uint32_t loader_flags;	/* reserved, must be 0 */
++	uint32_t data_dirs;	/* number of data dir entries */
++};
++
++struct pe32plus_opt_hdr {
++	uint16_t magic;		/* file type */
++	uint8_t  ld_major;	/* linker major version */
++	uint8_t  ld_minor;	/* linker minor version */
++	uint32_t text_size;	/* size of text section(s) */
++	uint32_t data_size;	/* size of data section(s) */
++	uint32_t bss_size;	/* size of bss section(s) */
++	uint32_t entry_point;	/* file offset of entry point */
++	uint32_t code_base;	/* relative code addr in ram */
++	/* "windows" header */
++	uint64_t image_base;	/* preferred load address */
++	uint32_t section_align;	/* alignment in bytes */
++	uint32_t file_align;	/* file alignment in bytes */
++	uint16_t os_major;	/* major OS version */
++	uint16_t os_minor;	/* minor OS version */
++	uint16_t image_major;	/* major image version */
++	uint16_t image_minor;	/* minor image version */
++	uint16_t subsys_major;	/* major subsystem version */
++	uint16_t subsys_minor;	/* minor subsystem version */
++	uint32_t win32_version;	/* reserved, must be 0 */
++	uint32_t image_size;	/* image size */
++	uint32_t header_size;	/* header size rounded up to
++				   file_align */
++	uint32_t csum;		/* checksum */
++	uint16_t subsys;	/* subsystem */
++	uint16_t dll_flags;	/* more flags! */
++	uint64_t stack_size_req;/* amt of stack requested */
++	uint64_t stack_size;	/* amt of stack required */
++	uint64_t heap_size_req;	/* amt of heap requested */
++	uint64_t heap_size;	/* amt of heap required */
++	uint32_t loader_flags;	/* reserved, must be 0 */
++	uint32_t data_dirs;	/* number of data dir entries */
++};
++
++struct data_dirent {
++	uint32_t virtual_address;	/* relative to load address */
++	uint32_t size;
++};
++
++struct data_directory {
++	struct data_dirent exports;		/* .edata */
++	struct data_dirent imports;		/* .idata */
++	struct data_dirent resources;		/* .rsrc */
++	struct data_dirent exceptions;		/* .pdata */
++	struct data_dirent certs;		/* certs */
++	struct data_dirent base_relocations;	/* .reloc */
++	struct data_dirent debug;		/* .debug */
++	struct data_dirent arch;		/* reservered */
++	struct data_dirent global_ptr;		/* global pointer reg.  Size=0 */
++	struct data_dirent tls;			/* .tls */
++	struct data_dirent load_config;		/* load configuration structure */
++	struct data_dirent bound_imports;	/* no idea */
++	struct data_dirent import_addrs;	/* import address table */
++	struct data_dirent delay_imports;	/* delay-load import table */
++	struct data_dirent clr_runtime_hdr;	/* .cor (object only) */
++	struct data_dirent reserved;
++};
++
++struct section_header {
++	char name[8];			/* name or "/12\0" string tbl offset */
++	uint32_t virtual_size;		/* size of loaded section in ram */
++	uint32_t virtual_address;	/* relative virtual address */
++	uint32_t raw_data_size;		/* size of the section */
++	uint32_t data_addr;		/* file pointer to first page of sec */
++	uint32_t relocs;		/* file pointer to relocation entries */
++	uint32_t line_numbers;		/* line numbers! */
++	uint16_t num_relocs;		/* number of relocations */
++	uint16_t num_lin_numbers;	/* srsly. */
++	uint32_t flags;
++};
++
++/* they actually defined 0x00000000 as well, but I think we'll skip that one. */
++#define IMAGE_SCN_RESERVED_0	0x00000001
++#define IMAGE_SCN_RESERVED_1	0x00000002
++#define IMAGE_SCN_RESERVED_2	0x00000004
++#define IMAGE_SCN_TYPE_NO_PAD	0x00000008 /* don't pad - obsolete */
++#define IMAGE_SCN_RESERVED_3	0x00000010
++#define IMAGE_SCN_CNT_CODE	0x00000020 /* .text */
++#define IMAGE_SCN_CNT_INITIALIZED_DATA 0x00000040 /* .data */
++#define IMAGE_SCN_CNT_UNINITIALIZED_DATA 0x00000080 /* .bss */
++#define IMAGE_SCN_LNK_OTHER	0x00000100 /* reserved */
++#define IMAGE_SCN_LNK_INFO	0x00000200 /* .drectve comments */
++#define IMAGE_SCN_RESERVED_4	0x00000400
++#define IMAGE_SCN_LNK_REMOVE	0x00000800 /* .o only - scn to be rm'd*/
++#define IMAGE_SCN_LNK_COMDAT	0x00001000 /* .o only - COMDAT data */
++#define IMAGE_SCN_RESERVED_5	0x00002000 /* spec omits this */
++#define IMAGE_SCN_RESERVED_6	0x00004000 /* spec omits this */
++#define IMAGE_SCN_GPREL		0x00008000 /* global pointer referenced data */
++/* spec lists 0x20000 twice, I suspect they meant 0x10000 for one of them */
++#define IMAGE_SCN_MEM_PURGEABLE	0x00010000 /* reserved for "future" use */
++#define IMAGE_SCN_16BIT		0x00020000 /* reserved for "future" use */
++#define IMAGE_SCN_LOCKED	0x00040000 /* reserved for "future" use */
++#define IMAGE_SCN_PRELOAD	0x00080000 /* reserved for "future" use */
++/* and here they just stuck a 1-byte integer in the middle of a bitfield */
++#define IMAGE_SCN_ALIGN_1BYTES	0x00100000 /* it does what it says on the box */
++#define IMAGE_SCN_ALIGN_2BYTES	0x00200000
++#define IMAGE_SCN_ALIGN_4BYTES	0x00300000
++#define IMAGE_SCN_ALIGN_8BYTES	0x00400000
++#define IMAGE_SCN_ALIGN_16BYTES	0x00500000
++#define IMAGE_SCN_ALIGN_32BYTES	0x00600000
++#define IMAGE_SCN_ALIGN_64BYTES	0x00700000
++#define IMAGE_SCN_ALIGN_128BYTES 0x00800000
++#define IMAGE_SCN_ALIGN_256BYTES 0x00900000
++#define IMAGE_SCN_ALIGN_512BYTES 0x00a00000
++#define IMAGE_SCN_ALIGN_1024BYTES 0x00b00000
++#define IMAGE_SCN_ALIGN_2048BYTES 0x00c00000
++#define IMAGE_SCN_ALIGN_4096BYTES 0x00d00000
++#define IMAGE_SCN_ALIGN_8192BYTES 0x00e00000
++#define IMAGE_SCN_LNK_NRELOC_OVFL 0x01000000 /* extended relocations */
++#define IMAGE_SCN_MEM_DISCARDABLE 0x02000000 /* scn can be discarded */
++#define IMAGE_SCN_MEM_NOT_CACHED 0x04000000 /* cannot be cached */
++#define IMAGE_SCN_MEM_NOT_PAGED	0x08000000 /* not pageable */
++#define IMAGE_SCN_MEM_SHARED	0x10000000 /* can be shared */
++#define IMAGE_SCN_MEM_EXECUTE	0x20000000 /* can be executed as code */
++#define IMAGE_SCN_MEM_READ	0x40000000 /* readable */
++#define IMAGE_SCN_MEM_WRITE	0x80000000 /* writeable */
++
++enum x64_coff_reloc_type {
++	IMAGE_REL_AMD64_ABSOLUTE = 0,
++	IMAGE_REL_AMD64_ADDR64,
++	IMAGE_REL_AMD64_ADDR32,
++	IMAGE_REL_AMD64_ADDR32N,
++	IMAGE_REL_AMD64_REL32,
++	IMAGE_REL_AMD64_REL32_1,
++	IMAGE_REL_AMD64_REL32_2,
++	IMAGE_REL_AMD64_REL32_3,
++	IMAGE_REL_AMD64_REL32_4,
++	IMAGE_REL_AMD64_REL32_5,
++	IMAGE_REL_AMD64_SECTION,
++	IMAGE_REL_AMD64_SECREL,
++	IMAGE_REL_AMD64_SECREL7,
++	IMAGE_REL_AMD64_TOKEN,
++	IMAGE_REL_AMD64_SREL32,
++	IMAGE_REL_AMD64_PAIR,
++	IMAGE_REL_AMD64_SSPAN32,
++};
++
++enum arm_coff_reloc_type {
++	IMAGE_REL_ARM_ABSOLUTE,
++	IMAGE_REL_ARM_ADDR32,
++	IMAGE_REL_ARM_ADDR32N,
++	IMAGE_REL_ARM_BRANCH2,
++	IMAGE_REL_ARM_BRANCH1,
++	IMAGE_REL_ARM_SECTION,
++	IMAGE_REL_ARM_SECREL,
++};
++
++enum sh_coff_reloc_type {
++	IMAGE_REL_SH3_ABSOLUTE,
++	IMAGE_REL_SH3_DIRECT16,
++	IMAGE_REL_SH3_DIRECT32,
++	IMAGE_REL_SH3_DIRECT8,
++	IMAGE_REL_SH3_DIRECT8_WORD,
++	IMAGE_REL_SH3_DIRECT8_LONG,
++	IMAGE_REL_SH3_DIRECT4,
++	IMAGE_REL_SH3_DIRECT4_WORD,
++	IMAGE_REL_SH3_DIRECT4_LONG,
++	IMAGE_REL_SH3_PCREL8_WORD,
++	IMAGE_REL_SH3_PCREL8_LONG,
++	IMAGE_REL_SH3_PCREL12_WORD,
++	IMAGE_REL_SH3_STARTOF_SECTION,
++	IMAGE_REL_SH3_SIZEOF_SECTION,
++	IMAGE_REL_SH3_SECTION,
++	IMAGE_REL_SH3_SECREL,
++	IMAGE_REL_SH3_DIRECT32_NB,
++	IMAGE_REL_SH3_GPREL4_LONG,
++	IMAGE_REL_SH3_TOKEN,
++	IMAGE_REL_SHM_PCRELPT,
++	IMAGE_REL_SHM_REFLO,
++	IMAGE_REL_SHM_REFHALF,
++	IMAGE_REL_SHM_RELLO,
++	IMAGE_REL_SHM_RELHALF,
++	IMAGE_REL_SHM_PAIR,
++	IMAGE_REL_SHM_NOMODE,
++};
++
++enum ppc_coff_reloc_type {
++	IMAGE_REL_PPC_ABSOLUTE,
++	IMAGE_REL_PPC_ADDR64,
++	IMAGE_REL_PPC_ADDR32,
++	IMAGE_REL_PPC_ADDR24,
++	IMAGE_REL_PPC_ADDR16,
++	IMAGE_REL_PPC_ADDR14,
++	IMAGE_REL_PPC_REL24,
++	IMAGE_REL_PPC_REL14,
++	IMAGE_REL_PPC_ADDR32N,
++	IMAGE_REL_PPC_SECREL,
++	IMAGE_REL_PPC_SECTION,
++	IMAGE_REL_PPC_SECREL16,
++	IMAGE_REL_PPC_REFHI,
++	IMAGE_REL_PPC_REFLO,
++	IMAGE_REL_PPC_PAIR,
++	IMAGE_REL_PPC_SECRELLO,
++	IMAGE_REL_PPC_GPREL,
++	IMAGE_REL_PPC_TOKEN,
++};
++
++enum x86_coff_reloc_type {
++	IMAGE_REL_I386_ABSOLUTE,
++	IMAGE_REL_I386_DIR16,
++	IMAGE_REL_I386_REL16,
++	IMAGE_REL_I386_DIR32,
++	IMAGE_REL_I386_DIR32NB,
++	IMAGE_REL_I386_SEG12,
++	IMAGE_REL_I386_SECTION,
++	IMAGE_REL_I386_SECREL,
++	IMAGE_REL_I386_TOKEN,
++	IMAGE_REL_I386_SECREL7,
++	IMAGE_REL_I386_REL32,
++};
++
++enum ia64_coff_reloc_type {
++	IMAGE_REL_IA64_ABSOLUTE,
++	IMAGE_REL_IA64_IMM14,
++	IMAGE_REL_IA64_IMM22,
++	IMAGE_REL_IA64_IMM64,
++	IMAGE_REL_IA64_DIR32,
++	IMAGE_REL_IA64_DIR64,
++	IMAGE_REL_IA64_PCREL21B,
++	IMAGE_REL_IA64_PCREL21M,
++	IMAGE_REL_IA64_PCREL21F,
++	IMAGE_REL_IA64_GPREL22,
++	IMAGE_REL_IA64_LTOFF22,
++	IMAGE_REL_IA64_SECTION,
++	IMAGE_REL_IA64_SECREL22,
++	IMAGE_REL_IA64_SECREL64I,
++	IMAGE_REL_IA64_SECREL32,
++	IMAGE_REL_IA64_DIR32NB,
++	IMAGE_REL_IA64_SREL14,
++	IMAGE_REL_IA64_SREL22,
++	IMAGE_REL_IA64_SREL32,
++	IMAGE_REL_IA64_UREL32,
++	IMAGE_REL_IA64_PCREL60X,
++	IMAGE_REL_IA64_PCREL60B,
++	IMAGE_REL_IA64_PCREL60F,
++	IMAGE_REL_IA64_PCREL60I,
++	IMAGE_REL_IA64_PCREL60M,
++	IMAGE_REL_IA64_IMMGPREL6,
++	IMAGE_REL_IA64_TOKEN,
++	IMAGE_REL_IA64_GPREL32,
++	IMAGE_REL_IA64_ADDEND,
++};
++
++struct coff_reloc {
++	uint32_t virtual_address;
++	uint32_t symbol_table_index;
++	union {
++		enum x64_coff_reloc_type  x64_type;
++		enum arm_coff_reloc_type  arm_type;
++		enum sh_coff_reloc_type   sh_type;
++		enum ppc_coff_reloc_type  ppc_type;
++		enum x86_coff_reloc_type  x86_type;
++		enum ia64_coff_reloc_type ia64_type;
++		uint16_t data;
++	};
++};
++
++/*
++ * Definitions for the contents of the certs data block
++ */
++#define WIN_CERT_TYPE_PKCS_SIGNED_DATA	0x0002
++#define WIN_CERT_TYPE_EFI_OKCS115	0x0EF0
++#define WIN_CERT_TYPE_EFI_GUID		0x0EF1
++
++#define WIN_CERT_REVISION_1_0	0x0100
++#define WIN_CERT_REVISION_2_0	0x0200
++
++struct win_certificate {
++	uint32_t length;
++	uint16_t revision;
++	uint16_t cert_type;
++};
++
++#endif /* __LINUX_PE_H */
+-- 
+1.8.1.4
+
+
+From d329754b0c2881b6331aacafab74a26b2d9262b3 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:40 +0000
+Subject: [PATCH 21/47] pefile: Parse a PE binary to find a key and a signature
+ contained therein
+
+Parse a PE binary to find a key and a signature contained therein.  Later
+patches will check the signature and add the key if the signature checks out.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/Kconfig         |  10 +-
+ crypto/asymmetric_keys/Makefile        |   8 ++
+ crypto/asymmetric_keys/pefile_parser.c | 185 +++++++++++++++++++++++++++++++++
+ crypto/asymmetric_keys/pefile_parser.h |  31 ++++++
+ 4 files changed, 233 insertions(+), 1 deletion(-)
+ create mode 100644 crypto/asymmetric_keys/pefile_parser.c
+ create mode 100644 crypto/asymmetric_keys/pefile_parser.h
+
+diff --git a/crypto/asymmetric_keys/Kconfig b/crypto/asymmetric_keys/Kconfig
+index 413f3f6..2e7315c 100644
+--- a/crypto/asymmetric_keys/Kconfig
++++ b/crypto/asymmetric_keys/Kconfig
+@@ -31,7 +31,7 @@ config X509_CERTIFICATE_PARSER
+ 	select ASN1
+ 	select OID_REGISTRY
+ 	help
+-	  This option procides support for parsing X.509 format blobs for key
++	  This option provides support for parsing X.509 format blobs for key
+ 	  data and provides the ability to instantiate a crypto key from a
+ 	  public key packet found inside the certificate.
+ 
+@@ -44,4 +44,12 @@ config PKCS7_MESSAGE_PARSER
+ 	  This option provides support for parsing PKCS#7 format messages for
+ 	  signature data and provides the ability to verify the signature.
+ 
++config PE_FILE_PARSER
++	tristate "PE binary-wrapped key parser"
++	depends on X509_CERTIFICATE_PARSER
++	depends on PKCS7_MESSAGE_PARSER
++	help
++	  This option provides support for parsing signed PE binaries that
++	  contain an X.509 certificate in an internal section.
++
+ endif # ASYMMETRIC_KEY_TYPE
+diff --git a/crypto/asymmetric_keys/Makefile b/crypto/asymmetric_keys/Makefile
+index d63cb43..2675146 100644
+--- a/crypto/asymmetric_keys/Makefile
++++ b/crypto/asymmetric_keys/Makefile
+@@ -40,3 +40,11 @@ $(obj)/pkcs7_parser.o: $(obj)/pkcs7-asn1.h
+ $(obj)/pkcs7-asn1.o: $(obj)/pkcs7-asn1.c $(obj)/pkcs7-asn1.h
+ 
+ clean-files	+= pkcs7-asn1.c pkcs7-asn1.h
++
++#
++# Signed PE binary-wrapped key handling
++#
++obj-$(CONFIG_PE_FILE_PARSER) += pefile_key_parser.o
++
++pefile_key_parser-y := \
++	pefile_parser.o
+diff --git a/crypto/asymmetric_keys/pefile_parser.c b/crypto/asymmetric_keys/pefile_parser.c
+new file mode 100644
+index 0000000..fb80cf0
+--- /dev/null
++++ b/crypto/asymmetric_keys/pefile_parser.c
+@@ -0,0 +1,185 @@
++/* Parse a signed PE binary that wraps a key.
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#define pr_fmt(fmt) "PEFILE: "fmt
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/err.h>
++#include <linux/pe.h>
++#include <keys/asymmetric-subtype.h>
++#include <keys/asymmetric-parser.h>
++#include <crypto/hash.h>
++#include "asymmetric_keys.h"
++#include "public_key.h"
++#include "pefile_parser.h"
++
++/*
++ * Parse a PE binary.
++ */
++static int pefile_parse_binary(struct key_preparsed_payload *prep,
++			       struct pefile_context *ctx)
++{
++	const struct mz_hdr *mz = prep->data;
++	const struct pe_hdr *pe;
++	const struct pe32_opt_hdr *pe32;
++	const struct pe32plus_opt_hdr *pe64;
++	const struct data_directory *ddir;
++	const struct data_dirent *dde;
++	const struct section_header *secs, *sec;
++	unsigned loop;
++	size_t cursor, datalen = prep->datalen;
++
++	kenter("");
++
++#define chkaddr(base, x, s)						\
++	do {								\
++		if ((x) < base || (s) >= datalen || (x) > datalen - (s)) \
++			return -ELIBBAD;				\
++	} while(0)
++
++	chkaddr(0, 0, sizeof(*mz));
++	if (mz->magic != MZ_MAGIC)
++		return -ELIBBAD;
++	cursor = sizeof(*mz);
++
++	chkaddr(cursor, mz->peaddr, sizeof(*pe));
++	pe = prep->data + mz->peaddr;
++	if (pe->magic != PE_MAGIC)
++		return -ELIBBAD;
++	cursor = mz->peaddr + sizeof(*pe);
++
++	chkaddr(0, cursor, sizeof(pe32->magic));
++	pe32 = prep->data + cursor;
++	pe64 = prep->data + cursor;
++	
++	switch (pe32->magic) {
++	case PE_OPT_MAGIC_PE32:
++		chkaddr(0, cursor, sizeof(*pe32));
++		ctx->image_checksum_offset =
++			(unsigned long)&pe32->csum - (unsigned long)prep->data;
++		ctx->header_size = pe32->header_size;
++		cursor += sizeof(*pe32);
++		ctx->n_data_dirents = pe32->data_dirs;
++		break;
++
++	case PE_OPT_MAGIC_PE32PLUS:
++		chkaddr(0, cursor, sizeof(*pe64));
++		ctx->image_checksum_offset =
++			(unsigned long)&pe64->csum - (unsigned long)prep->data;
++		ctx->header_size = pe64->header_size;
++		cursor += sizeof(*pe64);
++		ctx->n_data_dirents = pe64->data_dirs;
++		break;
++
++	default:
++		pr_devel("Unknown PEOPT magic = %04hx\n", pe32->magic);
++		return -ELIBBAD;
++	}
++
++	pr_devel("checksum @ %x\n", ctx->image_checksum_offset);
++	pr_devel("header size = %x\n", ctx->header_size);
++
++	if (cursor >= ctx->header_size || ctx->header_size >= datalen)
++		return -ELIBBAD;
++
++	if (ctx->n_data_dirents > (ctx->header_size - cursor) / sizeof(*dde) ||
++	    ctx->n_data_dirents < sizeof(*ddir) / sizeof(*dde))
++		return -ELIBBAD;
++
++	ddir = prep->data + cursor;
++	cursor += sizeof(*dde) * ctx->n_data_dirents;
++
++	ctx->cert_dirent_offset =
++		(unsigned long)&ddir->certs - (unsigned long)prep->data;
++	ctx->certs_size = ddir->certs.size;
++
++	if (!ddir->certs.virtual_address || !ddir->certs.size) {
++		pr_devel("Unsigned PE binary\n");
++		return -EKEYREJECTED;
++	}
++
++	chkaddr(ctx->header_size, ddir->certs.virtual_address, ddir->certs.size);
++	ctx->sig_offset = ddir->certs.virtual_address;
++	ctx->sig_len = ddir->certs.size;
++	pr_devel("cert = %x @%x [%*ph]\n",
++		 ctx->sig_len, ctx->sig_offset,
++		 ctx->sig_len, prep->data + ctx->sig_offset);
++
++	/* Parse the section table, checking the parameters and looking for the
++	 * section containing the list of keys.
++	 */
++	ctx->n_sections = pe->sections;
++	if (ctx->n_sections > (ctx->header_size - cursor) / sizeof(*sec))
++		return -ELIBBAD;
++	ctx->secs = secs = prep->data + cursor;
++	cursor += sizeof(*sec) * ctx->n_sections;
++
++	for (loop = 0; loop < ctx->n_sections; loop++) {
++		sec = &secs[loop];
++		chkaddr(cursor, sec->data_addr, sec->raw_data_size);
++		if (memcmp(sec->name, ".keylist", 8) == 0) {
++			ctx->keylist_offset = sec->data_addr;
++			ctx->keylist_len = sec->raw_data_size;
++		}
++	}
++
++	if (ctx->keylist_offset == 0) {
++		pr_devel("No .keylist section in PE binary\n");
++		return -ENOENT;
++	}
++
++	pr_devel("keylist = %x @%x [%*ph]\n",
++		 ctx->keylist_len, ctx->keylist_offset,
++		 ctx->keylist_len, prep->data + ctx->keylist_offset);
++
++	return 0;
++}
++
++/*
++ * Parse a PE binary.
++ */
++static int pefile_key_preparse(struct key_preparsed_payload *prep)
++{
++	struct pefile_context ctx;
++	int ret;
++
++	kenter("");
++
++	memset(&ctx, 0, sizeof(ctx));
++	ret = pefile_parse_binary(prep, &ctx);
++	if (ret < 0)
++		return ret;
++
++	return -ENOANO; // Not yet complete
++}
++
++static struct asymmetric_key_parser pefile_key_parser = {
++	.owner	= THIS_MODULE,
++	.name	= "pefile",
++	.parse	= pefile_key_preparse,
++};
++
++/*
++ * Module stuff
++ */
++static int __init pefile_key_init(void)
++{
++	return register_asymmetric_key_parser(&pefile_key_parser);
++}
++
++static void __exit pefile_key_exit(void)
++{
++	unregister_asymmetric_key_parser(&pefile_key_parser);
++}
++
++module_init(pefile_key_init);
++module_exit(pefile_key_exit);
+diff --git a/crypto/asymmetric_keys/pefile_parser.h b/crypto/asymmetric_keys/pefile_parser.h
+new file mode 100644
+index 0000000..82bcaf6
+--- /dev/null
++++ b/crypto/asymmetric_keys/pefile_parser.h
+@@ -0,0 +1,31 @@
++/* PE Binary parser bits
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++#include "pkcs7_parser.h"
++
++struct pefile_context {
++	unsigned	header_size;
++	unsigned	image_checksum_offset;
++	unsigned	cert_dirent_offset;
++	unsigned	n_data_dirents;
++	unsigned	n_sections;
++	unsigned	certs_size;
++	unsigned	sig_offset;
++	unsigned	sig_len;
++	unsigned	keylist_offset;
++	unsigned	keylist_len;
++	const struct section_header *secs;
++	struct pkcs7_message *pkcs7;
++
++	/* PKCS#7 MS Individual Code Signing content */
++	const void	*digest;		/* Digest */
++	unsigned	digest_len;		/* Digest length */
++	enum pkey_hash_algo digest_algo;	/* Digest algorithm */
++};
+-- 
+1.8.1.4
+
+
+From 3794d7963e17fc0b0c2f62164306b9a45cb2254e Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:40 +0000
+Subject: [PATCH 22/47] pefile: Strip the wrapper off of the cert data block
+
+The certificate data block in a PE binary has a wrapper around the PKCS#7
+signature we actually want to get at.  Strip this off and check that we've got
+something that appears to be a PKCS#7 signature.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/pefile_parser.c | 60 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/crypto/asymmetric_keys/pefile_parser.c b/crypto/asymmetric_keys/pefile_parser.c
+index fb80cf0..f2d4df0 100644
+--- a/crypto/asymmetric_keys/pefile_parser.c
++++ b/crypto/asymmetric_keys/pefile_parser.c
+@@ -15,6 +15,7 @@
+ #include <linux/slab.h>
+ #include <linux/err.h>
+ #include <linux/pe.h>
++#include <linux/asn1.h>
+ #include <keys/asymmetric-subtype.h>
+ #include <keys/asymmetric-parser.h>
+ #include <crypto/hash.h>
+@@ -145,6 +146,61 @@ static int pefile_parse_binary(struct key_preparsed_payload *prep,
+ }
+ 
+ /*
++ * Check and strip the PE wrapper from around the signature and check that the
++ * remnant looks something like PKCS#7.
++ */
++static int pefile_strip_sig_wrapper(struct key_preparsed_payload *prep,
++				    struct pefile_context *ctx)
++{
++	struct win_certificate wrapper;
++	const u8 *pkcs7;
++
++	if (ctx->sig_len < sizeof(wrapper)) {
++		pr_devel("Signature wrapper too short\n");
++		return -ELIBBAD;
++	}
++
++	memcpy(&wrapper, prep->data + ctx->sig_offset, sizeof(wrapper));
++	pr_devel("sig wrapper = { %x, %x, %x }\n",
++		 wrapper.length, wrapper.revision, wrapper.cert_type);
++	if (wrapper.length != ctx->sig_len) {
++		pr_devel("Signature wrapper len wrong\n");
++		return -ELIBBAD;
++	}
++	if (wrapper.revision != WIN_CERT_REVISION_2_0) {
++		pr_devel("Signature is not revision 2.0\n");
++		return -ENOTSUPP;
++	}
++	if (wrapper.cert_type != WIN_CERT_TYPE_PKCS_SIGNED_DATA) {
++		pr_devel("Signature certificate type is not PKCS\n");
++		return -ENOTSUPP;
++	}
++
++	ctx->sig_offset += sizeof(wrapper);
++	ctx->sig_len -= sizeof(wrapper);
++	if (ctx->sig_len == 0) {
++		pr_devel("Signature data missing\n");
++		return -EKEYREJECTED;
++	}
++
++	/* What's left should a PKCS#7 cert */
++	pkcs7 = prep->data + ctx->sig_offset;
++	if (pkcs7[0] == (ASN1_CONS_BIT | ASN1_SEQ)) {
++		if (pkcs7[1] == 0x82 &&
++		    pkcs7[2] == (((ctx->sig_len - 4) >> 8) & 0xff) &&
++		    pkcs7[3] ==  ((ctx->sig_len - 4)       & 0xff))
++			return 0;
++		if (pkcs7[1] == 0x80)
++			return 0;
++		if (pkcs7[1] > 0x82)
++			return -EMSGSIZE;
++	}
++
++	pr_devel("Signature data not PKCS#7\n");
++	return -ELIBBAD;
++}
++
++/*
+  * Parse a PE binary.
+  */
+ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+@@ -159,6 +215,10 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+ 	if (ret < 0)
+ 		return ret;
+ 
++	ret = pefile_strip_sig_wrapper(prep, &ctx);
++	if (ret < 0)
++		return ret;
++
+ 	return -ENOANO; // Not yet complete
+ }
+ 
+-- 
+1.8.1.4
+
+
+From f23895761a15e08959140091dc17004e7e6e2035 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:40 +0000
+Subject: [PATCH 23/47] pefile: Parse the presumed PKCS#7 content of the
+ certificate blob
+
+Parse the content of the certificate blob, presuming it to be PKCS#7 format.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/pefile_parser.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/crypto/asymmetric_keys/pefile_parser.c b/crypto/asymmetric_keys/pefile_parser.c
+index f2d4df0..056500f 100644
+--- a/crypto/asymmetric_keys/pefile_parser.c
++++ b/crypto/asymmetric_keys/pefile_parser.c
+@@ -205,6 +205,7 @@ static int pefile_strip_sig_wrapper(struct key_preparsed_payload *prep,
+  */
+ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+ {
++	struct pkcs7_message *pkcs7;
+ 	struct pefile_context ctx;
+ 	int ret;
+ 
+@@ -219,7 +220,22 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+ 	if (ret < 0)
+ 		return ret;
+ 
+-	return -ENOANO; // Not yet complete
++	pkcs7 = pkcs7_parse_message(prep->data + ctx.sig_offset, ctx.sig_len);
++	if (IS_ERR(pkcs7))
++		return PTR_ERR(pkcs7);
++	ctx.pkcs7 = pkcs7;
++
++	if (!ctx.pkcs7->data || !ctx.pkcs7->data_len) {
++		pr_devel("PKCS#7 message does not contain data\n");
++		ret = -EBADMSG;
++		goto error;
++	}
++
++	ret = -ENOANO; // Not yet complete
++
++error:
++	pkcs7_free_message(ctx.pkcs7);
++	return ret;
+ }
+ 
+ static struct asymmetric_key_parser pefile_key_parser = {
+-- 
+1.8.1.4
+
+
+From fcdb91196beb6235eed676c368a662cbdf92b804 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:41 +0000
+Subject: [PATCH 24/47] pefile: Parse the "Microsoft individual code signing"
+ data blob
+
+The PKCS#7 certificate should contain a "Microsoft individual code signing"
+data blob as its signed content.  This blob contains a digest of the signed
+content of the PE binary and the OID of the digest algorithm used (typically
+SHA256).
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/Makefile        |   9 ++-
+ crypto/asymmetric_keys/mscode.asn1     |  28 +++++++++
+ crypto/asymmetric_keys/mscode_parser.c | 110 +++++++++++++++++++++++++++++++++
+ crypto/asymmetric_keys/pefile_parser.c |   6 ++
+ crypto/asymmetric_keys/pefile_parser.h |   5 ++
+ include/linux/oid_registry.h           |   6 +-
+ 6 files changed, 162 insertions(+), 2 deletions(-)
+ create mode 100644 crypto/asymmetric_keys/mscode.asn1
+ create mode 100644 crypto/asymmetric_keys/mscode_parser.c
+
+diff --git a/crypto/asymmetric_keys/Makefile b/crypto/asymmetric_keys/Makefile
+index 2675146..ddc64bb 100644
+--- a/crypto/asymmetric_keys/Makefile
++++ b/crypto/asymmetric_keys/Makefile
+@@ -47,4 +47,11 @@ clean-files	+= pkcs7-asn1.c pkcs7-asn1.h
+ obj-$(CONFIG_PE_FILE_PARSER) += pefile_key_parser.o
+ 
+ pefile_key_parser-y := \
+-	pefile_parser.o
++	pefile_parser.o \
++	mscode_parser.o \
++	mscode-asn1.o
++
++$(obj)/mscode_parser.o: $(obj)/mscode-asn1.h $(obj)/mscode-asn1.h
++$(obj)/mscode-asn1.o: $(obj)/mscode-asn1.c $(obj)/mscode-asn1.h
++
++clean-files	+= mscode-asn1.c mscode-asn1.h
+diff --git a/crypto/asymmetric_keys/mscode.asn1 b/crypto/asymmetric_keys/mscode.asn1
+new file mode 100644
+index 0000000..6d09ba4
+--- /dev/null
++++ b/crypto/asymmetric_keys/mscode.asn1
+@@ -0,0 +1,28 @@
++--- Microsoft individual code signing data blob parser
++---
++--- Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++--- Written by David Howells (dhowells@redhat.com)
++---
++--- This program is free software; you can redistribute it and/or
++--- modify it under the terms of the GNU General Public Licence
++--- as published by the Free Software Foundation; either version
++--- 2 of the Licence, or (at your option) any later version.
++---
++
++MSCode ::= SEQUENCE {
++	type			SEQUENCE {
++		contentType	ContentType,
++		parameters	ANY
++	},
++	content			SEQUENCE {
++		digestAlgorithm	DigestAlgorithmIdentifier,
++		digest		OCTET STRING ({ mscode_note_digest })
++	}
++}
++
++ContentType ::= OBJECT IDENTIFIER ({ mscode_note_content_type })
++
++DigestAlgorithmIdentifier ::= SEQUENCE {
++	algorithm   OBJECT IDENTIFIER ({ mscode_note_digest_algo }),
++	parameters  ANY OPTIONAL
++}
+diff --git a/crypto/asymmetric_keys/mscode_parser.c b/crypto/asymmetric_keys/mscode_parser.c
+new file mode 100644
+index 0000000..0bd68e0
+--- /dev/null
++++ b/crypto/asymmetric_keys/mscode_parser.c
+@@ -0,0 +1,110 @@
++/* Parse a Microsoft Individual Code Signing blob
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#define pr_fmt(fmt) "MSCODE: "fmt
++#include <linux/kernel.h>
++#include <linux/slab.h>
++#include <linux/err.h>
++#include <linux/oid_registry.h>
++#include "pefile_parser.h"
++#include "mscode-asn1.h"
++
++/*
++ * Parse a Microsoft Individual Code Signing blob
++ */
++int mscode_parse(struct pefile_context *ctx)
++{
++	pr_devel("Data: %zu [%*ph]\n",
++		 ctx->pkcs7->data_len + ctx->pkcs7->data_hdrlen,
++		 (unsigned)(ctx->pkcs7->data_len + ctx->pkcs7->data_hdrlen),
++		 ctx->pkcs7->data - ctx->pkcs7->data_hdrlen);
++
++	return asn1_ber_decoder(&mscode_decoder, ctx,
++				ctx->pkcs7->data - ctx->pkcs7->data_hdrlen,
++				ctx->pkcs7->data_len + ctx->pkcs7->data_hdrlen);
++}
++
++/*
++ * Check the content type OID
++ */
++int mscode_note_content_type(void *context, size_t hdrlen,
++			     unsigned char tag,
++			     const void *value, size_t vlen)
++{
++	enum OID oid;
++
++	oid = look_up_OID(value, vlen);
++	if (oid == OID__NR) {
++		char buffer[50];
++		sprint_oid(value, vlen, buffer, sizeof(buffer));
++		printk("MSCODE: Unknown OID: %s\n", buffer);
++		return -EBADMSG;
++	}
++
++	if (oid != OID_msIndividualSPKeyPurpose) {
++		printk("MSCODE: Unexpected content type OID %u\n", oid);
++		return -EBADMSG;
++	}
++
++	return 0;
++}
++
++/*
++ * Note the digest algorithm OID
++ */
++int mscode_note_digest_algo(void *context, size_t hdrlen,
++			    unsigned char tag,
++			    const void *value, size_t vlen)
++{
++	struct pefile_context *ctx = context;
++	char buffer[50];
++	enum OID oid;
++
++	oid = look_up_OID(value, vlen);
++	switch (oid) {
++	case OID_md4:
++		ctx->digest_algo = PKEY_HASH_MD4;
++		break;
++	case OID_md5:
++		ctx->digest_algo = PKEY_HASH_MD5;
++		break;
++	case OID_sha1:
++		ctx->digest_algo = PKEY_HASH_SHA1;
++		break;
++	case OID_sha256:
++		ctx->digest_algo = PKEY_HASH_SHA256;
++		break;
++
++	case OID__NR:
++		sprint_oid(value, vlen, buffer, sizeof(buffer));
++		printk("MSCODE: Unknown OID: %s\n", buffer);
++		return -EBADMSG;
++
++	default:
++		printk("MSCODE: Unsupported content type: %u\n", oid);
++		return -ENOPKG;
++	}
++
++	return 0;
++}
++
++/*
++ * Note the digest we're guaranteeing with this certificate
++ */
++int mscode_note_digest(void *context, size_t hdrlen,
++		       unsigned char tag,
++		       const void *value, size_t vlen)
++{
++	struct pefile_context *ctx = context;
++	ctx->digest = value;
++	ctx->digest_len = vlen;
++	return 0;
++}
+diff --git a/crypto/asymmetric_keys/pefile_parser.c b/crypto/asymmetric_keys/pefile_parser.c
+index 056500f..f1c8cc1 100644
+--- a/crypto/asymmetric_keys/pefile_parser.c
++++ b/crypto/asymmetric_keys/pefile_parser.c
+@@ -231,6 +231,12 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+ 		goto error;
+ 	}
+ 
++	ret = mscode_parse(&ctx);
++	if (ret < 0)
++		goto error;
++
++	pr_devel("Digest: %u [%*ph]\n", ctx.digest_len, ctx.digest_len, ctx.digest);
++
+ 	ret = -ENOANO; // Not yet complete
+ 
+ error:
+diff --git a/crypto/asymmetric_keys/pefile_parser.h b/crypto/asymmetric_keys/pefile_parser.h
+index 82bcaf6..c3462b7 100644
+--- a/crypto/asymmetric_keys/pefile_parser.h
++++ b/crypto/asymmetric_keys/pefile_parser.h
+@@ -29,3 +29,8 @@ struct pefile_context {
+ 	unsigned	digest_len;		/* Digest length */
+ 	enum pkey_hash_algo digest_algo;	/* Digest algorithm */
+ };
++
++/*
++ * mscode_parser.c
++ */
++extern int mscode_parse(struct pefile_context *ctx);
+diff --git a/include/linux/oid_registry.h b/include/linux/oid_registry.h
+index edeff85..332dcf5 100644
+--- a/include/linux/oid_registry.h
++++ b/include/linux/oid_registry.h
+@@ -52,8 +52,12 @@ enum OID {
+ 	OID_md4,			/* 1.2.840.113549.2.4 */
+ 	OID_md5,			/* 1.2.840.113549.2.5 */
+ 
+-	OID_certAuthInfoAccess,		/* 1.3.6.1.5.5.7.1.1 */
++	/* Microsoft Authenticode & Software Publishing */
++	OID_msIndirectData,		/* 1.3.6.1.4.1.311.2.1.4 */
++	OID_msIndividualSPKeyPurpose,	/* 1.3.6.1.4.1.311.2.1.21 */
+ 	OID_msOutlookExpress,		/* 1.3.6.1.4.1.311.16.4 */
++
++	OID_certAuthInfoAccess,		/* 1.3.6.1.5.5.7.1.1 */
+ 	OID_sha1,			/* 1.3.14.3.2.26 */
+ 	OID_sha256,			/* 2.16.840.1.101.3.4.2.1 */
+ 
+-- 
+1.8.1.4
+
+
+From 63204898d9491f8ba1b90dea8660e8ff778db993 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:41 +0000
+Subject: [PATCH 25/47] pefile: Digest the PE binary and compare to the PKCS#7
+ data
+
+Digest the signed parts of the PE binary, canonicalising the section table
+before we need it, and then compare the the resulting digest to the one in the
+PKCS#7 signed content.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/pefile_parser.c | 198 +++++++++++++++++++++++++++++++++
+ 1 file changed, 198 insertions(+)
+
+diff --git a/crypto/asymmetric_keys/pefile_parser.c b/crypto/asymmetric_keys/pefile_parser.c
+index f1c8cc1..dfdb85e 100644
+--- a/crypto/asymmetric_keys/pefile_parser.c
++++ b/crypto/asymmetric_keys/pefile_parser.c
+@@ -201,6 +201,193 @@ static int pefile_strip_sig_wrapper(struct key_preparsed_payload *prep,
+ }
+ 
+ /*
++ * Compare two sections for canonicalisation.
++ */
++static int pefile_compare_shdrs(const void *a, const void *b)
++{
++	const struct section_header *shdra = a;
++	const struct section_header *shdrb = b;
++	int rc;
++
++	if (shdra->data_addr > shdrb->data_addr)
++		return 1;
++	if (shdrb->data_addr > shdra->data_addr)
++		return -1;
++
++	if (shdra->virtual_address > shdrb->virtual_address)
++		return 1;
++	if (shdrb->virtual_address > shdra->virtual_address)
++		return -1;
++
++	rc = strcmp(shdra->name, shdrb->name);
++	if (rc != 0)
++		return rc;
++
++	if (shdra->virtual_size > shdrb->virtual_size)
++		return 1;
++	if (shdrb->virtual_size > shdra->virtual_size)
++		return -1;
++
++	if (shdra->raw_data_size > shdrb->raw_data_size)
++		return 1;
++	if (shdrb->raw_data_size > shdra->raw_data_size)
++		return -1;
++
++	return 0;
++}
++
++/*
++ * Load the contents of the PE binary into the digest, leaving out the image
++ * checksum and the certificate data block.
++ */
++static int pefile_digest_pe_contents(struct key_preparsed_payload *prep,
++				     struct pefile_context *ctx,
++				     struct shash_desc *desc)
++{
++	unsigned *canon, tmp, loop, i, hashed_bytes;
++	int ret;
++
++	/* Digest the header and data directory, but leave out the image
++	 * checksum and the data dirent for the signature.
++	 */
++	ret = crypto_shash_update(desc, prep->data, ctx->image_checksum_offset);
++	if (ret < 0)
++		return ret;
++
++	tmp = ctx->image_checksum_offset + sizeof(uint32_t);
++	ret = crypto_shash_update(desc, prep->data + tmp,
++				  ctx->cert_dirent_offset - tmp);
++	if (ret < 0)
++		return ret;
++
++	tmp = ctx->cert_dirent_offset + sizeof(struct data_dirent);
++	ret = crypto_shash_update(desc, prep->data + tmp,
++				  ctx->header_size - tmp);
++	if (ret < 0)
++		return ret;
++
++	canon = kcalloc(ctx->n_sections, sizeof(unsigned), GFP_KERNEL);
++	if (!canon)
++		return -ENOMEM;
++
++	/* We have to canonicalise the section table, so we perform an
++	 * insertion sort.
++	 */
++	canon[0] = 0;
++	for (loop = 1; loop < ctx->n_sections; loop++) {
++		for (i = 0; i < loop; i++) {
++			if (pefile_compare_shdrs(&ctx->secs[canon[i]],
++						 &ctx->secs[loop]) > 0) {
++				memmove(&canon[i + 1], &canon[i],
++					(loop - i) * sizeof(canon[0]));
++				break;
++			}
++		}
++		canon[i] = loop;
++	}
++
++	hashed_bytes = ctx->header_size;
++	for (loop = 0; loop < ctx->n_sections; loop++) {
++		i = canon[loop];
++		if (ctx->secs[i].raw_data_size == 0)
++			continue;
++		ret = crypto_shash_update(desc,
++					  prep->data + ctx->secs[i].data_addr,
++					  ctx->secs[i].raw_data_size);
++		if (ret < 0) {
++			kfree(canon);
++			return ret;
++		}
++		hashed_bytes += ctx->secs[i].raw_data_size;
++	}
++	kfree(canon);
++
++	if (prep->datalen > hashed_bytes) {
++		tmp = hashed_bytes + ctx->certs_size;
++		ret = crypto_shash_update(desc,
++					  prep->data + hashed_bytes,
++					  prep->datalen - tmp);
++		if (ret < 0)
++			return ret;
++	}
++
++	return 0;
++}
++
++/*
++ * Digest the contents of the PE binary, leaving out the image checksum and the
++ * certificate data block.
++ */
++static int pefile_digest_pe(struct key_preparsed_payload *prep,
++			    struct pefile_context *ctx)
++{
++	struct crypto_shash *tfm;
++	struct shash_desc *desc;
++	size_t digest_size, desc_size;
++	void *digest;
++	int ret;
++
++	kenter(",%u", ctx->digest_algo);
++	
++	/* Allocate the hashing algorithm we're going to need and find out how
++	 * big the hash operational data will be.
++	 */
++	tfm = crypto_alloc_shash(pkey_hash_algo_name[ctx->digest_algo], 0, 0);
++	if (IS_ERR(tfm))
++		return (PTR_ERR(tfm) == -ENOENT) ? -ENOPKG : PTR_ERR(tfm);
++
++	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
++	digest_size = crypto_shash_digestsize(tfm);
++
++	if (digest_size != ctx->digest_len) {
++		pr_debug("Digest size mismatch (%zx != %x)\n",
++			 digest_size, ctx->digest_len);
++		ret = -EBADMSG;
++		goto error_no_desc;
++	}
++	pr_devel("Digest: desc=%zu size=%zu\n", desc_size, digest_size);
++
++	ret = -ENOMEM;
++	desc = kzalloc(desc_size + digest_size, GFP_KERNEL);
++	if (!desc)
++		goto error_no_desc;
++
++	desc->tfm   = tfm;
++	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
++	ret = crypto_shash_init(desc);
++	if (ret < 0)
++		goto error;
++
++	ret = pefile_digest_pe_contents(prep, ctx, desc);
++	if (ret < 0)
++		goto error;
++
++	digest = (void *)desc + desc_size;
++	ret = crypto_shash_final(desc, digest);
++	if (ret < 0)
++		goto error;
++
++	pr_devel("Digest calc = [%*ph]\n", ctx->digest_len, digest);
++
++	/* Check that the PE file digest matches that in the MSCODE part of the
++	 * PKCS#7 certificate.
++	 */
++	if (memcmp(digest, ctx->digest, ctx->digest_len) != 0) {
++		pr_debug("Digest mismatch\n");
++		ret = -EKEYREJECTED;
++	} else {
++		pr_debug("The digests match!\n");
++	}
++
++error:
++	kfree(desc);
++error_no_desc:
++	crypto_free_shash(tfm);
++	kleave(" = %d", ret);
++	return ret;
++}
++
++/*
+  * Parse a PE binary.
+  */
+ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+@@ -237,6 +424,17 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+ 
+ 	pr_devel("Digest: %u [%*ph]\n", ctx.digest_len, ctx.digest_len, ctx.digest);
+ 
++	/* Generate the digest and check against the PKCS7 certificate
++	 * contents.
++	 */
++	ret = pefile_digest_pe(prep, &ctx);
++	if (ret < 0)
++		goto error;
++
++	ret = pkcs7_verify(pkcs7);
++	if (ret < 0)
++		goto error;
++
+ 	ret = -ENOANO; // Not yet complete
+ 
+ error:
+-- 
+1.8.1.4
+
+
+From 17ed825e5f3f595665abd3fc11a6c180e6762b87 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Fri, 18 Jan 2013 13:58:35 +0000
+Subject: [PATCH 26/47] PEFILE: Validate PKCS#7 trust chain
+
+Validate the PKCS#7 trust chain against the contents of the system keyring.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+---
+ crypto/asymmetric_keys/Kconfig         | 1 +
+ crypto/asymmetric_keys/pefile_parser.c | 5 +++++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/crypto/asymmetric_keys/Kconfig b/crypto/asymmetric_keys/Kconfig
+index 2e7315c..2777916 100644
+--- a/crypto/asymmetric_keys/Kconfig
++++ b/crypto/asymmetric_keys/Kconfig
+@@ -48,6 +48,7 @@ config PE_FILE_PARSER
+ 	tristate "PE binary-wrapped key parser"
+ 	depends on X509_CERTIFICATE_PARSER
+ 	depends on PKCS7_MESSAGE_PARSER
++	depends on SYSTEM_TRUSTED_KEYRING
+ 	help
+ 	  This option provides support for parsing signed PE binaries that
+ 	  contain an X.509 certificate in an internal section.
+diff --git a/crypto/asymmetric_keys/pefile_parser.c b/crypto/asymmetric_keys/pefile_parser.c
+index dfdb85e..edad948 100644
+--- a/crypto/asymmetric_keys/pefile_parser.c
++++ b/crypto/asymmetric_keys/pefile_parser.c
+@@ -18,6 +18,7 @@
+ #include <linux/asn1.h>
+ #include <keys/asymmetric-subtype.h>
+ #include <keys/asymmetric-parser.h>
++#include <keys/system_keyring.h>
+ #include <crypto/hash.h>
+ #include "asymmetric_keys.h"
+ #include "public_key.h"
+@@ -435,6 +436,10 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+ 	if (ret < 0)
+ 		goto error;
+ 
++	ret = pkcs7_validate_trust(pkcs7, system_trusted_keyring, &prep->trusted);
++	if (ret < 0)
++		goto error;
++
+ 	ret = -ENOANO; // Not yet complete
+ 
+ error:
+-- 
+1.8.1.4
+
+
+From ce9ca4236f691264a94bcbe10beda9ec5a035baf Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Tue, 15 Jan 2013 15:33:42 +0000
+Subject: [PATCH 27/47] PEFILE: Load the contained key if we consider the
+ container to be validly signed
+
+Load the key contained in the PE binary if the signature on the container can
+be verified by following the chain of X.509 certificates in the PKCS#7 message
+to a key that we already trust.  Typically, the trusted key will be acquired
+from a source outside of the kernel, such as the UEFI database.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+---
+ crypto/asymmetric_keys/pefile_parser.c   | 11 ++++++++++-
+ crypto/asymmetric_keys/x509_parser.h     |  3 +++
+ crypto/asymmetric_keys/x509_public_key.c |  3 ++-
+ 3 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/crypto/asymmetric_keys/pefile_parser.c b/crypto/asymmetric_keys/pefile_parser.c
+index edad948..c3efe39 100644
+--- a/crypto/asymmetric_keys/pefile_parser.c
++++ b/crypto/asymmetric_keys/pefile_parser.c
+@@ -395,6 +395,8 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+ {
+ 	struct pkcs7_message *pkcs7;
+ 	struct pefile_context ctx;
++	const void *saved_data;
++	size_t saved_datalen;
+ 	int ret;
+ 
+ 	kenter("");
+@@ -440,7 +442,14 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
+ 	if (ret < 0)
+ 		goto error;
+ 
+-	ret = -ENOANO; // Not yet complete
++	/* We can now try to load the key */
++	saved_data = prep->data;
++	saved_datalen = prep->datalen;
++	prep->data += ctx.keylist_offset;
++	prep->datalen = ctx.keylist_len;
++	ret = x509_key_preparse(prep);
++	prep->data = saved_data;
++	prep->datalen = saved_datalen;
+ 
+ error:
+ 	pkcs7_free_message(ctx.pkcs7);
+diff --git a/crypto/asymmetric_keys/x509_parser.h b/crypto/asymmetric_keys/x509_parser.h
+index 5e35fba..65452c4 100644
+--- a/crypto/asymmetric_keys/x509_parser.h
++++ b/crypto/asymmetric_keys/x509_parser.h
+@@ -12,6 +12,8 @@
+ #include <linux/time.h>
+ #include <crypto/public_key.h>
+ 
++struct key_preparsed_payload;
++
+ struct x509_certificate {
+ 	struct x509_certificate *next;
+ 	const struct x509_certificate *signer;	/* Certificate that signed this one */
+@@ -47,3 +49,4 @@ extern struct x509_certificate *x509_cert_parse(const void *data, size_t datalen
+ extern int x509_get_sig_params(struct x509_certificate *cert);
+ extern int x509_check_signature(const struct public_key *pub,
+ 				struct x509_certificate *cert);
++extern int x509_key_preparse(struct key_preparsed_payload *prep);
+diff --git a/crypto/asymmetric_keys/x509_public_key.c b/crypto/asymmetric_keys/x509_public_key.c
+index 0f55e3b..c3e5a6d 100644
+--- a/crypto/asymmetric_keys/x509_public_key.c
++++ b/crypto/asymmetric_keys/x509_public_key.c
+@@ -105,7 +105,7 @@ EXPORT_SYMBOL_GPL(x509_check_signature);
+ /*
+  * Attempt to parse a data blob for a key as an X509 certificate.
+  */
+-static int x509_key_preparse(struct key_preparsed_payload *prep)
++int x509_key_preparse(struct key_preparsed_payload *prep)
+ {
+ 	struct x509_certificate *cert;
+ 	struct tm now;
+@@ -229,6 +229,7 @@ error_free_cert:
+ 	x509_free_certificate(cert);
+ 	return ret;
+ }
++EXPORT_SYMBOL_GPL(x509_key_preparse);
+ 
+ static struct asymmetric_key_parser x509_key_parser = {
+ 	.owner	= THIS_MODULE,
+-- 
+1.8.1.4
+
+
+From 395cc1b55a0645ced39f92b31ba3bcc141e59383 Mon Sep 17 00:00:00 2001
+From: Chun-Yi Lee <joeyli.kernel@gmail.com>
+Date: Thu, 21 Feb 2013 19:23:49 +0800
+Subject: [PATCH 28/47] MODSIGN: Fix including certificate twice when the
+ signing_key.x509 already exists
+
+This issue was found in devel-pekey branch on linux-modsign.git tree. The
+x509_certificate_list includes certificate twice when the signing_key.x509
+already exists.
+We can reproduce this issue by making kernel twice, the build log of
+second time looks like this:
+
+...
+  CHK     kernel/config_data.h
+  CERTS   kernel/x509_certificate_list
+  - Including cert /ramdisk/working/joey/linux-modsign/signing_key.x509
+  - Including cert signing_key.x509
+...
+
+Actually the build path was the same with the srctree path when building
+kernel. It causes the size of bzImage increased by packaging certificates
+twice.
+
+Cc: Rusty Russell <rusty@rustcorp.com.au>
+Cc: Josh Boyer <jwboyer@redhat.com>
+Cc: Randy Dunlap <rdunlap@xenotime.net>
+Cc: Herbert Xu <herbert@gondor.apana.org.au>
+Cc: "David S. Miller" <davem@davemloft.net>
+Cc: Michal Marek <mmarek@suse.com>
+Signed-off-by: Chun-Yi Lee <jlee@suse.com>
+Signed-off-by: David Howells <dhowells@redhat.com>
+---
+ kernel/Makefile | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/kernel/Makefile b/kernel/Makefile
+index ecff938..52f3426 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -149,7 +149,10 @@ $(obj)/timeconst.h: $(obj)/hz.bc $(src)/timeconst.bc FORCE
+ #
+ ###############################################################################
+ ifeq ($(CONFIG_SYSTEM_TRUSTED_KEYRING),y)
+-X509_CERTIFICATES-y := $(wildcard *.x509) $(wildcard $(srctree)/*.x509)
++X509_CERTIFICATES-y := $(wildcard *.x509)
++ifneq ($(shell pwd), $(srctree))
++X509_CERTIFICATES-y += $(wildcard $(srctree)/*.x509)
++endif
+ X509_CERTIFICATES-$(CONFIG_MODULE_SIG) += signing_key.x509
+ X509_CERTIFICATES := $(sort $(X509_CERTIFICATES-y))
+ 
+-- 
+1.8.1.4
+
+
+From 0ef575739cff3fda47dd2a9415f066ab44dcc922 Mon Sep 17 00:00:00 2001
+From: Matthew Garrett <mjg@redhat.com>
+Date: Thu, 20 Sep 2012 10:40:56 -0400
+Subject: [PATCH 29/47] Secure boot: Add new capability
+
+Secure boot adds certain policy requirements, including that root must not
+be able to do anything that could cause the kernel to execute arbitrary code.
+The simplest way to handle this would seem to be to add a new capability
+and gate various functionality on that. We'll then strip it from the initial
+capability set if required.
+
+Signed-off-by: Matthew Garrett <mjg@redhat.com>
+---
+ include/uapi/linux/capability.h | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/include/uapi/linux/capability.h b/include/uapi/linux/capability.h
+index ba478fa..7109e65 100644
+--- a/include/uapi/linux/capability.h
++++ b/include/uapi/linux/capability.h
+@@ -343,7 +343,11 @@ struct vfs_cap_data {
+ 
+ #define CAP_BLOCK_SUSPEND    36
+ 
+-#define CAP_LAST_CAP         CAP_BLOCK_SUSPEND
++/* Allow things that trivially permit root to modify the running kernel */
++
++#define CAP_COMPROMISE_KERNEL  37
++
++#define CAP_LAST_CAP         CAP_COMPROMISE_KERNEL
+ 
+ #define cap_valid(x) ((x) >= 0 && (x) <= CAP_LAST_CAP)
+ 
+-- 
+1.8.1.4
+
+
+From 7312bed4fb9125d4880f11a64521b110079a3c0a Mon Sep 17 00:00:00 2001
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Thu, 20 Sep 2012 10:41:05 -0400
+Subject: [PATCH 30/47] SELinux: define mapping for new Secure Boot capability
+
+Add the name of the new Secure Boot capability.  This allows SELinux
+policies to properly map CAP_COMPROMISE_KERNEL to the appropriate
+capability class.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ security/selinux/include/classmap.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/security/selinux/include/classmap.h b/security/selinux/include/classmap.h
+index 14d04e6..ed99a2d 100644
+--- a/security/selinux/include/classmap.h
++++ b/security/selinux/include/classmap.h
+@@ -146,8 +146,8 @@ struct security_class_mapping secclass_map[] = {
+ 	{ "memprotect", { "mmap_zero", NULL } },
+ 	{ "peer", { "recv", NULL } },
+ 	{ "capability2",
+-	  { "mac_override", "mac_admin", "syslog", "wake_alarm", "block_suspend",
+-	    NULL } },
++	  { "mac_override", "mac_admin", "syslog", "wake_alarm",
++	    "block_suspend", "compromise_kernel", NULL } },
+ 	{ "kernel_service", { "use_as_override", "create_files_as", NULL } },
+ 	{ "tun_socket",
+ 	  { COMMON_SOCK_PERMS, "attach_queue", NULL } },
+-- 
+1.8.1.4
+
+
+From e99e1273b0a50d874d2a53461e95f74460e1b812 Mon Sep 17 00:00:00 2001
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Thu, 20 Sep 2012 10:41:02 -0400
+Subject: [PATCH 31/47] Secure boot: Add a dummy kernel parameter that will
+ switch on Secure Boot mode
+
+This forcibly drops CAP_COMPROMISE_KERNEL from both cap_permitted and cap_bset
+in the init_cred struct, which everything else inherits from.  This works on
+any machine and can be used to develop even if the box doesn't have UEFI.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ Documentation/kernel-parameters.txt |  7 +++++++
+ kernel/cred.c                       | 17 +++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/Documentation/kernel-parameters.txt b/Documentation/kernel-parameters.txt
+index 8c01a02..ee6c1ca 100644
+--- a/Documentation/kernel-parameters.txt
++++ b/Documentation/kernel-parameters.txt
+@@ -2744,6 +2744,13 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
+ 			Note: increases power consumption, thus should only be
+ 			enabled if running jitter sensitive (HPC/RT) workloads.
+ 
++	secureboot_enable=
++			[KNL] Enables an emulated UEFI Secure Boot mode.  This
++			locks down various aspects of the kernel guarded by the
++			CAP_COMPROMISE_KERNEL capability.  This includes things
++			like /dev/mem, IO port access, and other areas.  It can
++			be used on non-UEFI machines for testing purposes.
++
+ 	security=	[SECURITY] Choose a security module to enable at boot.
+ 			If this boot parameter is not specified, only the first
+ 			security module asking for security registration will be
+diff --git a/kernel/cred.c b/kernel/cred.c
+index e0573a4..c3f4e3e 100644
+--- a/kernel/cred.c
++++ b/kernel/cred.c
+@@ -565,6 +565,23 @@ void __init cred_init(void)
+ 				     0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
+ }
+ 
++void __init secureboot_enable()
++{
++	pr_info("Secure boot enabled\n");
++	cap_lower((&init_cred)->cap_bset, CAP_COMPROMISE_KERNEL);
++	cap_lower((&init_cred)->cap_permitted, CAP_COMPROMISE_KERNEL);
++}
++
++/* Dummy Secure Boot enable option to fake out UEFI SB=1 */
++static int __init secureboot_enable_opt(char *str)
++{
++	int sb_enable = !!simple_strtol(str, NULL, 0);
++	if (sb_enable)
++		secureboot_enable();
++	return 1;
++}
++__setup("secureboot_enable=", secureboot_enable_opt);
++
+ /**
+  * prepare_kernel_cred - Prepare a set of credentials for a kernel service
+  * @daemon: A userspace daemon to be used as a reference
+-- 
+1.8.1.4
+
+
+From eeac2b5391d834eefebfae49a100244fdccc82e5 Mon Sep 17 00:00:00 2001
+From: Matthew Garrett <mjg@redhat.com>
+Date: Thu, 20 Sep 2012 10:41:03 -0400
+Subject: [PATCH 32/47] efi: Enable secure boot lockdown automatically when
+ enabled in firmware
+
+The firmware has a set of flags that indicate whether secure boot is enabled
+and enforcing. Use them to indicate whether the kernel should lock itself
+down.  We also indicate the machine is in secure boot mode by adding the
+EFI_SECURE_BOOT bit for use with efi_enabled.
+
+Signed-off-by: Matthew Garrett <mjg@redhat.com>
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ Documentation/x86/zero-page.txt        |  2 ++
+ arch/x86/boot/compressed/eboot.c       | 32 ++++++++++++++++++++++++++++++++
+ arch/x86/include/asm/bootparam_utils.h |  8 ++++++--
+ arch/x86/include/uapi/asm/bootparam.h  |  3 ++-
+ arch/x86/kernel/setup.c                |  7 +++++++
+ include/linux/cred.h                   |  2 ++
+ include/linux/efi.h                    |  1 +
+ 7 files changed, 52 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/x86/zero-page.txt b/Documentation/x86/zero-page.txt
+index 199f453..ff651d3 100644
+--- a/Documentation/x86/zero-page.txt
++++ b/Documentation/x86/zero-page.txt
+@@ -30,6 +30,8 @@ Offset	Proto	Name		Meaning
+ 1E9/001	ALL	eddbuf_entries	Number of entries in eddbuf (below)
+ 1EA/001	ALL	edd_mbr_sig_buf_entries	Number of entries in edd_mbr_sig_buffer
+ 				(below)
++1EB/001	ALL	kbd_status	Numlock is enabled
++1EC/001	ALL	secure_boot	Kernel should enable secure boot lockdowns
+ 1EF/001	ALL	sentinel	Used to detect broken bootloaders
+ 290/040	ALL	edd_mbr_sig_buffer EDD MBR signatures
+ 2D0/A00	ALL	e820_map	E820 memory map table
+diff --git a/arch/x86/boot/compressed/eboot.c b/arch/x86/boot/compressed/eboot.c
+index 35ee62f..0998ec7 100644
+--- a/arch/x86/boot/compressed/eboot.c
++++ b/arch/x86/boot/compressed/eboot.c
+@@ -906,6 +906,36 @@ fail:
+ 	return status;
+ }
+ 
++static int get_secure_boot(efi_system_table_t *_table)
++{
++	u8 sb, setup;
++	unsigned long datasize = sizeof(sb);
++	efi_guid_t var_guid = EFI_GLOBAL_VARIABLE_GUID;
++	efi_status_t status;
++
++	status = efi_call_phys5(sys_table->runtime->get_variable,
++				L"SecureBoot", &var_guid, NULL, &datasize, &sb);
++
++	if (status != EFI_SUCCESS)
++		return 0;
++
++	if (sb == 0)
++		return 0;
++
++
++	status = efi_call_phys5(sys_table->runtime->get_variable,
++				L"SetupMode", &var_guid, NULL, &datasize,
++				&setup);
++
++	if (status != EFI_SUCCESS)
++		return 0;
++
++	if (setup == 1)
++		return 0;
++
++	return 1;
++}
++
+ /*
+  * Because the x86 boot code expects to be passed a boot_params we
+  * need to create one ourselves (usually the bootloader would create
+@@ -1200,6 +1230,8 @@ struct boot_params *efi_main(void *handle, efi_system_table_t *_table,
+ 	if (sys_table->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
+ 		goto fail;
+ 
++	boot_params->secure_boot = get_secure_boot(sys_table);
++
+ 	setup_graphics(boot_params);
+ 
+ 	setup_efi_vars(boot_params);
+diff --git a/arch/x86/include/asm/bootparam_utils.h b/arch/x86/include/asm/bootparam_utils.h
+index 653668d..69a6c08 100644
+--- a/arch/x86/include/asm/bootparam_utils.h
++++ b/arch/x86/include/asm/bootparam_utils.h
+@@ -38,9 +38,13 @@ static void sanitize_boot_params(struct boot_params *boot_params)
+ 		memset(&boot_params->olpc_ofw_header, 0,
+ 		       (char *)&boot_params->efi_info -
+ 			(char *)&boot_params->olpc_ofw_header);
+-		memset(&boot_params->kbd_status, 0,
++		memset(&boot_params->kbd_status, 0, sizeof(boot_params->kbd_status));
++		/* don't clear boot_params->secure_boot.  we set that ourselves
++		 * earlier.
++		 */
++		memset(&boot_params->_pad5[0], 0,
+ 		       (char *)&boot_params->hdr -
+-		       (char *)&boot_params->kbd_status);
++		       (char *)&boot_params->_pad5[0]);
+ 		memset(&boot_params->_pad7[0], 0,
+ 		       (char *)&boot_params->edd_mbr_sig_buffer[0] -
+ 			(char *)&boot_params->_pad7[0]);
+diff --git a/arch/x86/include/uapi/asm/bootparam.h b/arch/x86/include/uapi/asm/bootparam.h
+index 0874424..56b7d39 100644
+--- a/arch/x86/include/uapi/asm/bootparam.h
++++ b/arch/x86/include/uapi/asm/bootparam.h
+@@ -132,7 +132,8 @@ struct boot_params {
+ 	__u8  eddbuf_entries;				/* 0x1e9 */
+ 	__u8  edd_mbr_sig_buf_entries;			/* 0x1ea */
+ 	__u8  kbd_status;				/* 0x1eb */
+-	__u8  _pad5[3];					/* 0x1ec */
++	__u8  secure_boot;				/* 0x1ec */
++	__u8  _pad5[2];					/* 0x1ed */
+ 	/*
+ 	 * The sentinel is set to a nonzero value (0xff) in header.S.
+ 	 *
+diff --git a/arch/x86/kernel/setup.c b/arch/x86/kernel/setup.c
+index 56f7fcf..3af6cf8 100644
+--- a/arch/x86/kernel/setup.c
++++ b/arch/x86/kernel/setup.c
+@@ -1131,6 +1131,13 @@ void __init setup_arch(char **cmdline_p)
+ 
+ 	io_delay_init();
+ 
++	if (boot_params.secure_boot) {
++#ifdef CONFIG_EFI
++		set_bit(EFI_SECURE_BOOT, &x86_efi_facility);
++#endif
++		secureboot_enable();
++	}
++
+ 	/*
+ 	 * Parse the ACPI tables for possible boot-time SMP configuration.
+ 	 */
+diff --git a/include/linux/cred.h b/include/linux/cred.h
+index 04421e8..9e69542 100644
+--- a/include/linux/cred.h
++++ b/include/linux/cred.h
+@@ -156,6 +156,8 @@ extern int set_security_override_from_ctx(struct cred *, const char *);
+ extern int set_create_files_as(struct cred *, struct inode *);
+ extern void __init cred_init(void);
+ 
++extern void secureboot_enable(void);
++
+ /*
+  * check for validity of credentials
+  */
+diff --git a/include/linux/efi.h b/include/linux/efi.h
+index 2bc0ad7..10b167a 100644
+--- a/include/linux/efi.h
++++ b/include/linux/efi.h
+@@ -634,6 +634,7 @@ extern int __init efi_setup_pcdp_console(char *);
+ #define EFI_RUNTIME_SERVICES	3	/* Can we use runtime services? */
+ #define EFI_MEMMAP		4	/* Can we use EFI memory map? */
+ #define EFI_64BIT		5	/* Is the firmware 64-bit? */
++#define EFI_SECURE_BOOT	6	/* Are we in Secure Boot mode? */
+ 
+ #ifdef CONFIG_EFI
+ # ifdef CONFIG_X86
+-- 
+1.8.1.4
+
+
+From a1ac3b80b7a85d4fce665047b9701713fcfc1ea0 Mon Sep 17 00:00:00 2001
+From: Dave Howells <dhowells@redhat.com>
+Date: Tue, 23 Oct 2012 09:30:54 -0400
+Subject: [PATCH 33/47] Add EFI signature data types
+
+Add the data types that are used for containing hashes, keys and certificates
+for cryptographic verification.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+---
+ include/linux/efi.h | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/include/linux/efi.h b/include/linux/efi.h
+index 10b167a..d3ef7c6 100644
+--- a/include/linux/efi.h
++++ b/include/linux/efi.h
+@@ -389,6 +389,12 @@ typedef efi_status_t efi_query_variable_store_t(u32 attributes, unsigned long si
+ #define EFI_FILE_SYSTEM_GUID \
+     EFI_GUID(  0x964e5b22, 0x6459, 0x11d2, 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b )
+ 
++#define EFI_CERT_SHA256_GUID \
++    EFI_GUID(  0xc1c41626, 0x504c, 0x4092, 0xac, 0xa9, 0x41, 0xf9, 0x36, 0x93, 0x43, 0x28 )
++
++#define EFI_CERT_X509_GUID \
++    EFI_GUID(  0xa5c059a1, 0x94e4, 0x4aa7, 0x87, 0xb5, 0xab, 0x15, 0x5c, 0x2b, 0xf0, 0x72 )
++
+ typedef struct {
+ 	efi_guid_t guid;
+ 	u64 table;
+@@ -524,6 +530,20 @@ typedef struct {
+ 
+ #define EFI_INVALID_TABLE_ADDR		(~0UL)
+ 
++typedef struct  {
++	efi_guid_t signature_owner;
++	u8 signature_data[];
++} efi_signature_data_t;
++
++typedef struct {
++	efi_guid_t signature_type;
++	u32 signature_list_size;
++	u32 signature_header_size;
++	u32 signature_size;
++	u8 signature_header[];
++	/* efi_signature_data_t signatures[][] */
++} efi_signature_list_t;
++
+ /*
+  * All runtime access to EFI goes through this structure:
+  */
+-- 
+1.8.1.4
+
+
+From fac308c18ba449322666325f37f6a08ad818cf9f Mon Sep 17 00:00:00 2001
+From: Dave Howells <dhowells@redhat.com>
+Date: Tue, 23 Oct 2012 09:36:28 -0400
+Subject: [PATCH 34/47] Add an EFI signature blob parser and key loader.
+
+X.509 certificates are loaded into the specified keyring as asymmetric type
+keys.
+
+Signed-off-by: David Howells <dhowells@redhat.com>
+---
+ crypto/asymmetric_keys/Kconfig      |   8 +++
+ crypto/asymmetric_keys/Makefile     |   1 +
+ crypto/asymmetric_keys/efi_parser.c | 109 ++++++++++++++++++++++++++++++++++++
+ include/linux/efi.h                 |   4 ++
+ 4 files changed, 122 insertions(+)
+ create mode 100644 crypto/asymmetric_keys/efi_parser.c
+
+diff --git a/crypto/asymmetric_keys/Kconfig b/crypto/asymmetric_keys/Kconfig
+index 2777916..429bbb7 100644
+--- a/crypto/asymmetric_keys/Kconfig
++++ b/crypto/asymmetric_keys/Kconfig
+@@ -53,4 +53,12 @@ config PE_FILE_PARSER
+ 	  This option provides support for parsing signed PE binaries that
+ 	  contain an X.509 certificate in an internal section.
+ 
++config EFI_SIGNATURE_LIST_PARSER
++	bool "EFI signature list parser"
++	depends on EFI
++	select X509_CERTIFICATE_PARSER
++	help
++	  This option provides support for parsing EFI signature lists for
++	  X.509 certificates and turning them into keys.
++
+ endif # ASYMMETRIC_KEY_TYPE
+diff --git a/crypto/asymmetric_keys/Makefile b/crypto/asymmetric_keys/Makefile
+index ddc64bb..360b308 100644
+--- a/crypto/asymmetric_keys/Makefile
++++ b/crypto/asymmetric_keys/Makefile
+@@ -8,6 +8,7 @@ asymmetric_keys-y := asymmetric_type.o signature.o
+ 
+ obj-$(CONFIG_ASYMMETRIC_PUBLIC_KEY_SUBTYPE) += public_key.o
+ obj-$(CONFIG_PUBLIC_KEY_ALGO_RSA) += rsa.o
++obj-$(CONFIG_EFI_SIGNATURE_LIST_PARSER) += efi_parser.o
+ 
+ #
+ # X.509 Certificate handling
+diff --git a/crypto/asymmetric_keys/efi_parser.c b/crypto/asymmetric_keys/efi_parser.c
+new file mode 100644
+index 0000000..424896a
+--- /dev/null
++++ b/crypto/asymmetric_keys/efi_parser.c
+@@ -0,0 +1,109 @@
++/* EFI signature/key/certificate list parser
++ *
++ * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
++ * Written by David Howells (dhowells@redhat.com)
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public Licence
++ * as published by the Free Software Foundation; either version
++ * 2 of the Licence, or (at your option) any later version.
++ */
++
++#define pr_fmt(fmt) "EFI: "fmt
++#include <linux/module.h>
++#include <linux/printk.h>
++#include <linux/err.h>
++#include <linux/efi.h>
++#include <keys/asymmetric-type.h>
++
++static __initdata efi_guid_t efi_cert_x509_guid = EFI_CERT_X509_GUID;
++
++/**
++ * parse_efi_signature_list - Parse an EFI signature list for certificates
++ * @data: The data blob to parse
++ * @size: The size of the data blob
++ * @keyring: The keyring to add extracted keys to
++ */
++int __init parse_efi_signature_list(const void *data, size_t size, struct key *keyring)
++{
++	unsigned offs = 0;
++	size_t lsize, esize, hsize, elsize;
++
++	pr_devel("-->%s(,%zu)\n", __func__, size);
++
++	while (size > 0) {
++		efi_signature_list_t list;
++		const efi_signature_data_t *elem;
++		key_ref_t key;
++
++		if (size < sizeof(list))
++			return -EBADMSG;
++
++		memcpy(&list, data, sizeof(list));
++		pr_devel("LIST[%04x] guid=%pUl ls=%x hs=%x ss=%x\n",
++			 offs,
++			 list.signature_type.b, list.signature_list_size,
++			 list.signature_header_size, list.signature_size);
++
++		lsize = list.signature_list_size;
++		hsize = list.signature_header_size;
++		esize = list.signature_size;
++		elsize = lsize - sizeof(list) - hsize;
++
++		if (lsize > size) {
++			pr_devel("<--%s() = -EBADMSG [overrun @%x]\n",
++				 __func__, offs);
++			return -EBADMSG;
++		}
++		if (lsize < sizeof(list) ||
++		    lsize - sizeof(list) < hsize ||
++		    esize < sizeof(*elem) ||
++		    elsize < esize ||
++		    elsize % esize != 0) {
++			pr_devel("- bad size combo @%x\n", offs);
++			return -EBADMSG;
++		}
++
++		if (efi_guidcmp(list.signature_type, efi_cert_x509_guid) != 0) {
++			data += lsize;
++			size -= lsize;
++			offs += lsize;
++			continue;
++		}
++
++		data += sizeof(list) + hsize;
++		size -= sizeof(list) + hsize;
++		offs += sizeof(list) + hsize;
++
++		for (; elsize > 0; elsize -= esize) {
++			elem = data;
++
++			pr_devel("ELEM[%04x]\n", offs);
++
++			key = key_create_or_update(
++				make_key_ref(keyring, 1),
++				"asymmetric",
++				NULL,
++				&elem->signature_data,
++				esize - sizeof(*elem),
++				(KEY_POS_ALL & ~KEY_POS_SETATTR) |
++				KEY_USR_VIEW,
++				KEY_ALLOC_NOT_IN_QUOTA |
++				KEY_ALLOC_TRUSTED);
++
++			if (IS_ERR(key))
++				pr_err("Problem loading in-kernel X.509 certificate (%ld)\n",
++				       PTR_ERR(key));
++			else
++				pr_notice("Loaded cert '%s' linked to '%s'\n",
++					  key_ref_to_ptr(key)->description,
++					  keyring->description);
++
++			data += esize;
++			size -= esize;
++			offs += esize;
++		}
++	}
++
++	return 0;
++}
+diff --git a/include/linux/efi.h b/include/linux/efi.h
+index d3ef7c6..4f0fbb7 100644
+--- a/include/linux/efi.h
++++ b/include/linux/efi.h
+@@ -619,6 +619,10 @@ extern int efi_set_rtc_mmss(unsigned long nowtime);
+ extern void efi_reserve_boot_services(void);
+ extern struct efi_memory_map memmap;
+ 
++struct key;
++extern int __init parse_efi_signature_list(const void *data, size_t size,
++					   struct key *keyring);
++
+ /**
+  * efi_range_is_wc - check the WC bit on an address range
+  * @start: starting kvirt address
+-- 
+1.8.1.4
+
+
+From 75560e565cb8a4e853a3b6f6c65ed70c1ba29039 Mon Sep 17 00:00:00 2001
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Fri, 26 Oct 2012 12:36:24 -0400
+Subject: [PATCH 35/47] KEYS: Add a system blacklist keyring
+
+This adds an additional keyring that is used to store certificates that
+are blacklisted.  This keyring is searched first when loading signed modules
+and if the module's certificate is found, it will refuse to load.  This is
+useful in cases where third party certificates are used for module signing.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ include/keys/system_keyring.h |  4 ++++
+ init/Kconfig                  |  9 +++++++++
+ kernel/module_signing.c       | 12 ++++++++++++
+ kernel/system_keyring.c       | 17 +++++++++++++++++
+ 4 files changed, 42 insertions(+)
+
+diff --git a/include/keys/system_keyring.h b/include/keys/system_keyring.h
+index 8dabc39..e466de1 100644
+--- a/include/keys/system_keyring.h
++++ b/include/keys/system_keyring.h
+@@ -18,6 +18,10 @@
+ 
+ extern struct key *system_trusted_keyring;
+ 
++#ifdef CONFIG_SYSTEM_BLACKLIST_KEYRING
++extern struct key *system_blacklist_keyring;
++#endif
++
+ #endif
+ 
+ #endif /* _KEYS_SYSTEM_KEYRING_H */
+diff --git a/init/Kconfig b/init/Kconfig
+index b9d8870..4f9771f 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -1627,6 +1627,15 @@ config SYSTEM_TRUSTED_KEYRING
+ 
+ 	  Keys in this keyring are used by module signature checking.
+ 
++config SYSTEM_BLACKLIST_KEYRING
++	bool "Provide system-wide ring of blacklisted keys"
++	depends on KEYS
++	help
++	  Provide a system keyring to which blacklisted keys can be added.  Keys
++	  in the keyring are considered entirely untrusted.  Keys in this keyring
++	  are used by the module signature checking to reject loading of modules
++	  signed with a blacklisted key.
++
+ menuconfig MODULES
+ 	bool "Enable loadable module support"
+ 	help
+diff --git a/kernel/module_signing.c b/kernel/module_signing.c
+index 0b6b870..0a29b40 100644
+--- a/kernel/module_signing.c
++++ b/kernel/module_signing.c
+@@ -158,6 +158,18 @@ static struct key *request_asymmetric_key(const char *signer, size_t signer_len,
+ 
+ 	pr_debug("Look up: \"%s\"\n", id);
+ 
++#ifdef CONFIG_SYSTEM_BLACKLIST_KEYRING
++	key = keyring_search(make_key_ref(system_blacklist_keyring, 1),
++				   &key_type_asymmetric, id);
++	if (!IS_ERR(key)) {
++		/* module is signed with a cert in the blacklist.  reject */
++		pr_err("Module key '%s' is in blacklist\n", id);
++		key_ref_put(key);
++		kfree(id);
++		return ERR_PTR(-EKEYREJECTED);
++	}
++#endif
++
+ 	key = keyring_search(make_key_ref(system_trusted_keyring, 1),
+ 			     &key_type_asymmetric, id);
+ 	if (IS_ERR(key))
+diff --git a/kernel/system_keyring.c b/kernel/system_keyring.c
+index dae8778..2913c70 100644
+--- a/kernel/system_keyring.c
++++ b/kernel/system_keyring.c
+@@ -20,6 +20,9 @@
+ 
+ struct key *system_trusted_keyring;
+ EXPORT_SYMBOL_GPL(system_trusted_keyring);
++#ifdef CONFIG_SYSTEM_BLACKLIST_KEYRING
++struct key *system_blacklist_keyring;
++#endif
+ 
+ extern __initdata const u8 system_certificate_list[];
+ extern __initdata const u8 system_certificate_list_end[];
+@@ -41,6 +44,20 @@ static __init int system_trusted_keyring_init(void)
+ 		panic("Can't allocate system trusted keyring\n");
+ 
+ 	set_bit(KEY_FLAG_TRUSTED_ONLY, &system_trusted_keyring->flags);
++
++#ifdef CONFIG_SYSTEM_BLACKLIST_KEYRING
++	system_blacklist_keyring = keyring_alloc(".system_blacklist_keyring",
++				    KUIDT_INIT(0), KGIDT_INIT(0),
++				    current_cred(),
++				    (KEY_POS_ALL & ~KEY_POS_SETATTR) |
++				    KEY_USR_VIEW | KEY_USR_READ,
++				    KEY_ALLOC_NOT_IN_QUOTA, NULL);
++	if (IS_ERR(system_blacklist_keyring))
++		panic("Can't allocate system blacklist keyring\n");
++
++	set_bit(KEY_FLAG_TRUSTED_ONLY, &system_blacklist_keyring->flags);
++#endif
++
+ 	return 0;
+ }
+ 
+-- 
+1.8.1.4
+
+
+From e46bf80471882ce1ab0b75dc954b2b59deec6fbb Mon Sep 17 00:00:00 2001
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Fri, 26 Oct 2012 12:42:16 -0400
+Subject: [PATCH 36/47] MODSIGN: Import certificates from UEFI Secure Boot
+
+Secure Boot stores a list of allowed certificates in the 'db' variable.
+This imports those certificates into the system trusted keyring.  This
+allows for a third party signing certificate to be used in conjunction
+with signed modules.  By importing the public certificate into the 'db'
+variable, a user can allow a module signed with that certificate to
+load.  The shim UEFI bootloader has a similar certificate list stored
+in the 'MokListRT' variable.  We import those as well.
+
+In the opposite case, Secure Boot maintains a list of disallowed
+certificates in the 'dbx' variable.  We load those certificates into
+the newly introduced system blacklist keyring and forbid any module
+signed with those from loading.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ include/linux/efi.h   |  6 ++++
+ init/Kconfig          |  9 +++++
+ kernel/Makefile       |  3 ++
+ kernel/modsign_uefi.c | 92 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 110 insertions(+)
+ create mode 100644 kernel/modsign_uefi.c
+
+diff --git a/include/linux/efi.h b/include/linux/efi.h
+index 4f0fbb7..7ac7a17 100644
+--- a/include/linux/efi.h
++++ b/include/linux/efi.h
+@@ -395,6 +395,12 @@ typedef efi_status_t efi_query_variable_store_t(u32 attributes, unsigned long si
+ #define EFI_CERT_X509_GUID \
+     EFI_GUID(  0xa5c059a1, 0x94e4, 0x4aa7, 0x87, 0xb5, 0xab, 0x15, 0x5c, 0x2b, 0xf0, 0x72 )
+ 
++#define EFI_IMAGE_SECURITY_DATABASE_GUID \
++    EFI_GUID(  0xd719b2cb, 0x3d3a, 0x4596, 0xa3, 0xbc, 0xda, 0xd0, 0x0e, 0x67, 0x65, 0x6f )
++
++#define EFI_SHIM_LOCK_GUID \
++    EFI_GUID(  0x605dab50, 0xe046, 0x4300, 0xab, 0xb6, 0x3d, 0xd8, 0x10, 0xdd, 0x8b, 0x23 )
++
+ typedef struct {
+ 	efi_guid_t guid;
+ 	u64 table;
+diff --git a/init/Kconfig b/init/Kconfig
+index 4f9771f..da92f1c 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -1745,6 +1745,15 @@ config MODULE_SIG_ALL
+ comment "Do not forget to sign required modules with scripts/sign-file"
+ 	depends on MODULE_SIG_FORCE && !MODULE_SIG_ALL
+ 
++config MODULE_SIG_UEFI
++	bool "Allow modules signed with certs stored in UEFI"
++	depends on MODULE_SIG && SYSTEM_BLACKLIST_KEYRING && EFI
++	select EFI_SIGNATURE_LIST_PARSER
++	help
++	  This will import certificates stored in UEFI and allow modules
++	  signed with those to be loaded.  It will also disallow loading
++	  of modules stored in the UEFI dbx variable.
++
+ choice
+ 	prompt "Which hash algorithm should modules be signed with?"
+ 	depends on MODULE_SIG
+diff --git a/kernel/Makefile b/kernel/Makefile
+index 52f3426..e2a616f 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -55,6 +55,7 @@ obj-$(CONFIG_UID16) += uid16.o
+ obj-$(CONFIG_SYSTEM_TRUSTED_KEYRING) += system_keyring.o system_certificates.o
+ obj-$(CONFIG_MODULES) += module.o
+ obj-$(CONFIG_MODULE_SIG) += module_signing.o
++obj-$(CONFIG_MODULE_SIG_UEFI) += modsign_uefi.o
+ obj-$(CONFIG_KALLSYMS) += kallsyms.o
+ obj-$(CONFIG_BSD_PROCESS_ACCT) += acct.o
+ obj-$(CONFIG_KEXEC) += kexec.o
+@@ -114,6 +115,8 @@ obj-$(CONFIG_CONTEXT_TRACKING) += context_tracking.o
+ 
+ $(obj)/configs.o: $(obj)/config_data.h
+ 
++$(obj)/modsign_uefi.o: KBUILD_CFLAGS += -fshort-wchar
++
+ # config_data.h contains the same information as ikconfig.h but gzipped.
+ # Info from config_data can be extracted from /proc/config*
+ targets += config_data.gz
+diff --git a/kernel/modsign_uefi.c b/kernel/modsign_uefi.c
+new file mode 100644
+index 0000000..94b0eb3
+--- /dev/null
++++ b/kernel/modsign_uefi.c
+@@ -0,0 +1,92 @@
++#include <linux/kernel.h>
++#include <linux/sched.h>
++#include <linux/cred.h>
++#include <linux/err.h>
++#include <linux/efi.h>
++#include <linux/slab.h>
++#include <keys/asymmetric-type.h>
++#include <keys/system_keyring.h>
++#include "module-internal.h"
++
++static __init void *get_cert_list(efi_char16_t *name, efi_guid_t *guid, unsigned long *size)
++{
++	efi_status_t status;
++	unsigned long lsize = 4;
++	unsigned long tmpdb[4];
++	void *db = NULL;
++
++	status = efi.get_variable(name, guid, NULL, &lsize, &tmpdb);
++	if (status != EFI_BUFFER_TOO_SMALL) {
++		pr_err("Couldn't get size: 0x%lx\n", status);
++		return NULL;
++	}
++
++	db = kmalloc(lsize, GFP_KERNEL);
++	if (!db) {
++		pr_err("Couldn't allocate memory for uefi cert list\n");
++		goto out;
++	}
++
++	status = efi.get_variable(name, guid, NULL, &lsize, db);
++	if (status != EFI_SUCCESS) {
++		kfree(db);
++		db = NULL;
++		pr_err("Error reading db var: 0x%lx\n", status);
++	}
++out:
++	*size = lsize;
++	return db;
++}
++
++/*
++ *  * Load the certs contained in the UEFI databases
++ *   */
++static int __init load_uefi_certs(void)
++{
++	efi_guid_t secure_var = EFI_IMAGE_SECURITY_DATABASE_GUID;
++	efi_guid_t mok_var = EFI_SHIM_LOCK_GUID;
++	void *db = NULL, *dbx = NULL, *mok = NULL;
++	unsigned long dbsize = 0, dbxsize = 0, moksize = 0;
++	int rc = 0;
++
++	/* Check if SB is enabled and just return if not */
++	if (!efi_enabled(EFI_SECURE_BOOT))
++		return 0;
++
++	/* Get db, MokListRT, and dbx.  They might not exist, so it isn't
++	 * an error if we can't get them.
++	 */
++	db = get_cert_list(L"db", &secure_var, &dbsize);
++	if (!db) {
++		pr_err("MODSIGN: Couldn't get UEFI db list\n");
++	} else {
++		rc = parse_efi_signature_list(db, dbsize, system_trusted_keyring);
++		if (rc)
++			pr_err("Couldn't parse db signatures: %d\n", rc);
++		kfree(db);
++	}
++
++	mok = get_cert_list(L"MokListRT", &mok_var, &moksize);
++	if (!mok) {
++		pr_info("MODSIGN: Couldn't get UEFI MokListRT\n");
++	} else {
++		rc = parse_efi_signature_list(mok, moksize, system_trusted_keyring);
++		if (rc)
++			pr_err("Couldn't parse MokListRT signatures: %d\n", rc);
++		kfree(mok);
++	}
++
++	dbx = get_cert_list(L"dbx", &secure_var, &dbxsize);
++	if (!dbx) {
++		pr_info("MODSIGN: Couldn't get UEFI dbx list\n");
++	} else {
++		rc = parse_efi_signature_list(dbx, dbxsize,
++			system_blacklist_keyring);
++		if (rc)
++			pr_err("Couldn't parse dbx signatures: %d\n", rc);
++		kfree(dbx);
++	}
++
++	return rc;
++}
++late_initcall(load_uefi_certs);
+-- 
+1.8.1.4
+
+
+From 8724600edad99706cce510645eff15f28787561a Mon Sep 17 00:00:00 2001
+From: Matthew Garrett <mjg@redhat.com>
+Date: Thu, 20 Sep 2012 10:40:57 -0400
+Subject: [PATCH 37/47] PCI: Lock down BAR access in secure boot environments
+
+Any hardware that can potentially generate DMA has to be locked down from
+userspace in order to avoid it being possible for an attacker to cause
+arbitrary kernel behaviour. Default to paranoid - in future we can
+potentially relax this for sufficiently IOMMU-isolated devices.
+
+Signed-off-by: Matthew Garrett <mjg@redhat.com>
+---
+ drivers/pci/pci-sysfs.c | 9 +++++++++
+ drivers/pci/proc.c      | 8 +++++++-
+ drivers/pci/syscall.c   | 2 +-
+ 3 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/pci-sysfs.c b/drivers/pci/pci-sysfs.c
+index 5b4a9d9..db2ff9e 100644
+--- a/drivers/pci/pci-sysfs.c
++++ b/drivers/pci/pci-sysfs.c
+@@ -622,6 +622,9 @@ pci_write_config(struct file* filp, struct kobject *kobj,
+ 	loff_t init_off = off;
+ 	u8 *data = (u8*) buf;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	if (off > dev->cfg_size)
+ 		return 0;
+ 	if (off + count > dev->cfg_size) {
+@@ -928,6 +931,9 @@ pci_mmap_resource(struct kobject *kobj, struct bin_attribute *attr,
+ 	resource_size_t start, end;
+ 	int i;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	for (i = 0; i < PCI_ROM_RESOURCE; i++)
+ 		if (res == &pdev->resource[i])
+ 			break;
+@@ -1035,6 +1041,9 @@ pci_write_resource_io(struct file *filp, struct kobject *kobj,
+ 		      struct bin_attribute *attr, char *buf,
+ 		      loff_t off, size_t count)
+ {
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	return pci_resource_io(filp, kobj, attr, buf, off, count, true);
+ }
+ 
+diff --git a/drivers/pci/proc.c b/drivers/pci/proc.c
+index 0812608..544132d 100644
+--- a/drivers/pci/proc.c
++++ b/drivers/pci/proc.c
+@@ -136,6 +136,9 @@ proc_bus_pci_write(struct file *file, const char __user *buf, size_t nbytes, lof
+ 	int size = dev->cfg_size;
+ 	int cnt;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	if (pos >= size)
+ 		return 0;
+ 	if (nbytes >= size)
+@@ -215,6 +218,9 @@ static long proc_bus_pci_ioctl(struct file *file, unsigned int cmd,
+ #endif /* HAVE_PCI_MMAP */
+ 	int ret = 0;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	switch (cmd) {
+ 	case PCIIOC_CONTROLLER:
+ 		ret = pci_domain_nr(dev->bus);
+@@ -253,7 +259,7 @@ static int proc_bus_pci_mmap(struct file *file, struct vm_area_struct *vma)
+ 	struct pci_filp_private *fpriv = file->private_data;
+ 	int i, ret;
+ 
+-	if (!capable(CAP_SYS_RAWIO))
++	if (!capable(CAP_SYS_RAWIO) || !capable(CAP_COMPROMISE_KERNEL))
+ 		return -EPERM;
+ 
+ 	/* Make sure the caller is mapping a real resource for this device */
+diff --git a/drivers/pci/syscall.c b/drivers/pci/syscall.c
+index e1c1ec5..97e785f 100644
+--- a/drivers/pci/syscall.c
++++ b/drivers/pci/syscall.c
+@@ -92,7 +92,7 @@ SYSCALL_DEFINE5(pciconfig_write, unsigned long, bus, unsigned long, dfn,
+ 	u32 dword;
+ 	int err = 0;
+ 
+-	if (!capable(CAP_SYS_ADMIN))
++	if (!capable(CAP_SYS_ADMIN) || !capable(CAP_COMPROMISE_KERNEL))
+ 		return -EPERM;
+ 
+ 	dev = pci_get_bus_and_slot(bus, dfn);
+-- 
+1.8.1.4
+
+
+From 2361c561632c00e3974a092454ecc7daafb7cdf6 Mon Sep 17 00:00:00 2001
+From: Matthew Garrett <mjg@redhat.com>
+Date: Thu, 20 Sep 2012 10:40:58 -0400
+Subject: [PATCH 38/47] x86: Lock down IO port access in secure boot
+ environments
+
+IO port access would permit users to gain access to PCI configuration
+registers, which in turn (on a lot of hardware) give access to MMIO register
+space. This would potentially permit root to trigger arbitrary DMA, so lock
+it down by default.
+
+Signed-off-by: Matthew Garrett <mjg@redhat.com>
+---
+ arch/x86/kernel/ioport.c | 4 ++--
+ drivers/char/mem.c       | 3 +++
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/kernel/ioport.c b/arch/x86/kernel/ioport.c
+index 4ddaf66..f505995 100644
+--- a/arch/x86/kernel/ioport.c
++++ b/arch/x86/kernel/ioport.c
+@@ -28,7 +28,7 @@ asmlinkage long sys_ioperm(unsigned long from, unsigned long num, int turn_on)
+ 
+ 	if ((from + num <= from) || (from + num > IO_BITMAP_BITS))
+ 		return -EINVAL;
+-	if (turn_on && !capable(CAP_SYS_RAWIO))
++	if (turn_on && (!capable(CAP_SYS_RAWIO) || !capable(CAP_COMPROMISE_KERNEL)))
+ 		return -EPERM;
+ 
+ 	/*
+@@ -103,7 +103,7 @@ SYSCALL_DEFINE1(iopl, unsigned int, level)
+ 		return -EINVAL;
+ 	/* Trying to gain more privileges? */
+ 	if (level > old) {
+-		if (!capable(CAP_SYS_RAWIO))
++		if (!capable(CAP_SYS_RAWIO) || !capable(CAP_COMPROMISE_KERNEL))
+ 			return -EPERM;
+ 	}
+ 	regs->flags = (regs->flags & ~X86_EFLAGS_IOPL) | (level << 12);
+diff --git a/drivers/char/mem.c b/drivers/char/mem.c
+index 2c644af..7eee4d8 100644
+--- a/drivers/char/mem.c
++++ b/drivers/char/mem.c
+@@ -597,6 +597,9 @@ static ssize_t write_port(struct file *file, const char __user *buf,
+ 	unsigned long i = *ppos;
+ 	const char __user *tmp = buf;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	if (!access_ok(VERIFY_READ, buf, count))
+ 		return -EFAULT;
+ 	while (count-- > 0 && i < 65536) {
+-- 
+1.8.1.4
+
+
+From e97f4dd5b1baaae0854e8a5c87aa4be4d03d1854 Mon Sep 17 00:00:00 2001
+From: Matthew Garrett <mjg@redhat.com>
+Date: Thu, 20 Sep 2012 10:40:59 -0400
+Subject: [PATCH 39/47] ACPI: Limit access to custom_method
+
+It must be impossible for even root to get code executed in kernel context
+under a secure boot environment. custom_method effectively allows arbitrary
+access to system memory, so it needs to have a capability check here.
+
+Signed-off-by: Matthew Garrett <mjg@redhat.com>
+---
+ drivers/acpi/custom_method.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/acpi/custom_method.c b/drivers/acpi/custom_method.c
+index 12b62f2..edf0710 100644
+--- a/drivers/acpi/custom_method.c
++++ b/drivers/acpi/custom_method.c
+@@ -29,6 +29,9 @@ static ssize_t cm_write(struct file *file, const char __user * user_buf,
+ 	struct acpi_table_header table;
+ 	acpi_status status;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	if (!(*ppos)) {
+ 		/* parse the table header to get the table length */
+ 		if (count <= sizeof(struct acpi_table_header))
+-- 
+1.8.1.4
+
+
+From f0389c3a6d823e2386ab4e21d9e012c4ebd310ac Mon Sep 17 00:00:00 2001
+From: Matthew Garrett <mjg@redhat.com>
+Date: Thu, 20 Sep 2012 10:41:00 -0400
+Subject: [PATCH 40/47] asus-wmi: Restrict debugfs interface
+
+We have no way of validating what all of the Asus WMI methods do on a
+given machine, and there's a risk that some will allow hardware state to
+be manipulated in such a way that arbitrary code can be executed in the
+kernel. Add a capability check to prevent that.
+
+Signed-off-by: Matthew Garrett <mjg@redhat.com>
+---
+ drivers/platform/x86/asus-wmi.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/platform/x86/asus-wmi.c b/drivers/platform/x86/asus-wmi.c
+index c11b242..6d5f88f 100644
+--- a/drivers/platform/x86/asus-wmi.c
++++ b/drivers/platform/x86/asus-wmi.c
+@@ -1617,6 +1617,9 @@ static int show_dsts(struct seq_file *m, void *data)
+ 	int err;
+ 	u32 retval = -1;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	err = asus_wmi_get_devstate(asus, asus->debug.dev_id, &retval);
+ 
+ 	if (err < 0)
+@@ -1633,6 +1636,9 @@ static int show_devs(struct seq_file *m, void *data)
+ 	int err;
+ 	u32 retval = -1;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	err = asus_wmi_set_devstate(asus->debug.dev_id, asus->debug.ctrl_param,
+ 				    &retval);
+ 
+@@ -1657,6 +1663,9 @@ static int show_call(struct seq_file *m, void *data)
+ 	union acpi_object *obj;
+ 	acpi_status status;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID,
+ 				     1, asus->debug.method_id,
+ 				     &input, &output);
+-- 
+1.8.1.4
+
+
+From 2e507337fc23547c7a15e5a102647becf20dba77 Mon Sep 17 00:00:00 2001
+From: Matthew Garrett <mjg@redhat.com>
+Date: Thu, 20 Sep 2012 10:41:01 -0400
+Subject: [PATCH 41/47] Restrict /dev/mem and /dev/kmem in secure boot setups
+
+Allowing users to write to address space makes it possible for the kernel
+to be subverted. Restrict this when we need to protect the kernel.
+
+Signed-off-by: Matthew Garrett <mjg@redhat.com>
+---
+ drivers/char/mem.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/char/mem.c b/drivers/char/mem.c
+index 7eee4d8..772ee2b 100644
+--- a/drivers/char/mem.c
++++ b/drivers/char/mem.c
+@@ -158,6 +158,9 @@ static ssize_t write_mem(struct file *file, const char __user *buf,
+ 	unsigned long copied;
+ 	void *ptr;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	if (!valid_phys_addr_range(p, count))
+ 		return -EFAULT;
+ 
+@@ -530,6 +533,9 @@ static ssize_t write_kmem(struct file *file, const char __user *buf,
+ 	char *kbuf; /* k-addr because vwrite() takes vmlist_lock rwlock */
+ 	int err = 0;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	if (p < (unsigned long) high_memory) {
+ 		unsigned long to_write = min_t(unsigned long, count,
+ 					       (unsigned long)high_memory - p);
+-- 
+1.8.1.4
+
+
+From ff22d9716846844f8c249dbc965684a8014efed0 Mon Sep 17 00:00:00 2001
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Thu, 20 Sep 2012 10:41:04 -0400
+Subject: [PATCH 42/47] acpi: Ignore acpi_rsdp kernel parameter in a secure
+ boot environment
+
+This option allows userspace to pass the RSDP address to the kernel.  This
+could potentially be used to circumvent the secure boot trust model.
+This is setup through the setup_arch function, which is called before the
+security_init function sets up the security_ops, so we cannot use a
+capable call here.  We ignore the setting if we are booted in Secure Boot
+mode.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ drivers/acpi/osl.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/acpi/osl.c b/drivers/acpi/osl.c
+index e721863..ed82da7 100644
+--- a/drivers/acpi/osl.c
++++ b/drivers/acpi/osl.c
+@@ -245,7 +245,7 @@ early_param("acpi_rsdp", setup_acpi_rsdp);
+ acpi_physical_address __init acpi_os_get_root_pointer(void)
+ {
+ #ifdef CONFIG_KEXEC
+-	if (acpi_rsdp)
++	if (acpi_rsdp && !efi_enabled(EFI_SECURE_BOOT))
+ 		return acpi_rsdp;
+ #endif
+ 
+-- 
+1.8.1.4
+
+
+From b08ac626fbcf917bc219133d49c347d7d58eaae1 Mon Sep 17 00:00:00 2001
+From: Matthew Garrett <mjg@redhat.com>
+Date: Tue, 4 Sep 2012 11:55:13 -0400
+Subject: [PATCH 43/47] kexec: Disable in a secure boot environment
+
+kexec could be used as a vector for a malicious user to use a signed kernel
+to circumvent the secure boot trust model. In the long run we'll want to
+support signed kexec payloads, but for the moment we should just disable
+loading entirely in that situation.
+
+Signed-off-by: Matthew Garrett <mjg@redhat.com>
+---
+ kernel/kexec.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/kernel/kexec.c b/kernel/kexec.c
+index 59f7b55..8bf1336 100644
+--- a/kernel/kexec.c
++++ b/kernel/kexec.c
+@@ -939,7 +939,7 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
+ 	int result;
+ 
+ 	/* We only trust the superuser with rebooting the system. */
+-	if (!capable(CAP_SYS_BOOT))
++	if (!capable(CAP_SYS_BOOT) || !capable(CAP_COMPROMISE_KERNEL))
+ 		return -EPERM;
+ 
+ 	/*
+-- 
+1.8.1.4
+
+
+From f0d9c2906c1145585882fb7eb167e47e998c2e24 Mon Sep 17 00:00:00 2001
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Fri, 5 Oct 2012 10:12:48 -0400
+Subject: [PATCH 44/47] MODSIGN: Always enforce module signing in a Secure Boot
+ environment
+
+If a machine is booted into a Secure Boot environment, we need to
+protect the trust model.  This requires that all modules be signed
+with a key that is in the kernel's _modsign keyring.  The checks for
+this are already done via the 'sig_enforce' module parameter.  Make
+this visible within the kernel and force it to be true.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ kernel/cred.c   | 8 ++++++++
+ kernel/module.c | 4 ++--
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/cred.c b/kernel/cred.c
+index c3f4e3e..c5554e0 100644
+--- a/kernel/cred.c
++++ b/kernel/cred.c
+@@ -565,11 +565,19 @@ void __init cred_init(void)
+ 				     0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
+ }
+ 
++#ifdef CONFIG_MODULE_SIG
++extern bool sig_enforce;
++#endif
++
+ void __init secureboot_enable()
+ {
+ 	pr_info("Secure boot enabled\n");
+ 	cap_lower((&init_cred)->cap_bset, CAP_COMPROMISE_KERNEL);
+ 	cap_lower((&init_cred)->cap_permitted, CAP_COMPROMISE_KERNEL);
++#ifdef CONFIG_MODULE_SIG
++	/* Enable module signature enforcing */
++	sig_enforce = true;
++#endif
+ }
+ 
+ /* Dummy Secure Boot enable option to fake out UEFI SB=1 */
+diff --git a/kernel/module.c b/kernel/module.c
+index 0925c9a..af4a476 100644
+--- a/kernel/module.c
++++ b/kernel/module.c
+@@ -109,9 +109,9 @@ struct list_head *kdb_modules = &modules; /* kdb needs the list of modules */
+ 
+ #ifdef CONFIG_MODULE_SIG
+ #ifdef CONFIG_MODULE_SIG_FORCE
+-static bool sig_enforce = true;
++bool sig_enforce = true;
+ #else
+-static bool sig_enforce = false;
++bool sig_enforce = false;
+ 
+ static int param_set_bool_enable_only(const char *val,
+ 				      const struct kernel_param *kp)
+-- 
+1.8.1.4
+
+
+From 1c6bfec7db39e46eeb456fb84e3153281690bbe0 Mon Sep 17 00:00:00 2001
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Fri, 26 Oct 2012 14:02:09 -0400
+Subject: [PATCH 45/47] hibernate: Disable in a Secure Boot environment
+
+There is currently no way to verify the resume image when returning
+from hibernate.  This might compromise the secure boot trust model,
+so until we can work with signed hibernate images we disable it in
+a Secure Boot environment.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ kernel/power/hibernate.c | 15 ++++++++++++++-
+ kernel/power/main.c      |  7 ++++++-
+ kernel/power/user.c      |  3 +++
+ 3 files changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/kernel/power/hibernate.c b/kernel/power/hibernate.c
+index b26f5f1..7f63cb4 100644
+--- a/kernel/power/hibernate.c
++++ b/kernel/power/hibernate.c
+@@ -28,6 +28,7 @@
+ #include <linux/syscore_ops.h>
+ #include <linux/ctype.h>
+ #include <linux/genhd.h>
++#include <linux/efi.h>
+ 
+ #include "power.h"
+ 
+@@ -632,6 +633,10 @@ int hibernate(void)
+ {
+ 	int error;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL)) {
++		return -EPERM;
++	}
++
+ 	lock_system_sleep();
+ 	/* The snapshot device should not be opened while we're running */
+ 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
+@@ -723,7 +728,7 @@ static int software_resume(void)
+ 	/*
+ 	 * If the user said "noresume".. bail out early.
+ 	 */
+-	if (noresume)
++	if (noresume || !capable(CAP_COMPROMISE_KERNEL))
+ 		return 0;
+ 
+ 	/*
+@@ -889,6 +894,11 @@ static ssize_t disk_show(struct kobject *kobj, struct kobj_attribute *attr,
+ 	int i;
+ 	char *start = buf;
+ 
++	if (efi_enabled(EFI_SECURE_BOOT)) {
++		buf += sprintf(buf, "[%s]\n", "disabled");
++		return buf-start;
++	}
++
+ 	for (i = HIBERNATION_FIRST; i <= HIBERNATION_MAX; i++) {
+ 		if (!hibernation_modes[i])
+ 			continue;
+@@ -923,6 +933,9 @@ static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
+ 	char *p;
+ 	int mode = HIBERNATION_INVALID;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	p = memchr(buf, '\n', n);
+ 	len = p ? p - buf : n;
+ 
+diff --git a/kernel/power/main.c b/kernel/power/main.c
+index d77663b..78f8ed5 100644
+--- a/kernel/power/main.c
++++ b/kernel/power/main.c
+@@ -15,6 +15,7 @@
+ #include <linux/workqueue.h>
+ #include <linux/debugfs.h>
+ #include <linux/seq_file.h>
++#include <linux/efi.h>
+ 
+ #include "power.h"
+ 
+@@ -301,7 +302,11 @@ static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr,
+ 	}
+ #endif
+ #ifdef CONFIG_HIBERNATION
+-	s += sprintf(s, "%s\n", "disk");
++	if (!efi_enabled(EFI_SECURE_BOOT)) {
++		s += sprintf(s, "%s\n", "disk");
++	} else {
++		s += sprintf(s, "\n");
++	}
+ #else
+ 	if (s != buf)
+ 		/* convert the last space to a newline */
+diff --git a/kernel/power/user.c b/kernel/power/user.c
+index 4ed81e7..b11a0f4 100644
+--- a/kernel/power/user.c
++++ b/kernel/power/user.c
+@@ -48,6 +48,9 @@ static int snapshot_open(struct inode *inode, struct file *filp)
+ 	struct snapshot_data *data;
+ 	int error;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	lock_system_sleep();
+ 
+ 	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
+-- 
+1.8.1.4
+
+
+From 07cda990d2f18774522889ece30bddf67c703157 Mon Sep 17 00:00:00 2001
+From: Josh Boyer <jwboyer@redhat.com>
+Date: Tue, 5 Feb 2013 19:25:05 -0500
+Subject: [PATCH 46/47] efi: Disable secure boot if shim is in insecure mode
+
+A user can manually tell the shim boot loader to disable validation of
+images it loads.  When a user does this, it creates a UEFI variable called
+MokSBState that does not have the runtime attribute set.  Given that the
+user explicitly disabled validation, we can honor that and not enable
+secure boot mode if that variable is set.
+
+Signed-off-by: Josh Boyer <jwboyer@redhat.com>
+---
+ arch/x86/boot/compressed/eboot.c | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/boot/compressed/eboot.c b/arch/x86/boot/compressed/eboot.c
+index 0998ec7..4945ee5 100644
+--- a/arch/x86/boot/compressed/eboot.c
++++ b/arch/x86/boot/compressed/eboot.c
+@@ -908,8 +908,9 @@ fail:
+ 
+ static int get_secure_boot(efi_system_table_t *_table)
+ {
+-	u8 sb, setup;
++	u8 sb, setup, moksbstate;
+ 	unsigned long datasize = sizeof(sb);
++	u32 attr;
+ 	efi_guid_t var_guid = EFI_GLOBAL_VARIABLE_GUID;
+ 	efi_status_t status;
+ 
+@@ -933,6 +934,23 @@ static int get_secure_boot(efi_system_table_t *_table)
+ 	if (setup == 1)
+ 		return 0;
+ 
++	/* See if a user has put shim into insecure_mode.  If so, and the variable
++	 * doesn't have the runtime attribute set, we might as well honor that.
++	 */
++	var_guid = EFI_SHIM_LOCK_GUID;
++	status = efi_call_phys5(sys_table->runtime->get_variable,
++				L"MokSBState", &var_guid, &attr, &datasize,
++				&moksbstate);
++
++	/* If it fails, we don't care why.  Default to secure */
++	if (status != EFI_SUCCESS)
++		return 1;
++
++	if (!(attr & EFI_VARIABLE_RUNTIME_ACCESS)) {
++		if (moksbstate == 1)
++			return 0;
++	}
++
+ 	return 1;
+ }
+ 
+-- 
+1.8.1.4
+
+
+From e61066577405c37c2758f9b7fb2694967bdbe921 Mon Sep 17 00:00:00 2001
+From: Kees Cook <keescook@chromium.org>
+Date: Fri, 8 Feb 2013 11:12:13 -0800
+Subject: [PATCH 47/47] x86: Lock down MSR writing in secure boot
+
+Writing to MSRs should not be allowed unless CAP_COMPROMISE_KERNEL is
+set since it could lead to execution of arbitrary code in kernel mode.
+
+Signed-off-by: Kees Cook <keescook@chromium.org>
+---
+ arch/x86/kernel/msr.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/arch/x86/kernel/msr.c b/arch/x86/kernel/msr.c
+index ce13049..fa4dc6c 100644
+--- a/arch/x86/kernel/msr.c
++++ b/arch/x86/kernel/msr.c
+@@ -103,6 +103,9 @@ static ssize_t msr_write(struct file *file, const char __user *buf,
+ 	int err = 0;
+ 	ssize_t bytes = 0;
+ 
++	if (!capable(CAP_COMPROMISE_KERNEL))
++		return -EPERM;
++
+ 	if (count % 8)
+ 		return -EINVAL;	/* Invalid chunk size */
+ 
+@@ -150,6 +153,10 @@ static long msr_ioctl(struct file *file, unsigned int ioc, unsigned long arg)
+ 			err = -EBADF;
+ 			break;
+ 		}
++		if (!capable(CAP_COMPROMISE_KERNEL)) {
++			err = -EPERM;
++			break;
++		}
+ 		if (copy_from_user(&regs, uregs, sizeof regs)) {
+ 			err = -EFAULT;
+ 			break;
+-- 
+1.8.1.4
+

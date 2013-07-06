@@ -1,0 +1,57 @@
+From 6b7df111ece130fa979a0c4f58e53674c1e47d3e Mon Sep 17 00:00:00 2001
+From: Cong Wang <amwang@redhat.com>
+Date: Tue, 21 May 2013 21:52:56 +0000
+Subject: bridge: send query as soon as leave is received
+
+Continue sending queries when leave is received if the user marks
+it as a querier.
+
+Cc: Herbert Xu <herbert@gondor.apana.org.au>
+Cc: Stephen Hemminger <stephen@networkplumber.org>
+Cc: "David S. Miller" <davem@davemloft.net>
+Cc: Adam Baker <linux@baker-net.org.uk>
+Signed-off-by: Cong Wang <amwang@redhat.com>
+Acked-by: Herbert Xu <herbert@gondor.apana.org.au>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+(limited to 'net/bridge')
+
+diff --git a/net/bridge/br_multicast.c b/net/bridge/br_multicast.c
+index 40bda80..37a4676 100644
+--- a/net/bridge/br_multicast.c
++++ b/net/bridge/br_multicast.c
+@@ -1250,6 +1250,32 @@ static void br_multicast_leave_group(struct net_bridge *br,
+ 	if (!mp)
+ 		goto out;
+ 
++	if (br->multicast_querier &&
++	    !timer_pending(&br->multicast_querier_timer)) {
++		__br_multicast_send_query(br, port, &mp->addr);
++
++		time = jiffies + br->multicast_last_member_count *
++				 br->multicast_last_member_interval;
++		mod_timer(port ? &port->multicast_query_timer :
++				 &br->multicast_query_timer, time);
++
++		for (p = mlock_dereference(mp->ports, br);
++		     p != NULL;
++		     p = mlock_dereference(p->next, br)) {
++			if (p->port != port)
++				continue;
++
++			if (!hlist_unhashed(&p->mglist) &&
++			    (timer_pending(&p->timer) ?
++			     time_after(p->timer.expires, time) :
++			     try_to_del_timer_sync(&p->timer) >= 0)) {
++				mod_timer(&p->timer, time);
++			}
++
++			break;
++		}
++	}
++
+ 	if (port && (port->flags & BR_MULTICAST_FAST_LEAVE)) {
+ 		struct net_bridge_port_group __rcu **pp;
+ 
+--
+cgit v0.9.2

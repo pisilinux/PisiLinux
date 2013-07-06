@@ -1,0 +1,55 @@
+From c790b0ad23f427c7522ffed264706238c57c007e Mon Sep 17 00:00:00 2001
+From: Oleg Nesterov <oleg@redhat.com>
+Date: Thu, 20 Jun 2013 17:50:09 +0200
+Subject: hw_breakpoint: Use cpu_possible_mask in {reserve,release}_bp_slot()
+
+From: Oleg Nesterov <oleg@redhat.com>
+
+commit c790b0ad23f427c7522ffed264706238c57c007e upstream.
+
+fetch_bp_busy_slots() and toggle_bp_slot() use
+for_each_online_cpu(), this is obviously wrong wrt cpu_up() or
+cpu_down(), we can over/under account the per-cpu numbers.
+
+For example:
+
+	# echo 0 >> /sys/devices/system/cpu/cpu1/online
+	# perf record -e mem:0x10 -p 1 &
+	# echo 1 >> /sys/devices/system/cpu/cpu1/online
+	# perf record -e mem:0x10,mem:0x10,mem:0x10,mem:0x10 -C1 -a &
+	# taskset -p 0x2 1
+
+triggers the same WARN_ONCE("Can't find any breakpoint slot") in
+arch_install_hw_breakpoint().
+
+Reported-by: Vince Weaver <vincent.weaver@maine.edu>
+Signed-off-by: Oleg Nesterov <oleg@redhat.com>
+Acked-by: Frederic Weisbecker <fweisbec@gmail.com>
+Link: http://lkml.kernel.org/r/20130620155009.GA6327@redhat.com
+Signed-off-by: Ingo Molnar <mingo@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ kernel/events/hw_breakpoint.c |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/kernel/events/hw_breakpoint.c
++++ b/kernel/events/hw_breakpoint.c
+@@ -149,7 +149,7 @@ fetch_bp_busy_slots(struct bp_busy_slots
+ 		return;
+ 	}
+ 
+-	for_each_online_cpu(cpu) {
++	for_each_possible_cpu(cpu) {
+ 		unsigned int nr;
+ 
+ 		nr = per_cpu(nr_cpu_bp_pinned[type], cpu);
+@@ -235,7 +235,7 @@ toggle_bp_slot(struct perf_event *bp, bo
+ 	if (cpu >= 0) {
+ 		toggle_bp_task_slot(bp, cpu, enable, type, weight);
+ 	} else {
+-		for_each_online_cpu(cpu)
++		for_each_possible_cpu(cpu)
+ 			toggle_bp_task_slot(bp, cpu, enable, type, weight);
+ 	}
+ 
