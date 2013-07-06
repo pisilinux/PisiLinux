@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-WorkDir="libcaca-%s" % get.srcVERSION().replace("_",".")
-
 def setup():
     autotools.autoreconf("-vfi")
     libtools.libtoolize("--force --install")
@@ -19,6 +17,9 @@ def setup():
                          --disable-ruby \
                          --disable-csharp \
                          --disable-java \
+                         --disable-cxx \
+                         --disable-gl \
+                         --enable-shared \
                          --enable-ncurses \
                          --enable-slang \
                          --enable-imlib2 \
