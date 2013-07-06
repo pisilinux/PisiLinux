@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "OpenCV-%s" % get.srcVERSION()
 shelltools.export("PYTHONDONTWRITEBYTECODE", "")
 shelltools.export("HOME", get.workDIR())
 
@@ -36,6 +35,8 @@ def setup():
                           -DUSE_SSE2=1 \
                           -DUSE_SSE3=0 \
                           -DUSE_SSE=1 \
+                          -DWITH_TBB=ON \
+                          -DWITH_EIGEN=ON \
                           -DWITH_1394=1 \
                           -DWITH_GSTREAMER=1 \
                           -DWITH_GTK=1 \
@@ -57,9 +58,9 @@ def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # Move other docs and samples under standart doc dir
-    doc_dir = "usr/share/doc/" + get.srcNAME()
+    #doc_dir = "usr/share/doc/" + get.srcNAME()
 
-    pisitools.domove("usr/share/OpenCV/doc", doc_dir)
+    #pisitools.domove("usr/share/opencv/doc", doc_dir)
     #pisitools.domove("usr/share/opencv/samples", doc_dir)
 
     pisitools.dodoc("doc/license.txt")
