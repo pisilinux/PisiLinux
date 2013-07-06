@@ -41,6 +41,7 @@ def setup():
     #shelltools.system("patch -p1 < do_mmap.patch")
     shelltools.system("patch -p1 < desktop-files.patch")
     shelltools.system("patch -p1 < ati-powermode.patch")
+    shelltools.system("patch --remove-empty-files --no-backup-if-mismatch -p0 -i linux-3.10-proc.diff")
 
 def build():
     if get.buildTYPE() == "emul32":
