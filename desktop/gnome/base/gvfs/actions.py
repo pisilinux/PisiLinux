@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-#    autotools.autoreconf("-fiv")
+    #autotools.autoreconf("-fiv")
     autotools.configure("--disable-static \
                          --enable-keyring \
                          --enable-bash-completion \
@@ -24,7 +24,7 @@ def setup():
                          --with-dbus-service-dir=/usr/share/dbus-1/services")
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
