@@ -30,6 +30,9 @@ def setup():
                         -Dlinux_strip_binary=1 \
                         -Dlinux_sandbox_path=/usr/lib/chromium-browser/chromium-sandbox \
                         -Dlinux_sandbox_chrome_path=/usr/lib/chromium-browser/chromium-browser \
+                        -Dgoogle_api_key=AIzaSyBINKL31ZYd8W5byPuwTXYK6cEyoceGh6Y \
+                        -Dgoogle_default_client_id=879512332529.apps.googleusercontent.com \
+                        -Dgoogle_default_client_secret=RmQPJJeL1cNJ8iETnoVD4X17 \
                         -Drelease_extra_cflags=-fno-ipa-cp \
                         -Dproprietary_codecs=1 \
                         -Dinclude_pulse_audio=1 \
