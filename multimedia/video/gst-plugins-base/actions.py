@@ -4,15 +4,15 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    autotools.autoreconf("-vfi")
+    #autotools.autoreconf("-vfi")
     autotools.configure("--disable-static \
                          --disable-rpath \
                          --disable-examples \
@@ -22,19 +22,6 @@ def setup():
                          --enable-introspection=yes \
                          --with-package-name='PisiLinux gstreamer-plugins-base package' \
                          --with-package-origin='http://www.pisilinux.org'")
-                         
-    if get.buildTYPE() == "emul32":
-        options = "--disable-static \
-                   --disable-rpath \
-                   --disable-examples \
-                   --disable-gnome-vfs \
-                   --enable-libvisual \
-                   --enable-experimental \
-                   --enable-introspection=no \
-                   --with-package-name='PisiLinux gstreamer-plugins-base package' \
-                   --with-package-origin='http://www.pisilinux.org'"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-        autotools.configure(options)
 
 def build():
     autotools.make()
