@@ -38,7 +38,7 @@ def setup():
                       --enable-mng \
                       --enable-modplug \
                       --enable-opengl \
-                      --enable-samba \
+                      --disable-samba \
                       --enable-xinerama \
                       --with-external-a52dec \
                       --with-external-ffmpeg \
@@ -49,6 +49,8 @@ def setup():
                       --with-x \
                       --with-xcb \
                       --with-xv-path=/usr/lib \
+                      --with-freetype \
+                      --with-fontconfig \
                       --without-esound \
                       --without-imagemagick \
                       --without-jack \
@@ -60,8 +62,6 @@ def setup():
                       --disable-dependency-tracking")
                       # the world is not ready for this code, see bug #8267
                       # --enable-antialiasing \
-                      # --with-freetype \
-                      # --with-fontconfig \
 
 def build():
     autotools.make()
