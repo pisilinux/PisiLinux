@@ -14,13 +14,9 @@ libdir = "lib32" if get.buildTYPE() == "emul32" else "lib"
 jobs = get.makeJOBS().replace("-j", "")
 
 def setup():
-    options = "--enable-talloc-compat1"
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CC", "%s -m32" % get.CC())
-
-    autotools.configure(options)
+    autotools.configure("--enable-talloc-compat1 \
+                         --sysconfdir=/etc/samba \
+                        ")
 
 def build():
     autotools.make("JOBS=%s" % jobs)
