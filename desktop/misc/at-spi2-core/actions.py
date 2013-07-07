@@ -14,7 +14,6 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.configure("--disable-static \
                          --disable-xevie \
-                         --disable-relocate \
                          --libexecdir=/usr/libexec/at-spi2 \
                          --with-dbus-daemondir=/usr/bin")
 
