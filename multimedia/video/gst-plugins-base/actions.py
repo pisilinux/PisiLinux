@@ -4,37 +4,30 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 shelltools.export("HOME", get.workDIR())
 
 def setup():
+    pisitools.dosed("configure.ac", "AM_CONFIG_HEADER", "AC_CONFIG_HEADERS")
     autotools.autoreconf("-vfi")
+    opts = {
+            "introspection": "no" if get.buildTYPE() == "emul32" else "yes",
+            "gnome-vfs": "dis" if get.buildTYPE() == "emul32" else "en"
+           }
     autotools.configure("--disable-static \
                          --disable-rpath \
                          --disable-examples \
-                         --enable-gnome-vfs \
+                         --%(gnome-vfs)sable-gnome-vfs \
                          --enable-libvisual \
                          --enable-experimental \
-                         --enable-introspection=yes \
+                         --enable-introspection=%(introspection)s \
                          --with-package-name='PisiLinux gstreamer-plugins-base package' \
-                         --with-package-origin='http://www.pisilinux.org'")
-                         
-    if get.buildTYPE() == "emul32":
-        options = "--disable-static \
-                   --disable-rpath \
-                   --disable-examples \
-                   --disable-gnome-vfs \
-                   --enable-libvisual \
-                   --enable-experimental \
-                   --enable-introspection=no \
-                   --with-package-name='PisiLinux gstreamer-plugins-base package' \
-                   --with-package-origin='http://www.pisilinux.org'"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-        autotools.configure(options)
+                         --with-package-origin='http://www.pisilinux.org' \
+                        " % opts)
 
 def build():
     autotools.make()
