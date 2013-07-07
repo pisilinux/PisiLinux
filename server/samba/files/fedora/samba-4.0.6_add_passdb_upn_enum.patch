@@ -1,0 +1,406 @@
+From bc7060261e5ad4db03d49414f8d3910ae231b79f Mon Sep 17 00:00:00 2001
+From: Alexander Bokovoy <ab@samba.org>
+Date: Wed, 3 Apr 2013 15:52:06 +0300
+Subject: [PATCH 1/4] wafsamba: fix samba_abi for default catch-all case
+
+Only filter out the symbol when positive match was not found and there is
+negative match.
+
+ABI signature file generator worked incorrectly for cases when mixture of
+positive and negative matches were provided. This resulted in generating empty
+signature file for libpdb since there was no catch-all positive match anymore.
+
+Commit 9ba44cc610426fb558b49aa9680b5bdf55c29082 removed explicit '*' positive
+match and corresponding vscript generator adds '*' by default if global match
+list is empty, so this commit introduces feature parity into signature
+generator.
+
+Reviewed-by: Andreas Schneider <asn@samba.org>
+---
+ buildtools/wafsamba/samba_abi.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/buildtools/wafsamba/samba_abi.py b/buildtools/wafsamba/samba_abi.py
+index 488dab8..76acd00 100644
+--- a/buildtools/wafsamba/samba_abi.py
++++ b/buildtools/wafsamba/samba_abi.py
+@@ -50,13 +50,15 @@ def parse_sigs(sigs, abi_match):
+         sa = s.split(':')
+         if abi_match:
+             matched = False
++            negative = False
+             for p in abi_match:
+                 if p[0] == '!' and fnmatch.fnmatch(sa[0], p[1:]):
++                    negative = True
+                     break
+                 elif fnmatch.fnmatch(sa[0], p):
+                     matched = True
+                     break
+-            if not matched:
++            if (not matched) and negative:
+                 continue
+         Logs.debug("%s -> %s" % (sa[1], normalise_signature(sa[1])))
+         ret[sa[0]] = normalise_signature(sa[1])
+-- 
+1.8.1.4
+
+From ff9cbe37219a41ceb0c624a995f12692f6634760 Mon Sep 17 00:00:00 2001
+From: Alexander Bokovoy <ab@samba.org>
+Date: Wed, 3 Apr 2013 16:01:34 +0300
+Subject: [PATCH 2/4] s3-waf: filter out ldapsam internal init functions
+
+pdb_ldapsam_init* functions (init and init_common) are used in
+pdb_ipa.c and pdb_nds.c which are always linked together with
+pdb_ldap.c where pdb_ldapsam_init* functions reside.
+
+Tested with both ldapsam integrated (into libpdb) and as
+a separate module.
+
+Reviewed-by: Andreas Schneider <asn@samba.org>
+---
+ source3/wscript_build | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/source3/wscript_build b/source3/wscript_build
+index 02040bf..fd20b81 100755
+--- a/source3/wscript_build
++++ b/source3/wscript_build
+@@ -716,6 +716,7 @@ ldapsam_pdb_match = ['!priv2ld', '!smbldap_search_domain_info',
+                      '!get_attr_list']
+ private_pdb_match.append('!pdb_nds_*')
+ private_pdb_match.append('!pdb_init_ldapsam')
++private_pdb_match.append('!pdb_ldapsam_init*')
+ private_pdb_match = private_pdb_match + ldapsam_pdb_match
+ 
+ private_pdb_match = private_pdb_match + map(lambda x: '!pdb_%s_init' % x, static_pdb_match)
+-- 
+1.8.1.4
+
+From 67e4a28c0b14259f0f25a292f91924f82c84bae1 Mon Sep 17 00:00:00 2001
+From: Alexander Bokovoy <ab@samba.org>
+Date: Wed, 3 Apr 2013 16:37:00 +0300
+Subject: [PATCH 3/4] PASSDB: add support to set and enumerate UPN suffixes
+ associated with our forest
+
+Samba PDC may manage a forest containing DNS domains in addition to the primary one.
+Information about them is advertised via netr_DsRGetForestTrustInformation when
+trusted_domain_name is NULL, according to MS-NRPC and MS-LSAD, and
+via netr_GetForestTrustInformation.
+
+This changeset only expands PASSDB API; how suffixes are maintained is left
+to specific PDB modules. Set function is added so that suffixes could be
+managed through 'net' and other Samba utilities, if possible.
+
+One possible implementation is available for ipasam module in FreeIPA:
+http://git.fedorahosted.org/cgit/freeipa.git/commit/?id=cc56723151c9ebf58d891e85617319d861af14a4
+
+Reviewed-by: Andreas Schneider <asn@samba.org>
+---
+ source3/include/passdb.h       | 18 +++++++++++++++++-
+ source3/passdb/ABI/pdb-0.sigs  |  2 ++
+ source3/passdb/pdb_interface.c | 36 ++++++++++++++++++++++++++++++++++++
+ 3 files changed, 55 insertions(+), 1 deletion(-)
+
+diff --git a/source3/include/passdb.h b/source3/include/passdb.h
+index 908631d..5e5a7bf 100644
+--- a/source3/include/passdb.h
++++ b/source3/include/passdb.h
+@@ -412,9 +412,10 @@ enum pdb_policy_type {
+  * Changed to 18, pdb_rid_algorithm -> pdb_capabilities
+  * Changed to 19, removed uid_to_rid
+  * Changed to 20, pdb_secret calls
++ * Changed to 21, set/enum_upn_suffixes. AB.
+  */
+ 
+-#define PASSDB_INTERFACE_VERSION 20
++#define PASSDB_INTERFACE_VERSION 21
+ 
+ struct pdb_methods 
+ {
+@@ -614,6 +615,15 @@ struct pdb_methods
+ 	NTSTATUS (*delete_secret)(struct pdb_methods *methods,
+ 				  const char *secret_name);
+ 
++	NTSTATUS (*enum_upn_suffixes)(struct pdb_methods *methods,
++				      TALLOC_CTX *mem_ctx,
++				      uint32_t *num_suffixes,
++				      char ***suffixes);
++
++	NTSTATUS (*set_upn_suffixes)(struct pdb_methods *methods,
++				     uint32_t num_suffixes,
++				     const char **suffixes);
++
+ 	void *private_data;  /* Private data of some kind */
+ 
+ 	void (*free_private_data)(void **);
+@@ -911,6 +921,12 @@ NTSTATUS pdb_delete_secret(const char *secret_name);
+ bool pdb_sid_to_id_unix_users_and_groups(const struct dom_sid *sid,
+ 					 struct unixid *id);
+ 
++NTSTATUS pdb_enum_upn_suffixes(TALLOC_CTX *mem_ctx,
++			       uint32_t *num_suffixes,
++			       char ***suffixes);
++
++NTSTATUS pdb_set_upn_suffixes(uint32_t num_suffixes,
++			      const char **suffixes);
+ 
+ /* The following definitions come from passdb/pdb_util.c  */
+ 
+diff --git a/source3/passdb/ABI/pdb-0.sigs b/source3/passdb/ABI/pdb-0.sigs
+index 4108b9a..51810ef 100644
+--- a/source3/passdb/ABI/pdb-0.sigs
++++ b/source3/passdb/ABI/pdb-0.sigs
+@@ -112,6 +112,7 @@ pdb_enum_group_members: NTSTATUS (TALLOC_CTX *, const struct dom_sid *, uint32_t
+ pdb_enum_group_memberships: NTSTATUS (TALLOC_CTX *, struct samu *, struct dom_sid **, gid_t **, uint32_t *)
+ pdb_enum_trusted_domains: NTSTATUS (TALLOC_CTX *, uint32_t *, struct pdb_trusted_domain ***)
+ pdb_enum_trusteddoms: NTSTATUS (TALLOC_CTX *, uint32_t *, struct trustdom_info ***)
++pdb_enum_upn_suffixes: NTSTATUS (TALLOC_CTX *, uint32_t *, char ***)
+ pdb_find_backend_entry: struct pdb_init_function_entry *(const char *)
+ pdb_get_account_policy: bool (enum pdb_policy_type, uint32_t *)
+ pdb_get_acct_ctrl: uint32_t (const struct samu *)
+@@ -230,6 +231,7 @@ pdb_set_trusted_domain: NTSTATUS (const char *, const struct pdb_trusted_domain
+ pdb_set_trusteddom_pw: bool (const char *, const char *, const struct dom_sid *)
+ pdb_set_unix_primary_group: NTSTATUS (TALLOC_CTX *, struct samu *)
+ pdb_set_unknown_6: bool (struct samu *, uint32_t, enum pdb_value_state)
++pdb_set_upn_suffixes: NTSTATUS (uint32_t, const char **)
+ pdb_set_user_sid: bool (struct samu *, const struct dom_sid *, enum pdb_value_state)
+ pdb_set_user_sid_from_rid: bool (struct samu *, uint32_t, enum pdb_value_state)
+ pdb_set_user_sid_from_string: bool (struct samu *, const char *, enum pdb_value_state)
+diff --git a/source3/passdb/pdb_interface.c b/source3/passdb/pdb_interface.c
+index 775f8a3..36dde6f 100644
+--- a/source3/passdb/pdb_interface.c
++++ b/source3/passdb/pdb_interface.c
+@@ -2340,6 +2340,39 @@ static struct pdb_domain_info *pdb_default_get_domain_info(
+ 	return NULL;
+ }
+ 
++/*****************************************************************
++ UPN suffixes
++ *****************************************************************/
++static NTSTATUS pdb_default_enum_upn_suffixes(struct pdb_methods *pdb,
++					      TALLOC_CTX *mem_ctx,
++					      uint32_t *num_suffixes,
++					      char ***suffixes)
++{
++	return NT_STATUS_NOT_IMPLEMENTED;
++}
++
++static NTSTATUS pdb_default_set_upn_suffixes(struct pdb_methods *pdb,
++					     uint32_t num_suffixes,
++					     const char **suffixes)
++{
++	return NT_STATUS_NOT_IMPLEMENTED;
++}
++
++NTSTATUS pdb_enum_upn_suffixes(TALLOC_CTX *mem_ctx,
++			       uint32_t *num_suffixes,
++			       char ***suffixes)
++{
++	struct pdb_methods *pdb = pdb_get_methods();
++	return pdb->enum_upn_suffixes(pdb, mem_ctx, num_suffixes, suffixes);
++}
++
++NTSTATUS pdb_set_upn_suffixes(uint32_t num_suffixes,
++			      const char **suffixes)
++{
++	struct pdb_methods *pdb = pdb_get_methods();
++	return pdb->set_upn_suffixes(pdb, num_suffixes, suffixes);
++}
++
+ /*******************************************************************
+  secret methods
+  *******************************************************************/
+@@ -2487,5 +2520,8 @@ NTSTATUS make_pdb_method( struct pdb_methods **methods )
+ 	(*methods)->set_secret = pdb_default_set_secret;
+ 	(*methods)->delete_secret = pdb_default_delete_secret;
+ 
++	(*methods)->enum_upn_suffixes = pdb_default_enum_upn_suffixes;
++	(*methods)->set_upn_suffixes  = pdb_default_set_upn_suffixes;
++
+ 	return NT_STATUS_OK;
+ }
+-- 
+1.8.1.4
+
+From 801d299067c1ad8e9e63e0c675a4d1284de2f85c Mon Sep 17 00:00:00 2001
+From: Alexander Bokovoy <ab@samba.org>
+Date: Wed, 3 Apr 2013 16:52:45 +0300
+Subject: [PATCH 4/4] s3-netlogon: enumerate UPN suffixes from PASSDB when
+ available
+
+Optionally append list of UPN suffixes if PDB module returns non-empty one.
+
+Refactor fill_forest_trust_array() in source3 to allow reuse of the code between
+_netr_DsRGetForestTrustInformation() and _netr_GetForestTrustInformation()
+
+Implement a special case of _netr_DsRGetForestTrustInformation in smbd
+when trusted_domain_name is NULL (covered by test_DsrEnumerateDomainTrusts()
+in rpc.netlogon torture tests, see comment in source4/torture/rpc/netlogon.c).
+
+Reviewed-by: Andreas Schneider <asn@samba.org>
+
+Autobuild-User(master): Andreas Schneider <asn@cryptomilk.org>
+Autobuild-Date(master): Tue Apr  9 22:19:34 CEST 2013 on sn-devel-104
+---
+ source3/rpc_server/netlogon/srv_netlog_nt.c | 106 ++++++++++++++++++++++++----
+ 1 file changed, 94 insertions(+), 12 deletions(-)
+
+diff --git a/source3/rpc_server/netlogon/srv_netlog_nt.c b/source3/rpc_server/netlogon/srv_netlog_nt.c
+index 9b50655..c45f33f 100644
+--- a/source3/rpc_server/netlogon/srv_netlog_nt.c
++++ b/source3/rpc_server/netlogon/srv_netlog_nt.c
+@@ -2309,22 +2309,16 @@ NTSTATUS _netr_ServerTrustPasswordsGet(struct pipes_struct *p,
+ /****************************************************************
+ ****************************************************************/
+ 
+-WERROR _netr_DsRGetForestTrustInformation(struct pipes_struct *p,
+-					  struct netr_DsRGetForestTrustInformation *r)
+-{
+-	p->fault_state = DCERPC_FAULT_OP_RNG_ERROR;
+-	return WERR_NOT_SUPPORTED;
+-}
+-
+-/****************************************************************
+-****************************************************************/
+-
+ static NTSTATUS fill_forest_trust_array(TALLOC_CTX *mem_ctx,
+ 					struct lsa_ForestTrustInformation *info)
+ {
+ 	struct lsa_ForestTrustRecord *e;
+ 	struct pdb_domain_info *dom_info;
+ 	struct lsa_ForestTrustDomainInfo *domain_info;
++	char **upn_suffixes = NULL;
++	uint32_t num_suffixes = 0;
++	uint32_t i = 0;
++	NTSTATUS status;
+ 
+ 	dom_info = pdb_get_domain_info(mem_ctx);
+ 	if (dom_info == NULL) {
+@@ -2332,7 +2326,15 @@ static NTSTATUS fill_forest_trust_array(TALLOC_CTX *mem_ctx,
+ 	}
+ 
+ 	info->count = 2;
+-	info->entries = talloc_array(info, struct lsa_ForestTrustRecord *, 2);
++
++	become_root();
++	status = pdb_enum_upn_suffixes(info, &num_suffixes, &upn_suffixes);
++	unbecome_root();
++	if (NT_STATUS_IS_OK(status) && (num_suffixes > 0)) {
++		info->count += num_suffixes;
++	}
++
++	info->entries = talloc_array(info, struct lsa_ForestTrustRecord *, info->count);
+ 	if (info->entries == NULL) {
+ 		return NT_STATUS_NO_MEMORY;
+ 	}
+@@ -2350,6 +2352,21 @@ static NTSTATUS fill_forest_trust_array(TALLOC_CTX *mem_ctx,
+ 
+ 	info->entries[0] = e;
+ 
++	if (num_suffixes > 0) {
++		for (i = 0; i < num_suffixes ; i++) {
++			e = talloc(info, struct lsa_ForestTrustRecord);
++			if (e == NULL) {
++				return NT_STATUS_NO_MEMORY;
++			}
++
++			e->flags = 0;
++			e->type = LSA_FOREST_TRUST_TOP_LEVEL_NAME;
++			e->time = 0; /* so far always 0 in traces. */
++			e->forest_trust_data.top_level_name.string = upn_suffixes[i];
++			info->entries[1 + i] = e;
++		}
++	}
++
+ 	e = talloc(info, struct lsa_ForestTrustRecord);
+ 	if (e == NULL) {
+ 		return NT_STATUS_NO_MEMORY;
+@@ -2368,12 +2385,76 @@ static NTSTATUS fill_forest_trust_array(TALLOC_CTX *mem_ctx,
+ 	domain_info->netbios_domain_name.string = talloc_steal(info,
+ 							       dom_info->name);
+ 
+-	info->entries[1] = e;
++	info->entries[info->count - 1] = e;
+ 
+ 	return NT_STATUS_OK;
+ }
+ 
+ /****************************************************************
++****************************************************************/
++
++WERROR _netr_DsRGetForestTrustInformation(struct pipes_struct *p,
++					  struct netr_DsRGetForestTrustInformation *r)
++{
++	NTSTATUS status;
++	struct lsa_ForestTrustInformation *info, **info_ptr;
++
++	if (!(p->pipe_bound && (p->auth.auth_type != DCERPC_AUTH_TYPE_NONE)
++		       && (p->auth.auth_level != DCERPC_AUTH_LEVEL_NONE))) {
++		p->fault_state = DCERPC_FAULT_ACCESS_DENIED;
++		return WERR_ACCESS_DENIED;
++	}
++
++	if (r->in.flags & (~DS_GFTI_UPDATE_TDO)) {
++		p->fault_state = DCERPC_FAULT_OP_RNG_ERROR;
++		return WERR_INVALID_FLAGS;
++	}
++
++	if ((r->in.flags & DS_GFTI_UPDATE_TDO) && (lp_server_role() != ROLE_DOMAIN_PDC)) {
++		p->fault_state = DCERPC_FAULT_OP_RNG_ERROR;
++		return WERR_NERR_NOTPRIMARY;
++	}
++
++	if ((r->in.trusted_domain_name == NULL) && (r->in.flags & DS_GFTI_UPDATE_TDO)) {
++		p->fault_state = DCERPC_FAULT_OP_RNG_ERROR;
++		return WERR_INVALID_PARAMETER;
++	}
++
++	/* retrieve forest trust information and stop further processing */
++	if (r->in.trusted_domain_name == NULL) {
++		info_ptr = talloc(p->mem_ctx, struct lsa_ForestTrustInformation *);
++		if (info_ptr == NULL) {
++			p->fault_state = DCERPC_FAULT_CANT_PERFORM;
++			return WERR_NOMEM;
++		}
++		info = talloc_zero(info_ptr, struct lsa_ForestTrustInformation);
++		if (info == NULL) {
++			p->fault_state = DCERPC_FAULT_CANT_PERFORM;
++			return WERR_NOMEM;
++		}
++
++		/* Fill forest trust information and expand UPN suffixes list */
++		status = fill_forest_trust_array(p->mem_ctx, info);
++		if (!NT_STATUS_IS_OK(status)) {
++			p->fault_state = DCERPC_FAULT_CANT_PERFORM;
++			return WERR_NOMEM;
++		}
++
++		*info_ptr = info;
++		r->out.forest_trust_info = info_ptr;
++
++		return WERR_OK;
++
++	}
++
++	/* TODO: implement remaining parts of DsrGetForestTrustInformation (opnum 43)
++	 *       when trusted_domain_name is not NULL */
++
++	p->fault_state = DCERPC_FAULT_OP_RNG_ERROR;
++	return WERR_NOT_SUPPORTED;
++}
++
++/****************************************************************
+  _netr_GetForestTrustInformation
+ ****************************************************************/
+ 
+@@ -2417,6 +2498,7 @@ NTSTATUS _netr_GetForestTrustInformation(struct pipes_struct *p,
+ 		return NT_STATUS_NO_MEMORY;
+ 	}
+ 
++	/* Fill forest trust information, do expand UPN suffixes list */
+ 	status = fill_forest_trust_array(p->mem_ctx, info);
+ 	if (!NT_STATUS_IS_OK(status)) {
+ 		return status;
+-- 
+1.8.1.4
+
