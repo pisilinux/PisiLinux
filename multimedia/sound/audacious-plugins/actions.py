@@ -10,11 +10,11 @@ from pisi.actionsapi import pisitools
 # WorkDir="__package_name__-"+ get.srcVERSION() +"/sub_project_dir/"
 
 def setup():
-	autotools.rawConfigure("--prefix=/usr")
+    autotools.rawConfigure("--prefix=/usr")
 
 def build():
-	autotools.make()
+    autotools.make()
 
 def install():
-	pisitools.dodoc("AUTHORS","COPYING","INSTALL")
-	autotools.rawInstall("DESTDIR=%s"%get.installDIR())
+    pisitools.dodoc("AUTHORS","COPYING","INSTALL")
+    autotools.rawInstall("DESTDIR=%s"%get.installDIR())
