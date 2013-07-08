@@ -10,12 +10,39 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--enable-v4l \
-                         --enable-v4l2 \
-                         --enable-plugins \
-                         --enable-oss \
+    autotools.configure("\
+                         --enable-alsa \
+                         --enable-audio \
+                         --enable-ansi-bool \
+                         --enable-atomicity \
+                         --enable-configfile \
+                         --enable-expat \
+                         --enable-httpforms \
                          --enable-ipv6 \
-                         --enable-expat")
+                         --enable-odbc \
+                         --enable-openldap \
+                         --enable-openssl \
+                         --enable-oss \
+                         --enable-pipechan \
+                         --enable-plugins \
+                         --enable-pulse \
+                         --enable-resolver \
+                         --enable-sdl \
+                         --enable-url \
+                         --enable-v4l2 \
+                         --enable-video \
+                         --enable-vidfile \
+                         --disable-avc \
+                         --disable-appshare \
+                         --disable-bsdvideo \
+                         --disable-dc \
+                         --disable-internalregex \
+                         --disable-mlib \
+                         --disable-samples \
+                         --disable-sunaudio \
+                         --disable-v4l \
+                         --disable-vfw \
+                        ")
 
 def build():
     autotools.make()
