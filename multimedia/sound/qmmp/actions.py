@@ -9,9 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("src/plugins/Input/cdaudio/decoder_cdaudio.cpp", "cdio\/cdda\.h", r"cdio/paranoia/cdda.h")
     cmaketools.configure("-DUSE_PULSE=TRUE \
                           -DUSE_ALSA=TRUE \
                           -DUSE_FFMPEG=TRUE \
+                          -DUSE_FFMPEG_LEGACY=OFF \
                           -DUSE_CDA=TRUE \
                           -DUSE_VORBIS=TRUE \
                           -DUSE_AAC=TRUE \
@@ -21,10 +23,11 @@ def setup():
                           -DUSE_ENCA=TRUE \
                           -DUSE_MPLAYER=TRUE \
                           -DUSE_FLAC=TRUE \
-                          -DUSE_MPRIS=TRUE")
+                          -DUSE_MPRIS=TRUE \
+                          -DUSE_HAL=OFF")
 
 def build():
-    cmaketools.make()
+    cmaketools.make("-j1")
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
