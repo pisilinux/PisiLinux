@@ -10,11 +10,14 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def build():
-    shelltools.system("bash ./bootStrap.bash --with-cli --with-gtk")
-    
+    pisitools.dosed("avidemux/gtk/ADM_userInterfaces/ui_support.cpp",
+                    '(#include\s"DIA_uiTypes\.h")',
+                    r'\1\n#include "ADM_default.h"')
+    shelltools.system("bash ./bootStrap.bash --with-cli --with-gtk --debug")
+
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    
+
     pisitools.insinto("/", "install/usr")
     pisitools.insinto("/usr/share/pixmaps", "avidemux_icon.png", "avidemux.png")
     pisitools.domo("po/ca.po", "ca", "avidemux.mo")
