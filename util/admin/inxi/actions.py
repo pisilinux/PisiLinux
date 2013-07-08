@@ -11,3 +11,5 @@ def install():
     pisitools.dobin("inxi")
     pisitools.doman("inxi.1.gz")
     pisitools.dodoc("inxi.changelog")
+    
+    pisitools.dosym("/usr/bin/inxi", "/usr/share/kde4/apps/konversation/scripts/inxi") 
