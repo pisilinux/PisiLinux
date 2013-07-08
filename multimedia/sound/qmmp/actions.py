@@ -27,7 +27,7 @@ def setup():
                           -DUSE_HAL=OFF")
 
 def build():
-    cmaketools.make("-j1")
+    cmaketools.make()
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
