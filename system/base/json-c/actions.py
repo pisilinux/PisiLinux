@@ -10,18 +10,13 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    options = "--disable-static \
-               --enable-shared"
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-
-    autotools.configure(options)
+    autotools.autoreconf("-fi")
+    autotools.configure("--disable-static \
+                         --disable-rpath \
+                         --enable-shared")
 
 def build():
-    autotools.make()
-
+    autotools.make("-j1")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
