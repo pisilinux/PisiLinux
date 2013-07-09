@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-fi")
-    autotools.configure()
+    autotools.configure("--enable-fts --enable-datahub")
 
 def build():
     autotools.make()
@@ -19,5 +19,3 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("COPY*", "README", "ChangeLog", "NEWS", "AUTHORS")
-    pisitools.removeDir("/usr/doc") 
-
