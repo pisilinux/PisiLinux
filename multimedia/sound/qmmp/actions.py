@@ -23,11 +23,8 @@ def setup():
                           -DUSE_ENCA=TRUE \
                           -DUSE_MPLAYER=TRUE \
                           -DUSE_FLAC=TRUE \
-                          -DUSE_FFMPEG_LEGACY=OFF \
                           -DUSE_MPRIS=TRUE \
-                          -DUSE_HAL=OFF \
-                          -DCMAKE_SKIP_RPATH=ON \
-                          -DCMAKE_SKIP_INSTALL_RPATH=ON")
+                          -DUSE_HAL=OFF")
 
 def build():
     cmaketools.make()
