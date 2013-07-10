@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-console_tools = ["ac3dec", "hdsploader",
+console_tools = ["as10k1", "hdsploader", "hda-verb",
                  "mixartloader", "vxloader",
                  "usx2yloader", "sscape_ctl",
                  "sb16_csp", "as10k1", "ld10k1",
