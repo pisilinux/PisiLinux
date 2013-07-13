@@ -23,9 +23,13 @@ def setup():
                --with-dbusdir=/etc/dbus-1 \
                --with-optim="%s -fstack-protector-all -DLDAP_DEPRECATED=1" \
                --with-php=/usr/bin/php-cgi \
+               --with-pdftops=/usr/bin/gs \
                --without-java \
                --enable-acl \
+               --enable-slp \
+               --enable-ssl \
                --enable-libpaper \
+               --enable-libusb \
                --enable-debug \
                --enable-avahi \
                --enable-gssapi \
@@ -37,6 +41,7 @@ def setup():
                --enable-threads \
                --enable-gnutls \
                --disable-launchd \
+               --disable-openssl \
                --without-rcdir \
                --libdir=/usr/lib \
               ' % get.CFLAGS()
