@@ -9,6 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
+    pisitools.dosed("configure.ac", "pthread-stubs", deleteLine=True)
+    autotools.autoreconf("-fi")
     autotools.configure("--enable-udev")
 
 def build():
