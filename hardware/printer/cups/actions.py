@@ -28,6 +28,7 @@ def setup():
                --enable-acl \
                --enable-slp \
                --enable-ssl \
+               --enable-gnutls \
                --enable-libpaper \
                --enable-libusb \
                --enable-debug \
@@ -41,7 +42,6 @@ def setup():
                --enable-threads \
                --enable-gnutls \
                --disable-launchd \
-               --disable-openssl \
                --without-rcdir \
                --libdir=/usr/lib \
               ' % get.CFLAGS()
