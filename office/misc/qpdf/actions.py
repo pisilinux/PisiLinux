@@ -19,4 +19,4 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("ChangeLog", "README", "TODO")
+    pisitools.dodoc("Artistic-2.0", "ChangeLog", "README", "TODO")
