@@ -15,6 +15,7 @@ def setup():
     autotools.configure("--disable-examples \
                          --disable-static \
                          --enable-polkit \
+                         --disable-systemd-login \
                          --disable-volume-search \
                          --with-daemon-user=colord \
                          --enable-introspection \
