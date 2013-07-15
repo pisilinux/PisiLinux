@@ -68,6 +68,7 @@ def install():
     if get.buildTYPE() == "emul32":
         # SERVERBIN is hardcoded to /usr/lib/cups, thus it overwrites 64 bit libraries
         autotools.rawInstall("BUILDROOT=%s SERVERBIN=%s/usr/serverbin32 install-libs" % (get.installDIR(), get.installDIR()))
+        pisitools.domove("/usr/bin32/cups-config", "/usr/bin", "cups-config-32bit")
         pisitools.removeDir("/usr/bin32")
         pisitools.removeDir("/usr/sbin32")
         pisitools.removeDir("/usr/serverbin32")
