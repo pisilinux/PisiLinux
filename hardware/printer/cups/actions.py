@@ -23,14 +23,12 @@ def setup():
                --with-dbusdir=/etc/dbus-1 \
                --with-optim="%s -fstack-protector-all -DLDAP_DEPRECATED=1" \
                --with-php=/usr/bin/php-cgi \
-               --with-pdftops=/usr/bin/gs \
                --without-java \
                --enable-acl \
-               --enable-slp \
-               --enable-ssl \
+               --enable-ssl=yes \
                --enable-gnutls \
                --enable-libpaper \
-               --enable-libusb \
+               --enable-libusb=yes \
                --enable-debug \
                --enable-avahi \
                --enable-gssapi \
@@ -49,6 +47,10 @@ def setup():
     if get.buildTYPE() == "emul32":
         options += ' --disable-avahi \
                      --disable-gssapi \
+                     --disable-dbus \
+                     --disable-gnutls \
+                     --enable-ssl=no \
+                     --enable-raw-printing \
                      --without-php \
                      --bindir=/usr/bin32 \
                      --sbindir=/usr/sbin32 \
