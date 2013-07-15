@@ -14,6 +14,9 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.configure("--disable-examples \
                          --disable-static \
+                         --disable-rpath \
+                         --disable-silent-rules \
+                         --disable-dependency-tracking \
                          --enable-polkit \
                          --disable-systemd-login \
                          --disable-volume-search \
