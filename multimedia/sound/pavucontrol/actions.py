@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--disable-lynx \
-                         --disable-gtk3")
+                         --enable-gtk3")
 
 def build():
     autotools.make()
