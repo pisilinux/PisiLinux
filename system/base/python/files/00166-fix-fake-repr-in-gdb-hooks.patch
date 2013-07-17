@@ -1,0 +1,125 @@
+diff -up Python-2.7.3/Tools/gdb/libpython.py.fix-fake-repr-in-gdb-hooks Python-2.7.3/Tools/gdb/libpython.py
+--- Python-2.7.3/Tools/gdb/libpython.py.fix-fake-repr-in-gdb-hooks	2013-02-19 17:21:33.541181366 -0500
++++ Python-2.7.3/Tools/gdb/libpython.py	2013-02-19 17:21:42.090180782 -0500
+@@ -105,6 +105,24 @@ class TruncatedStringIO(object):
+     def getvalue(self):
+         return self._val
+ 
++class FakeProxy(object):
++    """
++    Class representing a non-descript PyObject* value in the inferior
++    process for when we don't have a custom scraper, intended to have
++    a sane repr().
++    """
++    def __init__(self, tp_name, address):
++        self.tp_name = tp_name
++        self.address = address
++
++    def __repr__(self):
++        # For the NULL pointer, we have no way of knowing a type, so
++        # special-case it as per
++        # http://bugs.python.org/issue8032#msg100882
++        if self.address == 0:
++            return '0x0'
++        return '<%s at remote 0x%x>' % (self.tp_name, self.address)
++
+ class PyObjectPtr(object):
+     """
+     Class wrapping a gdb.Value that's a either a (PyObject*) within the
+@@ -232,28 +250,8 @@ class PyObjectPtr(object):
+         visiting object graphs with loops).  Analogous to Py_ReprEnter and
+         Py_ReprLeave
+         '''
+-
+-        class FakeRepr(object):
+-            """
+-            Class representing a non-descript PyObject* value in the inferior
+-            process for when we don't have a custom scraper, intended to have
+-            a sane repr().
+-            """
+-
+-            def __init__(self, tp_name, address):
+-                self.tp_name = tp_name
+-                self.address = address
+-
+-            def __repr__(self):
+-                # For the NULL pointer, we have no way of knowing a type, so
+-                # special-case it as per
+-                # http://bugs.python.org/issue8032#msg100882
+-                if self.address == 0:
+-                    return '0x0'
+-                return '<%s at remote 0x%x>' % (self.tp_name, self.address)
+-
+-        return FakeRepr(self.safe_tp_name(),
+-                        long(self._gdbval))
++        return FakeProxy(self.safe_tp_name(),
++                         long(self._gdbval))
+ 
+     def write_repr(self, out, visited):
+         '''
+@@ -384,7 +382,7 @@ def _write_instance_repr(out, visited, n
+             if not first:
+                 out.write(', ')
+             first = False
+-            out.write(pyop_arg.proxyval(visited))
++            out.write(str(pyop_arg.proxyval(visited)))
+             out.write('=')
+             pyop_val.write_repr(out, visited)
+         out.write(')')
+@@ -785,6 +783,8 @@ class PyNoneStructPtr(PyObjectPtr):
+     def proxyval(self, visited):
+         return None
+ 
++class CantReadFilename(ValueError):
++    pass
+ 
+ class PyFrameObjectPtr(PyObjectPtr):
+     _typename = 'PyFrameObject'
+@@ -861,7 +861,10 @@ class PyFrameObjectPtr(PyObjectPtr):
+         '''Get the path of the current Python source file, as a string'''
+         if self.is_optimized_out():
+             return '(frame information optimized out)'
+-        return self.co_filename.proxyval(set())
++        value = self.co_filename.proxyval(set())
++        if isinstance(value, FakeProxy):
++            raise CantReadFilename('unable to extract filename)')
++        return value
+ 
+     def current_line_num(self):
+         '''Get current line number as an integer (1-based)
+@@ -907,7 +910,7 @@ class PyFrameObjectPtr(PyObjectPtr):
+                 out.write(', ')
+             first = False
+ 
+-            out.write(pyop_name.proxyval(visited))
++            out.write(str(pyop_name.proxyval(visited)))
+             out.write('=')
+             pyop_value.write_repr(out, visited)
+ 
+@@ -1252,8 +1255,11 @@ class Frame(object):
+             if pyop:
+                 sys.stdout.write('#%i %s\n' % (self.get_index(), pyop.get_truncated_repr(MAX_OUTPUT_LEN)))
+                 if not pyop.is_optimized_out():
+-                    line = pyop.current_line()
+-                    sys.stdout.write('    %s\n' % line.strip())
++                    try:
++                        line = pyop.current_line()
++                        sys.stdout.write('    %s\n' % line.strip())
++                    except CantReadFilename:
++                        sys.stdout.write('    %s\n' % '(unable to read filename)')
+             else:
+                 sys.stdout.write('#%i (unable to read python frame information)\n' % self.get_index())
+         else:
+@@ -1303,7 +1309,11 @@ class PyList(gdb.Command):
+             print 'Unable to read information on python frame'
+             return
+ 
+-        filename = pyop.filename()
++        try:
++            filename = pyop.filename()
++        except CantReadFilename:
++            print "Unable to extract filename from python frame"
++            return
+         lineno = pyop.current_line_num()
+ 
+         if start is None:
