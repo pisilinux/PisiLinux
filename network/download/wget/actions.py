@@ -9,7 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--disable-rpath")
+    autotools.configure("--disable-rpath \
+                         --with-ssl=openssl")
 
 def build():
     autotools.make()
