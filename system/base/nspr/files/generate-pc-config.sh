@@ -11,11 +11,11 @@ PREFIX="/usr"
 EXEC_PREFIX="/usr"
 INCLUDEDIR="/usr/include/nspr"
 
-PKGCONFIG="nsprpub/config/nspr.pc.in"
+PKGCONFIG="nspr/config/nspr.pc.in"
 
-NSPR_VERSION=`./build/config/nspr-config --version`
-NSPR_LIBS=`./build/config/nspr-config --libs`
-NSPR_CFLAGS=`./build/config/nspr-config --cflags`
+NSPR_VERSION=`./config/nspr-config --version`
+NSPR_LIBS=`./config/nspr-config --libs`
+NSPR_CFLAGS=`./config/nspr-config --cflags`
 
 echo "NSPR_VERSION: $NSPR_VERSION"
 echo "NSPR_LIBS: $NSPR_LIBS"
@@ -29,7 +29,7 @@ cat $PKGCONFIG | sed    -e "s,%libdir%,$LIBDIR,g" \
                         -e "s,%NSPR_VERSION%,$NSPR_VERSION,g" \
                         -e "s,%FULL_NSPR_LIBS%,$NSPR_LIBS,g" \
                         -e "s,%FULL_NSPR_CFLAGS%,$NSPR_CFLAGS,g" \
-                        > build/config/nspr.pc
+                        > config/nspr.pc
 
 
 # Clear .in files

@@ -9,27 +9,20 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-WorkDir = "%s-%s/mozilla" % (get.srcNAME(), get.srcVERSION())
-
 def setup():
-    shelltools.makedirs("build")
-    shelltools.cd("build")
     # -fno-strict-aliasing workarounds some aliasing violations, see: https://bugzilla.redhat.com/show_bug.cgi?id=487844 -->
-    shelltools.system('../nsprpub/configure \
+    shelltools.system('nspr/configure \
                        --prefix=/usr \
                        --disable-debug \
                        %s \
                        --enable-optimize="%s -fno-strict-aliasing"' % ("--enable-64bit" if get.ARCH() == "x86_64" else "", get.CFLAGS()))
 
 def build():
-    shelltools.cd("build")
     autotools.make()
 
 def install():
     # Create nss.pc and nss-config dynamically
     shelltools.system("./generate-pc-config.sh")
-
-    shelltools.cd("build")
 
     pisitools.insinto("/usr/lib","dist/lib/*.so",sym=False)
     pisitools.insinto("/usr/include/nspr","dist/include/nspr/*.h",sym=False)
