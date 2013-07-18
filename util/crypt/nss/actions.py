@@ -9,7 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir="%s-%s/mozilla" % (get.srcNAME(), get.srcVERSION())
+WorkDir="%s-%s" % (get.srcNAME(), get.srcVERSION())
 
 def setup():
     # Create nss.pc and nss-config dynamically
@@ -22,14 +22,17 @@ def build():
     shelltools.export("BUILD_OPT", "1")
     shelltools.export("NSS_ENABLE_ECC", "1")
     shelltools.export("NSS_USE_SYSTEM_SQLITE", "1")
-    shelltools.export("OPT_FLAGS","%s -g -fno-strict-aliasing" % get.CFLAGS())
+    shelltools.export("NSPR_INCLUDE_DIR", "`nspr-config --includedir`")
+    shelltools.export("NSPR_LIB_DIR", "`nspr-config --libdir`")
+    shelltools.export("XCFLAGS","%s -g -fno-strict-aliasing" % get.CFLAGS())
 
     # Use system zlib
     shelltools.export("PKG_CONFIG_ALLOW_SYSTEM_LIBS", "1")
     shelltools.export("PKG_CONFIG_ALLOW_SYSTEM_CFLAGS", "1")
 
-    shelltools.cd("security/nss")
-    autotools.make("nss_build_all -j1")
+    autotools.make("-C nss/coreconf -j1")
+    autotools.make("-C nss/lib/dbm")
+    autotools.make("-C nss -j1")
 
 def install():
     for binary in ["certutil", "modutil", "pk12util", "signtool", "ssltap"]:

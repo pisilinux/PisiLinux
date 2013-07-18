@@ -11,9 +11,9 @@ INCLUDEDIR="/usr/include/nss"
 PKGCONFIG="dist/pkgconfig/nss.pc.in"
 NSSCONFIG="dist/pkgconfig/nss-config.in"
 
-NSS_VMAJOR=`cat security/nss/lib/nss/nss.h | grep "#define.*NSS_VMAJOR" | awk '{print $3}'`
-NSS_VMINOR=`cat security/nss/lib/nss/nss.h | grep "#define.*NSS_VMINOR" | awk '{print $3}'`
-NSS_VPATCH=`cat security/nss/lib/nss/nss.h | grep "#define.*NSS_VPATCH" | awk '{print $3}'`
+NSS_VMAJOR=`cat lib/nss/nss.h | grep "#define.*NSS_VMAJOR" | awk '{print $3}'`
+NSS_VMINOR=`cat lib/nss/nss.h | grep "#define.*NSS_VMINOR" | awk '{print $3}'`
+NSS_VPATCH=`cat lib/nss/nss.h | grep "#define.*NSS_VPATCH" | awk '{print $3}'`
 NSS_VERSION="$NSS_VMAJOR.$NSS_VMINOR.$NSS_VPATCH"
 NSPR_VERSION=`nspr-config --version`
 
