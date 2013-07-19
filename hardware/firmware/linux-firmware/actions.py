@@ -35,6 +35,9 @@ def install():
     pisitools.remove("/lib/firmware/configure")
     pisitools.remove("/lib/firmware/Makefile")
     pisitools.removeDir("/lib/firmware/mix")
+    #conflict on alsa-firmware
+    pisitools.remove("/lib/firmware/ctefx.bin")
+    pisitools.remove("/lib/firmware/ctspeq.bin")
 
     # Install LICENSE files
     pisitools.dodoc("WHENCE", "LICENCE.*", "LICENSE.*", "GPL-3")
