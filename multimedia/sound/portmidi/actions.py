@@ -33,7 +33,10 @@ def install():
     pisitools.insinto("/usr/include", "pm_common/pmutil.h")
     shelltools.chmod("%s/usr/include/pmutil.h" % get.installDIR(), mode=0644)
 
-    pisitools.remove("/usr/lib/*.a")
+    # Fix missing symlink for libporttime.so (FS#21528).
+    pisitools.dosym("/usr/lib/libportmidi_s.a", "/usr/lib/libportmidi.a")
+    pisitools.dosym("/usr/lib/libportmidi.so", "/usr/lib/libporttime.so")
+    pisitools.dosym("/usr/lib/libportmidi.a", "/usr/lib/libporttime.a")
 
     # Install test applications
     for app in ["latency", "midithread", "midithru", "mm", "qtest", "sysex", "test"]:
