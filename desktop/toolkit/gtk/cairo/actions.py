@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     options = "--disable-static \
+               --disable-silent-rules \
                --disable-gtk-doc \
                --enable-xlib \
                --enable-xlib-xrender \
@@ -32,6 +33,8 @@ def setup():
                    "
     autotools.autoreconf("-vfi")
     autotools.configure(options)
+    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
+    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
 
 def build():
     autotools.make()
