@@ -12,10 +12,6 @@ def setup():
     options = "--disable-static \
                --with-pciids-path=/usr/share/misc/"
 
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-
     autotools.configure(options)
 
 def build():
@@ -24,4 +20,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING")
+    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
