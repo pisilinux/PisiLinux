@@ -24,6 +24,12 @@ def setup():
                --enable-png \
                --disable-xlib-xcb \
                --with-x"
+    if get.buildTYPE() == "emul32":
+        options += "\
+                    --disable-pdf \
+                    --disable-ps \
+                    --disable-svg \
+                   "
     autotools.autoreconf("-vfi")
     autotools.configure(options)
 
