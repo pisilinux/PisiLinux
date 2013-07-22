@@ -52,3 +52,5 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     # Remove static libraries
     pisitools.remove("/usr/lib/*.a")
+
+    pisitools.dodoc("History.txt", "ReadMe.txt", "ReadMe_QOS.txt", "README_VXWORKS.txt")
