@@ -9,6 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
+shelltools.export("CFLAGS", "%s -DLDAP_DEPRECATED" % get.CFLAGS())
+
 def setup():
     autotools.configure("\
                          --enable-alsa \
@@ -43,9 +45,10 @@ def setup():
                          --disable-v4l \
                          --disable-vfw \
                         ")
-
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    # Remove static libraries
+    pisitools.remove("/usr/lib/*.a")
