@@ -13,7 +13,7 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --enable-cli \
-                         --enable-daemon")
+                         --disable-daemon")
 
 
 def build():
@@ -35,7 +35,7 @@ def install():
     autotools.rawInstall("-C po DESTDIR=%s" % get.installDIR())
 
     # cli,web, deamon
-    for _dir in ["cli", "daemon", "web", "utils"]:
+    for _dir in ["cli", "web", "utils"]:
         autotools.rawInstall("-C %s DESTDIR=%s" % (_dir, get.installDIR()))
 
     # For daemon config files.
