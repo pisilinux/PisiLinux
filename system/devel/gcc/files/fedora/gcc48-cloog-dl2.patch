@@ -1,0 +1,74 @@
+2011-04-04  Jakub Jelinek  <jakub@redhat.com>
+
+	* toplev.c (toplev_main_argv): New variable.
+	(toplev_main): Initialize it.
+	* graphite.c (init_cloog_pointers): Load libcloog-isl.so.4 from gcc's private
+	directory.
+
+--- gcc/toplev.c.jj	2008-12-09 23:59:10.000000000 +0100
++++ gcc/toplev.c	2009-01-27 14:33:52.000000000 +0100
+@@ -107,6 +107,8 @@ static bool no_backend;
+ /* Length of line when printing switch values.  */
+ #define MAX_LINE 75
+ 
++const char **toplev_main_argv;
++
+ /* Decoded options, and number of such options.  */
+ struct cl_decoded_option *save_decoded_options;
+ unsigned int save_decoded_options_count;
+@@ -1909,6 +1911,8 @@ toplev_main (int argc, char **argv)
+ 
+   expandargv (&argc, &argv);
+ 
++  toplev_main_argv = CONST_CAST2 (const char **, char **, argv);
++
+   /* Initialization of GCC's environment, and diagnostics.  */
+   general_init (argv[0]);
+ 
+--- gcc/graphite.c.jj	2010-12-01 10:24:32.000000000 -0500
++++ gcc/graphite.c	2010-12-01 11:46:07.832118193 -0500
+@@ -72,11 +72,39 @@ __typeof (cloog_pointers__) cloog_pointe
+ static bool
+ init_cloog_pointers (void)
+ {
+-  void *h;
+-
+-  if (cloog_pointers__.inited)
+-    return cloog_pointers__.h != NULL;
+-  h = dlopen ("libcloog-isl.so.4", RTLD_LAZY);
++  void *h = NULL;
++  extern const char **toplev_main_argv;
++  char *buf, *p;
++  size_t len;
++
++  if (cloog_pointers__.inited)
++    return cloog_pointers__.h != NULL;
++  len = progname - toplev_main_argv[0];
++  buf = XALLOCAVAR (char, len + sizeof "libcloog-isl.so.4");
++  memcpy (buf, toplev_main_argv[0], len);
++  strcpy (buf + len, "libcloog-isl.so.4");
++  len += sizeof "libcloog-isl.so.4";
++  p = strstr (buf, "/libexec/");
++  if (p != NULL)
++    {
++      while (1)
++	{
++	  char *q = strstr (p + 8, "/libexec/");
++	  if (q == NULL)
++	    break;
++	  p = q;
++	}
++      memmove (p + 4, p + 8, len - (p + 8 - buf));
++      h = dlopen (buf, RTLD_LAZY);
++      if (h == NULL)
++	{
++	  len = progname - toplev_main_argv[0];
++	  memcpy (buf, toplev_main_argv[0], len);
++	  strcpy (buf + len, "libcloog-isl.so.4");
++	}
++    }
++  if (h == NULL)
++    h = dlopen (buf, RTLD_LAZY);
+   cloog_pointers__.h = h;
+   if (h == NULL)
+     return false;
