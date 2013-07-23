@@ -19,7 +19,6 @@ def setup():
     pisitools.flags("+fno-strict-aliasing")
     shelltools.export("OPT", "%s -fPIC -fwrapv" % get.CFLAGS())
 
-    pisitools.dosed("setup.py", "SQLITE_OMIT_LOAD_EXTENSION", deleteLine=True)
     pisitools.dosed("Lib/cgi.py", r"/usr/local/bin/", r"/usr/bin/")
 
     for dir in ["expat","zlib","_ctypes/libffi_arm_wince","_ctypes/libffi_msvc",
