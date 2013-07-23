@@ -14,7 +14,8 @@ from pisi.actionsapi import shelltools
 emul32_libs = "libpulsecommon-%s.la \
                libpulse.la \
                libpulse-simple.la \
-               libpulse-mainloop-glib.la" % get.srcVERSION()
+               libpulse-mainloop-glib.la \
+              " % get.srcVERSION()
 
 def setup():
 #    autotools.autoreconf("-fi")
@@ -24,6 +25,9 @@ def setup():
                --disable-static \
                --disable-rpath \
                --disable-jack \
+               --disable-solaris \
+               --disable-adrian-aec \
+               --enable-largefile \
                --with-system-user=pulse \
                --with-system-group=pulse \
                --with-access-group=pulse-access \
