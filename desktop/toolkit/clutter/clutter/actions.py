@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", "%s" % get.workDIR())
-
 def setup():
     autotools.configure("\
                          --enable-egl-backend \
@@ -19,6 +17,7 @@ def setup():
                          --disable-static \
                          --enable-shared \
                         ")
+    pisitools.dosed("libtool"," -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
