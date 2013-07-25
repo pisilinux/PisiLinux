@@ -14,4 +14,4 @@ def build():
     autotools.make("-C vboxvideo KERN_DIR=/lib/modules/%s/build" % KDIR)
 
 def install():
-    pisitools.insinto("/lib/modules/%s/extra" % KDIR, "*/*.ko")
+    pisitools.insinto("/lib/modules/%s/extra" % ".".join(KDIR.split(".")[:-1]), "*/*.ko")

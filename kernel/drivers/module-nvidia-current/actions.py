@@ -57,7 +57,7 @@ def install():
 
     if not get.buildTYPE() == 'emul32':
     # Kernel driver
-        pisitools.insinto("/lib/modules/%s/extra/nvidia" % KDIR,
+        pisitools.insinto("/lib/modules/%s/extra/nvidia" % ".".join(KDIR.split(".")[:-1]),
                           "kernel/nvidia.ko", "%s.ko" % driver)
 
         # Command line tools and their man pages

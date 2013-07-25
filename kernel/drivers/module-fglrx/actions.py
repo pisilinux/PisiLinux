@@ -144,7 +144,7 @@ def install():
     pisitools.dosym("../security/console.apps/amdcccle-su", "/etc/pam.d/amdcccle-su")
 
     # copy compiled kernel module
-    pisitools.insinto("/lib/modules/%s/extra" % KDIR, "common/lib/modules/fglrx/fglrx.%s.ko" % KDIR, "fglrx.ko")
+    pisitools.insinto("/lib/modules/%s/extra" % ".".join(KDIR.split(".")[:-1]), "common/lib/modules/fglrx/fglrx.%s.ko" % KDIR, "fglrx.ko")
 
     # control script for ACPI lid state and AC adapter state
     pisitools.insinto("/etc/acpi", "common/usr/share/doc/fglrx/examples/etc/acpi/ati-powermode.sh")

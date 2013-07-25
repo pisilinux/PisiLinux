@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 WorkDir = get.ARCH()
-KDIR = kerneltools.getKernelVersion()
+KDIR = ".".join(kerneltools.getKernelVersion().split(".")[:-1])
 
 def build():
     autotools.make("-C /lib/modules/%s/build M=%s modules" % (KDIR, get.curDIR()))
