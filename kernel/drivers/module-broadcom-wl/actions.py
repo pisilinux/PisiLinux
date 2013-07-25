@@ -9,12 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 WorkDir = get.ARCH()
-KDIR = ".".join(kerneltools.getKernelVersion().split(".")[:-1])
+KDIR = kerneltools.getKernelVersion()
 
 def build():
     autotools.make("-C /lib/modules/%s/build M=%s modules" % (KDIR, get.curDIR()))
 
 def install():
-    pisitools.insinto("/lib/modules/%s/extra" % KDIR, "wl.ko")
+    pisitools.insinto("/lib/modules/%s/extra" % ".".join(KDIR.split(".")[:-1]), "wl.ko")
 
     pisitools.dodoc("lib/LICENSE.txt")
