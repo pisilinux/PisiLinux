@@ -10,6 +10,7 @@ def domodules(filepath):
         if path.startswith("lib/modules/"):
             kernelVersion = path.split("/")[2]
             subprocess.call(["/sbin/depmod", "-a", kernelVersion])
+            subprocess.call(["/sbin/depmod", "-a", ".".join(kernelVersion.split(".")[:-1])])
             return
 
 def setupPackage(metapath, filepath):
