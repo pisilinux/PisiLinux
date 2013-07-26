@@ -9,10 +9,16 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
+    options = "\
+               --disable-static \
+               --disable-silent-rules \
+              "
     if get.buildTYPE() == "emul32":
-        #shelltools.system('patch -p0 -i "../remove-graphite.patch"')
-        autotools.autoreconf("-fiv")
-    autotools.configure("--disable-static")
+        options += "\
+                    --with-graphite2=no \
+                    --without-cairo \
+                   "
+    autotools.configure(options)
 
 def build():
     autotools.make()
