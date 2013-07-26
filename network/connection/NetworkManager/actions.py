@@ -14,12 +14,14 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     # autotools.autoreconf("-vfi")
     autotools.configure("--disable-static \
+                         --disable-silent-rules \
                          --disable-wimax \
                          --enable-more-warnings=yes \
                          --with-crypto=nss \
                          --with-resolvconf=/etc/resolv.conf \
                          --with-iptables=/usr/sbin/iptables \
                          --with-systemdsystemunitdir=/lib/systemd/system")
+    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
