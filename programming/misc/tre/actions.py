@@ -6,8 +6,10 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
+    shelltools.system("sh utils/autogen.sh")
     autotools.configure()
 
 def build():
@@ -16,4 +18,4 @@ def build():
 def install():
     autotools.install()
 
-    pisitools.dodoc("ChangeLog","README","NEWS", "AUTHORS", "LICENSE", "THANKS", "TODO")
+    pisitools.dodoc("README","NEWS", "AUTHORS", "LICENSE", "THANKS", "TODO")
