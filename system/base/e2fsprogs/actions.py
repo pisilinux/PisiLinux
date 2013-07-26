@@ -13,6 +13,7 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.rawConfigure("--enable-elf-shlibs \
+                            --enable-nls \
                             --disable-e2initrd-helper \
                             --disable-libblkid \
                             --disable-libuuid \
