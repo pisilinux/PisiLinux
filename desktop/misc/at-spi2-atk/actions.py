@@ -10,10 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--disable-static \
-                         --disable-xevie \
-                         --disable-relocate \
-                         --libexecdir=/usr/libexec/at-spi2 \
-                         --with-dbus-daemondir=/usr/bin")
+                         --libexecdir=/usr/libexec/at-spi2")
 
 def build():
     autotools.make()
