@@ -13,6 +13,9 @@ def setup():
 def build():
     autotools.make()
 
+def check():
+    autotools.make("check -j1")
+
 def install():
     autotools.install()
 
