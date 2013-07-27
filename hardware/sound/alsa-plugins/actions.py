@@ -19,6 +19,7 @@ def setup():
 
     autotools.configure("--disable-static \
                          --with-speex=lib")
+    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()

@@ -19,6 +19,7 @@ def setup():
     autotools.autoreconf("-fi")
 
     autotools.configure(options)
+    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
     # rpath fix
     pisitools.dosed("libtool", "^hardcode_libdir_flag_spec=.*", "hardcode_libdir_flag_spec=\"\"")
