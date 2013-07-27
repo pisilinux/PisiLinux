@@ -13,6 +13,7 @@ def setup():
     shelltools.echo("po/LINGUAS", "tr")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static")
+    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
