@@ -12,19 +12,23 @@ from pisi.actionsapi import get
 from pisi.actionsapi import kde4
 
 WorkDir = "%s-%s.src" % (get.srcNAME(), get.srcVERSION())
-libdir = "/usr/lib/llvm"
+libdir = "/usr/lib32/llvm" if get.buildTYPE() == "emul32" else "/usr/lib/llvm"
+lib = "lib32" if get.buildTYPE() == "emul32" else "lib"
 
 def setup():
     if not shelltools.isDirectory("tools/clang"):
-        shelltools.move("tools/clang-%s.src" % get.srcVERSION(), "tools/clang")
+        pisitools.dosed("tools/cfe-3.3.src/lib/Driver/ToolChains.cpp", '"ld"', '"ld.gold"')
+        shelltools.move("tools/cfe-%s.src" % get.srcVERSION(), "tools/clang")
+    if not shelltools.isDirectory("projects/compiler-rt"):
+        shelltools.move("projects/compiler-rt-%s.src" % get.srcVERSION(), "projects/compiler-rt")
 
     pisitools.dosed("utils/llvm-build/llvm-build", "python", "python2.7")
-    pisitools.dosed("bindings/ocaml/Makefile.ocaml", '\$\(PROJ_libdir\)', "/usr/lib/llvm")
+    pisitools.dosed("bindings/ocaml/Makefile.ocaml", '\$\(PROJ_libdir\)', libdir)
     pisitools.dosed("Makefile.config.in", "\$\(PROJ_prefix\)/etc/llvm", "/etc/llvm")
-    pisitools.dosed("Makefile.config.in", "\$\(PROJ_prefix\)/lib", "$(PROJ_prefix)/lib/llvm")
+    pisitools.dosed("Makefile.config.in", "\$\(PROJ_prefix\)/lib", "$(PROJ_prefix)/%s/llvm" % lib)
     pisitools.dosed("Makefile.config.in", "\$\(PROJ_prefix\)/docs/llvm", "$(PROJ_prefix)/share/doc/llvm")
     pisitools.dosed("tools/llvm-config/llvm-config.cpp", '(ActiveLibDir\s=\sActivePrefix\s\+\s\"\/lib)(.*)', r'\1/llvm\2')
-    pisitools.dosed("autoconf/configure.ac", '\LLVM_LIBDIR="\$\{prefix\}/lib"', 'LLVM_LIBDIR="${prefix}/lib/llvm"')
+    pisitools.dosed("autoconf/configure.ac", '\LLVM_LIBDIR="\$\{prefix\}/lib"', 'LLVM_LIBDIR="${prefix}/%s/llvm"' % lib)
 
     pisitools.dosed("Makefile.rules", "\$\(RPATH\)\s-Wl,\$\(ExmplDir\)\s\$\(DynamicFlag\)", "$(DynamicFlag)")
     pisitools.dosed("Makefile.rules", "\$\(RPATH\)\s-Wl,\$\(ToolDir\)\s\$\(DynamicFlag\)", "$(DynamicFlag)")
@@ -36,10 +40,18 @@ def setup():
     options = "--libdir=%s \
                --datadir=/usr/share/llvm \
                --sysconfdir=/etc \
+               --enable-shared \
+               --enable-libffi \
+               --enable-targets=all \
+               --enable-experimental-targets=R600 \
+               --disable-expensive-checks \
+               --disable-debug-runtime \
+               --disable-assertions \
                --enable-jit \
                --enable-threads \
                --disable-assertions \
                --%s-pic \
+               --with-binutils-include=/usr/include \
                " % (libdir, pic_option)
 
     autotools.configure(options)
@@ -50,7 +62,7 @@ def setup():
 #    autotools.make("-C tools/clang test")
 
 def build():
-    autotools.make()
+    autotools.make("REQUIRES_RTTI=1")
 
 def install():
     if get.buildTYPE() == "emul32":
@@ -60,6 +72,9 @@ def install():
                               PROJ_libdir=/usr/lib32/llvm \
                               PROJ_docsdir=/%s/llvm"
                               % (get.installDIR(),  get.docDIR()))
+        shelltools.chmod("%s/usr/lib32/llvm/*.a" % get.installDIR(), mode = 0644)
+        pisitools.dosym("llvm/LLVMgold.so", "/usr/lib32/LLVMgold.so")
+        pisitools.remove("/usr/lib32/llvm/*LLVMHello.*")
         return
     else:
         autotools.rawInstall("DESTDIR=%s \
@@ -68,6 +83,8 @@ def install():
                               PROJ_docsdir=/%s/llvm"
                               % (get.installDIR(), libdir, get.docDIR()))
 
+
+    shelltools.chmod("%s/usr/lib/llvm/*.a" % get.installDIR(), 0644)
 
     # Install static analyzers which aren't installed by default
     for exe in ("scan-build", "scan-view"):

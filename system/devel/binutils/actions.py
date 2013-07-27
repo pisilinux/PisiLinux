@@ -29,9 +29,9 @@ def setup():
                          --with-bugurl=http://bugs.pisilinux.org/ \
                          --with-separate-debug-dir=/usr/lib/debug \
                          %s \
+                         --with-pic \
                          --disable-nls \
                          --disable-werror' % (get.HOST(), linker, multilib))
-                         # --with-pic \
                          #--enable-targets="i386-linux" \
 
 def build():
@@ -59,6 +59,7 @@ def install():
     pisitools.insinto("/usr/lib", "bfd/libbfd.a")
     pisitools.insinto("/usr/lib", "libiberty/libiberty.a")
     pisitools.insinto("/usr/include", "include/libiberty.h")
+    pisitools.insinto("/usr/include", "include/demangle.h")
 
     # Copy plugin-api.h file to build LLVM with LLVM gold plugin
     pisitools.insinto("/usr/include", "include/plugin-api.h")
