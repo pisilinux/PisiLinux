@@ -13,8 +13,6 @@ def setup():
     options = "--disable-static --disable-silent-rules"
 
     if get.buildTYPE() == "emul32":
-        options += "  --libdir=/usr/lib32"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
         shelltools.export("PKG_CONFIG_LIBDIR", "/usr/lib32/pkgconfig")
 
     autotools.configure(options)
@@ -26,6 +24,9 @@ def install():
     if get.buildTYPE() == "emul32":
         pisitools.insinto("/usr/lib32", "libopenjpeg/.libs/libopenjpeg.so*")
         pisitools.insinto("/usr/lib32/pkgconfig", "libopenjpeg1.pc")
+        pisitools.dosed("%s//usr/lib32/pkgconfig/libopenjpeg1.pc" % get.installDIR(),
+                        get.emul32prefixDIR(),
+                        get.defaultprefixDIR())
         return
 
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
