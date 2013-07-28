@@ -154,7 +154,7 @@ def install():
     if get.buildTYPE() == "emul32":
         shelltools.move("%s%s/lib%s" % (get.installDIR(), suffix, suffix), "%s/lib%s" % (get.installDIR(), suffix))
         shelltools.move("%s%s/usr/lib%s" % (get.installDIR(), suffix, suffix), "%s/usr/lib%s" % (get.installDIR(), suffix))
-        for f in shelltools.ls("%s/lib32/pkgconfig" % get.installDIR()):
+        for f in shelltools.ls("%s/usr/lib32/pkgconfig" % get.installDIR()):
             pisitools.dosed(f, "emul32", "usr")
         #shelltools.unlinkDir("%s%s" % (get.installDIR(), suffix))
         return

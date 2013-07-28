@@ -36,7 +36,7 @@ def install():
     if get.buildTYPE() == "_emul32":
         pisitools.domove("/_emul32/bin/icu-config", "/usr/bin", "icu-config-32")
         pisitools.removeDir("/_emul32")
-        for f in shelltools.ls("%s/lib32/pkgconfig" % get.installDIR()):
+        for f in shelltools.ls("%s/usr/lib32/pkgconfig" % get.installDIR()):
             pisitools.dosed(f, "_emul32", "usr") 
         return
 
