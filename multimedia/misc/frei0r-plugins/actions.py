@@ -8,8 +8,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "frei0r-1.3"
-
 def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--enable-static=no")

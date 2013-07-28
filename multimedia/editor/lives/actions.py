@@ -8,9 +8,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("configure.in", "(HAVE_SYSTEM_WEED=)true", r"\1false")
     #fix doc dir
     pisitools.dosed('Makefile.in',  '^(docdir.*PACKAGE\)).*', r'\1"')
-    autotools.configure("--disable-static")
+    autotools.configure("\
+                         --disable-static \
+                         --disable-rpath \
+                        ")
 
 def build():
     autotools.make()
