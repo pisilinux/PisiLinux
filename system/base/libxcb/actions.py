@@ -17,18 +17,15 @@ def setup():
                --enable-xkb \
                --without-doxygen"
 
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-
     autotools.autoreconf("-vif")
     autotools.configure(options)
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ") 
 
 def build():
     autotools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    autotools.rawInstall("-j1 DESTDIR=%s" % get.installDIR())
 
     #pisitools.remove("/usr/include/xcb/xevie.h")
     #pisitools.remove("/usr/include/xcb/xprint.h")
