@@ -25,7 +25,6 @@ def setup():
                          --disable-man-pages \
                          --disable-gtk-doc \
                          --disable-static")
-    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     shelltools.export('HOME', get.workDIR())
