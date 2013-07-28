@@ -11,13 +11,21 @@ from pisi.actionsapi import shelltools
 shelltools.export("HOME", get.workDIR())
 
 def setup():
+    #sandbox error fixed
+    pisitools.dosed("data/dconf/Makefile.am", "dconf update", "")
+    pisitools.dosed("data/dconf/Makefile.in", "dconf update", "")
+    
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
                          --libexecdir=/usr/lib/ibus \
+                         --enable-gconf \
                          --enable-dconf \
-                         --disable-gconf \
-                         --disable-gtk3 \
-                         --disable-gtk2")
+                         --enable-vala \
+                         --enable-ui \
+                         --enable-gtk-doc \
+                         --enable-python-library \
+                         --enable-gtk3 \
+                         --enable-gtk2")
 
 def build():
     autotools.make()
