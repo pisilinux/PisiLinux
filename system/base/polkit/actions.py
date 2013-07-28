@@ -40,5 +40,3 @@ def install():
     shelltools.chown("%s/var/lib/polkit-1" % get.installDIR(),"polkitd","polkitd")  
     shelltools.chown("%s/usr/share/polkit-1" % get.installDIR(),"polkitd","root") #yada? "polkitd","root"
     pisitools.dodoc("AUTHORS", "NEWS", "README", "HACKING", "COPYING")
-    
-    
