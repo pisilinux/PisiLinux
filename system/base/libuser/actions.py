@@ -18,6 +18,7 @@ def setup():
                          --with-popt \
                          --disable-rpath \
                          --disable-gtk-doc-html")
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
