@@ -39,8 +39,9 @@ def install():
     if get.buildTYPE() == "emul32":
         pisitools.insinto("/usr/lib32", "poppler/.libs/libpoppler.so*")
         pisitools.insinto("/usr/lib32", "glib/.libs/libpoppler-glib.so*")
-        pisitools.insinto("/usr/lib32/pkgconfig", "poppler.pc")
-        pisitools.insinto("/usr/lib32/pkgconfig", "poppler-glib.pc")
+        for f in ["poppler.pc", "poppler-glib.pc"]:
+            pisitools.insinto("/usr/lib32/pkgconfig", f)
+            pisitools.dosed("%s/usr/lib32/pkgconfig/%s" % (get.installDIR(), f), get.emul32prefixDIR(), get.defaultprefixDIR())
         return
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
