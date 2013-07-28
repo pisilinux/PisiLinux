@@ -40,8 +40,8 @@ def setup():
         shelltools.export("PKG_CONFIG_PATH", "/usr/lib32/pkgconfig")
 
         pisitools.dosed("configure.ac", "cups-config", "cups-config-32bit")
-        autotools.autoreconf("-fiv")
 
+    autotools.autoreconf("-fiv")
     autotools.configure(options)
 
     pisitools.dosed("libtool", "( -shared )", r" -Wl,-O1,--as-needed\1")
