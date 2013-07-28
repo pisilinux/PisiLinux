@@ -155,7 +155,7 @@ def install():
         shelltools.move("%s%s/lib%s" % (get.installDIR(), suffix, suffix), "%s/lib%s" % (get.installDIR(), suffix))
         shelltools.move("%s%s/usr/lib%s" % (get.installDIR(), suffix, suffix), "%s/usr/lib%s" % (get.installDIR(), suffix))
         for f in shelltools.ls("%s/usr/lib32/pkgconfig" % get.installDIR()):
-            pisitools.dosed(f, "emul32", "usr")
+            pisitools.dosed("%s/usr/lib32/pkgconfig/%s" % (get.installDIR(), f), "emul32", "usr")
         #shelltools.unlinkDir("%s%s" % (get.installDIR(), suffix))
         return
     # Create needed directories

@@ -37,7 +37,7 @@ def install():
         pisitools.domove("/_emul32/bin/icu-config", "/usr/bin", "icu-config-32")
         pisitools.removeDir("/_emul32")
         for f in shelltools.ls("%s/usr/lib32/pkgconfig" % get.installDIR()):
-            pisitools.dosed(f, "_emul32", "usr") 
+            pisitools.dosed("%s/usr/lib32/pkgconfig/%s" % (get.installDIR(), f), "_emul32", "usr") 
         return
 
     pisitools.dohtml("../*.html")
