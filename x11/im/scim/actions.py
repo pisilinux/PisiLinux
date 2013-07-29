@@ -10,6 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("configure.ac", "(SCIM_HAS_CLUTTER=)yes", "\\1no")
     autotools.autoreconf("-vfi")
     shelltools.system("intltoolize --force")
     autotools.configure("\

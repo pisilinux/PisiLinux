@@ -7,6 +7,8 @@
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 
+WorkDir = "."
+
 def setup():
     # Fix doc dir
     pisitools.dosed("CMakeLists.txt", "(.*share\/)(luminance-hdr.*info\sfiles.*)", r"\1doc/\2")
