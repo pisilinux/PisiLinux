@@ -12,11 +12,14 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-vfi")
     shelltools.system("intltoolize --force")
-    autotools.configure("--with-x \
+    autotools.configure("\
+                         --with-x \
                          --disable-static \
                          --enable-ld-version-script \
                          --x-includes=/usr/include/X11 \
-                         --x-libraries=/usr/lib") # \
+                         --x-libraries=/usr/lib \
+                         --disable-clutter-immodule \
+                        ") 
                          #--disable-panel-gtk \
                          #--disable-setup-ui")
 
