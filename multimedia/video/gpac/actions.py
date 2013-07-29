@@ -15,7 +15,7 @@ def setup():
     shelltools.export("CC", get.CC())
     shelltools.export("CFLAGS", "%s -fno-strict-aliasing" % get.CFLAGS())
 
-    pisitools.dosed("configure", '^has_wx="yes', 'has_wx="no')
+    #pisitools.dosed("configure", '^has_wx="yes', 'has_wx="no')
     shelltools.chmod("configure")
     autotools.configure('--enable-svg \
                          --enable-pic \
