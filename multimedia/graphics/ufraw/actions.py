@@ -12,11 +12,16 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    shelltools.system("./autogen.sh")
+    autotools.autoreconf("-fiv")
 
-    autotools.configure("--enable-mime \
+    autotools.configure("\
+                         --enable-mime \
                          --enable-extras \
-                         --enable-contrast")
+                         --enable-contrast \
+                         --with-lensfun \
+                         --with-exiv2 \
+                         --with-libexif \
+                        ")
 
     pisitools.dosed("Makefile", "/usr/lib/gimp/", "%s/usr/lib/gimp/" % get.installDIR())
 
