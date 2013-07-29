@@ -14,6 +14,7 @@ def setup():
                --disable-silent-rules \
                --disable-gtk-doc \
                --enable-xlib \
+               --enable-xlib-xcb \
                --enable-xlib-xrender \
                --enable-xcb \
                --enable-ft \
@@ -23,8 +24,9 @@ def setup():
                --enable-svg \
                --enable-tee \
                --enable-png \
-               --disable-xlib-xcb \
                --with-x"
+    if get.buildTYPE() == "emul32": options += "--disable-directfb"
+    else: options += "--enable-directfb"
 
     autotools.autoreconf("-vfi")
     autotools.configure(options)
