@@ -19,6 +19,7 @@ def build():
     autotools.make()
 
 def install():
+    pisitools.dodir("/usr/share/gtk-doc/html/gdata")
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")
