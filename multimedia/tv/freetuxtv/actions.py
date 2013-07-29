@@ -10,7 +10,9 @@ from pisi.actionsapi import pisitools
 
 def setup():
     pisitools.dosed("Makefile.in", "^(freetuxtvdocdir\s*=)\s*.*", r"\1 /usr/share/doc/%s" % get.srcNAME())
-    autotools.configure("--disable-static --enable-shared")
+    autotools.configure("--disable-static \
+                         --enable-shared \
+                         --with-gtk=2.0")
 
 def build():
     autotools.make()
