@@ -3,9 +3,10 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import autotools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
+from pisi.actionsapi import autotools
+from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 WorkDir = "."
 SkipList = (".", "filelist", "patches", "pisiBuildState", "tmp")
@@ -20,11 +21,15 @@ def setup():
         if package.startswith(SkipList):
             continue
 
-        print "Configuring %s..." % package
+        print "\nConfiguring %s..." % package
+        print "-" * (len(package) + 15)
         shelltools.cd(package)
 
         if package.startswith(("xcursorgen", "xsm")) or \
                 not shelltools.isFile("configure"):
+            autotools.autoreconf("-vif")
+        elif package.startswith("luit"):
+            pisitools.dosed("configure.ac", "(-D_XOPEN_SOURCE)=500", "\\1=600")
             autotools.autoreconf("-vif")
 
         autotools.configure("--disable-dependency-tracking \
