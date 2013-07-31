@@ -123,14 +123,14 @@ def install():
             "arch/%s/usr/lib*/libamdocl*" % Target            : Libdir,
             "arch/%s/usr/lib*/libOpenCL*" % Target            : Libdir,
             }
-    
+
     if get.buildTYPE() == "emul32":
         del DIRS["arch/%s/usr/bin/clinfo" % Target]
         del DIRS["arch/%s/etc/*" % Target]
 
     for source, target in DIRS.items():
         pisitools.insinto(target, source)
-    
+
     pisitools.dosym("libOpenCL.so.1", "%s/libOpenCL.so" % Libdir)
 
     # OK, That's the end of emul32 build, it's time to exit.
@@ -147,7 +147,9 @@ def install():
     pisitools.dosym("../security/console.apps/amdcccle-su", "/etc/pam.d/amdcccle-su")
 
     # copy compiled kernel module
-    pisitools.insinto("/lib/modules/%s/extra" % KDIR, "common/lib/modules/fglrx/fglrx.%s.ko" % KDIR, "fglrx.ko")
+    pisitools.insinto("/lib/modules/%s/extra" % ".".join(KDIR.split(".")[:-1]),
+                      "common/lib/modules/fglrx/fglrx.%s.ko" % KDIR,
+                      "fglrx.ko")
 
     # control script for ACPI lid state and AC adapter state
     pisitools.insinto("/etc/acpi", "common/usr/share/doc/fglrx/examples/etc/acpi/ati-powermode.sh")
