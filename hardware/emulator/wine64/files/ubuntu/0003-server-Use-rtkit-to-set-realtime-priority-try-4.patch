@@ -1,0 +1,308 @@
+From 5b860c3a5f4e0a89e28ca98fdf519aefa1ae78e0 Mon Sep 17 00:00:00 2001
+From: Maarten Lankhorst <m.b.lankhorst@gmail.com>
+Date: Sun, 9 Jun 2013 11:20:28 +0200
+Subject: [PATCH 03/38] server: Use rtkit to set realtime priority, try 4
+
+---
+ libs/wine/loader.c |  27 ++++++++
+ server/Makefile.in |   2 +
+ server/rtkit.c     | 180 +++++++++++++++++++++++++++++++++++++++++++++++++++++
+ server/thread.c    |  16 +++++
+ 4 files changed, 225 insertions(+)
+ create mode 100644 server/rtkit.c
+
+diff --git a/libs/wine/loader.c b/libs/wine/loader.c
+index 3b95cdd..ce86fde 100644
+--- a/libs/wine/loader.c
++++ b/libs/wine/loader.c
+@@ -810,6 +810,32 @@ static void apple_main_thread( void (*init_func)(void) )
+ 
+ 
+ /***********************************************************************
++ *           set_rttime_limit
++ *
++ * set a limit on the cpu time used
++ */
++static void set_rttime_limit(void)
++{
++#if defined(HAVE_SETRLIMIT) && defined(__linux__)
++#ifndef RLIMIT_RTTIME
++#define RLIMIT_RTTIME 15
++#endif
++    struct rlimit rlimit;
++
++    if (!getrlimit( RLIMIT_RTTIME, &rlimit ))
++    {
++        /* 50 ms realtime, then 10 ms to undo realtime */
++        if (rlimit.rlim_max > 150000000ULL)
++            rlimit.rlim_max = 150000000ULL;
++        rlimit.rlim_cur = rlimit.rlim_max - 10000000ULL;
++
++        setrlimit( RLIMIT_RTTIME, &rlimit );
++    }
++#endif
++}
++
++
++/***********************************************************************
+  *           wine_init
+  *
+  * Main Wine initialisation.
+@@ -828,6 +854,7 @@ void wine_init( int argc, char *argv[], char *error, int error_size )
+ #ifdef RLIMIT_AS
+     set_max_limit( RLIMIT_AS );
+ #endif
++    set_rttime_limit();
+ 
+     wine_init_argv0_path( argv[0] );
+     build_dll_path();
+diff --git a/server/Makefile.in b/server/Makefile.in
+index 2e9bba1..03b13c2 100644
+--- a/server/Makefile.in
++++ b/server/Makefile.in
+@@ -1,5 +1,6 @@
+ DEFS      = -D__WINESRC__
+ EXTRALIBS = @LIBPOLL@ @LIBRT@
++EXTRAINCL = @DBUS_CFLAGS@
+ 
+ C_SRCS = \
+ 	async.c \
+@@ -31,6 +32,7 @@ C_SRCS = \
+ 	region.c \
+ 	registry.c \
+ 	request.c \
++	rtkit.c \
+ 	semaphore.c \
+ 	serial.c \
+ 	signal.c \
+diff --git a/server/rtkit.c b/server/rtkit.c
+new file mode 100644
+index 0000000..a212106
+--- /dev/null
++++ b/server/rtkit.c
+@@ -0,0 +1,180 @@
++/*
++ * Rtkit dbus calls
++ * Copyright 2010 Maarten Lankhorst for CodeWeavers
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#include "config.h"
++#include "wine/port.h"
++#include "wine/library.h"
++
++#include <errno.h>
++#include <sys/types.h>
++#ifdef HAVE_SYS_SCHED_H
++#include <sys/sched.h>
++#endif
++#include <sys/resource.h>
++
++#if defined(HAVE_SETRLIMIT) && defined(__linux__) && defined(SONAME_LIBDBUS_1) && defined(HAVE_SCHED_H)
++
++#include <sched.h>
++#include <string.h>
++#include <unistd.h>
++#include <dbus/dbus.h>
++#include <stdio.h>
++#include "object.h"
++
++#ifndef RLIMIT_RTTIME
++#define RLIMIT_RTTIME 15
++#endif
++
++#define FUNCPTR(fn) static typeof(fn) *p ##fn
++
++FUNCPTR(dbus_error_init);
++FUNCPTR(dbus_error_free);
++FUNCPTR(dbus_bus_get);
++FUNCPTR(dbus_message_new_method_call);
++FUNCPTR(dbus_message_append_args);
++FUNCPTR(dbus_connection_send_with_reply_and_block);
++FUNCPTR(dbus_message_unref);
++FUNCPTR(dbus_set_error_from_message);
++#undef FUNCPTR
++
++static int translate_error( unsigned tid, const char *name )
++{
++    if (!strcmp( name, DBUS_ERROR_NO_MEMORY ))
++        return -ENOMEM;
++    if (!strcmp( name, DBUS_ERROR_SERVICE_UNKNOWN ) ||
++        !strcmp( name, DBUS_ERROR_NAME_HAS_NO_OWNER ))
++        return -ENOENT;
++    if (!strcmp( name, DBUS_ERROR_ACCESS_DENIED ) ||
++        !strcmp( name, DBUS_ERROR_AUTH_FAILED ))
++        return -EACCES;
++
++    if (debug_level)
++        fprintf( stderr, "%04x: Could not map error \"%s\"\n", tid, name );
++    return -EIO;
++}
++
++static void init_dbus(void)
++{
++#define FUNCPTR(fn) p ##fn = wine_dlsym( libdbus, #fn, NULL, 0 );
++    char error[512];
++    void *libdbus = wine_dlopen( SONAME_LIBDBUS_1, RTLD_NOW, error, sizeof( error ) );
++    FUNCPTR(dbus_error_init);
++    FUNCPTR(dbus_error_free);
++    FUNCPTR(dbus_bus_get);
++    FUNCPTR(dbus_message_new_method_call);
++    FUNCPTR(dbus_message_append_args);
++    FUNCPTR(dbus_connection_send_with_reply_and_block);
++    FUNCPTR(dbus_message_unref);
++    FUNCPTR(dbus_set_error_from_message);
++#undef FUNCPTR
++}
++
++static DBusConnection *get_dbus(void)
++{
++    static DBusConnection *bus;
++    DBusError error;
++
++    if (bus)
++        return bus;
++    init_dbus();
++    pdbus_error_init( &error );
++
++    bus = pdbus_bus_get( DBUS_BUS_SYSTEM, &error );
++    return bus;
++}
++
++int rtkit_make_realtime( pid_t process, pid_t thread, int priority )
++{
++    DBusConnection *bus;
++    DBusMessage *m = NULL, *r = NULL;
++    dbus_uint64_t pid = process;
++    dbus_uint64_t tid = thread;
++    dbus_uint32_t rtprio = priority;
++    DBusError error;
++    int ret;
++
++    bus = get_dbus();
++    if (!bus)
++        return -ENOTSUP;
++
++    pdbus_error_init( &error );
++    m = pdbus_message_new_method_call( "org.freedesktop.RealtimeKit1",
++                                       "/org/freedesktop/RealtimeKit1",
++                                       "org.freedesktop.RealtimeKit1",
++                                       "MakeThreadRealtimeWithPID" );
++    if (!m)
++    {
++        ret = -ENOMEM;
++        goto out;
++    }
++
++    ret = pdbus_message_append_args( m, DBUS_TYPE_UINT64, &pid,
++                                     DBUS_TYPE_UINT64, &tid,
++                                     DBUS_TYPE_UINT32, &rtprio,
++                                     DBUS_TYPE_INVALID );
++    if (!ret)
++    {
++        ret = -ENOMEM;
++        goto out;
++    }
++    r = pdbus_connection_send_with_reply_and_block( bus, m, -1, &error );
++    if (!r)
++    {
++        ret = translate_error( tid, error.name );
++        goto out;
++    }
++    if (pdbus_set_error_from_message( &error, r ))
++        ret = translate_error( tid, error.name );
++    else
++        ret = 0;
++out:
++    if (m)
++        pdbus_message_unref( m );
++    if (r)
++        pdbus_message_unref( r );
++    pdbus_error_free( &error );
++    if (debug_level)
++        fprintf( stderr, "%04x: Setting realtime priority of %u returns %i\n", (int)tid, rtprio, ret );
++    return ret;
++}
++
++int rtkit_undo_realtime( pid_t thread )
++{
++    struct sched_param parm;
++    int ret;
++    memset( &parm, 0, sizeof( parm ) );
++    ret = sched_setscheduler( thread, SCHED_OTHER, &parm );
++    if (ret < 0)
++        return -errno;
++    return ret;
++}
++
++#else
++
++int rtkit_make_realtime( pid_t process, pid_t thread, int priority )
++{
++    return -ENOTSUP;
++}
++
++int rtkit_undo_realtime( pid_t thread )
++{
++    return -ENOTSUP;
++}
++
++#endif
+diff --git a/server/thread.c b/server/thread.c
+index 5f9738d..455dd07 100644
+--- a/server/thread.c
++++ b/server/thread.c
+@@ -52,6 +52,8 @@
+ #include "user.h"
+ #include "security.h"
+ 
++extern int rtkit_make_realtime(pid_t process, pid_t thread, int priority);
++extern int rtkit_undo_realtime(pid_t thread);
+ 
+ #ifdef __i386__
+ static const unsigned int supported_cpus = CPU_FLAG(CPU_x86);
+@@ -472,7 +474,17 @@ static void set_thread_info( struct thread *thread,
+         if ((req->priority >= min && req->priority <= max) ||
+             req->priority == THREAD_PRIORITY_IDLE ||
+             req->priority == THREAD_PRIORITY_TIME_CRITICAL)
++        {
++            if (thread->unix_tid == -1)
++                {}
++            else if (thread->priority == THREAD_PRIORITY_TIME_CRITICAL &&
++                     req->priority != THREAD_PRIORITY_TIME_CRITICAL)
++                rtkit_undo_realtime(thread->unix_tid);
++            else if (thread->priority != THREAD_PRIORITY_TIME_CRITICAL &&
++                     req->priority == THREAD_PRIORITY_TIME_CRITICAL)
++                rtkit_make_realtime(thread->unix_pid, thread->unix_tid, 1);
+             thread->priority = req->priority;
++        }
+         else
+             set_error( STATUS_INVALID_PARAMETER );
+     }
+@@ -1200,6 +1212,10 @@ DECL_HANDLER(init_thread)
+     }
+     debug_level = max( debug_level, req->debug_level );
+ 
++    /* Raced with SetThreadPriority */
++    if (current->priority == THREAD_PRIORITY_TIME_CRITICAL)
++        rtkit_make_realtime(current->unix_pid, current->unix_tid, 1);
++
+     reply->pid     = get_process_id( process );
+     reply->tid     = get_thread_id( current );
+     reply->version = SERVER_PROTOCOL_VERSION;
+-- 
+1.8.3
+
