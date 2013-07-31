@@ -1,0 +1,59 @@
+commit 5024c298311f3b97c85cb034f9edaa333fdb9338
+Author: NeilBrown <neilb@suse.de>
+Date:   Wed Jul 17 14:55:31 2013 +1000
+
+    md: Remove recent change which allows devices to skip recovery.
+    
+    commit 7ceb17e87bde79d285a8b988cfed9eaeebe60b86
+        md: Allow devices to be re-added to a read-only array.
+    
+    allowed a bit more than just that.  It also allows devices to be added
+    to a read-write array and to end up skipping recovery.
+    
+    This patch removes the offending piece of code pending a rewrite for a
+    subsequent release.
+    
+    More specifically:
+     If the array has a bitmap, then the device will still need a bitmap
+     based resync ('saved_raid_disk' is set under different conditions
+     is a bitmap is present).
+     If the array doesn't have a bitmap, then this is correct as long as
+     nothing has been written to the array since the metadata was checked
+     by ->validate_super.  However there is no locking to ensure that there
+     was no write.
+    
+    Bug was introduced in 3.10 and causes data corruption so
+    patch is suitable for 3.10-stable.
+    
+    Cc: stable@vger.kernel.org (3.10)
+    Reported-by: Joe Lawrence <joe.lawrence@stratus.com>
+    Signed-off-by: NeilBrown <neilb@suse.de>
+---
+ drivers/md/md.c | 14 --------------
+ 1 file changed, 14 deletions(-)
+
+diff --git a/drivers/md/md.c b/drivers/md/md.c
+index dddc87b..9f13e13 100644
+--- a/drivers/md/md.c
++++ b/drivers/md/md.c
+@@ -7716,20 +7716,6 @@ static int remove_and_add_spares(struct mddev *mddev,
+ 			continue;
+ 
+ 		rdev->recovery_offset = 0;
+-		if (rdev->saved_raid_disk >= 0 && mddev->in_sync) {
+-			spin_lock_irq(&mddev->write_lock);
+-			if (mddev->in_sync)
+-				/* OK, this device, which is in_sync,
+-				 * will definitely be noticed before
+-				 * the next write, so recovery isn't
+-				 * needed.
+-				 */
+-				rdev->recovery_offset = mddev->recovery_cp;
+-			spin_unlock_irq(&mddev->write_lock);
+-		}
+-		if (mddev->ro && rdev->recovery_offset != MaxSector)
+-			/* not safe to add this disk now */
+-			continue;
+ 		if (mddev->pers->
+ 		    hot_add_disk(mddev, rdev) == 0) {
+ 			if (sysfs_link_rdev(mddev, rdev))
