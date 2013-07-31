@@ -9,11 +9,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fiv")
     autotools.configure("--disable-schemas-install \
                          --with-pam-dir=/lib/security \
                          --with-root-certs=/etc/pki/tls/certs\
-                         --enable-silent-rules")
+                         --disable-silent-rules")
+    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
+    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
