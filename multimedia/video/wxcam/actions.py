@@ -9,8 +9,11 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.ldflags("+pthread")
     autotools.autoreconf("-vif")
     autotools.configure("--with-wx-config=/usr/bin/wx-config \
+                         --disable-silent-rules \
+                         --disable-dependency-tracking \
                          --disable-static")
 
 def build():
