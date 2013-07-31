@@ -24,6 +24,7 @@ def setup():
     shelltools.move("tmp/*", ".")
 
     shelltools.system("patch -p0 < 173.14.36-37.patch")
+    shelltools.system("patch -p1 -i linux-3.10.patch")
 
     # Our libc is TLS enabled so use TLS library
     shelltools.unlink("usr/lib/*-tls.so*")
