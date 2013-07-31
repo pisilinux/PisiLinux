@@ -37,8 +37,16 @@ def setup():
         shelltools.export("CXX", "%s -m32" % get.CXX())
         shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
         shelltools.export("CXXFLAGS", "%s -m32" % get.CFLAGS())
-        shelltools.export("LDFLAGS", "%s -m32" % get.LDFLAGS())
 
+
+
+    shelltools.system("rm -rf acinclude/lt*.m4 acinclude/libtool.m4")
+
+    neededfilelist=["NEWS","ChangeLog","AUTHORS"]
+    for i in neededfilelist:
+         shelltools.touch(i)
+
+    autotools.autoreconf("-fi -Iacinclude")
     autotools.configure(options)
 
 def build():
