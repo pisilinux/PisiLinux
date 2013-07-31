@@ -13,13 +13,16 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.configure("--disable-static  \
-			 --enable-gtk-doc  \
-			 --enable-exchange \
-			 --enable-facebook \
-			 --enable-twitter \
-			 --enable-yahoo \
-			 --libexec=/usr/lib/gnome-online-accounts \
-			 --enable-windows-live")
+                         --enable-gtk-doc  \
+                         --enable-exchange \
+                         --enable-facebook \
+                         --enable-twitter \
+                         --enable-yahoo \
+                         --libexec=/usr/lib/gnome-online-accounts \
+                         --enable-windows-live")
+    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
+    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
