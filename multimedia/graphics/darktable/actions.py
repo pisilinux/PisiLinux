@@ -19,8 +19,6 @@ def setup():
                           -DCUSTOM_CFLAGS=ON \
                           -DINSTALL_IOP_EXPERIMENTAL=ON \
                           -DINSTALL_IOP_LEGACY=ON \
-                          -DCMAKE_SKIP_INSTALL_RPATH=ON \
-                          -DCMAKE_SKIP_RPATH=ON \
                           -DBUILD_USERMANUAL=0", sourceDir="..")
 
 def build():
