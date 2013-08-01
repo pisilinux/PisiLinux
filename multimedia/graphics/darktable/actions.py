@@ -10,7 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.ldflags("+lgs")
+    pisitools.ldflags.add("-lgs")
     shelltools.makedirs("build")
     shelltools.cd("build")
     cmaketools.configure("-DDONT_INSTALL_GCONF_SCHEMAS=1 \
@@ -19,6 +19,8 @@ def setup():
                           -DCUSTOM_CFLAGS=ON \
                           -DINSTALL_IOP_EXPERIMENTAL=ON \
                           -DINSTALL_IOP_LEGACY=ON \
+                          -CMAKE_SKIP_INSTALL_RPATH=ON \
+                          -CMAKE_SKIP_RPATH=ON \
                           -DBUILD_USERMANUAL=0", sourceDir="..")
 
 def build():
