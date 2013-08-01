@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 
 
 def setup():
+    pisitools.flags("+fexceptions")
     autotools.autoreconf("-vfi")
 
     # Remove -Wall from default flags. The makefiles enable enough warnings
@@ -19,6 +20,7 @@ def setup():
 
     autotools.configure("--program-prefix=\"eu-\" \
                          --enable-thread-safety \
+                         --enable-dwz \
                          --disable-nls \
                          --with-zlib \
                          --with-bzlib")
