@@ -9,6 +9,7 @@ from pisi.actionsapi import pisitools
 
 
 def setup():
+    pisitools.cxxflags.add("-fpermissive")
     autotools.configure()
 
 def build():
