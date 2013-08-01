@@ -17,7 +17,7 @@ auth_unix,auth_wbc,auth_server,auth_netlogond,auth_script,auth_samba4"
 
 
 def setup():
-    pisitools.flags("+D_FILE_OFFSET_BITS=64 +D_GNU_SOURCE +DLDAP_DEPRECATED +fPIC")
+    pisitools.flags.add("-D_FILE_OFFSET_BITS=64", "-D_GNU_SOURCE", "-DLDAP_DEPRECATED", "-fPIC")
 
     autotools.configure("--disable-rpath-install \
                          --enable-fhs \

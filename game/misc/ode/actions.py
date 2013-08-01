@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.flags("+fomit-frame-pointer +ffast-math")
+    pisitools.flags.add("-fomit-frame-pointer", "-ffast-math")
 
     autotools.configure("--disable-static \
                          --enable-shared \

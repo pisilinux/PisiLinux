@@ -16,7 +16,7 @@ WorkDir = "Python-%s" % get.srcVERSION()
 PythonVersion = "2.7"
 
 def setup():
-    pisitools.flags("+fno-strict-aliasing")
+    pisitools.flags.add("-fno-strict-aliasing")
     shelltools.export("OPT", "%s -fPIC -fwrapv" % get.CFLAGS())
 
     pisitools.dosed("Lib/cgi.py", r"/usr/local/bin/", r"/usr/bin/")

@@ -10,7 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.flags("+fstack-protector-all +DLDAP_DEPRECATED=1")
+    pisitools.flags.add("-fstack-protector-all", "-DLDAP_DEPRECATED=1")
 
     # For --enable-avahi
     autotools.aclocal("-I config-scripts")

@@ -9,7 +9,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.flags("+fno-strict-aliasing")
+    pisitools.flags.add("-fno-strict-aliasing")
     pisitools.dosed("configure", '(wx_cv_std_libpath="lib)64"', r'\1"')
 
     autotools.configure("--enable-gtk2 \

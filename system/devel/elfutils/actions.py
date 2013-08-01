@@ -11,12 +11,12 @@ from pisi.actionsapi import get
 
 
 def setup():
-    pisitools.flags("+fexceptions")
+    pisitools.flags.add("-fexceptions")
     autotools.autoreconf("-vfi")
 
     # Remove -Wall from default flags. The makefiles enable enough warnings
     # themselves, and they use -Werror.
-    shelltools.export("CFLAGS", get.CFLAGS().replace("-Wall", ""))
+    pisitools.cflags.remove("-Wall")
 
     autotools.configure("--program-prefix=\"eu-\" \
                          --enable-thread-safety \
