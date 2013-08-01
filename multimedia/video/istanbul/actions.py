@@ -11,8 +11,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 shelltools.export("HOME", get.workDIR())
-shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
+
 def setup():
+    shelltools.copy("py-compile", "common/py-compile-destdir")
     os.environ["GST_REGISTRY"] = get.workDIR() + "/registry.cache.xml"
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-gconftool \
