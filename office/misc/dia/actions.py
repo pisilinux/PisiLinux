@@ -11,7 +11,8 @@ from pisi.actionsapi import shelltools
 def setup():
     autotools.autoreconf("-fiv")
     autotools.configure("--with-python \
-                         --with-cairo")
+                         --with-cairo \
+                         --enable-libemf")
 
 def build():
     autotools.make()
