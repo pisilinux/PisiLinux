@@ -11,7 +11,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 shelltools.export("HOME", get.workDIR())
-
+shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
 def setup():
     os.environ["GST_REGISTRY"] = get.workDIR() + "/registry.cache.xml"
     autotools.autoreconf("-vfi")
