@@ -15,10 +15,10 @@ shelltools.export("LDFLAGS", "%s -fvisibility=hidden" % get.LDFLAGS())
 def setup():
     autotools.configure("--enable-poppler \
                          --enable-spectre \
-                         --disable-libraw \
+                         --enable-libraw \
                          --enable-svg \
                          --enable-gstreamer \
-                         --disable-static")
+                        ")
 
 def build():
     autotools.make()

@@ -30,10 +30,15 @@ def setup():
                          --disable-install-examples \
                          --disable-doc")
 
+    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
+    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
+
 def build():
     autotools.make()
 
 def install():
+    pisitools.dosed("src/lib/.deps/libelementary_la-els_box.Plo", "inalude", "include")
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "COPYING", "README")
