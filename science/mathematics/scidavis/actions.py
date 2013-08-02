@@ -21,8 +21,8 @@ def build():
 def install():
     autotools.rawInstall("INSTALL_ROOT=%s" % get.installDIR())
     
-    pisitools.domove("/usr/lib64/scidavis/", "/usr/lib/scidavis")
-    pisitools.removeDir("/usr/lib64")
+    #pisitools.domove("/usr/lib64/scidavis/", "/usr/lib/scidavis")
+    #pisitools.removeDir("/usr/lib64")
 
     pisitools.dosym("/usr/share/icons/hicolor/64x64/apps/scidavis.png", "/usr/share/pixmaps/scidavis.png")
     pisitools.dodir(TR_LANG_DIR)
