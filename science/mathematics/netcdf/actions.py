@@ -18,18 +18,22 @@ def setup():
     shelltools.export("F90FLAGS", "-fPIC %s" % get.CFLAGS())
 
     autotools.configure("--enable-shared \
-                         --disable-static")
+                         --enable-netcdf-4 \
+                         --enable-dap-netcdf \
+                         --disable-static \
+                        ")
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def check():
-    autotools.make("check")
+    autotools.make("-j1 check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodir("/usr/include/netcdf")
     pisitools.domove("/usr/include/*.*", "/usr/include/netcdf")
+    pisitools.dosed("%s//usr/lib/pkgconfig/netcdf.pc" % get.installDIR(), "\/include$", r"/include/netcdf")
 
     pisitools.dodoc("README", "RELEASE_NOTES")
