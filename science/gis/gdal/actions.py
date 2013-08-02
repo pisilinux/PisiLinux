@@ -22,10 +22,21 @@ def setup():
                          --with-expat \
                          --with-cfitsio \
                          --with-hdf5 \
-                         --without-mrsid \
-                         --without-netcdf \
+                         --with-netcdff \
+                         --with-png \
+                         --with-geos \
+                         --with-mysql \
+                         --with-curl \
+                         --with-perl \
+                         --with-jpeg \
+                         --with-jpeg12=no \
+                         --with-libtiff \
+                         --with-sqlite3 \
+                         --with-geotiff \
+                         --with-podofo \
+                         --with-spatialite \
+                         --without-libtool \
                          --without-hdf4 \
-                         --without-grass \
                          --without-fme \
                          --without-pcraster \
                          --without-kakadu \
@@ -41,15 +52,7 @@ def setup():
                          --without-epsilon \
                          --without-idb \
                          --without-sde \
-                         --with-geos \
-                         --with-mysql \
-                         --with-curl \
-                         --with-perl \
-                         --with-jpeg \
-                         --with-jpeg12=no \
-                         --without-ruby \
-                         --without-perl \
-                         --without-php")
+                         --without-ruby")
 
 def build():
     autotools.make()
