@@ -245,4 +245,3 @@ def updateModules(kernel_version=None):
     # Run depmod if necessary
     if kernel_version:
         subprocess.call(["/sbin/depmod", "-a", kernel_version])
-        subprocess.call(["/sbin/depmod", "-a", ".".join(kernel_version.split(".")[:-1])])
