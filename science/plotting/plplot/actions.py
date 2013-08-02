@@ -18,14 +18,15 @@ def setup():
     cmaketools.configure("-DUSE_RPATH=OFF     \
                           -DENABLE_ada=OFF    \
                           -DHAVE_ADA_2007=OFF \
-						  -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
+                          -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
                           -DENABLE_d=OFF      \
                           -DENABLE_octave=OFF \
-                          -DENABLE_java=OFF")
+                          -DENABLE_java=OFF \
+                          -DTEST_DYNDRIVERS=OFF \
+                         ")
 
 def build():
-	shelltools.system("make")
-    #cmaketools.make()
+    cmaketools.make()
 
 def install():
     cmaketools.install()
