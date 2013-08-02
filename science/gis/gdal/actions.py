@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.aclocal()
+    pisitools.cflags.add("-fno-strict-aliasing")
 
     # perl has some libtool problems right now, disabled
     autotools.configure("--disable-static \
@@ -22,7 +23,7 @@ def setup():
                          --with-expat \
                          --with-cfitsio \
                          --with-hdf5 \
-                         --with-netcdff \
+                         --with-netcdf \
                          --with-png \
                          --with-geos \
                          --with-mysql \
