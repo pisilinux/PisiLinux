@@ -32,8 +32,4 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodir("/usr/include/netcdf")
-    pisitools.domove("/usr/include/*.*", "/usr/include/netcdf")
-    pisitools.dosed("%s//usr/lib/pkgconfig/netcdf.pc" % get.installDIR(), "\/include$", r"/include/netcdf")
-
     pisitools.dodoc("README", "RELEASE_NOTES")
