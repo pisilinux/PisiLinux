@@ -23,7 +23,7 @@ def setup():
                          --with-expat \
                          --with-cfitsio \
                          --with-hdf5 \
-                         --with-netcdf=/usr/include/netcdf \
+                         --with-netcdf \
                          --with-png \
                          --with-geos \
                          --with-mysql \
