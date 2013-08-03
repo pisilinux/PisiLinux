@@ -24,7 +24,7 @@ def setup():
                          --with-cfitsio \
                          --with-hdf5 \
                          --without-mrsid \
-                         --with-netcdf=/usr/lib/netcdf \
+                         --with-netcdf \
                          --without-hdf4 \
                          --without-grass \
                          --without-fme \
@@ -53,7 +53,7 @@ def setup():
                          --without-php")
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
