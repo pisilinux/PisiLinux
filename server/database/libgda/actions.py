@@ -11,7 +11,11 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--prefix=/usr \
                          --with-gnome-keyring \
-                         --with-libsoup")
+                         --with-libsoup \
+                         --enable-json \
+                         --enable-gda-gi\
+                         --enable-system-sqlite \
+                        ")
 
 def build():
     autotools.make()

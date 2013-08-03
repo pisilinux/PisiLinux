@@ -17,6 +17,7 @@ def build():
     autotools.make()
 
 def install():
-    autotools.install()
+    pisitools.dosed("src/Makefile", "\s_generated\/errors\.py.*", deleteLine=True)
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "COPYING", "NEWS", "README")
