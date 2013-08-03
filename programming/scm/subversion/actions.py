@@ -22,11 +22,15 @@ def setup():
     autotools.configure("--disable-static \
                          --with-jdk=/opt/sun-jdk/ \
                          --enable-javahl \
-                         --with-neon=/usr \
                          --with-apr=/usr \
                          --with-apr-util=/usr \
+                         --with-apache=/usr/lib/apache2/ \
+                         --with-apxs \
+                         --with-sqlite=/usr \
+                         --with-berkeley-db=:/usr/include/:/usr/lib:db-5.3 \
                          --with-zlib=/usr \
                          --with-jikes=no \
+                         --with-kwallet \
                          --disable-mod-activation")
 
 def build():
