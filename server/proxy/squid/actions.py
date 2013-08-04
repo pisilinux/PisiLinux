@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "%s" % get.srcDIR().replace("0.", "0.STABLE")
-
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure('--enable-shared=yes \
