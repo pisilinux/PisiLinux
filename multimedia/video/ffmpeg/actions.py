@@ -13,8 +13,6 @@ minimumcpu = "" if get.ARCH() == "x86_64" else "--cpu=atom"
 
 
 def setup():
-    shelltools.export("CFLAGS","%s -fPIC" % get.CFLAGS())
-
     # CPU thing is just used for CMOV detection
     autotools.rawConfigure("--prefix=/usr \
                             %s \
@@ -55,6 +53,8 @@ def setup():
                             --enable-nonfree \
                             --enable-libfaac \
                             --enable-shared \
+                            --enable-pic \
+                            --enable-swresample \
                             --disable-static \
                             --disable-debug" % minimumcpu)
 
