@@ -9,9 +9,8 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir="PokerTH-%s-src" % get.srcVERSION()
-
 def setup():
+    pisitools.cxxflags.add("-DBOOST_FILESYSTEM_VERSION=2")
     pisitools.dosed("pokerth.desktop", "Categories=Qt;Game;CardGame;", "Categories=Game;CardGame;")
     shelltools.system("qmake pokerth.pro")
 
