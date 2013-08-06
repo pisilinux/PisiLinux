@@ -36,6 +36,7 @@ def setup():
                          --with-geotiff \
                          --with-spatialite \
                          --without-libtool \
+                         --without-podofo \
                          --without-hdf4 \
                          --without-fme \
                          --without-pcraster \
