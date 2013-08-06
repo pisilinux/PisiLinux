@@ -34,7 +34,6 @@ def setup():
                          --with-libtiff \
                          --with-sqlite3 \
                          --with-geotiff \
-                         --with-podofo \
                          --with-spatialite \
                          --without-libtool \
                          --without-podofo \
