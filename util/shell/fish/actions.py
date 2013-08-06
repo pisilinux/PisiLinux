@@ -9,13 +9,14 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
 def setup():
+    autotools.autoreconf() 
+  
     autotools.configure("--without-xsel \
-                        docdir=/%s/%s" % (get.docDIR(), get.srcNAME()))
+                         --sysconfdir=/etc \
+                         --docdir=/%s/%s" % (get.docDIR(), get.srcNAME()))
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    pisitools.dodoc("README")
