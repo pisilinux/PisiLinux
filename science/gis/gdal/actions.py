@@ -7,13 +7,14 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
 def setup():
+    libtools.libtoolize()
+    autotools.autoreconf("-vfi")
     autotools.aclocal()
-    pisitools.cflags.add("-fno-strict-aliasing")
-
-    # perl has some libtool problems right now, disabled
+    shelltools.export("CFLAGS",get.CFLAGS().replace("-fno-strict-aliasing",""))
     autotools.configure("--disable-static \
                          --datadir=/usr/share/gdal \
                          --with-ogdi \
@@ -34,9 +35,9 @@ def setup():
                          --with-libtiff \
                          --with-sqlite3 \
                          --with-geotiff \
+                         --with-podofo \
                          --with-spatialite \
                          --without-libtool \
-                         --without-podofo \
                          --without-hdf4 \
                          --without-fme \
                          --without-pcraster \
