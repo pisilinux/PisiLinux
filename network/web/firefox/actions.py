@@ -28,6 +28,7 @@ def setup():
     for locale in ["-".join(ls.split("@")[0].split("-")[1:]) for ls in shelltools.ls("langpack-ff")]:
         print "Replacing browser.properties for %s locale" % locale
         shelltools.copy("browserconfig.properties", "langpack-ff/langpack-%s@firefox.mozilla.org/browser/chrome/%s/locale/branding/" % (locale, locale))
+        shelltools.copy("browserconfig.properties", "browser/branding/official/locales/")
 
     # Mozilla sticks on with autoconf-213
     shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
