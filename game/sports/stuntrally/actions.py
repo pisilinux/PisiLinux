@@ -9,8 +9,6 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "stuntrally"
-
 def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
