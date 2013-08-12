@@ -41,8 +41,6 @@ def setup():
     shelltools.echo("ld.so.conf", nvlibdir)
     shelltools.echo("XvMCConfig", "%s/libXvMCNVIDIA.so" % nvlibdir)
 
-    shelltools.system("patch --remove-empty-files --no-backup-if-mismatch -p1 -i nvidia-linux-3.10.patch")
-
 def build():
     # We don't need kernel module for emul32 build
     if get.buildTYPE() == 'emul32':
