@@ -21,6 +21,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    pisitools.domove("/rules.d", "/lib/udev")
 
     #shelltools.chmod("%s/etc/profile.d/*.sh" % get.installDIR(), mode=0644)
 
