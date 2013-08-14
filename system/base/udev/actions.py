@@ -24,7 +24,6 @@ def setup():
                 --docdir=/usr/share/doc/udev \
                 --libdir=/usr/lib%s \
                 --libexecdir=/lib%s/udev \
-                --with-distro=other \
                 --with-firmware-path=/lib%s/firmware/updates:/lib%s/firmware \
                 --with-html-dir=/usr/share/doc/udev/html \
                 --with-rootlibdir=/lib%s \
@@ -48,14 +47,13 @@ def setup():
                 --disable-xz \
                 --enable-gudev \
                 --disable-selinux \
-                --enable-static \
                 --enable-acl \
                 --enable-kmod \
-                --enable-keymap \
                 --enable-introspection \
                " % ((suffix, )*7)
 
     options += "--disable-acl \
+                --disable-kmod \
                 --disable-qrencode \
                 --disable-static \
                 --disable-microhttpd \
@@ -78,7 +76,6 @@ def build():
                 v4l_id \
                 accelerometer \
                 mtd_probe \
-                keymap \
                 libgudev-1.0.la"
 
     targets += "\
@@ -109,9 +106,6 @@ def install():
                 install-udevlibexecPROGRAMS \
                 install-dist_systemunitDATA \
                 install-dist_udevconfDATA \
-                install-dist_udevhomeSCRIPTS \
-                install-dist_udevkeymapDATA \
-                install-dist_udevkeymapforcerelDATA \
                 install-dist_udevrulesDATA \
                 install-girDATA \
                 install-nodist_systemunitDATA \
