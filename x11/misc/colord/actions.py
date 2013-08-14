@@ -31,4 +31,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
+    pisitools.domove("/rules.d", "/lib/udev")
+
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
