@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 
 
 def setup():
-    shelltools.system("./bootstrap")
     autotools.configure("--disable-static \
                          --enable-nls")
 
