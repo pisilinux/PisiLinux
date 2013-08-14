@@ -13,17 +13,14 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     options = "--disable-static \
-               --enable-silent-rules \
+               --disable-silent-rules \
                --enable-introspection \
                --with-libjasper \
-               --with-x11"
-
-# drop option --with-included-loaders=png for building mate desktop
-
+               --with-x11 \
+               --with-included-loaders=png \
+              "
     if get.buildTYPE() == "emul32":
         options += " --bindir=/emul32/bin"
-
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
 
     autotools.configure(options)
 
