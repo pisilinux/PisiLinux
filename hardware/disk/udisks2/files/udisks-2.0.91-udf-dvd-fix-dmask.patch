@@ -1,0 +1,57 @@
+--- udisks-2.0.91.orig/src/udiskslinuxfilesystem.c
++++ udisks-2.0.91/src/udiskslinuxfilesystem.c
+@@ -298,7 +298,7 @@ static const gchar *iso9660_allow_gid_se
+ /* ---------------------- udf -------------------- */
+ 
+ static const gchar *udf_defaults[] = { "uid=", "gid=", "iocharset=utf8", "umask=0077", NULL };
+-static const gchar *udf_allow[] = { "iocharset=", "umask=", NULL };
++static const gchar *udf_allow[] = { "iocharset=", "umask=", "mode=", "dmode=", NULL };
+ static const gchar *udf_allow_uid_self[] = { "uid=", NULL };
+ static const gchar *udf_allow_gid_self[] = { "gid=", NULL };
+ 
+@@ -512,7 +512,8 @@ is_mount_option_allowed (const FSMountOp
+ }
+ 
+ static gchar **
+-prepend_default_mount_options (const FSMountOptions *fsmo,
++prepend_default_mount_options (UDisksBlock *block,
++                               const FSMountOptions *fsmo,
+                                uid_t                 caller_uid,
+                                GVariant             *given_options)
+ {
+@@ -520,6 +521,8 @@ prepend_default_mount_options (const FSM
+   gint n;
+   gchar *s;
+   gid_t gid;
++  const gchar *probed_fs_type;
++  /* static default options from FSMountOptions */
+   const gchar *option_string;
+ 
+   options = g_ptr_array_new ();
+@@ -552,6 +555,17 @@ prepend_default_mount_options (const FSM
+         }
+     }
+ 
++  /* dynamic default options */
++  /* some broken DVDs come with 0400 directory permissions, making them
++   * unreadable; overwrite readonly UDF media with a 0500 dmode. */
++  probed_fs_type = udisks_block_get_id_type(block);
++  if (g_strcmp0 (probed_fs_type, "udf") == 0 &&
++      udisks_block_get_read_only(block))
++    {
++      g_ptr_array_add (options, g_strdup("dmode=0500"));
++    }
++
++  /* user supplied options */
+   if (g_variant_lookup (given_options,
+                         "options",
+                         "&s", &option_string))
+@@ -709,7 +723,7 @@ calculate_mount_options (UDisksDaemon
+   /* always prepend some reasonable default mount options; these are
+    * chosen here; the user can override them if he wants to
+    */
+-  options_to_use = prepend_default_mount_options (fsmo, caller_uid, options);
++  options_to_use = prepend_default_mount_options (block, fsmo, caller_uid, options);
+ 
+   /* validate mount options */
+   str = g_string_new ("uhelper=udisks2,nodev,nosuid");
