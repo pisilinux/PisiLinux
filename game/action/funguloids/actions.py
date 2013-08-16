@@ -7,15 +7,17 @@
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
 WorkDir = "funguloids"
 
 def setup():
     #shelltools.export("CXXFLAGS", "%s -Wno-deprecated" % get.CXXFLAGS())
-
+    shelltools.export("LDFLAGS", "-lboost_system")
+    shelltools.system("sh sed.sh")
+    libtools.libtoolize()
     autotools.autoreconf("-fi")
-
     autotools.configure("--without-fmod \
                          --with-openal \
                          --with-ogg \
