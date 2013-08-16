@@ -13,7 +13,8 @@ shelltools.export("HOME", get.workDIR())
 shelltools.export("XDG_DATA_DIRS", get.workDIR())
 
 def setup():
-    kde4.configure("-DWITH_IPOD=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    kde4.configure("-DWITH_IPOD=ON \
+                    -DCMAKE_BUILD_TYPE=Release \
                     -DKDE4_BUILD_TESTS=OFF \
                     -DCMAKE_BUILD_TYPE=Debugfull \
                     -DKDE_DISTRIBUTION_TEXT='PisiLinux'")
