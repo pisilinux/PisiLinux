@@ -83,7 +83,7 @@ def build():
     shelltools.cd("swig/perl")
     perlmodules.make()
     shelltools.cd("../..")
-    autotools.make("--no-version-check")
+    autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
