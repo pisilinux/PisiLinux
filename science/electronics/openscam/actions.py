@@ -7,13 +7,9 @@ from pisi.actionsapi import scons
 from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
-shelltools.export("HOME", get.workDIR())
-
 def build():
     scons.make("-C cbang compiler=gnu")
     scons.make("compiler=gnu")
     
 def install():
-    scons.install("install compiler=gnu install_prefix=%s/usr" % get.installDIR()) 
-
- 
+    scons.install("install compiler=gnu install_prefix=%s/usr" % get.installDIR())
