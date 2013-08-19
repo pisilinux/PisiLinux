@@ -57,9 +57,12 @@ def install():
 
     # remove empty dir
     #pisitools.removeDir("/usr/share/man")
+
     pisitools.dodoc("AUTHORS", "README*", "HACKING", "ChangeLog*", "NEWS*")
 
     if get.buildTYPE() == "_emul32":
         for binaries in ["gtk-query-immodules-2.0", "gtk-demo"]:
             pisitools.domove("/_emul32/bin/%s" % binaries, "/usr/bin/", "%s-32bit" % binaries)
         pisitools.removeDir("/_emul32")
+        #hack to install gdkconfig.h in gdk headers dir
+        pisitools.dosym("/usr/lib/gtk-2.0/include/gdkconfig.h","/usr/include/gtk-2.0/gdk/gdkconfig.h")
