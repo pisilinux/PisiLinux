@@ -1,0 +1,115 @@
+From 8053ae4030b4342f73a08b9870ccd19189ae401d Mon Sep 17 00:00:00 2001
+From: Mark Brand <mabrand@mabrand.nl>
+Date: Thu, 7 Mar 2013 11:52:52 +0100
+Subject: [PATCH 4/4] postgresql driver: escape backslashes only when server
+ requires it
+
+Task-number: QTBUG-30076
+
+Change-Id: I408cda941884f01484d0edfa82c91fc19cb8718c
+Reviewed-by: Israel Lins Albuquerque <israelins85@yahoo.com.br>
+Reviewed-by: Sergey Blagodarin
+Reviewed-by: Andy Shaw <andy.shaw@digia.com>
+Reviewed-by: Andras Mantia <andras@kdab.com>
+(cherry picked from qtbase/e3c5351d06ce8a12f035cd0627356bc64d8c334a)
+Reviewed-by: Mark Brand <mabrand@mabrand.nl>
+---
+ src/sql/drivers/psql/qsql_psql.cpp | 38 +++++++++++++++++++++++++++++++++-----
+ 1 file changed, 33 insertions(+), 5 deletions(-)
+
+diff --git a/src/sql/drivers/psql/qsql_psql.cpp b/src/sql/drivers/psql/qsql_psql.cpp
+index 51ddce0..c2a127c 100644
+--- a/src/sql/drivers/psql/qsql_psql.cpp
++++ b/src/sql/drivers/psql/qsql_psql.cpp
+@@ -120,7 +120,16 @@ inline void qPQfreemem(void *buffer)
+ class QPSQLDriverPrivate
+ {
+ public:
+-    QPSQLDriverPrivate(QPSQLDriver *qq) : q(qq), connection(0), isUtf8(false), pro(QPSQLDriver::Version6), sn(0), pendingNotifyCheck(false) {}
++    QPSQLDriverPrivate(QPSQLDriver *qq)
++      : q(qq),
++        connection(0),
++        isUtf8(false),
++        pro(QPSQLDriver::Version6),
++        sn(0),
++        pendingNotifyCheck(false),
++        hasBackslashEscape(false)
++    { }
++
+     QPSQLDriver *q;
+     PGconn *connection;
+     bool isUtf8;
+@@ -128,6 +137,7 @@ public:
+     QSocketNotifier *sn;
+     QStringList seid;
+     mutable bool pendingNotifyCheck;
++    bool hasBackslashEscape;
+ 
+     void appendTables(QStringList &tl, QSqlQuery &t, QChar type);
+     PGresult * exec(const char * stmt) const;
+@@ -135,6 +145,7 @@ public:
+     QPSQLDriver::Protocol getPSQLVersion();
+     bool setEncodingUtf8();
+     void setDatestyle();
++    void detectBackslashEscape();
+ };
+ 
+ void QPSQLDriverPrivate::appendTables(QStringList &tl, QSqlQuery &t, QChar type)
+@@ -636,6 +647,23 @@ void QPSQLDriverPrivate::setDatestyle()
+     PQclear(result);
+ }
+ 
++void QPSQLDriverPrivate::detectBackslashEscape()
++{
++    // standard_conforming_strings option introduced in 8.2
++    // http://www.postgresql.org/docs/8.2/static/runtime-config-compatible.html
++    if (pro < QPSQLDriver::Version82) {
++        hasBackslashEscape = true;
++    } else {
++        hasBackslashEscape = false;
++        PGresult* result = exec(QLatin1String("SELECT '\\\\' x"));
++        int status = PQresultStatus(result);
++        if (status == PGRES_COMMAND_OK || status == PGRES_TUPLES_OK)
++            if (QString::fromLatin1(PQgetvalue(result, 0, 0)) == QLatin1String("\\"))
++                hasBackslashEscape = true;
++        PQclear(result);
++    }
++}
++
+ static QPSQLDriver::Protocol qMakePSQLVersion(int vMaj, int vMin)
+ {
+     switch (vMaj) {
+@@ -742,6 +770,7 @@ QPSQLDriver::QPSQLDriver(PGconn *conn, QObject *parent)
+     d->connection = conn;
+     if (conn) {
+         d->pro = d->getPSQLVersion();
++        d->detectBackslashEscape();
+         setOpen(true);
+         setOpenError(false);
+     }
+@@ -842,6 +871,7 @@ bool QPSQLDriver::open(const QString & db,
+     }
+ 
+     d->pro = d->getPSQLVersion();
++    d->detectBackslashEscape();
+     d->isUtf8 = d->setEncodingUtf8();
+     d->setDatestyle();
+ 
+@@ -1228,12 +1258,10 @@ QString QPSQLDriver::formatValue(const QSqlField &field, bool trimStrings) const
+             }
+             break;
+         case QVariant::String:
+-        {
+-            // Escape '\' characters
+             r = QSqlDriver::formatValue(field, trimStrings);
+-            r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
++            if (d->hasBackslashEscape)
++                r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
+             break;
+-        }
+         case QVariant::Bool:
+             if (field.value().toBool())
+                 r = QLatin1String("TRUE");
+-- 
+1.8.3.1
+
