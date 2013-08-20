@@ -20,7 +20,8 @@ def setup():
                --with-included-loaders=png \
               "
     if get.buildTYPE() == "emul32":
-        options += " --bindir=/emul32/bin"
+        options += " --bindir=/_emul32/bin \
+                   "
 
     autotools.configure(options)
 
@@ -29,5 +30,9 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    if get.buildTYPE() == "emul32":
+        pisitools.domove("/_emul32/bin/gdk-pixbuf-query-loaders", "/usr/bin", "gdk-pixbuf-query-loaders-32")
+        pisitools.removeDir("/_emul32")
+        return
 
     pisitools.dodoc("AUTHORS", "COPYING", "NEWS", "README")
