@@ -50,6 +50,7 @@ def setup():
                 --enable-acl \
                 --enable-kmod \
                 --enable-introspection \
+                --enable-static \
                " % ((suffix, )*7)
 
     options += "--disable-acl \
@@ -59,6 +60,7 @@ def setup():
                 --disable-microhttpd \
                " if get.buildTYPE() == "emul32" else ""
 
+    shelltools.system("sed -i -e '/--enable-static is not supported by systemd/s:as_fn_error:echo:' configure")
     autotools.configure(options)
 
 def build():
