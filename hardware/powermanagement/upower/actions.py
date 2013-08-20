@@ -13,9 +13,9 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
+    pisitools.dosed("configure", "DISABLE_DEPRECATED", deleteLine=True)
     autotools.configure("--disable-static \
                          --disable-gtk-doc \
-                         --disable-systemd \
                          --enable-deprecated \
                          --enable-introspection")
 
