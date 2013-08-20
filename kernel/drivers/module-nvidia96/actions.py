@@ -42,7 +42,7 @@ def build():
 
 def install():
     # Kernel driver
-    pisitools.insinto("/lib/modules/%s/extra/nvidia" % ".".join(KDIR.split(".")[:-1]),
+    pisitools.insinto("/lib/modules/%s/extra/nvidia" % KDIR,
                       "usr/src/nv/nvidia.ko", "%s.ko" % driver)
 
     # Libraries and X modules

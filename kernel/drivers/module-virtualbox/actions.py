@@ -13,4 +13,4 @@ def build():
     autotools.make("KERN_DIR=/lib/modules/%s/build" % KDIR)
 
 def install():
-    pisitools.insinto("/lib/modules/%s/extra" % ".".join(KDIR.split(".")[:-1]), "*.ko")
+    pisitools.insinto("/lib/modules/%s/extra" % KDIR, "*.ko")

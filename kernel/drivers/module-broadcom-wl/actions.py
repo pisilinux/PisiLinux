@@ -15,6 +15,6 @@ def build():
     autotools.make("-C /lib/modules/%s/build M=%s modules" % (KDIR, get.curDIR()))
 
 def install():
-    pisitools.insinto("/lib/modules/%s/extra" % ".".join(KDIR.split(".")[:-1]), "wl.ko")
+    pisitools.insinto("/lib/modules/%s/extra" % KDIR, "wl.ko")
 
     pisitools.dodoc("lib/LICENSE.txt")
