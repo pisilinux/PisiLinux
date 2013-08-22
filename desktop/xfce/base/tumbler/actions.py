@@ -10,10 +10,10 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--disable-dependency-tracking \
-                        --disable-static \
-                        --enable-jpeg-thumbnailer \
-                        --enable-ffmpeg-thumbnailer \
-                        --enable-poppler-thumbnailer")
+                         --disable-static \
+                         --enable-jpeg-thumbnailer \
+                         --enable-ffmpeg-thumbnailer \
+                         --enable-poppler-thumbnailer")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
