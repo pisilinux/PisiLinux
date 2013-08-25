@@ -1,0 +1,138 @@
+From 78f93c2ef1acd324c289286fe3c13a429340839b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Caol=C3=A1n=20McNamara?= <caolanm@redhat.com>
+Date: Tue, 4 Jun 2013 15:48:23 +0100
+Subject: [PATCH] Resolves: rhbz#968892 force render full grapheme with
+ fallback font
+
+Change-Id: I5bb98c61d047e69d74666261b2c489d80f344502
+---
+ vcl/generic/glyphs/gcach_layout.cxx | 61 ++++++++++++++++++++++---------------
+ vcl/inc/generic/glyphcache.hxx      |  5 +++
+ 2 files changed, 42 insertions(+), 24 deletions(-)
+
+diff --git a/vcl/generic/glyphs/gcach_layout.cxx b/vcl/generic/glyphs/gcach_layout.cxx
+index 4fd4cf4..3c3c6de 100644
+--- a/vcl/generic/glyphs/gcach_layout.cxx
++++ b/vcl/generic/glyphs/gcach_layout.cxx
+@@ -41,6 +41,10 @@
+ #include <unicode/uscript.h>
+ #include <unicode/ubidi.h>
+ 
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/i18n/CharacterIteratorMode.hpp>
++#include <comphelper/processfactory.hxx>
++
+ // =======================================================================
+ // layout implementation for ServerFont
+ // =======================================================================
+@@ -90,23 +94,42 @@ void ServerFontLayout::AdjustLayout( ImplLayoutArgs& rArgs )
+     }
+ }
+ 
+-// =======================================================================
+-
+-static bool lcl_CharIsJoiner(sal_Unicode cChar)
++void ServerFontLayout::setNeedFallback(ImplLayoutArgs& rArgs, sal_Int32 nCharPos,
++    bool bRightToLeft)
+ {
+-    return ((cChar == 0x200C) || (cChar == 0x200D));
+-}
++    if (nCharPos < 0)
++        return;
+ 
+-static bool needPreviousCode(sal_Unicode cChar)
+-{
+-    return lcl_CharIsJoiner(cChar) || U16_IS_LEAD(cChar);
+-}
++    using namespace ::com::sun::star;
+ 
+-static bool needNextCode(sal_Unicode cChar)
+-{
+-    return lcl_CharIsJoiner(cChar) || U16_IS_TRAIL(cChar);
++    if (!mxBreak.is())
++    {
++        uno::Reference< lang::XMultiServiceFactory > xFactory =
++            comphelper::getProcessServiceFactory();
++        mxBreak = uno::Reference< i18n::XBreakIterator >(xFactory->createInstance(
++            "com.sun.star.i18n.BreakIterator"), uno::UNO_QUERY);
++    }
++
++    LanguageTag aLangTag(rArgs.meLanguage);
++    lang::Locale aLocale(aLangTag.getLocale());
++
++    //if position nCharPos is missing in the font, grab the entire grapheme and
++    //mark all glyphs as missing so the whole thing is rendered with the same
++    //font
++    OUString aRun(rArgs.mpStr);
++    sal_Int32 nDone;
++    sal_Int32 nGraphemeStartPos =
++        mxBreak->previousCharacters(aRun, nCharPos+1, aLocale,
++            i18n::CharacterIteratorMode::SKIPCELL, 1, nDone);
++    sal_Int32 nGraphemeEndPos =
++        mxBreak->nextCharacters(aRun, nCharPos, aLocale,
++            i18n::CharacterIteratorMode::SKIPCELL, 1, nDone);
++
++    rArgs.NeedFallback(nGraphemeStartPos, nGraphemeEndPos, bRightToLeft);
+ }
+ 
++// =======================================================================
++
+ std::ostream &operator <<(std::ostream& s, ServerFont* pFont)
+ {
+ #ifndef SAL_LOG_INFO
+@@ -401,9 +424,7 @@ bool HbLayoutEngine::layout(ServerFontLayout& rLayout, ImplLayoutArgs& rArgs)
+             // if needed request glyph fallback by updating LayoutArgs
+             if (!nGlyphIndex)
+             {
+-                if (nCharPos >= 0)
+-                    rArgs.NeedFallback(nCharPos, bRightToLeft);
+-
++                rLayout.setNeedFallback(rArgs, nCharPos, bRightToLeft);
+                 if (SAL_LAYOUT_FOR_FALLBACK & rArgs.mnFlags)
+                     continue;
+             }
+@@ -1006,15 +1027,7 @@ bool IcuLayoutEngine::layout(ServerFontLayout& rLayout, ImplLayoutArgs& rArgs)
+             // if needed request glyph fallback by updating LayoutArgs
+             if( !nGlyphIndex )
+             {
+-                if( nCharPos >= 0 )
+-                {
+-                    rArgs.NeedFallback( nCharPos, bRightToLeft );
+-                    if ( (nCharPos > 0) && needPreviousCode(rArgs.mpStr[nCharPos-1]) )
+-                        rArgs.NeedFallback( nCharPos-1, bRightToLeft );
+-                    else if ( (nCharPos + 1 < nEndRunPos) && needNextCode(rArgs.mpStr[nCharPos+1]) )
+-                        rArgs.NeedFallback( nCharPos+1, bRightToLeft );
+-                }
+-
++                rLayout.setNeedFallback(rArgs, nCharPos, bRightToLeft);
+                 if( SAL_LAYOUT_FOR_FALLBACK & rArgs.mnFlags )
+                     continue;
+             }
+diff --git a/vcl/inc/generic/glyphcache.hxx b/vcl/inc/generic/glyphcache.hxx
+index a7363f9..d6cdee1 100644
+--- a/vcl/inc/generic/glyphcache.hxx
++++ b/vcl/inc/generic/glyphcache.hxx
+@@ -37,6 +37,7 @@
+ #include <boost/unordered_map.hpp>
+ #include <boost/unordered_set.hpp>
+ #include <boost/shared_ptr.hpp>
++#include <com/sun/star/i18n/XBreakIterator.hpp>
+ 
+ namespace basegfx { class B2DPolyPolygon; }
+ 
+@@ -311,6 +312,7 @@
+ {
+ private:
+     ServerFont&     mrServerFont;
++    com::sun::star::uno::Reference<com::sun::star::i18n::XBreakIterator> mxBreak;
+ 
+     // enforce proper copy semantic
+     SAL_DLLPRIVATE  ServerFontLayout( const ServerFontLayout& );
+@@ -324,5 +326,7 @@
+     virtual void    AdjustLayout( ImplLayoutArgs& );
+     virtual void    DrawText( SalGraphics& ) const;
++    void            setNeedFallback(ImplLayoutArgs& rArgs, sal_Int32 nIndex,
++                        bool bRightToLeft);
+     ServerFont&     GetServerFont() const   { return mrServerFont; }
+ };
+ 

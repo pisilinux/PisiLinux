@@ -1,0 +1,116 @@
+From 9ff4c35f1d8e7e603b23245afb6947b8260fabfc Mon Sep 17 00:00:00 2001
+From: Stephan Bergmann <sbergman@redhat.com>
+Date: Fri, 23 Aug 2013 12:03:45 +0200
+Subject: [PATCH] rhbz#1000150: Do not call exit upon XIOError
+
+...as done in _XIOError (libX11-1.6.0/src/XlibInt.c) after calling the XIOError
+handler function (either the one supplied with XSetIOErrorHandler or
+_XDefaultIOError), as that calls the atexit handlers, which can wreak havoc in
+unrelated threads that happen to be running in parallel, leading to arbitrary
+crashes.  So avoid that by always calling _exit already from our XIOError
+handler.
+
+The old code was careful to /not/ call _exit when the XIOError happened on any
+thread but the main one, but I do not see the sense of that---after all,
+_XIOError will inevitably call exit afterwards, so this cannot be a way to
+"ignore" XIOErrors from special threads (that are set up say for the sole
+purpose of trying out "known-shaky" activities without affecting the stability
+of the whole process).  And findings like comment 12 to
+<https://bugzilla.redhat.com/show_bug.cgi?id=831628#c12> "[abrt]
+libreoffice-core-3.5.4.2-1.fc17: ICEConnectionWorker thread still running during
+exit" ("it is very likely that this is not a normal exit from reaching the end
+of main, but rather some explicit call to exit from some error handling code")
+make it clear that we apparenly do suffer from such calls to _XIOError -> exit
+on non-main threads.
+
+I have no idea why vcl/unx/gtk has its own XIOErrorHdl that is substantially
+different from the vcl/unx/generic one, though.
+
+cherry picked from commit ffea65915b9cc6d4f3c01f829552702654a040f9, plus
+follow-up b240a1c188b58e3e717335339bfc3f5e20bb2bf4:
+
+    rhbz#1000150: Do not call exit upon XIOError, take two
+
+    The _XDefaultIOError handler (libX11-1.6.0/src/XlibInt.c) already calls exit
+    (even though _XIOError calling _XDefaultIOError would call exit afterwards,
+    too), so our XIOError handler must not call aOrigXIOErrorHandler.
+
+Change-Id: Ida7d407cf5f0fa4e719118cab5e725144ceb3a35
+---
+ vcl/unx/generic/app/saldata.cxx | 25 +++++++++++--------------
+ vcl/unx/gtk/app/gtkdata.cxx     | 12 +++++-------
+ 2 files changed, 16 insertions(+), 21 deletions(-)
+
+diff --git a/vcl/unx/generic/app/saldata.cxx b/vcl/unx/generic/app/saldata.cxx
+index 3d91586..9b5e200 100644
+--- a/vcl/unx/generic/app/saldata.cxx
++++ b/vcl/unx/generic/app/saldata.cxx
+@@ -307,22 +307,19 @@ int X11SalData::XErrorHdl( Display *pDisplay, XErrorEvent *pEvent )
+ 
+ int X11SalData::XIOErrorHdl( Display * )
+ {
+-    if (::osl::Thread::getCurrentIdentifier() != Application::GetMainThreadIdentifier())
++    if (::osl::Thread::getCurrentIdentifier() == Application::GetMainThreadIdentifier())
+     {
+-        pthread_exit(NULL);
+-        return 0;
++        /*  #106197# hack: until a real shutdown procedure exists
++         *  _exit ASAP
++         */
++        if( ImplGetSVData()->maAppData.mbAppQuit )
++            _exit(1);
++
++        // really bad hack
++        if( ! SessionManagerClient::checkDocumentsSaved() )
++            /* oslSignalAction eToDo = */ osl_raiseSignal (OSL_SIGNAL_USER_X11SUBSYSTEMERROR, NULL);
+     }
+ 
+-    /*  #106197# hack: until a real shutdown procedure exists
+-     *  _exit ASAP
+-     */
+-    if( ImplGetSVData()->maAppData.mbAppQuit )
+-        _exit(1);
+-
+-    // really bad hack
+-    if( ! SessionManagerClient::checkDocumentsSaved() )
+-        /* oslSignalAction eToDo = */ osl_raiseSignal (OSL_SIGNAL_USER_X11SUBSYSTEMERROR, NULL);
+-
+     std::fprintf( stderr, "X IO Error\n" );
+     std::fflush( stdout );
+     std::fflush( stderr );
+@@ -331,7 +328,7 @@ int X11SalData::XIOErrorHdl( Display * )
+      *  do apply here. Since there is nothing to be done after an XIO
+      *  error we have to _exit immediately.
+      */
+-    _exit(0);
++    _exit(1);
+     return 0;
+ }
+ 
+diff --git a/vcl/unx/gtk/app/gtkdata.cxx b/vcl/unx/gtk/app/gtkdata.cxx
+index 6abb06b..23f7931 100644
+--- a/vcl/unx/gtk/app/gtkdata.cxx
++++ b/vcl/unx/gtk/app/gtkdata.cxx
+@@ -511,14 +511,12 @@ GtkData::GtkData( SalInstance *pInstance )
+ 
+ XIOErrorHandler aOrigXIOErrorHandler = NULL;
+ 
+-int XIOErrorHdl(Display *pDisplay)
++int XIOErrorHdl(Display *)
+ {
+-    if (::osl::Thread::getCurrentIdentifier() != Application::GetMainThreadIdentifier())
+-    {
+-        pthread_exit(NULL);
+-        return 0;
+-    }
+-    return aOrigXIOErrorHandler ? aOrigXIOErrorHandler(pDisplay) : 0;
++    fprintf(stderr, "X IO Error\n");
++    _exit(1);
++        // avoid crashes in unrelated threads that still run while atexit
++        // handlers are in progress
+ }
+ 
+ GtkData::~GtkData()
+-- 
+1.8.3.1
+

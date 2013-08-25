@@ -1,0 +1,78 @@
+From cbeca0676595037d29c7191c38c643d47d9d6e4a Mon Sep 17 00:00:00 2001
+From: Stephan Bergmann <sbergman@redhat.com>
+Date: Fri, 14 Jun 2013 11:22:51 +0200
+Subject: [PATCH] Always try to mount in gio::Content::getGFileInfo
+
+...and not only if the caller happens to pass in non-null ppError.  Otherwise,
+calling soffice with a document URL handled by the gio UCP that is not yet
+gio-mounted would silently do nothing and exit with EXIT_SUCCESS, as the first
+thing the type detection code does on the URL is execute "getPropertyValues" for
+"IsDocument", which calls getGFileInfo with null ppError, so a void instead of a
+boolean value is returned, which then derails the type detection code to
+silently fail (which is another problem that needs fixing).
+
+Change-Id: I48a84428cdee5caead02909abc2efd3ae3722052
+(cherry picked from commit 4d8bf09305fc4e4bd652187aac0a02398413ba65)
+---
+ ucb/source/ucp/gio/gio_content.cxx | 42 +++++++++++++++++++++++---------------
+ 1 file changed, 26 insertions(+), 16 deletions(-)
+
+diff --git a/ucb/source/ucp/gio/gio_content.cxx b/ucb/source/ucp/gio/gio_content.cxx
+index 34857d2..4fe7e83 100644
+--- a/ucb/source/ucp/gio/gio_content.cxx
++++ b/ucb/source/ucp/gio/gio_content.cxx
+@@ -337,25 +337,35 @@ MountOperation::~MountOperation()
+ 
+ GFileInfo* Content::getGFileInfo(const uno::Reference< ucb::XCommandEnvironment >& xEnv, GError **ppError)
+ {
+-    /*If we don't have it already, and we're not a "pre-creation" content then query for the info"*/
+-    if (!mpInfo && !mbTransient)
+-    {
+-        if (!(mpInfo = g_file_query_info(getGFile(), "*", G_FILE_QUERY_INFO_NONE, NULL, ppError)))
+-        {
+-            //Try and mount if unmounted
+-            if (ppError && (*ppError)->code == G_IO_ERROR_NOT_MOUNTED)
+-            {
+-                g_error_free(*ppError);
+-
+-                MountOperation aMounter(xEnv);
+-                *ppError = aMounter.Mount(getGFile());
+-
+-                //No Mount error, reattempt query
+-        if (!*ppError)
+-                    mpInfo = g_file_query_info(getGFile(), "*", G_FILE_QUERY_INFO_NONE, NULL, ppError);
++    GError * err = 0;
++    if (mpInfo == 0 && !mbTransient) {
++        for (bool retried = false;; retried = true) {
++            mpInfo = g_file_query_info(
++                getGFile(), "*", G_FILE_QUERY_INFO_NONE, 0, &err);
++            if (mpInfo != 0) {
++                break;
++            }
++            assert(err != 0);
++            if (err->code != G_IO_ERROR_NOT_MOUNTED || retried) {
++                break;
++            }
++            SAL_INFO(
++                "ucb.ucp.gio",
++                "G_IO_ERROR_NOT_MOUNTED \"" << err->message
++                    << "\", trying to mount");
++            g_error_free(err);
++            err = MountOperation(xEnv).Mount(getGFile());
++            if (err != 0) {
++                break;
+             }
+         }
+     }
++    if (ppError != 0) {
++        *ppError = err;
++    } else if (err != 0) {
++        SAL_WARN("ucb.ucp.gio", "ignoring GError \"" << err->message << "\"");
++        g_error_free(err);
++    }
+     return mpInfo;
+ }
+ 
+-- 
+1.8.1.4
+

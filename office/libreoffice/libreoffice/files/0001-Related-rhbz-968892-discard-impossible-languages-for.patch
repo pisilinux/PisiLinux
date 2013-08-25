@@ -1,0 +1,68 @@
+From b5bd2d1d8d09a44af354584ff187d9e935ffd973 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Caol=C3=A1n=20McNamara?= <caolanm@redhat.com>
+Date: Tue, 4 Jun 2013 17:13:13 +0100
+Subject: [PATCH] Related: rhbz#968892 discard impossible languages for glyph
+ fallback
+
+Change-Id: I14f1bab09eb0be9c2c896a1dde45913b99aab6df
+---
+ vcl/generic/fontmanager/fontconfig.cxx | 39 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/vcl/generic/fontmanager/fontconfig.cxx b/vcl/generic/fontmanager/fontconfig.cxx
+index 1b36980..ff471fa 100644
+--- a/vcl/generic/fontmanager/fontconfig.cxx
++++ b/vcl/generic/fontmanager/fontconfig.cxx
+@@ -847,6 +847,41 @@
+ #endif
+     }
+ 
++    //returns true if the given code-point couldn't possibly be in rLangTag.
++    bool isImpossibleCodePointForLang(const LanguageTag &rLangTag, sal_uInt32 currentChar)
++    {
++        //a non-default script is set, lets believe it
++        if (rLangTag.hasScript())
++            return false;
++
++        int32_t script = u_getIntPropertyValue(currentChar, UCHAR_SCRIPT);
++        UScriptCode eScript = static_cast<UScriptCode>(script);
++        bool bIsImpossible = false;
++        OUString sLang = rLangTag.getLanguage();
++        switch (eScript)
++        {
++            case USCRIPT_TELUGU:
++                bIsImpossible = sLang != "te";
++                break;
++            case USCRIPT_BENGALI:
++                bIsImpossible = sLang != "bn" &&
++                    sLang != "as" && sLang != "mkb" &&
++                    sLang != "kfv" && sLang != "ccp" &&
++                    sLang != "tnv" && sLang != "ctg" &&
++                    sLang != "haj" && sLang != "ksy" &&
++                    sLang != "rkt" && sLang != "rjs" &&
++                    sLang != "rhg" && sLang != "syl" &&
++                    sLang != "kyv" && sLang != "zrg" &&
++                    sLang != "nhh";
++                break;
++            default:
++                break;
++        }
++        SAL_WARN_IF(bIsImpossible, "vcl", "Throwing away user set language of "
++            << sLang << " for finding a font for glyph fallback and autodetecting instead");
++        return bIsImpossible;
++    }
++
+     LanguageTag getExemplerLangTagForCodePoint(sal_uInt32 currentChar)
+     {
+         int32_t script = u_getIntPropertyValue(currentChar, UCHAR_SCRIPT);
+@@ -954,6 +989,10 @@
+             // also handle unicode surrogates
+             const sal_uInt32 nCode = rMissingCodes.iterateCodePoints( &nStrIndex );
+             FcCharSetAddChar( unicodes, nCode );
++            //if the codepoint is impossible for this lang tag, then clear it
++            //and autodetect something useful
++            if (!aLangAttrib.isEmpty() && isImpossibleCodePointForLang(aLangTag, nCode))
++                aLangAttrib = OString();
+             //#i105784#/rhbz#527719  improve selection of fallback font
+             if (aLangAttrib.isEmpty())
+             {
