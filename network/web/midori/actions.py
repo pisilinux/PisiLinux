@@ -9,6 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 shelltools.export("JOBS", get.makeJOBS().replace("-j", ""))
+shelltools.export("HOME", get.workDIR())
+shelltools.export("LC_ALL", "C")
 
 def setup():
     autotools.rawConfigure("--prefix=/usr \
@@ -17,7 +19,6 @@ def setup():
                             --enable-docs \
                             --enable-apidocs  \
                             --enable-unique \
-                            --enable-libnotify \
                             --enable-addons")
 
 def build():
