@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 shelltools.export("JOBS", get.makeJOBS().replace("-j", ""))
-shelltools.export("HOME", get.workDIR())
 shelltools.export("LC_ALL", "C")
 
 def setup():
