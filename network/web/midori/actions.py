@@ -18,6 +18,7 @@ def setup():
                             --enable-docs \
                             --enable-apidocs  \
                             --enable-unique \
+                            --disable-gtk3 \
                             --enable-addons")
 
 def build():
