@@ -29,3 +29,10 @@ def install():
         pisitools.dodir("/run/pm-utils/%s" % d)
 
     pisitools.dodoc("COPYING", "ChangeLog", "AUTHORS")
+
+    # nm >=0.8.2 has native udev suspend/resume support
+    pisitools.remove("/usr/lib/pm-utils/sleep.d/55NetworkManager")
+
+    # Remove hooks that cause hardware failure or don't make sense at all
+    pisitools.remove("/usr/lib/pm-utils/power.d/harddrive")
+    pisitools.remove("/usr/lib/pm-utils/power.d/disable_wol")
