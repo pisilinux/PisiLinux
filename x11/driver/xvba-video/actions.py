@@ -10,7 +10,7 @@ WorkDir = "%s-%s.%s" % (get.srcNAME(), get.srcVERSION(), get.ARCH())
 
 def install():
     if get.buildTYPE() == "emul32":
-        pisitools.insinto("/usr/lib32", "usr/lib/*")
+        pisitools.insinto("/usr/lib32", "../%s-%s.i686/usr/lib/*" % (get.srcNAME(), get.srcVERSION()))
         return
     else:
         pisitools.insinto("/usr/lib", "usr/lib/*")
