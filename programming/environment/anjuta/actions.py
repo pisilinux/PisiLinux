@@ -7,13 +7,11 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import libtools
+from pisi.actionsapi import get
+shelltools.export("LC_ALL", "C")
 
 
 def setup():
-    libtools.libtoolize()
-    autotools.autoreconf("-vif")
-    shelltools.system("intltoolize -f -c --automake")
     autotools.configure("--disable-silent-rules \
                          --disable-static \
                          --enable-plugin-devhelp \
@@ -22,14 +20,10 @@ def setup():
                          --enable-introspection \
                          --disable-scrollkeeper \
                          --enable-gtk-doc")
-
 def build():
     autotools.make()
 
 def install():
-    autotools.install()
-
-    pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
-    #pisitools.remove("/usr/bin/gbf-*") #exists already in gnome-build
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("ABOUT-NLS", "AUTHORS", "ChangeLog", "COPYING", "FUTURE", "MAINTAINERS", "NEWS", "README", "ROADMAP", "THANKS", "TODO")
