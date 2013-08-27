@@ -7,15 +7,16 @@
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
-
-WorkDir="razorqt-%s" % (get.srcVERSION())
+from pisi.actionsapi import shelltools
 
 def setup():
+    shelltools.system(" tar xJvf pisi-azur.tar.xz")
+    shelltools.move("pisi-azur", "razorqt-resources/themes/")
     cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
                           -DCMAKE_BUILD_TYPE=Release \
                           -DENABLE_POLICYKIT=ON \
-                          -DBUNDLE_XDG_UTILS=NO \
-                          -DLIB_SUFFIX=/usr/lib \
+                          -DBUNDLE_XDG_UTILS=Yes \
+                          -DENABLE_LIGHTDM_GREETER=OFF \
                           -DSYSCONF_INSTALL_DIR=/etc \
                           -DCMAKE_SKIP_RPATH=ON")
 
