@@ -43,16 +43,18 @@ def extensions():
     return ' '.join(conf)
 
 def setup():
-    # create directories for apache and fcgi's Makefiles
+    # create directories for apache, fcgi and fpm's Makefiles
     shelltools.makedirs("fcgi")
     shelltools.makedirs("apache")
+    shelltools.makedirs("fpm")
 
     # link configure script
     shelltools.sym("../configure", "fcgi/configure")
     shelltools.sym("../configure", "apache/configure")
+    shelltools.sym("../configure", "fpm/configure")
 
     shelltools.export("LC_ALL", "C")
-    shelltools.export("CFLAGS", "%s -fwrapv" % get.CFLAGS())
+    shelltools.export("CFLAGS", "%s -fwrapv -lkrb5 -lgssapi_krb5 -lpam" % get.CFLAGS())
     shelltools.export("NO_INTERACTION", "1")
     shelltools.export("EXTENSION_DIR", "/usr/lib/php/modules")
 
@@ -86,18 +88,18 @@ def setup():
                       --with-imap=shared \
                       --with-openssl=shared \
                       --with-imap-ssl \
-		      --with-mysql-sock=/run/mysqld/mysqld.sock"
+                      --with-mysql-sock=/run/mysqld/mysqld.sock"
 
-    # Enable FastCGI, needs Apache disabled
+    # Enable FastCGI and CGI
     shelltools.cd("fcgi")
-    autotools.configure("--enable-fastcgi \
-                         --enable-force-cgi-redirect \
+    autotools.configure("--enable-cgi \
+                         --disable-cli \
                          --with-config-file-path=/etc/php/cli \
                          --with-config-file-scan-dir=/etc/php/cli/ext \
                          %s \
                          %s" % (common_options, extensions()))
 
-    # Now compile with Apache enabled
+    # Enable Apache
     shelltools.cd("../apache")
     autotools.configure("--with-apxs2=/usr/bin/apxs \
                          --disable-cli \
@@ -105,6 +107,17 @@ def setup():
                          --with-config-file-scan-dir=/etc/php/apache2/ext \
                          %s \
                          %s" % (common_options, extensions()))
+    # Enable FPM
+    shelltools.cd("../fpm")
+    autotools.configure("--enable-fpm \
+                         --disable-cli \
+                         --with-fpm-user=apache \
+                         --with-fpm-group=apache \
+                         --with-config-file-path=/etc/php/apache2 \
+                         --with-config-file-scan-dir=/etc/php/apache2/ext \
+                         %s \
+                         %s" % (common_options, extensions()))
+
 
 def build():
     shelltools.cd("fcgi")
@@ -113,6 +126,10 @@ def build():
 
     shelltools.cd("../apache")
     autotools.make()
+
+    shelltools.cd("../fpm")
+    autotools.make()
+
 
 def check():
     shelltools.cd("apache")
@@ -125,6 +142,9 @@ def install():
 
     shelltools.cd("../apache")
     autotools.rawInstall("INSTALL_ROOT=\"%s\"" % get.installDIR(), "install-sapi")
+
+    shelltools.cd("../fpm")
+    autotools.rawInstall("INSTALL_ROOT=\"%s\"" % get.installDIR(), "install-fpm")
 
     shelltools.cd("..")
 
@@ -145,6 +165,10 @@ def install():
     # Operations for php-imap package
     pisitools.dosym("/etc/php/ext/11-php-imap.ini", "/etc/php/cli/ext/11-php-imap.ini")
     pisitools.dosym("/etc/php/ext/11-php-imap.ini", "/etc/php/apache2/ext/11-php-imap.ini")
-    
-    #Session path to /tmp
-    pisitools.dosed("%s/etc/php/*/php.ini" % get.installDIR(), ";session.save_path = \"/var/lib/php5\"", "session.save_path = \"/tmp\"")
+
+    # Move /var/run to run
+    pisitools.domove("/var/run", "/")
+
+    pisitools.remove("/etc/php-fpm.conf.default")
+
+    pisitools.dodir("/var/log/php-fpm/")
