@@ -13,6 +13,7 @@ def setup():
     shelltools.system(" tar xJvf pisi-azur.tar.xz")
     shelltools.move("pisi-azur", "razorqt-resources/themes/")
     cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DCMAKE_INSTALL_LIBDIR=/usr/lib \
                           -DCMAKE_BUILD_TYPE=Release \
                           -DENABLE_POLICYKIT=ON \
                           -DBUNDLE_XDG_UTILS=Yes \
