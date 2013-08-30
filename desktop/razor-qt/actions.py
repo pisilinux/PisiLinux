@@ -12,7 +12,7 @@ from pisi.actionsapi import shelltools
 def setup():
     shelltools.system(" tar xJvf pisi-azur.tar.xz")
     shelltools.move("pisi-azur", "razorqt-resources/themes/")
-    pisitools.dosed("cmake/RazorLibSuffix.cmake","lib64","lib")
+    #pisitools.dosed("cmake/RazorLibSuffix.cmake","lib64","lib")
     cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
                           -DCMAKE_INSTALL_LIBDIR=/usr/lib \
                           -DCMAKE_BUILD_TYPE=Release \
