@@ -9,6 +9,6 @@ from pisi.actionsapi import pisitools
 
 def install():
     pisitools.insinto("/usr/share/cute-giraffe", "*")
-    pisitools.dosym("/usr/share/cute-giraffe/PyQt-giraff.pyw", "/usr/bin/cute-giraffe")
+    pisitools.dosym("/usr/share/cute-giraffe/cutegiraffe.pyw", "/usr/bin/cute-giraffe")
 
     pisitools.dodoc("COPYING","README")
