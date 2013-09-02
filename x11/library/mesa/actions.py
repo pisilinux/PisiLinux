@@ -11,19 +11,17 @@ from pisi.actionsapi import get
 Libdir = "/usr/lib32" if get.buildTYPE() == "emul32" else "/usr/lib"
 
 def setup():
-    shelltools.export("CFLAGS", "%s -DNDEBUG" % get.CFLAGS())
-
     autotools.autoreconf("-vif")
 
     # gallium-lvm is enabled by default by commit a86fc719d6402eb482657707741890e69e81700f
-    options ="--enable-pic \
+    options ="\
               --with-dri-driverdir=/usr/lib/xorg/modules/dri \
               --with-gallium-drivers=r300,r600,nouveau,svga,swrast \
               --with-dri-drivers=i915,i965,r200,radeon,nouveau,swrast \
               --enable-gallium-llvm \
               --enable-egl \
               --enable-gallium-egl \
-              --with-egl-platforms=x11,drm \
+              --with-egl-platforms=x11,drm,wayland \
               --enable-shared-glapi \
               --enable-gbm \
               --enable-glx-tls \
@@ -34,7 +32,8 @@ def setup():
               --enable-gles2 \
               --enable-texture-float \
               --enable-xa \
-              --enable-vdpau "
+              --enable-vdpau \
+             "
 
     if get.buildTYPE() == "emul32":
         # compile with llvm doesn't work for now, test it later
@@ -44,8 +43,9 @@ def setup():
                      --enable-32-bit"
 
     autotools.configure(options)
-
-    #pisitools.dosed("configs/autoconf", "(PYTHON_FLAGS) = .*", r"\1 = -t")
+    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
+    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
+    pisitools.dosed("libtool","( -shared )", " -Wl,--as-needed\\1")
 
 def build():
 #    autotools.make("-C src/glsl glsl_lexer.cpp")
