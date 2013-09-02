@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-libexec = "/tmp" if get.buildTYPE() == "emul32" else "/usr/libexec/at-spi2"
+libexec = "/usr/libexec/at-spi2" if get.buildTYPE() == "emul32" else "/tmp"
 
 def setup():
     autotools.configure("--disable-static \
