@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 libexec = "/tmp" if get.buildTYPE() == "emul32" else "/usr/libexec/at-spi2"
 
 def setup():
@@ -24,7 +23,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.removeDir("/etc")
+    #pisitools.removeDir("/etc")
     if get.buildTYPE() == "emul32":
         pisitools.removeDir("/tmp")
         return
