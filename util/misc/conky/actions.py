@@ -9,7 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-  autotools.rawConfigure("--prefix=/usr")
+    autotools.configure("--prefix=/usr \
+                         --sysconfdir=/etc")
  
 def build():
   autotools.make()
