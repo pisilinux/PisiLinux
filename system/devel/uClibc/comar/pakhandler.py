@@ -14,5 +14,8 @@ def updateLdSoConf(filepath):
 def setupPackage(metapath, filepath):
     updateLdSoConf(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     updateLdSoConf(filepath)

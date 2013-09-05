@@ -47,5 +47,8 @@ def checkPaths(filepath):
 def setupPackage(metapath, filepath):
     checkPaths(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     checkPaths(filepath)

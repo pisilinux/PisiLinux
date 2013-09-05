@@ -41,6 +41,9 @@ def setupPackage(metapath, filepath):
     doenv(doc.tags("File"))
     docopy(doc.tags("File"))
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     doc = piksemel.parse(filepath)
     doenv(doc.tags("File"))

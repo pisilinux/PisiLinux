@@ -16,5 +16,8 @@ def updateData(filepath):
 def setupPackage(metapath, filepath):
     updateData(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     updateData(filepath)

@@ -17,5 +17,8 @@ def generate_initramfs(filepath):
 def setupPackage(metapath, filepath):
     generate_initramfs(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     generate_initramfs(filepath)

@@ -32,5 +32,8 @@ def removeByteCompiled(filepath):
 def setupPackage(metapath, filepath):
     byteCompile(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     removeByteCompiled(filepath)

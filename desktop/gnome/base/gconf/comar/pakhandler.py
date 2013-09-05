@@ -33,3 +33,6 @@ def setupPackage(metapath, filepath):
 
 def cleanupPackage(metapath, filepath):
     uninstallGconfSchemas(filepath)
+
+def postCleanupPackage(metapath, filepath):
+    pass
