@@ -9,11 +9,8 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-<<<<<<< HEAD
     pisitools.flags.add("-fPIC -fno-strict-aliasing")
 
-=======
->>>>>>> 2b7e3302935a4bc27625a0672d0f58ba622c9426
     autotools.configure("--disable-static \
                          --libexecdir=/usr/lib/evolutiondataserver \
                          --enable-vala-bindings \
