@@ -6,23 +6,10 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    pisitools.dosed("configure.ac", "DG_DISABLE_DEPRECATED", deleteLine = True)
-    autotools.autoreconf("-fiv")
-    autotools.configure("--enable-manpages \
-                         --disable-strict \
-                         --disable-coverage \
-                         --enable-gcrypt \
-                         --enable-introspection \
-                         --disable-vala \
-                         --disable-static")
-
-    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()
@@ -31,4 +18,3 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "NEWS", "README")
-
