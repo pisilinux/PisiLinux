@@ -10,9 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 shelltools.export("HOME", get.workDIR())
-
-ARCH = get.ARCH().replace("686", "386")
-
+ARCH =("x86_64")
 buildDir = "build/release-linux-%s" % ARCH
 dataDir = "/usr/share/smokinguns"
 
@@ -20,7 +18,7 @@ def build():
     autotools.make("DEFAULT_BASEDIR=%s copyfiles" % dataDir)
 
 def install():
-    pisitools.insinto("/usr/bin", "%s/smokinguns.%s" % (buildDir, ARCH), "smokinguns")
-    pisitools.insinto("/usr/bin", "%s/smokinguns_dedicated.%s" % (buildDir, ARCH), "smokinguns-server")
-
+    pisitools.insinto("/usr/share/smokinguns", "%s/smokinguns.%s" % (buildDir, ARCH), "smokinguns.x86_64")
+    pisitools.insinto("/usr/share/smokinguns", "%s/smokinguns_dedicated.%s" % (buildDir, ARCH), "smokinguns_dedicated.x86_64")
     pisitools.dodoc("BUGS", "ChangeLog", "TODO", "README", "*.txt")
+    
