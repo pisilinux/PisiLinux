@@ -20,8 +20,8 @@ shelltools.export("CFLAGS", "%s fPIC fnostrictaliasing" % get.CFLAGS())
     autotools.autoreconf("fi") 
     autotools.configure("--disablestatic \
                          --libexecdir=/usr/lib/evolutiondataserver \
-                         --enablevalabindings \
-                         --disableuoa")
+                         --enable-vala-bindings \
+                         --disable-uoa")
 
 def build():
     autotools.make()
