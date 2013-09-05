@@ -10,15 +10,17 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-shelltools.export("CFLAGS", "%s fPIC fnostrictaliasing" % get.CFLAGS())
+
 
  def setup():
-    autotools.aclocal("I m4")
-    autotools.autoheader()
-    libtools.libtoolize()
-    shelltools.system("intltoolize force copy automake")
-    autotools.autoreconf("fi") 
-    autotools.configure("--disablestatic \
+     pisitools.flags.add("-fPIC fnostrictaliasing")
+
+     autotools.aclocal("I m4")
+     autotools.autoheader()
+     libtools.libtoolize()
+     shelltools.system("intltoolize force copy automake")
+     autotools.autoreconf("fi")
+     autotools.configure("--disablestatic \
                          --libexecdir=/usr/lib/evolutiondataserver \
                          --enable-vala-bindings \
                          --disable-uoa")
