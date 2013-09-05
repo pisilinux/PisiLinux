@@ -12,15 +12,15 @@ from pisi.actionsapi import get
 
 
 
- def setup():
-     pisitools.flags.add("-fPIC fnostrictaliasing")
+def setup():
+    pisitools.flags.add("-fPIC fnostrictaliasing")
 
-     autotools.aclocal("I m4")
-     autotools.autoheader()
-     libtools.libtoolize()
-     shelltools.system("intltoolize force copy automake")
-     autotools.autoreconf("fi")
-     autotools.configure("--disablestatic \
+    autotools.aclocal("I m4")
+    autotools.autoheader()
+    libtools.libtoolize()
+    shelltools.system("intltoolize force copy automake")
+    autotools.autoreconf("fi")
+    autotools.configure("--disablestatic \
                          --libexecdir=/usr/lib/evolutiondataserver \
                          --enable-vala-bindings \
                          --disable-uoa")
