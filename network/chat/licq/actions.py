@@ -2,50 +2,34 @@
 # -*- coding: utf-8 -*-
 #
 # Licensed under the GNU General Public License, version 3.
-# See the file http://www.gnu.org/licenses/gpl.txt
+# See the file http://www.gnu.org/copyleft/gpl.txt
 
-from pisi.actionsapi import autotools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
-from pisi.actionsapi import cmaketools
 
-shelltools.export("LDFLAGS", "%s -pthread" % get.LDFLAGS())
-shelltools.export("HOME", get.workDIR())
-
-# Optional Plugins, Licq need at least one plugin to work
-plugins = ["auto-reply", \
-           "console", \
-           "forwarder", \
-           "jabber" , \
-           "msn", \
-           "osd", \
-           "qt4-gui", \
-           "rms"]
 
 def setup():
-    cmaketools.configure()
-    for name in plugins:
-        shelltools.cd("plugins/%s" % name)
-        cmaketools.configure(" -DCMAKE_MODULE_PATH=%s/%s/cmake -DLicq_INCLUDE_DIR=%s/%s/include" % (get.workDIR(), get.srcDIR(), get.workDIR(), get.srcDIR()))
-        shelltools.cd("../..")
+    shelltools.makedirs("build")
+    shelltools.cd("build")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DUSE_OPENSSL=ON \
+                          -DBUILD_PLUGINS=ON", sourceDir="..")
+
 
 def build():
+    shelltools.cd("build")
     cmaketools.make()
-    for name in plugins:
-        shelltools.cd("plugins/%s" % name)
-        cmaketools.make()
-        shelltools.cd("../..")
+
 
 def install():
+    shelltools.cd("build")
     cmaketools.install()
-    for name in plugins:
-        shelltools.cd("plugins/%s" % name)
-        autotools.rawInstall('DESTDIR="%s"'  % get.installDIR())
-        shelltools.cd("../..")
+    shelltools.cd("..")
 
     # Licq-web plugin
     pisitools.dodir("/var/www/localhost/htdocs")
     pisitools.insinto("/var/www/localhost/htdocs/", "plugins/licqweb/")
 
-    pisitools.dodoc("README", "README.GPG", "README.OPENSSL", "doc/*")
+    pisitools.dodoc("LICENSE", "README", "README.GPG", "README.OPENSSL", "doc/*")
