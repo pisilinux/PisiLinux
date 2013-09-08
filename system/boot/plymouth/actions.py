@@ -4,15 +4,19 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
 LOGO_FILE = "/usr/share/pixmaps/plymouth-pisilinux.png"
 THEMEPATH = "/usr/share/plymouth/themes"
 
 def setup():
+    # /var/run => /run
+    pisitools.dosed("configure.ac", "^(\s+plymouthruntimedir=)\$localstatedir(\/run\/plymouth)", r"\1\2")
+    pisitools.dosed("src/Makefile.am", "^(plymouthdrundir\s=\s)\$\(localstatedir\)(\/run\/plymouth)", r"\1\2")
+
     autotools.autoreconf("-fis")
 
     # The end-start colors seems to be used by the two-step plugin
