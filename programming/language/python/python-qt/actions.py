@@ -23,7 +23,7 @@ def setup():
 
     shelltools.cd("../build_python3/%s" % WorkDir)
     pisitools.dosed("configure.py", "  check_license()", "# check_license()")
-    pythonmodules.run("configure.py -q /usr/bin/qmake", pyVer = "3")
+    pythonmodules.run("configure.py  --verbose -q /usr/bin/qmake", pyVer = "3")
 
 def build():
     autotools.make()
