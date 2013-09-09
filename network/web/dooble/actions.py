@@ -9,16 +9,16 @@ from pisi.actionsapi import pisitools
 WorkDir = "dooble.d/trunk/browser/"
 
 def setup():
-	shelltools.system("/usr/bin/qmake -o Makefile dooble.pro")
+    shelltools.system("/usr/bin/qmake -o Makefile dooble.pro")
 
 def build():
-	autotools.make()
+    autotools.make()
 
 def install():
     install_dirs = ["Icons","Images","Tab","Dooble"]
     for i in install_dirs:
             pisitools.insinto("/opt/dooble",i)
-    install_dirs = ["LibSpotOn/libspoton.o","LibSpotOn/libspoton.so","LibSpotOn/test"]
+    install_dirs = ["libSpotOn/libspoton.o","libSpotOn/libspoton.so","libSpotOn/test"]
     for i in install_dirs:
             pisitools.insinto("/usr/local/dooble/Lib",i)
     pisitools.dodoc("Doc/*")

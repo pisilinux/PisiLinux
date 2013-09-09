@@ -15,5 +15,8 @@ def domodules(filepath):
 def setupPackage(metapath, filepath):
     domodules(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     domodules(filepath)

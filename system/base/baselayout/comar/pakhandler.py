@@ -26,5 +26,8 @@ def update_ld_so_cache(filepath):
 def setupPackage(metapath, filepath):
     update_ld_so_cache(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     update_ld_so_cache(filepath)

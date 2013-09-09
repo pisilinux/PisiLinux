@@ -22,3 +22,6 @@ def setupPackage(metapath, filepath):
 
 def cleanupPackage(metapath, filepath):
     doinfo(filepath, True)
+
+def postCleanupPackage(metapath, filepath):
+    pass

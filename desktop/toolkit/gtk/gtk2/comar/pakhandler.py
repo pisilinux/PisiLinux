@@ -20,22 +20,22 @@ def updateData(filepath):
                 return
 
         if fnmatch.fnmatch(path, "usr/lib/gtk-2.0/*immodules/*.so") and not immoduleFound:
-            os.system("/usr/bin/gtk-query-immodules-2.0 > /etc/gtk-2.0/gtk.immodules")
+            os.system("/usr/bin/gtk-query-immodules-2.0 --update-cache")
             immoduleFound = True
             if iconFound:
                 return
 
         if fnmatch.fnmatch(path, "usr/lib32/gtk-2.0/*immodules/*.so") and not immoduleFound:
-            immodulesdir = "/etc/gtk-2.0/32bit"
-            if not os.path.exists(immodulesdir):
-                os.makedirs(immodulesdir, 0755)
-            os.system("/usr/bin/gtk-query-immodules-2.0-32bit > %s/gtk.immodules" % immodulesdir)
+            os.system("/usr/bin/gtk-query-immodules-2.0-32bit --update-cache")
             immoduleFound = True
             if iconFound:
                 return
 
 def setupPackage(metapath, filepath):
     updateData(filepath)
+
+def cleanupPackage(metapath, filepath):
+    pass
 
 def postCleanupPackage(metapath, filepath):
     updateData(filepath)

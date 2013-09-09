@@ -17,5 +17,8 @@ def updateMimeTypes(filepath):
 def setupPackage(metapath, filepath):
     updateMimeTypes(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     updateMimeTypes(filepath)

@@ -14,5 +14,8 @@ def updateCache(filepath):
 def setupPackage(metapath, filepath):
     updateCache(filepath)
 
+def cleanupPackage(metapath, filepath):
+    pass
+
 def postCleanupPackage(metapath, filepath):
     updateCache(filepath)
