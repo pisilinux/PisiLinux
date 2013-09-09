@@ -16,7 +16,7 @@ def setup():
     
     shelltools.cd("build/workspaces/")
     shelltools.system("./update-workspaces.sh \
-                        --with-system-mozjs185 \
+                        --enable-atlas \
                         --with-system-enet \
                         JOBS=%s" % get.makeJOBS())
 
