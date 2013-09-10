@@ -167,4 +167,6 @@ def install():
 
     #Create /etc/udev/rules.d for backward compatibility
     pisitools.dodir("/etc/udev/rules.d")
+
+    pisitools.dodir("/run/udev")
     pisitools.dodoc("README", "TODO")
