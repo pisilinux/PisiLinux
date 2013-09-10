@@ -229,7 +229,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                 (111, "ldap", "OpenLDAP", "/dev/null", "/bin/false", "", ["ldap"], [], []),
                 (112, "clamav", "Clamav", "/dev/null", "/bin/false", "", ["clamav"], [], []),
                 (113, "ntlmaps", "NTLMaps", "/dev/null", "/bin/false", "", ["ntlmaps"], [], []),
-                (120, "avahi", "Avahi mDNS/DNS-SD Stack", "/var/run/avahi-daemon", "/sbin/nologin", "", ["avahi"], [], []),
+                (120, "avahi", "Avahi mDNS/DNS-SD Stack", "/run/avahi-daemon", "/sbin/nologin", "", ["avahi"], [], []),
                 (121, "avahi-autoipd", "Avahi IPv4LL Stack", "/var/lib/avahi-autoipd", "/sbin/nologin", "", ["avahi-autoipd"], [], []),
                 (123, "ntp", "NTP", "/dev/null", "/bin/false", "", ["ntp"], [], []),
                 (130, "tss", "tss", "/var/lib/tpm", "/bin/false", "", ["tss"], [], []),
@@ -240,7 +240,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                 (135, "radiusd", "Freeradius", "/dev/null", "/bin/false", "", ["radiusd"], [], []),
                 (136, "oprofile", "oprofile", "/dev/null", "/bin/false", "", ["oprofile"], [], []),
                 (137, "mediatomb", "mediatomb", "/dev/null", "/bin/false", "", ["mediatomb"], [], []),
-                (138, "pulse", "PulseAudio System Daemon", "/var/run/pulse", "/bin/false", "", ["pulse", "pulse-access", "pulse-rt", "audio"], [], []),
+                (138, "pulse", "PulseAudio System Daemon", "/run/pulse", "/bin/false", "", ["pulse", "pulse-access", "pulse-rt", "audio"], [], []),
                 (139, "quasselcore", "Quassel IRC System", "/var/cache/quassel", "/bin/false", "", ["quassel"], [], []),
                 (140, "bitlbee", "Bitlbee Gateway", "/var/lib/bitlbee", "/bin/false", "", ["bitlbee"], [], []),
                 (141, "spamd", "Spamassassin Daemon", "/var/lib/spamd", "/bin/false", "", [], [], []),
@@ -248,7 +248,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                 (146, "gnokii", "Gnokii system user", "/", "/sbin/nologin", "", ["gnokii"], [], []),
                 (150, "svn", "Subversion", "/dev/null", "/bin/false", "", ["svn"], [], []),
                 (151, "icecast", "Icecast Server", "/dev/null", "/bin/false", "", ["icecast"], [], []),
-                (152, "memcached", "Memcached daemon", "/var/run/memcached", "/bin/false", "", ["memcached"], [], []),
+                (152, "memcached", "Memcached daemon", "/run/memcached", "/bin/false", "", ["memcached"], [], []),
                 (153, "rtkit", "RealtimeKit", "/proc", "/sbin/nologin", "", ["rtkit"], [], []),
                 (154, "nm-openconnect", "NetworkManager user for OpenConnect", "/", "/sbin/nologin", "", ["nm-openconnect"], [], []),
                 (160, "usbmuxd", "usbmuxd daemon", "/", "/sbin/nologin", "", ["usbmuxd"], [], []),
@@ -286,8 +286,8 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     if not os.path.exists("/var/log/lastlog"):
         os.system("/bin/touch /var/log/lastlog")
 
-    if not os.path.exists("/var/run/utmp"):
-        os.system("/usr/bin/install -m 0664 -g utmp /dev/null /var/run/utmp")
+    if not os.path.exists("/run/utmp"):
+        os.system("/usr/bin/install -m 0664 -g utmp /dev/null /run/utmp")
 
     if not os.path.exists("/var/log/wtmp"):
         os.system("/usr/bin/install -m 0664 -g utmp /dev/null /var/log/wtmp")
