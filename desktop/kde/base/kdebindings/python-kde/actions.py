@@ -9,10 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
     kde4.configure("-DPYKDEUIC4_ALTINSTALL=TRUE")
+    pisitools.dosed("tools/pykdeuic4/pykdeuic4.py", "(winfo = comp.compileUi\(uifile, output, None)\)", r"\1, '')")
 
 def build():
     kde4.make()
