@@ -29,12 +29,10 @@ def install():
     pisitools.insinto("/etc/radiusclient", "pppd/plugins/radius/etc/*")
 
     # Remove unused directory, the log file is at /var/log/ppp.log
-    pisitools.removeDir("/var/log")
+    pisitools.removeDir("/var")
 
     # Create peers directory
     pisitools.dodir("/run/ppp")
     pisitools.dodir("/etc/ppp/peers")
 
     pisitools.dodoc("Changes*", "README*", "FAQ")
-
-    pisitools.removeDir("var")
