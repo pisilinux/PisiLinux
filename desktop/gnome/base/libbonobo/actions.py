@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
 def setup():
-    pisitools.dosed("activation-server/", "DG_DISABLE_DEPRECATED", namePattern = "Makefile\.(am|in)", deleteLine = True)
+    pisitools.dosed("activation-server/", "DG_DISABLE_DEPRECATED", filePattern = "Makefile\.(am|in)", deleteLine = True)
     autotools.autoreconf("-fiv")
     autotools.configure("--disable-static \
                          --enable-bonobo-activation-debug=no")

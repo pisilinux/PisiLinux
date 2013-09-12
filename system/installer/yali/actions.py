@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     # change slider direction
-    pisitools.dosed("yali/gui/Ui/", "RightToLeft", "LeftToRight", namePattern="^(logicalvolume|partition)\..*")
+    pisitools.dosed("yali/gui/Ui/", "RightToLeft", "LeftToRight", filePattern="^(logicalvolume|partition)\..*")
 
     # let progressbar starts from 0
     pisitools.dosed("yali/gui/Ui/installprogress.ui", ">65<", ">0<")

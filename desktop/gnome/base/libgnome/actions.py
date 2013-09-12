@@ -8,7 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    pisitools.dosed("libgnome/", "DG_DISABLE_DEPRECATED", namePattern = "Makefile\.(am|in)", deleteLine = True)
+    pisitools.dosed("libgnome/", "DG_DISABLE_DEPRECATED", filePattern = "Makefile\.(am|in)", deleteLine = True)
     autotools.autoreconf("-fiv")
     autotools.configure("--disable-static \
                          --disable-schemas-install \
