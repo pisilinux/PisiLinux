@@ -28,11 +28,12 @@ def setup():
                          --enable-react \
                          --enable-flexresp3 \
                          --enable-shared-rep \
-                         --enable-intel-soft-cp \
                          --disable-react \
                          --enable-non-ether-decoders \
                          --enable-ha \
                          --disable-corefiles \
+                         --with-daq-libraries=/usr/lib/ \
+                         --with-daq-includes=/usr/include \
                          --enable-gdb \
                          --enable-inline-init-failopen \
                          --enable-linux-smp-stats \
