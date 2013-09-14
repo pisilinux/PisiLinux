@@ -43,6 +43,7 @@ def build():
             continue
 
         shelltools.cd(package)
+        if package.startswith("xfwp"): pisitools.dosed("io.c", "^(#include <unistd.h>)", r"#define __USE_XOPEN\n\1")
         autotools.make()
         shelltools.cd("../")
 
