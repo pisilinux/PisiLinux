@@ -10,7 +10,6 @@ from pisi.actionsapi import get
 
 def setup():
     kde4.configure("-DPYKDEUIC4_ALTINSTALL=TRUE")
-    pisitools.dosed("tools/pykdeuic4/pykdeuic4.py", "(winfo = comp.compileUi\(uifile, output, None)\)", r"\1, '')")
 
 def build():
     kde4.make()
