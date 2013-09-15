@@ -12,11 +12,12 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure("-DK3B_BUILD_K3BSETUP:BOOL=OFF \
-                    -DK3B_BUILD_FFMPEG_DECODER_PLUGIN:BOOL=OFF \
-                    -DK3B_BUILD_LAME_ENCODER_PLUGIN:BOOL=OFF \
-                    -DK3B_BUILD_MAD_DECODER_PLUGIN:BOOL=OFF \
-                    -DK3B_ENABLE_HAL_SUPPORT:BOOL=OFF")
+    kde4.configure("-DK3B_BUILD_K3BSETUP:BOOL=OFF")
+             
+                    #-DK3B_BUILD_FFMPEG_DECODER_PLUGIN:BOOL=OFF \
+                    #-DK3B_BUILD_LAME_ENCODER_PLUGIN:BOOL=OFF \
+                    #-DK3B_BUILD_MAD_DECODER_PLUGIN:BOOL=OFF \
+                    #-DK3B_ENABLE_HAL_SUPPORT:BOOL=OFF
 
 def build():
     kde4.make()
