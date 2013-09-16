@@ -8,22 +8,23 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
+import os
+
 WorkDir = "."
 NoStrip = "/"
+datadir = "/usr/share/WoP"
 
-def setup():
-    shelltools.chmod("worldofpadman.run", 0755)
-
-    shelltools.system("./worldofpadman.run \
-                       --noexec \
-                       --target %s" % get.workDIR())
-
-    shelltools.system("tar -xvf wop-data.tar")
-    shelltools.system("tar -xvf readme.tar")
+def fixperms(d):
+    for root, dirs, files in os.walk(d):
+        for name in dirs:
+            shelltools.chmod(os.path.join(root, name), 0755)
+        for name in files:
+            shelltools.chmod(os.path.join(root, name), 0644)
 
 def install():
-    pisitools.insinto("/usr/share/WoP/wop", "*.pk*")
-    pisitools.insinto("/usr/share/WoP/wop", "*.cfg")
+    for dir in ["wop"]:
+        fixperms(dir)
+        pisitools.insinto(datadir, dir)
 
-    pisitools.dodoc("README*", "*.txt")
-    pisitools.dohtml("readme/*", "readme.html")
+    pisitools.dodoc("XTRAS/*.txt")
+    pisitools.dohtml("XTRAS/readme.html")
