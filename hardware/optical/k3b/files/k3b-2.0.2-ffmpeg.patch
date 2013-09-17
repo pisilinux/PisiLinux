@@ -1,17 +1,33 @@
-commit 61ca30beb978f68e72257408777c6433f33129bd
-Author: Michal Malek <michalm@jabster.pl>
-Date:   Sun Aug 28 20:18:53 2011 +0200
-
-    Fixed compilation with new FFMPEG
-    
-    BUG: 274817
-    FIXED-IN: 2.0.3
-
-diff --git a/plugins/decoder/ffmpeg/k3bffmpegwrapper.cpp b/plugins/decoder/ffmpeg/k3bffmpegwrapper.cpp
-index 0ad59fc..0c5f366 100644
---- a/plugins/decoder/ffmpeg/k3bffmpegwrapper.cpp
-+++ b/plugins/decoder/ffmpeg/k3bffmpegwrapper.cpp
-@@ -109,7 +109,13 @@ bool K3bFFMpegFile::open()
+diff -Nuar a/plugins/decoder/ffmpeg/k3bffmpegwrapper.cpp b/plugins/decoder/ffmpeg/k3bffmpegwrapper.cpp
+--- a/plugins/decoder/ffmpeg/k3bffmpegwrapper.cpp	2011-01-15 22:47:29.000000000 +0200
++++ b/plugins/decoder/ffmpeg/k3bffmpegwrapper.cpp	2013-09-17 21:21:17.185769783 +0300
+@@ -55,7 +55,7 @@
+     K3b::Msf length;
+ 
+     // for decoding. ffmpeg requires 16-byte alignment.
+-    char outputBuffer[AVCODEC_MAX_AUDIO_FRAME_SIZE + 15];
++    char outputBuffer[192000L + 15];
+     char* alignedOutputBuffer;
+     char* outputBufferPos;
+     int outputBufferSize;
+@@ -88,14 +88,14 @@
+     close();
+ 
+     // open the file
+-    int err = ::av_open_input_file( &d->formatContext, m_filename.toLocal8Bit(), 0, 0, 0 );
++    int err = ::avformat_open_input( &d->formatContext, m_filename.toLocal8Bit(), 0, 0 );;
+     if( err < 0 ) {
+         kDebug() << "(K3bFFMpegFile) unable to open " << m_filename << " with error " << err;
+         return false;
+     }
+ 
+     // analyze the streams
+-    ::av_find_stream_info( d->formatContext );
++    ::avformat_find_stream_info( d->formatContext, 0 );
+ 
+     // we only handle files containing one audio stream
+     if( d->formatContext->nb_streams != 1 ) {
+@@ -109,7 +109,13 @@
  #else
      ::AVCodecContext* codecContext =  d->formatContext->streams[0]->codec;
  #endif
@@ -26,7 +42,25 @@ index 0ad59fc..0c5f366 100644
          kDebug() << "(K3bFFMpegFile) not a simple audio stream: " << m_filename;
          return false;
      }
-@@ -225,8 +231,11 @@ QString K3bFFMpegFile::typeComment() const
+@@ -123,7 +129,7 @@
+ 
+     // open the codec on our context
+     kDebug() << "(K3bFFMpegFile) found codec for " << m_filename;
+-    if( ::avcodec_open( codecContext, d->codec ) < 0 ) {
++    if( ::avcodec_open2( codecContext, d->codec, NULL ) < 0 ) {
+         kDebug() << "(K3bFFMpegDecoderFactory) could not open codec.";
+         return false;
+     }
+@@ -137,7 +143,7 @@
+     }
+ 
+     // dump some debugging info
+-    ::dump_format( d->formatContext, 0, m_filename.toLocal8Bit(), 0 );
++    ::av_dump_format( d->formatContext, 0, m_filename.toLocal8Bit(), 0 );
+ 
+     return true;
+ }
+@@ -225,8 +231,11 @@
  QString K3bFFMpegFile::title() const
  {
      // FIXME: is this UTF8 or something??
@@ -40,7 +74,7 @@ index 0ad59fc..0c5f366 100644
      else
          return QString();
  }
-@@ -235,8 +244,11 @@ QString K3bFFMpegFile::title() const
+@@ -235,8 +244,11 @@
  QString K3bFFMpegFile::author() const
  {
      // FIXME: is this UTF8 or something??
@@ -54,7 +88,7 @@ index 0ad59fc..0c5f366 100644
      else
          return QString();
  }
-@@ -245,8 +257,11 @@ QString K3bFFMpegFile::author() const
+@@ -245,8 +257,11 @@
  QString K3bFFMpegFile::comment() const
  {
      // FIXME: is this UTF8 or something??
@@ -68,7 +102,13 @@ index 0ad59fc..0c5f366 100644
      else
          return QString();
  }
-@@ -309,8 +324,13 @@ int K3bFFMpegFile::fillOutputBuffer()
+@@ -304,12 +319,16 @@
+         }
+ 
+         d->outputBufferPos = d->alignedOutputBuffer;
+-        d->outputBufferSize = AVCODEC_MAX_AUDIO_FRAME_SIZE;
++        d->outputBufferSize = 192000L;
+ 
  #if LIBAVCODEC_VERSION_MAJOR < 52
          int len = ::avcodec_decode_audio(
  #else
@@ -78,11 +118,9 @@ index 0ad59fc..0c5f366 100644
          int len = ::avcodec_decode_audio2(
 +   #endif
  #endif
-+
  #ifdef FFMPEG_BUILD_PRE_4629
              &d->formatContext->streams[0]->codec,
- #else
-@@ -318,7 +338,11 @@ int K3bFFMpegFile::fillOutputBuffer()
+@@ -318,7 +337,11 @@
  #endif
              (short*)d->alignedOutputBuffer,
              &d->outputBufferSize,
