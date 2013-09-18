@@ -1,0 +1,104 @@
+commit 130d3d68b52097c7ae081109f700b02776adcb9c
+Author: Eric Dumazet <edumazet@google.com>
+Date:   Thu Jun 6 13:56:19 2013 -0700
+
+    net_sched: psched_ratecfg_precompute() improvements
+    
+    Before allowing 64bits bytes rates, refactor
+    psched_ratecfg_precompute() to get better comments
+    and increased accuracy.
+    
+    rate_bps field is renamed to rate_bytes_ps, as we only
+    have to worry about bytes per second.
+    
+    Signed-off-by: Eric Dumazet <edumazet@google.com>
+    Cc: Ben Greear <greearb@candelatech.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ include/net/sch_generic.h |  4 ++--
+ net/sched/sch_generic.c   | 44 ++++++++++++++++++++------------------------
+ 2 files changed, 22 insertions(+), 26 deletions(-)
+
+diff -Nuar a/include/net/sch_generic.h b/include/net/sch_generic.h
+--- a/include/net/sch_generic.h	2013-09-15 04:53:28.000000000 +0300
++++ b/include/net/sch_generic.h	2013-09-15 05:01:56.155024241 +0300
+@@ -679,7 +679,7 @@
+ #endif
+ 
+ struct psched_ratecfg {
+-	u64	rate_bps;
++	u64	rate_bytes_ps; /* bytes per second */
+ 	u32	mult;
+ 	u16	overhead;
+ 	u8	linklayer;
+@@ -703,7 +703,7 @@
+ 					  const struct psched_ratecfg *r)
+ {
+ 	memset(res, 0, sizeof(*res));
+-	res->rate = r->rate_bps >> 3;
++	res->rate = r->rate_bytes_ps;
+ 	res->overhead = r->overhead;
+ 	res->linklayer = (r->linklayer & TC_LINKLAYER_MASK);
+ }
+diff -Nuar a/net/sched/sch_generic.c b/net/sched/sch_generic.c
+--- a/net/sched/sch_generic.c	2013-09-15 04:53:28.000000000 +0300
++++ b/net/sched/sch_generic.c	2013-09-15 05:06:14.608015293 +0300
+@@ -901,38 +901,34 @@
+ void psched_ratecfg_precompute(struct psched_ratecfg *r,
+ 			       const struct tc_ratespec *conf)
+ {
+-	u64 factor;
+-	u64 mult;
+-	int shift;
+-
+ 	memset(r, 0, sizeof(*r));
+ 	r->overhead = conf->overhead;
+-	r->rate_bps = (u64)conf->rate << 3;
++	r->rate_bytes_ps = conf->rate;
+ 	r->linklayer = (conf->linklayer & TC_LINKLAYER_MASK);
+ 	r->mult = 1;
+ 	/*
+-	 * Calibrate mult, shift so that token counting is accurate
+-	 * for smallest packet size (64 bytes).  Token (time in ns) is
+-	 * computed as (bytes * 8) * NSEC_PER_SEC / rate_bps.  It will
+-	 * work as long as the smallest packet transfer time can be
+-	 * accurately represented in nanosec.
++	 * The deal here is to replace a divide by a reciprocal one
++	 * in fast path (a reciprocal divide is a multiply and a shift)
++	 *
++	 * Normal formula would be :
++	 *  time_in_ns = (NSEC_PER_SEC * len) / rate_bps
++	 *
++	 * We compute mult/shift to use instead :
++	 *  time_in_ns = (len * mult) >> shift;
++	 *
++	 * We try to get the highest possible mult value for accuracy,
++	 * but have to make sure no overflows will ever happen.
+ 	 */
+-	if (r->rate_bps > 0) {
+-		/*
+-		 * Higher shift gives better accuracy.  Find the largest
+-		 * shift such that mult fits in 32 bits.
+-		 */
+-		for (shift = 0; shift < 16; shift++) {
+-			r->shift = shift;
+-			factor = 8LLU * NSEC_PER_SEC * (1 << r->shift);
+-			mult = div64_u64(factor, r->rate_bps);
+-			if (mult > UINT_MAX)
++	if (r->rate_bytes_ps > 0) {
++		u64 factor = NSEC_PER_SEC;
++
++		for (;;) {
++			r->mult = div64_u64(factor, r->rate_bytes_ps);
++			if (r->mult & (1U << 31) || factor & (1ULL << 63))
+ 				break;
++			factor <<= 1;
++			r->shift++;
+ 		}
+-
+-		r->shift = shift - 1;
+-		factor = 8LLU * NSEC_PER_SEC * (1 << r->shift);
+-		r->mult = div64_u64(factor, r->rate_bps);
+ 	}
+ }
+ EXPORT_SYMBOL(psched_ratecfg_precompute);
