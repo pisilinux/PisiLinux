@@ -25,6 +25,5 @@ def install():
     # Dont pollute Actions menu with useless service menus
     pisitools.remove("/usr/share/kde4/services/ServiceMenus/choqok_share.desktop")
     pisitools.remove("/usr/share/kde4/services/ServiceMenus/choqok_upload.desktop")
-    pisitools.remove("/usr/share/kde4/apps/cmake/modules/FindQtOAuth.cmake")
 
     pisitools.dodoc("AUTHORS", "changelog", "COPYING", "README", "TODO")
