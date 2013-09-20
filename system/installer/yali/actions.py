@@ -15,7 +15,7 @@ def setup():
     # let progressbar starts from 0
     pisitools.dosed("yali/gui/Ui/installprogress.ui", ">65<", ">0<")
 
-    repo_uri = "http://packages.pisilinux.org/repositories/1.0/testing/64/pisi-index.xml.xz" # FIXME
+    repo_uri = "http://packages.pisilinux.org/repositories/1.0/stable/x86_64/pisi-index.xml.xz" # FIXME
     pisitools.dosed("yali/constants.py", "@REPO_URI@", repo_uri)
     pisitools.dosed("yali/constants.py", "@REPO_NAME@", "pisi") # FIXME
 
