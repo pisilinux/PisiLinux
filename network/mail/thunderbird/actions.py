@@ -9,7 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-WorkDir = "comm-esr17"
+WorkDir = "comm-esr24"
 MOZAPPDIR= "/usr/lib/MozillaThunderbird"
 
 #locales = ["da", "de", "es-AR", "es-ES", "fr", "hu", "it", "nl", "pl", "pt-BR", "ru",]
@@ -63,7 +63,7 @@ def install_enigmail():
     pisitools.removeDir("%s/enigmail*.xpi" % MOZAPPDIR)
 """
 def install():
-    pisitools.insinto("/usr/lib/", "mozilla/dist/bin", "MozillaThunderbird", sym=False)
+    pisitools.insinto("/usr/lib/", "objdir/mozilla/dist/bin/", "MozillaThunderbird", sym=False)
 
     # Install language packs
     #for locale in locales:
