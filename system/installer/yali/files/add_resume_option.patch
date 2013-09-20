@@ -1,0 +1,57 @@
+diff -aur yali~/gui/ScrInstall.py yali/gui/ScrInstall.py
+--- yali~/gui/ScrInstall.py	2011-05-30 01:47:45.000000000 +0200
++++ yali/gui/ScrInstall.py	2013-08-24 15:53:31.695544967 +0200
+@@ -232,6 +232,9 @@
+         #Write InitramfsConf
+         yali.postinstall.writeInitramfsConf()
+ 
++        #set resume param in /etc/default/grub
++        yali.postinstall.setGrubResume()
++
+         # run dbus in chroot
+         yali.util.start_dbus()
+ 
+diff -aur yali~/postinstall.py yali/postinstall.py
+--- yali~/postinstall.py	2013-07-22 22:52:38.000000000 +0200
++++ yali/postinstall.py	2013-08-24 21:52:18.309758429 +0200
+@@ -11,6 +11,7 @@
+ #
+ 
+ import os
++import re
+ import time
+ import dbus
+ import shutil
+@@ -219,6 +220,32 @@
+             except IOError, msg:
+                 raise yali.Error("Unexpected error: %s" % msg)
+ 
++def setGrubResume():
++    swapDevices = ctx.storage.storageset.swapDevices
++
++    if not swapDevices:
++        ctx.logger.info("No swap devices. Skipping add resume parameter to /etc/default/grub.")
++        return
++
++    grub_default_file = os.path.join(ctx.consts.target_dir, "etc/default/grub")
++    grub_default_file_new = os.path.join(ctx.consts.target_dir, "etc/default/grub.tmp")
++    grub_default_file_bak = os.path.join(ctx.consts.target_dir, "etc/default/grub.bak")
++    if not os.path.exists(os.path.dirname(grub_default_file)):
++        raise yali.Error("setGrubResume cannnot access %s path" % grub_default_file)
++
++    grub_tmp = open(grub_default_file_new, "w")
++    with open(grub_default_file) as grub_default:
++        for line in grub_default:
++            if "GRUB_CMDLINE_LINUX_DEFAULT=" in line:
++                ctx.logger.info("Adding resume=%s to %s" % (swapDevices[0].path, grub_default_file))
++                grub_tmp.write(re.sub("(.*?)([\'\"])\s*$", "\\1 resume=%s\\2\n" % swapDevices[0].path, line))
++            else:
++                grub_tmp.write(line)
++
++    grub_tmp.close()
++    shutil.copy2(grub_default_file, grub_default_file_bak)
++    shutil.copy2(grub_default_file_new, grub_default_file)
++
+ def writeFstab():
+     ctx.logger.info("Generating fstab configuration file")
+     if ctx.storage.storageset.active:
