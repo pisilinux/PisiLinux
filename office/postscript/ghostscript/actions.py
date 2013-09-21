@@ -14,7 +14,7 @@ def setup():
     for directory in ["cups/libs", "expat", "freetype", "jpeg", "lcms", "lcms2", "libpng", "openjpeg", "tiff", "zlib"]:
         shelltools.unlinkDir(directory)
 
-    pisitools.flags.add("-fno-strict-aliasing")
+    #pisitools.flags.add("-fno-strict-aliasing")
 
     autotools.autoreconf("-fi")
 
