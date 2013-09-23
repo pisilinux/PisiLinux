@@ -9,17 +9,17 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 
-iscan_data = "iscan-data-1.8.1"
+iscan_data = "iscan-data-1.22.0"
 
 def setup():
     # Setup iscan-data
-    #shelltools.cd(iscan_data)
-    #autotools.configure()
-    #shelltools.cd("..")
+    shelltools.cd(iscan_data)
+    autotools.configure()
+    shelltools.cd("..")
 
-    #shelltools.unlink("m4/libtool.m4")
+    shelltools.unlink("m4/libtool.m4")
 
-    #shelltools.export("AUTOPOINT", "true")
+    shelltools.export("AUTOPOINT", "true")
     shelltools.export("LDFLAGS", "-ldl -lpng15")
     autotools.autoreconf("-vif")
 
@@ -33,13 +33,13 @@ def setup():
                          --disable-rpath")
 
 def build():
-    #autotools.make("-C %s" % iscan_data)
+    autotools.make("-C %s" % iscan_data)
     autotools.make()
-    #autotools.make("-C po update-po")
+    autotools.make("-C po update-po")
 
 def install():
     autotools.install()
-    #autotools.install("-C %s" % iscan_data)
+    autotools.install("-C %s" % iscan_data)
 
     # Remove unused stuff from iscan-data
     #pisitools.remove("/usr/share/iscan-data/sled10*")
