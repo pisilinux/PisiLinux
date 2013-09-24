@@ -44,7 +44,8 @@ def setup():
     vars = {"lang": langs,
             "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
-
+    
+    pisitools.dosed("sysui/desktop/menus/startcenter.desktop", "NoDisplay=true", "NoDisplay=false")
     autotools.aclocal("-I m4")
     autotools.autoconf()
     shelltools.touch("autogen.lastrun")
