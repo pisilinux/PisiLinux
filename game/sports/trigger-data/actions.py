@@ -10,8 +10,6 @@ from pisi.actionsapi import get
 
 import os
 
-WorkDir = "trigger-%s-data" % get.srcVERSION()
-
 def fixperms(d):
     for root, dirs, files in os.walk(d):
         for name in dirs:
@@ -21,11 +19,10 @@ def fixperms(d):
 
 def install():
     fixperms(".")
-    for dirs in ("maps", "fonts", "vehicles", "materials", "textures", "events", "sounds", "plugins"):
+    for dirs in ("maps", "fonts", "vehicles", "textures", "events", "sounds", "plugins"):
         shelltools.copytree(dirs, "%s/usr/share/trigger" % get.installDIR())
 
-    for files in ("crap.obj", "trigger.config.defs"):
-        pisitools.insinto("/usr/share/trigger", files)
+    pisitools.insinto("/usr/share/trigger", "trigger.config.defs")
 
     pisitools.dodoc("*.txt")
 
