@@ -9,37 +9,38 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import scons
 from pisi.actionsapi import get
 
-version = get.srcVERSION().split("_", 1)[1]
-WorkDir = "vdrift-%s-%s-%s" % (version[0:4], version[4:6], version[6:])
+import os
 
-#def setup():
-    # shelltools.export("CXXFLAGS", get.CXXFLAGS())
-    # shelltools.cd("bullet-2.66")
-    # shelltools.system("./configure")
-    # shelltools.system("jam bulletcollision bulletmath")
-    # FIXME: BSG ???
-    #shelltools.system("tar zxvf bullet-2.73-sp1.tgz")
+NoStrip = "/"
+
+def fixperms(d):
+    for root, dirs, files in os.walk(d):
+        for name in dirs:
+            shelltools.chmod(os.path.join(root, name), 0755)
+        for name in files:
+            shelltools.chmod(os.path.join(root, name), 0644)
+            if name.startswith("SConscript"):
+                shelltools.unlink(os.path.join(root, name))
+
+def setup():
+    fixperms("data")
 
 
 def build():
-    # shelltools.export("CXXFLAGS", get.CXXFLAGS())
-
-
     scons.make('release=1 \
                 destdir="%s" \
                 prefix=/usr \
                 datadir=share/vdrift \
                 bindir=bin \
                 localedir=share/locale \
-                os_cc=1 \
-                os_cxx=1 \
-                os_cxxflags=1 \
+                NLS=0 \
                 use_binreloc=0' % get.installDIR())
-
 
 def install():
     pisitools.dobin("build/vdrift")
+    pisitools.dodir("/usr/share")
+    shelltools.copytree("data", "%s/usr/share/vdrift" % get.installDIR())
 
-    pisitools.dodoc("docs/AUTHORS", "docs/ChangeLog", "docs/COPYING", "docs/NEWS", "docs/README", "docs/TODO", "docs/VAMOS.txt")
+    pisitools.dodoc("LICENSE", "README*")
 
 
