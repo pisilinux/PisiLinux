@@ -18,25 +18,26 @@ def setup():
     shelltools.export("CXXFLAGS", "%s -mmmx -msse" % get.CXXFLAGS())
 
     shelltools.makedirs("base")
-    shelltools.system("./configure 	--prefix=/usr \
-									--bindir=/usr/bin \
-									--datadir=/usr/share/ufoai \
-									--localedir=/usr/share/locale \
-									--enable-release \
-									--enable-sse \
-									--enable-cgame-campaign \
-									--enable-cgame-multiplayer \
-									--enable-cgame-skirmish \
-									--enable-cgame-staticcampaign \
-									--enable-game \
-									--enable-memory \
-									--enable-testall \
-									--enable-ufo2map \
-									--enable-ufoded \
-									--enable-ufo \
-									--enable-ufomodel \
-									--disable-uforadiant \
-									--enable-ufoslicer ")
+    shelltools.system("./configure \ 
+                       --prefix=/usr \
+                       --bindir=/usr/bin \
+                       --datadir=/usr/share/ufoai \
+                       --localedir=/usr/share/locale \
+                       --enable-release \
+                       --enable-sse \
+                       --enable-cgame-campaign \
+                       --enable-cgame-multiplayer \
+                       --enable-cgame-skirmish \
+                       --enable-cgame-staticcampaign \
+                       --enable-game \
+                       --enable-memory \
+                       --enable-testall \
+                       --enable-ufo2map \
+                       --enable-ufoded \
+                       --enable-ufo \
+                       --enable-ufomodel \
+                       --disable-uforadiant \
+                       --enable-ufoslicer ")
 
 def build():
     autotools.make()
