@@ -34,6 +34,7 @@ def fixDirs(d):
 def build():
     scons.make('CXXFLAGS="%s" \
                 LINKFLAGS="%s" \
+                LINKFLAGS=-lboost_system \
                 INSTALLDIR="/usr/share/glob2"' % (get.CXXFLAGS(), get.LDFLAGS()))
 
 
@@ -46,7 +47,3 @@ def install():
 
     fixDirs("%s/%s" % (get.installDIR(), datadir))
     pisitools.dodoc("README*", "COPYING")
-
-    # we add our own desktop file
-    # pisitools.remove("/usr/share/applications/glob2.desktop")
-
