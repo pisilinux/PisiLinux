@@ -1,0 +1,588 @@
+From: Julian Ospald <hasufell@gentoo.org>
+Date: Thu Oct 11 15:00:18 UTC 2012
+Subject: build system
+
+a) respect flags/linker
+b) don't take ARCH from env (we set BASE_ARCH in the ebuild)
+c) split LDFLAGS and LDFLAGS_COMMON as per bug
+  http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=347650
+d) don't remove angel-lib (compilation fails, why is this?)
+e) make output verbose
+f) remove start-scripts
+g) address parallel make issues
+
+--- source/Makefile
++++ source/Makefile
+@@ -30,6 +30,13 @@
+ # Build Warsow client without server capabilities?
+ BUILD_THIN_CLIENT?=NO
+ 
++# enable verbosity
++V=NO
++
++ifneq ($(V),YES)
++Q=@
++endif
++
+ ###########################################################
+ 
+ ifeq ($(USE_MINGW),YES)
+@@ -50,10 +57,10 @@
+ else
+ CC?=gcc
+ CXX?=g++
+-LD=gcc
+-LXX?=g++
+-AR=ar
+-RANLIB=ranlib
++LD=$(CC)
++LXX=$(CXX)
++AR?=ar
++RANLIB?=ranlib
+ 
+ # this nice line comes from the linux kernel makefile
+ BASE_ARCH:=$(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc/ -e s/sparc64/sparc/ -e s/arm.*/arm/ -e s/sa110/arm/ -e s/alpha/axp/)
+@@ -62,7 +69,7 @@
+ ifeq ($(OS),FreeBSD)
+ ARCH?=freebsd_$(BASE_ARCH)
+ else
+-ARCH?=$(BASE_ARCH)
++ARCH=$(BASE_ARCH)
+ endif
+ 
+ SHARED_LIBRARY_EXTENSION=so
+@@ -72,7 +79,7 @@
+ 
+ ifeq ($(DEBUG_BUILD), YES)
+ BINDIR=debug
+-CFLAGS_DEBUG=-O0 -ggdb -D_DEBUG
++CFLAGS_DEBUG=-D_DEBUG
+ else
+ BINDIR=release
+ endif
+@@ -195,9 +202,9 @@
+ LOCALBASE?=/usr/local
+ X11BASE?=/usr/X11R6
+ 
+-CFLAGS_COMMON=$(CFLAGS) -pipe -I. -I$(LOCALBASE)/include -I$(X11BASE)/include -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -Wall -Wno-unused-function -fvisibility=hidden
+-CFLAGS_RELEASE=-O2 -fno-strict-aliasing -ffast-math -funroll-loops -DNDEBUG -msse2
+-CFLAGS_DEBUG=-O0 -ggdb -D_DEBUG
++CFLAGS_COMMON=-I. -I$(LOCALBASE)/include -I$(X11BASE)/include -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -Wall -Wno-unused-function -fvisibility=hidden
++CFLAGS_RELEASE=-fno-strict-aliasing -ffast-math -funroll-loops -DNDEBUG
++CFLAGS_DEBUG=-D_DEBUG
+ ifeq ($(DEBUG_BUILD),YES)
+ CFLAGS_COMMON+=$(CFLAGS_DEBUG)
+ else
+@@ -209,18 +216,18 @@
+ CFLAGS_MODULE=-DPIC -fPIC
+ CFLAGS_TV_SERVER=-DDEDICATED_ONLY -DTV_SERVER_ONLY -DC_ONLY -DTV_MODULE_HARD_LINKED
+ 
+-LDFLAGS_COMMON=$(LDFLAGS)
+-LXXFLAGS_COMMON=$(LDFLAGS) -lstdc++ -lsupc++
++LDFLAGS_COMMON=
++LXXFLAGS_COMMON=-lstdc++ -lsupc++
+ 
+ ifeq ($(OS),FreeBSD)
+ LDFLAGS_COMMON+= -L/usr/local/lib -lm -pthread
+ else
+-LDFLAGS_COMMON+= -L/usr/local/lib -ldl -lm -O1 -Wl,--as-needed
++LDFLAGS_COMMON+= -ldl -lm
+ endif
+ 
+ ifneq ($(DEBUG_BUILD),YES)
+-LDFLAGS_COMMON+= -s
+-LXXFLAGS_COMMON+= -s
++LDFLAGS_COMMON+=
++LXXFLAGS_COMMON+=
+ endif
+ 
+ ifeq ($(ARCH),x86_64)
+@@ -298,12 +305,19 @@
+ ######################################################################################################
+ # Helper functions
+ ######################################################################################################
++ifneq ($(V),YES)
+ DO_CC=echo "  > Compiling $<" && \
+-	$(CC) $(CFLAGS_COMMON) -c $< -o $@
++      $(CC) $(CFLAGS_COMMON) $(CFLAGS) -c $< -o $@
+ DO_CXX=echo "  > Compiling (c++) $<" && \
+-	$(CXX) $(CFLAGS_COMMON) $(CXXFLAGS_COMMON) -c $< -o $@
++       $(CXX) $(CFLAGS_COMMON) $(CXXFLAGS_COMMON) $(CXXFLAGS) -c $< -o $@
+ DO_RES=echo "  > Compiling resource $<" && \
+-	$(RES) $(RESFLAGS_COMMON) -i $< -o $@
++       $(RES) $(RESFLAGS_COMMON) -i $< -o $@
++else
++DO_CC=$(CC) $(CFLAGS_COMMON) $(CFLAGS) -c $< -o $@
++DO_CXX=$(CXX) $(CFLAGS_COMMON) $(CXXFLAGS_COMMON) $(CXXFLAGS) -c $< -o $@
++DO_RES=$(RES) $(RESFLAGS_COMMON) -i $< -o $@
++endif
++
+ 
+ DO_CC_CLIENT=$(DO_CC) $(CFLAGS_CLIENT)
+ DO_CC_DED=$(DO_CC) $(CFLAGS_DED)
+@@ -505,17 +519,17 @@
+ 
+ all: client openal qf ded cgame game ui irc cin angelwrap tv_server
+ 
+-client: $(BUILDDIRS) message-client compile-client link-client start-script-client
++client: $(BUILDDIRS) message-client compile-client link-client
+ openal: $(BUILDDIRS) message-openal compile-openal link-openal
+ qf: $(BUILDDIRS) message-qf compile-qf link-qf
+-ded: $(BUILDDIRS) message-ded compile-ded link-ded start-script-ded
++ded: $(BUILDDIRS) message-ded compile-ded link-ded
+ cgame: $(BUILDDIRS) message-cgame compile-cgame link-cgame
+ game: $(BUILDDIRS) message-game compile-game link-game
+ ui: $(BUILDDIRS) message-ui compile-ui link-ui
+ irc: $(BUILDDIRS) message-irc compile-irc link-irc
+ cin: $(BUILDDIRS) message-cin compile-cin link-cin
+ angelwrap: $(BUILDDIRS) message-angelwrap compile-angelwrap link-angelwrap
+-tv_server: $(BUILDDIRS) message-tv_server compile-tv_server link-tv_server start-script-tv_server
++tv_server: $(BUILDDIRS) message-tv_server compile-tv_server link-tv_server
+ 
+ clean: clean-msg clean-depend clean-client clean-openal clean-qf clean-ded clean-cgame clean-game clean-ui clean-librocket clean-irc clean-cin clean-angelwrap clean-tv_server
+ 
+@@ -611,13 +625,14 @@
+ 	@echo "> *********************************************************"
+ compile-ui: $(OBJS_UI_ROCKET) $(LIBROCKET_LIB)
+ link-ui: $(BINDIR)/basewsw $(BINDIR)/basewsw/ui_$(ARCH).$(SHARED_LIBRARY_EXTENSION)
++$(BINDIR)/basewsw/ui_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(LIBROCKET_LIB)
+ clean-ui:
+ 	@echo "  > Removing ui objects" && \
+ 	$(RM) $(OBJS_UI_ROCKET)
+ 
+ $(LIBROCKET_LIB):
+ 	@echo "> * Building Rocket library"
+-	@CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) CXXFLAGS="$(CFLAGS)" DEBUG_BUILD=$(DEBUG_BUILD) USE_MINGW=$(USE_MINGW) $(MAKE) -C $(LIBROCKET_DIR) -f $(LIBROCKET_MAKEFILE) DEBUG_BUILD=$(DEBUG_BUILD)
++	@CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) CXXFLAGS="$(CXXFLAGS)" DEBUG_BUILD=$(DEBUG_BUILD) USE_MINGW=$(USE_MINGW) $(MAKE) -C $(LIBROCKET_DIR) -f $(LIBROCKET_MAKEFILE) DEBUG_BUILD=$(DEBUG_BUILD)
+ 	@echo "> * Done building RocketCore library."
+ 	@echo "> *********************************************************"
+ 	@echo "> * Continuing ui building..."
+@@ -656,7 +671,6 @@
+ 	@echo "> *********************************************************"
+ 	@echo "> * Building angelwrap"
+ 	@echo "> *********************************************************"
+-	-@rm $(ANGELSCRIPT_LIB)
+ $(ANGELSCRIPT_INC)/angelscript.h:
+ 	@echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+ 	@echo "!!!"
+@@ -668,7 +682,7 @@
+ 
+ $(ANGELSCRIPT_LIB): $(ANGELSCRIPT_INC)/angelscript.h
+ 	@echo "> * Building Angelscript library first"
+-	@CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) CXXFLAGS="$(CFLAGS)" $(MAKE) -C $(ANGELSCRIPT_PROJECT_DIR)
++	@CXX=$(CXX) AR=$(AR) RANLIB=$(RANLIB) CXXFLAGS="$(CXXFLAGS)" $(MAKE) -C $(ANGELSCRIPT_PROJECT_DIR)
+ 	@echo "> * Done building angelscript library."
+ 	@echo "> *********************************************************"
+ 	@echo "> * Continuing angelwrap building..."
+@@ -702,69 +716,69 @@
+ # DED
+ ########
+ $(BINDIR)/$(SERVER_EXE): $(OBJS_DED)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_DED)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_DED)
+ 
+ #########
+ # CLIENT
+ #########
+ ifeq ($(OS),Darwin)
+ $(BINDIR)/$(CLIENT_EXE): $(OBJS_CLIENT)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $(OBJS_CLIENT) mac/SDLMain.m $(LDFLAGS_COMMON) $(LDFLAGS_CLIENT)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS_CLIENT) mac/SDLMain.m $(LDFLAGS_COMMON) $(LDFLAGS_CLIENT)
+ else
+ $(BINDIR)/$(CLIENT_EXE): $(OBJS_CLIENT)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $(OBJS_CLIENT) $(LDFLAGS_COMMON) $(LDFLAGS_CLIENT)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS_CLIENT) $(LDFLAGS_COMMON) $(LDFLAGS_CLIENT)
+ endif
+ 
+ #########
+ # OPENAL
+ #########
+ $(BINDIR)/libs/snd_openal_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(OBJS_OPENAL)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_OPENAL)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_OPENAL)
+ 
+ #########
+ # QF
+ #########
+ $(BINDIR)/libs/snd_qf_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(OBJS_QF)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_QF)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_QF)
+ 
+ ########
+ # .SO
+ ########
+ $(BINDIR)/basewsw/cgame_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(OBJS_CGAME)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE)
+ 
+ $(BINDIR)/basewsw/game_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(OBJS_GAME)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE)
+ 
+ $(BINDIR)/basewsw/ui_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(OBJS_UI_ROCKET)
+-	@echo "  > Linking $@" && \
+-	$(LXX) -o $@ $^ $(LXXFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_ROCKET)
++	@echo "  > Linking $@"
++	$(Q)$(LXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^ $(LXXFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_ROCKET)
+ 
+ $(BINDIR)/libs/irc_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(OBJS_IRC)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_IRC)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_IRC)
+ 
+ $(BINDIR)/libs/cin_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(OBJS_CIN)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_CIN)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_CIN)
+ 
+ $(BINDIR)/libs/angelwrap_$(ARCH).$(SHARED_LIBRARY_EXTENSION): $(OBJS_ANGELWRAP)
+-	@echo "  > Linking $@" && \
+-	$(LXX) -o $@ $^ $(LXXFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_ANGELWRAP)
++	@echo "  > Linking $@"
++	$(Q)$(LXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^ $(LXXFLAGS_COMMON) $(LDFLAGS_MODULE) $(LDFLAGS_ANGELWRAP)
+ 
+ ########
+ # TV
+ ########
+ $(BINDIR)/$(TV_SERVER_EXE): $(OBJS_TV_SERVER)
+-	@echo "  > Linking $@" && \
+-	$(LD) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_TV_SERVER)
++	@echo "  > Linking $@"
++	$(Q)$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDFLAGS_COMMON) $(LDFLAGS_TV_SERVER)
+ 
+ ######################################################################################################
+ # Meta Rules
+@@ -776,229 +790,229 @@
+ # CLIENT
+ ########
+ $(BUILDDIR)/client/%.o: qcommon/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ 
+ $(BUILDDIR)/client/%.o: server/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ 
+ $(BUILDDIR)/client/%.o: client/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ 
+ $(BUILDDIR)/client/%.o: ref_gl/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ 
+ $(BUILDDIR)/client/%.o: null/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ 
+ $(BUILDDIR)/client/%.o: matchmaker/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ 
+ ifeq ($(USE_MINGW),YES)
+ $(BUILDDIR)/client/%.o: win32/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ 
+ $(BUILDDIR)/client/%.o: win32/%.rc
+-	@$(DO_RES_CLIENT)
++	$(Q)$(DO_RES_CLIENT)
+ else
+ ifeq ($(OS),Darwin)
+ $(BUILDDIR)/client/%.o: mac/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ $(BUILDDIR)/client/%.o: unix/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ else
+ $(BUILDDIR)/client/%.o: unix/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ endif
+ endif
+ 
+ $(BUILDDIR)/client/%.o: game/%.c
+-	@$(DO_CC_CLIENT)
++	$(Q)$(DO_CC_CLIENT)
+ 
+ $(BUILDDIR)/client/%.o: gameshared/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ 
+ $(BINDIR)/warsow: unix/start_script.sh
+-	@echo "  > Installing client start script" && \
+-	cp $< $@ && \
++	@echo "  > Installing client start script"
++	$(Q)cp $< $@ && \
+ 	chmod a+x $@
+ 
+ ########
+ # OPENAL
+ ########
+ $(BUILDDIR)/openal/%.o: snd_openal/%.c
+-	@$(DO_CC_MODULE) $(CFLAGS_OPENAL)
++	$(Q)$(DO_CC_MODULE) $(CFLAGS_OPENAL)
+ 
+ $(BUILDDIR)/openal/%.o: gameshared/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ ########
+ # QF
+ ########
+ $(BUILDDIR)/qf/%.o: snd_qf/%.c
+-	@$(DO_CC_MODULE) $(CFLAGS_QF)
++	$(Q)$(DO_CC_MODULE) $(CFLAGS_QF)
+ 
+ ifeq ($(USE_MINGW),YES)
+ $(BUILDDIR)/qf/win_snd.o: win32/win_snd.c
+-	@$(DO_CC_MODULE) $(CFLAGS_DSOUND)
++	$(Q)$(DO_CC_MODULE) $(CFLAGS_DSOUND)
+ else
+ $(BUILDDIR)/qf/unix_snd.o: unix/unix_snd.c
+-	@$(DO_CC_MODULE) $(CFLAGS_SDL)
++	$(Q)$(DO_CC_MODULE) $(CFLAGS_SDL)
+ endif
+ 
+ $(BUILDDIR)/qf/%.o: gameshared/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ 
+ ########
+ # DED
+ ########
+ $(BUILDDIR)/ded/%.o: qcommon/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ 
+ $(BUILDDIR)/ded/%.o: server/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ 
+ ifeq ($(USE_MINGW),YES)
+ $(BUILDDIR)/ded/%.o: win32/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ else
+ $(BUILDDIR)/ded/%.o: unix/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ endif
+ 
+ $(BUILDDIR)/ded/%.o: null/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ 
+ $(BUILDDIR)/ded/%.o: game/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ 
+ $(BUILDDIR)/ded/%.o: gameshared/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ 
+ $(BUILDDIR)/ded/%.o: matchmaker/%.c
+-	@$(DO_CC_DED)
++	$(Q)$(DO_CC_DED)
+ 
+ $(BINDIR)/wsw_server: unix/start_script.sh
+-	@echo "  > Installing dedicated server start script" && \
+-	cp $< $@ && \
++	@echo "  > Installing dedicated server start script"
++	$(Q)cp $< $@ && \
+ 	chmod a+x $@
+ 
+ ########
+ # CGAME
+ ########
+ $(BUILDDIR)/cgame/%.o: cgame/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ $(BUILDDIR)/cgame/%.o: gameshared/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ ########
+ # GAME
+ ########
+ $(BUILDDIR)/game/%.o: game/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ $(BUILDDIR)/game/%.o: game/ai/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ $(BUILDDIR)/game/%.o: gameshared/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ $(BUILDDIR)/game/%.o: matchmaker/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ ########
+ # UI.ROCKET
+ ########
+ $(BUILDDIR)/ui/%.o: gameshared/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ $(BUILDDIR)/ui/%.o: ui/%.cpp
+-	@$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
++	$(Q)$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
+ 
+ $(BUILDDIR)/ui/%.o: ui/kernel/%.cpp
+-	@$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
++	$(Q)$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
+ 
+ $(BUILDDIR)/ui/%.o: ui/as/%.cpp
+-	@$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
++	$(Q)$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
+ 
+ $(BUILDDIR)/ui/%.o: ui/datasources/%.cpp
+-	@$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
++	$(Q)$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
+ 
+ $(BUILDDIR)/ui/%.o: ui/widgets/%.cpp
+-	@$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
++	$(Q)$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
+ 
+ $(BUILDDIR)/ui/%.o: ui/decorators/%.cpp
+-	@$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
++	$(Q)$(DO_CXX_MODULE) $(CFLAGS_ROCKET)
+ 
+ #$(BUILDDIR)/ui.as/%.o: matchmaker/%.c
+-#	@$(DO_CC_MODULE)
++#	$(DO_CC_MODULE)
+ 
+ ########
+ # IRC
+ ########
+ $(BUILDDIR)/irc/%.o: gameshared/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ $(BUILDDIR)/irc/%.o: irc/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ ########
+ # CIN
+ ########
+ $(BUILDDIR)/cin/%.o: gameshared/%.c
+-	@$(DO_CC_MODULE)
++	$(Q)$(DO_CC_MODULE)
+ 
+ $(BUILDDIR)/cin/%.o: cin/%.c
+-	@$(DO_CC_MODULE) $(CFLAGS_CIN)
++	$(Q)$(DO_CC_MODULE) $(CFLAGS_CIN)
+ 
+ ########
+ # ANGELWRAP
+ ########
+ $(BUILDDIR)/angelwrap/%.o: gameshared/%.c
+-	@$(DO_CC_MODULE) $(CFLAGS_ANGELWRAP)
++	$(Q)$(DO_CC_MODULE) $(CFLAGS_ANGELWRAP)
+ 
+ $(BUILDDIR)/angelwrap/%.o: angelwrap/%.c
+-	@$(DO_CC_MODULE) $(CFLAGS_ANGELWRAP)
++	$(Q)$(DO_CC_MODULE) $(CFLAGS_ANGELWRAP)
+ 
+ $(BUILDDIR)/angelwrap/%.o: angelwrap/%.cpp
+-	@$(DO_CXX_MODULE) $(CFLAGS_ANGELWRAP)
++	$(Q)$(DO_CXX_MODULE) $(CFLAGS_ANGELWRAP)
+ 
+ $(BUILDDIR)/angelwrap/%.o : angelwrap/addon/%.cpp
+-	@$(DO_CXX_MODULE) $(CFLAGS_ANGELWRAP)
++	$(Q)$(DO_CXX_MODULE) $(CFLAGS_ANGELWRAP)
+ 
+ ########
+ # TV SERVER
+ ########
+ $(BUILDDIR)/tv_server/%.o: qcommon/%.c
+-	@$(DO_CC_TV_SERVER)
++	$(Q)$(DO_CC_TV_SERVER)
+ 
+ $(BUILDDIR)/tv_server/%.o: client/%.c
+-	@$(DO_CC_TV_SERVER)
++	$(Q)$(DO_CC_TV_SERVER)
+ 
+ $(BUILDDIR)/tv_server/%.o: tv_server/tv_module/%.c
+-	@$(DO_CC_TV_SERVER)
++	$(Q)$(DO_CC_TV_SERVER)
+ 
+ $(BUILDDIR)/tv_server/%.o: tv_server/%.c
+-	@$(DO_CC_TV_SERVER)
++	$(Q)$(DO_CC_TV_SERVER)
+ 
+ ifeq ($(USE_MINGW),YES)
+ $(BUILDDIR)/tv_server/%.o: win32/%.c
+-	@$(DO_CC_TV_SERVER)
++	$(Q)$(DO_CC_TV_SERVER)
+ else
+ $(BUILDDIR)/tv_server/%.o: unix/%.c
+-	@$(DO_CC_TV_SERVER)
++	$(Q)$(DO_CC_TV_SERVER)
+ endif
+ 
+ $(BUILDDIR)/tv_server/%.o: null/%.c
+-	@$(DO_CC_TV_SERVER)
++	$(Q)$(DO_CC_TV_SERVER)
+ 
+ $(BUILDDIR)/tv_server/%.o: gameshared/%.c
+-	@$(DO_CC_TV_SERVER)
++	$(Q)$(DO_CC_TV_SERVER)
+ 
+ $(BINDIR)/wswtv_server: unix/start_script.sh
+-	@echo "  > Installing TV server start script" && \
+-	cp $< $@ && \
++	@echo "  > Installing TV server start script"
++	$(Q)cp $< $@ && \
+ 	chmod a+x $@
+ 
+ ######################################################################################################
+--- libsrcs/libRocket/libRocket/Makefile.warsow
++++ libsrcs/libRocket/libRocket/Makefile.warsow
+@@ -13,9 +13,9 @@
+ endif
+ 
+ ifeq ($(DEBUG_BUILD),YES)
+-	CXXFLAGS += -g -DROCKET_DEBUG
++	CXXFLAGS += -DROCKET_DEBUG
+ else
+-	CXXFLAGS += -O2
++	CXXFLAGS += 
+ endif
+ 
+ BUILDDIR=Build/obj
+--- libsrcs/angelscript/angelSVN/sdk/angelscript/projects/gnuc/makefile
++++ libsrcs/angelscript/angelSVN/sdk/angelscript/projects/gnuc/makefile
+@@ -47,7 +47,7 @@
+ 	CXX ?= gcc
+ 	# On i686 architecture you may need to add -march=i686 if you get 
+ 	# an undefined symbol for __sync_sub_and_fetch_4 in as_atomic.cpp.
+-	CXXFLAGS += -g -Wall -fPIC -fno-strict-aliasing
++	CXXFLAGS += -Wall -fPIC -fno-strict-aliasing
+ endif
+ 
+ AR ?= ar

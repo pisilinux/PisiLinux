@@ -7,13 +7,8 @@
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
-
-# workdir changes all the time
-#WorkDir = "./"
-WorkDir = "warsow_0.61_unified"
-NoStrip = "/"
-
 import os
+
 
 def fixperms(d):
     for root, dirs, files in os.walk(d):
