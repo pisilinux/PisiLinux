@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure('--with-datadir-name="/usr/share/warmux" \
                          --with-localedir-name="/usr/share/locale" \
+                         --enable-servers \
                          --enable-fribidi \
                          --enable-nls')
 
