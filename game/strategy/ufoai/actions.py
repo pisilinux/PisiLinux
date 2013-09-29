@@ -18,8 +18,7 @@ def setup():
     shelltools.export("CXXFLAGS", "%s -mmmx -msse" % get.CXXFLAGS())
 
     shelltools.makedirs("base")
-    shelltools.system("./configure \ 
-                       --prefix=/usr \
+    shelltools.system("./configure --prefix=/usr \
                        --bindir=/usr/bin \
                        --datadir=/usr/share/ufoai \
                        --localedir=/usr/share/locale \
@@ -37,7 +36,7 @@ def setup():
                        --enable-ufo \
                        --enable-ufomodel \
                        --disable-uforadiant \
-                       --enable-ufoslicer ")
+                       --enable-ufoslicer")
 
 def build():
     autotools.make()
