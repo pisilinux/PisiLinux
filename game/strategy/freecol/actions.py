@@ -8,10 +8,10 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-shelltools.export("HOME", get.workDIR())
-WorkDir="freecol"
-
 def build():
+    shelltools.export("JAVAC","/opt/sun-jdk/bin/javac")
+    shelltools.export("JAVA_HOME","/opt/sun-jdk")
+    shelltools.export("LC_ALL", "C")
     shelltools.system("ant")
 
 def install():
