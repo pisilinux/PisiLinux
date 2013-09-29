@@ -30,9 +30,6 @@ def fixperms(d):
 
 def setup():
     shelltools.cd("src")
-    pisitools.dosed("Makefile", "^CXX=.*", "CXX=%s" % get.CXX())
-    pisitools.dosed("Makefile", "^CXXOPTFLAGS=.*", "CXXOPTFLAGS=%s" % get.CXXFLAGS())
-    pisitools.dosed("Makefile", "strip", "# strip")
 
 def build():
     shelltools.cd("src")
@@ -52,4 +49,3 @@ def install():
 
     pisitools.dodir(docdir)
     pisitools.insinto(docdir, "docs/*")
-
