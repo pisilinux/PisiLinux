@@ -30,8 +30,6 @@ def install():
     # Configurations
     pisitools.insinto("/usr/share/megaglest", "glest.ini")
     pisitools.insinto("/usr/share/megaglest", "glestkeys.ini")
-    pisitools.insinto("/usr/share/megaglest", "glestuser.ini")
-    pisitools.insinto("/usr/share/megaglest", "glestuserkeys.ini")
     pisitools.insinto("/usr/share/megaglest", "servers.ini")
 
     # Documentations
