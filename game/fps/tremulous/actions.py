@@ -11,14 +11,6 @@ from pisi.actionsapi import get
 
 import os
 
-# Source tarball is created by hand
-# To get the source tarball:
-# svn export svn://svn.icculus.org/tremulous/tags/RELEASE_GPP1/ tremulous-1.2.beta1
-# rm -rf tremulous-1.2.beta1/src/tools/lcc/
-# tar -czf tremulous-1.2.0_beta1.tar.gz tremulous-1.2.beta1
-
-
-#WorkDir = "tremulous-%s-src" % get.srcVERSION()
 WorkDir = "tremulous-1.2.beta1"
 datadir = "/usr/share/tremulous"
 
@@ -31,7 +23,7 @@ def setup():
         if shelltools.isDirectory("src/%s" % i):
             shelltools.unlinkDir("src/%s" % i)
 
-    pisitools.dosed("misc/server.cfg", "set sv_hostname.*", 'set sv_hostname "Tremulous Server on Pardus"')
+    pisitools.dosed("misc/server.cfg", "set sv_hostname.*", 'set sv_hostname "Tremulous Server on PisiLinux"')
 
 def build():
     autotools.make('BUILD_CLIENT=1 \
