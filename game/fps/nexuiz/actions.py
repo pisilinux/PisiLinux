@@ -11,19 +11,21 @@ from pisi.actionsapi import get
 
 # we get sources from the release zipfile
 
+WorkDir = "darkplaces"
+
 def setup():
-    pisitools.dosed("darkplaces/makefile.inc", "pardusCC", get.CC())
-    pisitools.dosed("darkplaces/makefile.inc", "pardusCFLAGS", "%s -fno-strict-aliasing -ffast-math -funroll-loops " % get.CFLAGS())
-    pisitools.dosed("darkplaces/makefile.inc", "pardusLDFLAGS", "%s -lm" % get.LDFLAGS())
+    pisitools.dosed("makefile.inc", "pardusCC", get.CC())
+    pisitools.dosed("makefile.inc", "pardusCFLAGS", "%s -fno-strict-aliasing -ffast-math -funroll-loops " % get.CFLAGS())
+    pisitools.dosed("makefile.inc", "pardusLDFLAGS", "%s -lm" % get.LDFLAGS())
 
 def build():
-    shelltools.cd("darkplaces")
+    
     for f in ["cl-nexuiz", "sdl-nexuiz", "sv-nexuiz"]:
         autotools.make("%s DP_FS_BASEDIR=/usr/share/quake1" % f)
 
 def install():
     for f in ["nexuiz-glx", "nexuiz-sdl", "nexuiz-dedicated"]:
-        pisitools.dobin("darkplaces/%s" % f)
+        pisitools.dobin("%s" % f)
 
     pisitools.dosym("nexuiz-sdl", "/usr/bin/nexuiz")
 
