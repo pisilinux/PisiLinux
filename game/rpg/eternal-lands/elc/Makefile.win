@@ -1,0 +1,185 @@
+.PHONY: clean release docs all
+
+# IMPORTANT: Dev-C++ doesn't seem to get this right, so you have to copy
+# make.defaults to make.conf manually if you don't have the latter
+
+-include make.conf
+
+# basic compiling and linking - rarely changed
+OPTIONS = -DWINDOWS -DELC -DWINVER=0x500 -mwindows $(foreach FEATURE, $(FEATURES), -D$(FEATURE)) -D_7ZIP_ST
+CFLAGS=$(PLATFORM) $(CWARN) -O0 -ggdb -pipe $(OPTIONS) -fno-strict-aliasing $(EXTRA_INCLUDES)
+_CFLAGS=$(PLATFORM) -O2 -fomit-frame-pointer -ffast-math -pipe $(OPTIONS) -DNDEBUG -fno-strict-aliasing $(EXTRA_INCLUDES)
+CXXFLAGS=$(PLATFORM) $(CXXWARN) -O0 -ggdb -pipe $(OPTIONS) -fno-strict-aliasing $(EXTRA_INCLUDES)
+_CXXFLAGS=$(PLATFORM) -O3 -fomit-frame-pointer -ffast-math -pipe $(OPTIONS) -DNDEBUG -fno-strict-aliasing $(EXTRA_INCLUDES)
+
+# WARNING: the order is important! If -lX uses -lY, then you must list -lX before -lY (sic!)
+LDFLAGS= $(EXTRA_LIBS) $(foreach FEATURE, $(FEATURES), $($(FEATURE)_LIBS)) \
+	-llibxml2 -lSDL_net -lSDL_image -lsdl -lopenal32 -lglu32 -lopengl32 -liconv -lcal3d -lm -lstdc++ \
+	-lz -lpng -lvorbisfile -lvorbis -logg
+_LDFLAGS=-lopengl32 -lz
+STATICLIBS=libs/libSDL_net.a libs/libSDL.a libs/libSDL_image.a libs/libopenal.a libs/libvorbisfile.a libs/libvorbis.a libs/libogg.a libs/libxml2.a libs/libcal3d.a libs/libpng.a libs/libasound.a $(EXTRA_STATICLIBS)
+
+# the objects we need
+ENCYCLOPEDIA_COBJ = books/fontdef.o books/parser.o books/symbol.o books/typesetter.o sort.o symbol_table.o
+MEMORY_DEBUG_COBJ = elmemory.o
+TEXT_ALIASES_COBJ = text_aliases.o
+PAWN_COBJ = pawn/amx.o pawn/amxaux.o pawn/amxcons.o pawn/amxel.o \
+	pawn/amxfloat.o pawn/amxstring.o pawn/elpawn.o
+NEW_TEXTURES_COBJ = image_loading.o
+NEW_TEXTURES_CXXOBJ = engine/hardwarebuffer.o
+CUSTOM_UPDATE_COBJ = custom_update.o new_update.o
+FSAA_COBJ = fsaa/fsaa_wgl.o fsaa/fsaa.o
+COBJS=2d_objects.o 3d_objects.o \
+	actor_scripts.o actors.o alphamap.o asc.o astrology.o \
+	bbox_tree.o books.o buddy.o buffs.o bags.o \
+	cache.o cal.o calc.o chat.o cluster.o colors.o console.o consolewin.o \
+	counters.o cursors.o dds.o ddsimage.o dialogues.o draw_scene.o eye_candy_debugwin.o \
+	elconfig.o elwindows.o encyclopedia.o errors.o events.o	\
+	filter.o font.o framebuffer.o frustum.o	\
+	gamewin.o gl_init.o hud.o help.o highlight.o	\
+	ignore.o init.o interface.o items.o io/fileutil.o	\
+	io/e3d_io.o io/elc_io.o	io/map_io.o io/elpathwrapper.o io/xmlcallbacks.o \
+	io/half.o io/normal.o io/elfilewrapper.o io/unzip.o io/ioapi.o io/zip.o io/ziputil.o	\
+	keys.o knowledge.o langselwin.o lights.o list.o load_gl_extensions.o loginwin.o loading_win.o	\
+	main.o manufacture.o map.o mapwin.o memory.o	\
+	md5.o mines.o minimap.o misc.o missiles.o multiplayer.o	\
+	new_actors.o new_character.o notepad.o	\
+	openingwin.o image.o \
+	shader/noise.o shader/shader.o	\
+	particles.o paste.o pathfinder.o pm_log.o	\
+	queue.o reflection.o	rules.o	sky.o	\
+	skeletons.o skills.o serverpopup.o servers.o session.o shadows.o sound.o	\
+	spells.o stats.o storage.o special_effects.o	\
+	tabs.o text.o textures.o tile_map.o timers.o translate.o trade.o	\
+	update.o url.o weather.o widgets.o makeargv.o popup.o hash.o emotes.o \
+	xz/7zCrc.o xz/7zCrcOpt.o xz/Alloc.o xz/Bra86.o xz/Bra.o xz/BraIA64.o	\
+	xz/CpuArch.o xz/Delta.o xz/LzFind.o xz/Lzma2Dec.o xz/Lzma2Enc.o	\
+	xz/LzmaDec.o xz/LzmaEnc.o xz/Sha256.o xz/Xz.o xz/XzCrc64.o xz/XzDec.o	\
+	xz/XzEnc.o	\
+	$(foreach FEATURE, $(FEATURES), $($(FEATURE)_COBJ))
+	
+CXXOBJS=achievements.o actor_init.o cal3d_wrapper.o command_queue.o \
+	context_menu.o elloggingwrapper.o engine/logging.o exceptions/extendedexception.o \
+	icon_window.o io/cal3d_io_wrapper.o item_info.o item_lists.o named_colours.o \
+	optimizer.o quest_log.o select.o sendvideoinfo.o trade_log.o user_menus.o \
+	xml/xmlhelper.o eye_candy_wrapper.o \
+	eye_candy/eye_candy.o eye_candy/math_cache.o eye_candy/effect_lamp.o \
+	eye_candy/effect_candle.o \
+	eye_candy/effect_campfire.o eye_candy/effect_fountain.o \
+	eye_candy/effect_teleporter.o eye_candy/effect_firefly.o \
+	eye_candy/effect_sword.o eye_candy/effect_summon.o \
+	eye_candy/effect_selfmagic.o eye_candy/effect_targetmagic.o \
+	eye_candy/effect_ongoing.o eye_candy/effect_impact.o \
+	eye_candy/effect_smoke.o eye_candy/effect_bag.o eye_candy/effect_cloud.o \
+	eye_candy/effect_harvesting.o eye_candy/effect_wind.o \
+	eye_candy/effect_breath.o eye_candy/effect_glow.o \
+	eye_candy/effect_mines.o eye_candy/effect_missile.o \
+	eye_candy/orbital_mover.o eye_candy/kepler_orbit.o	\
+	eye_candy/effect_staff.o \
+	$(foreach FEATURE, $(FEATURES), $($(FEATURE)_CXXOBJ))
+
+OBJS=$(COBJS) $(CXXOBJS)
+HEADER_DIRS = . books eye_candy io pawn fsaa
+
+EXE=el.exe
+
+ifndef CC
+CC=gcc.exe
+endif
+ifndef CXX
+CXX=g++.exe
+endif
+ifndef LINK
+LINK=gcc.exe
+endif
+
+TMP_LIB = libelc.a
+
+# the compile targets
+all: $(EXE);
+
+# work around command line length restriction
+$(TMP_LIB): $(OBJS)
+	rm -f $@
+	ar q $@ $(filter 2%, $(OBJS))
+	ar q $@ $(filter 3%, $(OBJS))
+	ar q $@ $(filter a%, $(OBJS))
+	ar q $@ $(filter b%, $(OBJS))
+	ar q $@ $(filter c%, $(OBJS))
+	ar q $@ $(filter d%, $(OBJS))
+	ar q $@ $(filter e%, $(OBJS))
+	ar q $@ $(filter f%, $(OBJS))
+	ar q $@ $(filter g%, $(OBJS))
+	ar q $@ $(filter h%, $(OBJS))
+	ar q $@ $(filter i%, $(OBJS))
+	ar q $@ $(filter j%, $(OBJS))
+	ar q $@ $(filter k%, $(OBJS))
+	ar q $@ $(filter l%, $(OBJS))
+	ar q $@ $(filter-out main.o, $(filter m%, $(OBJS)))
+	ar q $@ $(filter n%, $(OBJS))
+	ar q $@ $(filter o%, $(OBJS))
+	ar q $@ $(filter p%, $(OBJS))
+	ar q $@ $(filter q%, $(OBJS))
+	ar q $@ $(filter r%, $(OBJS))
+	ar q $@ $(filter s%, $(OBJS))
+	ar q $@ $(filter t%, $(OBJS))
+	ar q $@ $(filter u%, $(OBJS))
+	ar q $@ $(filter v%, $(OBJS))
+	ar q $@ $(filter w%, $(OBJS))
+	ar q $@ $(filter x%, $(OBJS))
+	ar q $@ $(filter y%, $(OBJS))
+	ar q $@ $(filter z%, $(OBJS))
+	ranlib $@
+
+$(EXE): main.o $(TMP_LIB)
+	windres elc_private.rc elc_private.o
+	$(LINK) $(CFLAGS) $< -L. -lelc $(LDFLAGS) elc_private.o -o $(EXE)
+	strip -s $(EXE)
+
+#recompile on Makefile or conf change
+.depend $(OBJS): Makefile.win make.conf
+
+$(COBJS): %.o : %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(CXXOBJS): %.o : %.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+release:
+	$(MAKE) -f Makefile.win 'CFLAGS=$(_CFLAGS)' 'CXXFLAGS=$(_CXXFLAGS)'
+
+static:
+	$(MAKE) -f Makefile.win 'CFLAGS=$(_CFLAGS)' 'CXXFLAGS=$(_CXXFLAGS)' 'LDFLAGS=$(_LDFLAGS)' 'OBJS=$(OBJS) $(STATICLIBS) -lstdc++ -lGL -lGLU'
+
+clean:
+	rm -f $(OBJS) $(EXE) .depend
+
+docs:	
+	cd docs && doxygen Doxyfile
+
+.depend: $(foreach HEADER_DIR, $(HEADER_DIRS), $(wildcard $(HEADER_DIR)/*.h))
+	$(CC) $(CFLAGS) -MM $(patsubst %.o, %.c, $(COBJS)) >.depend
+	$(CXX) $(CXXFLAGS) -MM $(patsubst %.o, %.cpp, $(CXXOBJS)) >>.depend
+
+make.conf: make.defaults
+	@if (test -f $@ -a '$(UPDATE_CONF)' != 'yes'); \
+	then \
+		echo '**'; \
+		echo '* WARNING: $< is newer than $@!'; \
+		echo '* Proceeding in 10 seconds, hit Ctrl-C to abort...'; \
+		echo '*'; \
+		sleep 10; \
+	else \
+		cp $< $@; \
+	fi
+
+pawn_scripts/features.inc: make.conf
+	echo "#if defined _features_included" > $@; \
+	echo "\t#endinput" >> $@; \
+	echo "#endif" >> $@; \
+	echo "#define _features_included" >> $@; \
+	for feature in $(FEATURES); do \
+		echo "#define $$feature" >> $@; \
+	done
+
+-include .depend
