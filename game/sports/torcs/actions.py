@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vif")
-    autotools.configure()
+    autotools.configure("--prefix=/usr --x-includes=/usr/include --x-libraries=/usr/lib")
                         
 
 def build():
