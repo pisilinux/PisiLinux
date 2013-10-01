@@ -8,15 +8,11 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--with-libncurses \
-                         --enable-nls \
-                         --enable-static \
-                         --disable-rpath \
-                         --with-gui")
+    autotools.configure()
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
+
