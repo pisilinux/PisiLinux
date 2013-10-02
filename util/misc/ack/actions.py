@@ -19,4 +19,4 @@ def check():
 def install():
     perlmodules.install()
 
-    pisitools.dodoc("ack-help*.txt", "README*", "Changes", "TODO")
+    pisitools.dodoc("README*", "Changes")
