@@ -11,16 +11,11 @@ from pisi.actionsapi import get
 
 shelltools.export("HOME", get.workDIR())
 
-#import os
-#shelltools.export("LC_ALL -c", get.workDIR())
-
-
 
 def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
     cmaketools.configure("-DWANT_SVN_STAMP=OFF \
-                          -no-discard-stderr \
                           -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr" ,sourceDir="..")
 
 def build():
