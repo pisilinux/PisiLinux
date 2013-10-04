@@ -6,16 +6,31 @@
 
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
+shelltools.export("HOME", get.workDIR())
+
+#import os
+#shelltools.export("LC_ALL -c", get.workDIR())
+
+
+
 def setup():
-    cmaketools.configure("-DWANT_SVN_STAMP=OFF")
+    shelltools.makedirs("build")
+    shelltools.cd("build")
+    cmaketools.configure("-DWANT_SVN_STAMP=OFF \
+                          -no-discard-stderr \
+                          -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr" ,sourceDir="..")
 
 def build():
+    shelltools.cd("build")
     cmaketools.make()
 
 def install():
-    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+    shelltools.cd("build")
+    cmaketools.install()
+    shelltools.cd("..")
 
     # Lets install a nice icon for desktop files
     pisitools.insinto("/usr/share/pixmaps", "megaglest.png")
