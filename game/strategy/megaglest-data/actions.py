@@ -7,8 +7,6 @@
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "megaglest-%s" % get.srcVERSION()
-
 def install():
     pisitools.insinto("/usr/share/megaglest/data", "data/*")
     pisitools.insinto("/usr/share/megaglest/maps", "maps/*")
