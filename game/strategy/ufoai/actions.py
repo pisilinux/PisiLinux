@@ -16,6 +16,7 @@ exefiles = ["ufo", "ufo2map", "ufoded"]
 def setup():
     shelltools.export("CFLAGS", "%s -mmmx -msse" % get.CFLAGS())
     shelltools.export("CXXFLAGS", "%s -mmmx -msse" % get.CXXFLAGS())
+    shelltools.export("LDFLAGS", "%s -mmmx -msse" % get.LDFLAGS())
 
     shelltools.makedirs("base")
     shelltools.system("./configure --prefix=/usr \
