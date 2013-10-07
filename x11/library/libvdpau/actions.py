@@ -6,21 +6,11 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
-from pisi.actionsapi import shelltools
 
 def setup():
     autotools.autoreconf("-vif")
-
-    options = "--disable-documentation"
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-        shelltools.export("CXXFLAGS", "%s -m32" % get.CXXFLAGS())
-
-
-    autotools.configure(options)
+    autotools.configure("--disable-static \
+                         --disable-documentation")
 
 def build():
     autotools.make()

@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
+    autotools.autoreconf("-vif")
     autotools.configure("--disable-static \
                          --enable-arrow-scrollbars \
                          --enable-gray-stipples \
