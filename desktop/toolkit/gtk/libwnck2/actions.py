@@ -4,16 +4,13 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    #autotools.autoreconf("-fis")
-    autotools.configure("--disable-static")
+    autotools.autoreconf("-vif")
+    autotools.configure("--disable-static --enable-introspection")
 
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
@@ -23,8 +20,8 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.rename("/usr/bin/wnck-urgency-monitor", "wnck2-urgency-monitor" )
-    pisitools.rename("/usr/bin/wnckprop", "wnck2prop" )
+    #pisitools.rename("/usr/bin/wnck-urgency-monitor", "wnck-urgency-monitor" )
+    #pisitools.rename("/usr/bin/wnckprop", "wnckprop" )
     
     pisitools.removeDir("/usr/share/gtk-doc")
 
