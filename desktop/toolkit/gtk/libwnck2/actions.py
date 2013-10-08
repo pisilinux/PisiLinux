@@ -20,9 +20,10 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    #pisitools.rename("/usr/bin/wnck-urgency-monitor", "wnck-urgency-monitor" )
-    #pisitools.rename("/usr/bin/wnckprop", "wnckprop" )
+    pisitools.remove("/usr/bin/wnck-urgency-monitor")
+    pisitools.remove("/usr/bin/wnckprop")
     
     pisitools.removeDir("/usr/share/gtk-doc")
+    pisitools.removeDir("/usr/bin")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "MAINTAINERS")
