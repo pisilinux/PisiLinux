@@ -20,4 +20,7 @@ def install():
 
     pisitools.remove("/usr/lib/liba2ps.a")
 
+    # texi2dvi4a2ps script removed for unneeded texlive-bin dependency
+    pisitools.remove("/usr/bin/texi2dvi4a2ps")
+
     pisitools.dodoc("ANNOUNCE", "AUTHORS", "ChangeLog", "FAQ", "NEWS", "README*", "THANKS", "TODO")
