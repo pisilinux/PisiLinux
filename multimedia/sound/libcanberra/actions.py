@@ -17,10 +17,9 @@ def setup():
                          --disable-schemas-install \
                          --enable-gstreamer \
                          --enable-pulse \
-                         --enable-gtk3 \
                          --enable-alsa \
                          --enable-null \
-                         --enable-gtk \
+                         --disable-gtk3 \
                          --enable-tdb \
                          --with-builtin=dso \
                          --disable-static")
@@ -31,7 +30,6 @@ def build():
 def install():
     autotools.rawInstall('DESTDIR="%s"' % get.installDIR())
 
-    pisitools.removeDir("/usr/share/gnome")
     pisitools.removeDir("/usr/share/gtk-doc")
-
+    
     pisitools.dodoc("LGPL", "README")
