@@ -5,21 +5,17 @@
 # See the file http://www.gnu.org/copyleft/gpl.txt
 
 from pisi.actionsapi import autotools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    autotools.configure("--disable-examples \
+    autotools.configure("--enable-print-profiles \
+                         --disable-examples \
                          --disable-static \
                          --disable-rpath \
                          --disable-silent-rules \
-                         --disable-dependency-tracking \
                          --enable-polkit \
                          --disable-systemd-login \
-                         --disable-volume-search \
                          --with-daemon-user=colord \
                          --enable-introspection \
                          --enable-vala \
