@@ -5,20 +5,19 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS", "%s -DNDEBUG" % get.CFLAGS())
-    options = "--disable-static \
-               --enable-xevie \
-               --enable-xprint \
-               --enable-xinput \
-               --enable-xkb \
-               --without-doxygen"
-
+    pisitools.flags.add("-DNDEBUG")
+    
     autotools.autoreconf("-vif")
-    autotools.configure(options)
+    autotools.configure("--disable-static \
+                         --enable-xevie \
+                         --enable-xprint \
+                         --enable-xinput \
+                         --enable-xkb \
+                         --without-doxygen")
+    
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ") 
 
 def build():
@@ -26,8 +25,5 @@ def build():
 
 def install():
     autotools.rawInstall("-j1 DESTDIR=%s" % get.installDIR())
-
-    #pisitools.remove("/usr/include/xcb/xevie.h")
-    #pisitools.remove("/usr/include/xcb/xprint.h")
 
     pisitools.dodoc("COPYING", "NEWS", "README")
