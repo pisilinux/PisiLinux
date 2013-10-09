@@ -19,7 +19,6 @@ def setup():
                          --enable-pulse \
                          --enable-alsa \
                          --enable-null \
-                         --disable-gtk3 \
                          --enable-tdb \
                          --with-builtin=dso \
                          --disable-static")
@@ -29,7 +28,8 @@ def build():
 
 def install():
     autotools.rawInstall('DESTDIR="%s"' % get.installDIR())
-
+    
+    #pisitools.remove("/usr/lib/gtk-3.0/modules/libcanberra-gtk-module.so")
     pisitools.removeDir("/usr/share/gtk-doc")
     
     pisitools.dodoc("LGPL", "README")
