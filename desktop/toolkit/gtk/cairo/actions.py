@@ -10,26 +10,18 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    options = "--disable-static \
-               --disable-silent-rules \
-               --disable-gtk-doc \
-               --enable-xlib \
-               --enable-xlib-xcb \
-               --enable-xlib-xrender \
-               --enable-xcb \
-               --enable-ft \
-               --enable-gl \
-               --enable-pdf \
-               --enable-ps \
-               --enable-svg \
-               --enable-tee \
-               --enable-png \
-               --with-x"
-    if get.buildTYPE() == "emul32": options += "--disable-directfb"
-    else: options += "--enable-directfb"
-
     autotools.autoreconf("-vfi")
-    autotools.configure(options)
+    autotools.configure("--disable-static \
+	                     --enable-xlib \
+                         --enable-ft \
+	                     --enable-ps \
+                         --enable-pdf \
+	                     --enable-svg \
+	                     --enable-tee \
+	                     --enable-gl \
+	                     --enable-gobject \
+	                     --disable-gtk-doc")
+
     pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
     pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
