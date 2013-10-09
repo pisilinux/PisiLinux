@@ -9,29 +9,14 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
+#shelltools.export("HOME", get.workDIR())
 
 def setup():
-    pisitools.dosed("configure.in", "gdk-pixbuf-query-loaders-[2346]+\s", "")
-    if get.buildTYPE() == "emul32":
-        pisitools.dosed("configure.in", "(gdk-pixbuf-query-loaders)([\s\]])", r"\1-32\2")
-
-    autotools.autoreconf("-vfi")
-    autotools.configure("--disable-gtk-doc \
-                         --enable-pixbuf-loader=yes \
-                         --disable-static")
-
-    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
-    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
-    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
-
+	autotools.configure("--disable-static")
+						
 def build():
-    autotools.make()
-
+	autotools.make()
+	
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    #for d in ["/usr/share/gtk-doc", "/usr/lib/gtk-3.0", "/usr/share/themes/bubble/gtk-3.0"]:
-    #    pisitools.removeDir(d)
-
-    pisitools.dodoc("COPYING", "AUTHORS", "ChangeLog", "README")
+	autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+	pisitools.dodoc("AUTHORS", "COPYING", "COPYING.LIB", "NEWS", "README")
