@@ -8,7 +8,11 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--disable-static")
+    pisitools.ldflags.add("-lm")
+
+    autotools.autoreconf("-vif")
+    autotools.configure("--enable-gcov=no \
+                         --disable-static")
 
 def build():
     autotools.make()
@@ -17,4 +21,3 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
 
-# By PiSiDo 2.0.0
