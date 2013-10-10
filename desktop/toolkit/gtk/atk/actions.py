@@ -7,19 +7,10 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
-from pisi.actionsapi import shelltools
-
-shelltools.export("HOME", get.workDIR())
 
 def setup():
-    options = "--disable-gtk-doc"
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-
     autotools.autoreconf("-fiv")
-    autotools.configure(options)
+    autotools.configure()
 
 def build():
     autotools.make()
