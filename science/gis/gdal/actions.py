@@ -48,13 +48,13 @@ def setup():
                          --with-libtiff \
                          --with-sqlite3 \
                          --with-geotiff=external \
-                         --without-podofo \
+                         --with-podofo \
                          --with-spatialite \
                          --with-ogr \
                          --with-grib \
                          --with-curl \
                          --with-webp \
-                         --with-poppler \
+                         --without-poppler \
                          --with-xerces \
                          --without-openjpeg \
                          --without-libtool \
