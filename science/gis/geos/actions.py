@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--disable-static \
+			 --disable-dependency-tracking \
                          --enable-python \
                          --enable-php ")
 
