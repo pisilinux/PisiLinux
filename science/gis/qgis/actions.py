@@ -1,4 +1,4 @@
-#!/usr/bin/python
+ #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
 # Licensed under the GNU General Public License, version 2.
@@ -15,9 +15,18 @@ def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
 
-    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
-                          -DSPATIALINDEX_INCLUDE_DIR=/usr/include/libspatialindex \
-                          -DQGIS_MANUAL_SUBDIR=share/man", installPrefix="/usr",sourceDir="..")
+#    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
+#                          -DSPATIALINDEX_INCLUDE_DIR=/usr/include/libspatialindex \
+#                          -DQGIS_MANUAL_SUBDIR=share/man", installPrefix="/usr",sourceDir="..")
+
+    cmaketools.configure("-DWITH_MAPSERVER:BOOL=TRUE \
+      -DBINDINGS_GLOBAL_INSTALL:BOOL=TRUE \
+      -DENABLE_TESTS:BOOL=FALSE \
+      -DWITH_INTERNAL_QWTPOLAR:BOOL=TRUE \
+      -DWITH_INTERNAL_QEXTSERIALPORT:BOOL=TRUE \
+      -DWITH_PYSPATIALITE:BOOL=FALSE \
+      -DWITH_TOUCH=TRUE \
+      -DQGIS_MANUAL_SUBDIR=share/man", installPrefix="/usr",sourceDir="..")
 
 def build():
     shelltools.cd("build")
