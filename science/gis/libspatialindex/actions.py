@@ -15,8 +15,9 @@ def build():
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
-    for f in ["Point.h", "capi/sidx_config.h", "capi/sidx_impl.h"]:
-        pisitools.dosed("%s/usr/include/libspatialindex/%s" % (get.installDIR(), f), "(#include\s<)spatialindex/", r"\1")
+    #for f in ["Point.h", "capi/sidx_config.h", "capi/sidx_impl.h"]:
+     #         pisitools.dosed("%s/usr/include/libspatialindex/%s" % (get.installDIR(), f), "(#include\s<)spatialindex/", r"\1")
+
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
 
 # By PiSiDo 2.0.0
