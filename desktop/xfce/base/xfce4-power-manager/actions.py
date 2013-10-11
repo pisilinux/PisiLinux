@@ -6,16 +6,21 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import get
 
 def setup():
-    autotools.configure()
+    autotools.configure("--prefix=/usr \
+                         --sbindir=/usr/bin \
+                         --libexecdir=/usr/lib \
+                         --disable-network-manager \
+                         --enable-polkit \
+                         --enable-dpms \
+                         --disable-debug")
 
 def build():
     autotools.make()
 
 def install():
-    autotools.install()
-    
-    pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README", "TODO")
