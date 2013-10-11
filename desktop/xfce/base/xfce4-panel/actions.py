@@ -9,11 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    shelltools.system('xdt-autogen')
-    autotools.configure("--disable-static \
-                         --enable-gtk-doc \
-                         --enable-startup-notification \
-                        ")
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib \
+                         --disable-static \
+                         --enable-gio-unix \
+                         --disable-gtk-doc \
+                         --disable-debug")
 
     pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
     pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
