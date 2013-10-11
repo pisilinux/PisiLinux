@@ -9,11 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--disable-dependency-tracking \
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib/xfce4 \
                          --disable-static \
-                         --enable-jpeg-thumbnailer \
-                         --enable-ffmpeg-thumbnailer \
-                         --enable-poppler-thumbnailer")
+                         --disable-debug \
+                         --disable-gstreamer-thumbnailer")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
