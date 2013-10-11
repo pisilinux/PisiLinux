@@ -9,7 +9,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.configure("--enable-debug")
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib/xfce4 \
+                         --disable-static \
+                         --disable-debug")
 
 def build():
     autotools.make()
