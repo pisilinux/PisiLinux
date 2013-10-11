@@ -6,14 +6,16 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system('xdt-autogen')
-    autotools.configure('--disable-static \
-                         --enable-desktop-icons \
-                         --enable-file-icons')
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib \
+                         --disable-static \
+                         --enable-gio-unix \
+                         --enable-thunarx \
+                         --enable-notifications \
+                         --disable-debug")
 
 def build():
     autotools.make()
