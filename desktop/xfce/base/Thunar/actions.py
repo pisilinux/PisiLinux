@@ -6,24 +6,21 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-#    shelltools.system('xdt-autogen')
-    autotools.configure("--disable-static \
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib \
+                         --disable-static \
                          --enable-gio-unix \
                          --enable-dbus \
+                         --enable-startup-notification \
                          --enable-gudev \
                          --enable-notifications \
-                         --enable-startup-notification \
                          --enable-exif \
                          --enable-pcre \
-                         --enable-wallpaper-plugin \
-                         --enable-uca-plugin \
-                         --enable-tpa-plugin \
-                         --enable-apr-plugin \
-                        ")
+                         --enable-gtk-doc \
+                         --disable-debug")
 
     pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
     pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
