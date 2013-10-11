@@ -7,9 +7,6 @@
 from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
-
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.autoreconf("-vfi")
