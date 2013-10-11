@@ -8,14 +8,15 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--disable-static \
-                         --enable-sound-settings \
+    autotools.configure("--prefix=/usr \
+                         --disable-static \
+                         --enable-xrandr \
+                         --enable-xcursor \
                          --enable-libnotify \
                          --enable-libxklavier \
                          --enable-pluggable-dialogs \
-                         --enable-xcursor \
-                         --enable-maintainer-mode \
-                        ")
+                         --enable-sound-settings \
+                         --disable-debug")
 
 def build():
     autotools.make()
