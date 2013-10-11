@@ -10,8 +10,13 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system('xdt-autogen')
-    autotools.configure('--enable-startup-notification')
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib \
+                         --disable-static \
+                         --disable-gtk-doc \
+                         --disable-gladeui \
+                         --disable-debug \
+                         --with-vendor-info='Pisi Linux'")
 
 def build():
     autotools.make()
