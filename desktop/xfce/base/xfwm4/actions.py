@@ -10,12 +10,14 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.dosed("defaults/defaults", "(use_compositing=).*", r"\1true")
-    autotools.configure("--disable-static \
-                         --enable-xsync \
-                         --enable-render \
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib \
+                         --disable-static \
+                         --enable-startup-notification \
                          --enable-randr \
                          --enable-compositor \
-                         --enable-startup-notification")
+                         --enable-xsync \
+                         --disable-debug")
 
 def build():
     autotools.make()
