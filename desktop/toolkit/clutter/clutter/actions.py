@@ -9,13 +9,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("\
-                         --enable-egl-backend \
+    autotools.autoreconf("-vif")
+    autotools.configure("--enable-egl-backend \
                          --enable-evdev-input \
                          --enable-introspection \
                          --disable-static \
-                         --enable-shared \
-                        ")
+                         --enable-shared ")
+    
     pisitools.dosed("libtool"," -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
