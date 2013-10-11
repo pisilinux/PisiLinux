@@ -6,12 +6,14 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system('xdt-autogen')
-    autotools.configure("--disable-static \
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib \
+                         --disable-static \
+                         --disable-debug \
+                         --disable-gladeui \
                          --enable-startup-notification")
 
 def build():
