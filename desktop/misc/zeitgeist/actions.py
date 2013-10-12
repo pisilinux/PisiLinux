@@ -10,10 +10,14 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-fi")
-    autotools.configure("--enable-fts --enable-datahub")
-
+    autotools.configure("--disable-maintainer-mode \
+                         --enable-fts \
+                         --enable-datahub \
+                         --enable-telepathy \
+                         --enable-downloads-monitor \
+                         --enable-explain-queries")
 def build():
-    autotools.make()
+    autotools.make("LC_ALL=en_US.UTF-8")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
