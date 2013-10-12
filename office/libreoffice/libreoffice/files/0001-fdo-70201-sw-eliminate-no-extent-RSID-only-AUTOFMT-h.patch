@@ -1,0 +1,45 @@
+From a79a7f315a0a3bc8148a88bb1d3c6f83a4552094 Mon Sep 17 00:00:00 2001
+From: Michael Stahl <mstahl@redhat.com>
+Date: Tue, 8 Oct 2013 18:37:35 +0200
+Subject: [PATCH] fdo#70201: sw: eliminate no-extent RSID-only AUTOFMT hints
+
+These are already filtered out in SwpHints::TryInsertHint(), but they
+can be produced by a SwTxtNode::Update() following some deletion like in
+SwTxtNode::ReplaceText() (or maybe CutImpl() and RstAttr() too?).
+
+So in order to prevent SwHistorySetTxt being created for these,
+filter them out in SwpHints::MergePortions(), which has the advantage
+that it's one location to change; probably filtering in Update() and
+RstAttr() both would work too.
+
+(regression from 6db39dbd7378351f6476f6db25eb7110c9cfb291)
+
+Change-Id: I597a9ab290dcc3fb1b624dd2dca241c462acf256
+(cherry picked from commit 91159b1c31a7fd474ba0b97828f593604790ce3c)
+---
+ sw/source/core/txtnode/thints.cxx | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/sw/source/core/txtnode/thints.cxx b/sw/source/core/txtnode/thints.cxx
+index 0893dac..34dac0a 100644
+--- a/sw/source/core/txtnode/thints.cxx
++++ b/sw/source/core/txtnode/thints.cxx
+@@ -2528,6 +2528,15 @@ bool SwpHints::MergePortions( SwTxtNode& rNode )
+                     pHt->GetAutoFmt().GetStyleHandle());
+             if ((pSet->Count() == 1) && pSet->GetItem(RES_CHRATR_RSID, false))
+             {
++                // fdo#70201: eliminate no-extent RSID-only AUTOFMT
++                // could be produced by ReplaceText or (maybe?) RstAttr
++                if (*pHt->GetStart() == *pHt->GetEnd())
++                {
++                    SwpHintsArray::DeleteAtPos(i); // kill it without History!
++                    SwTxtAttr::Destroy(pHt, rNode.GetDoc()->GetAttrPool());
++                    --i;
++                    continue;
++                }
+                 // fdo#52028: this one has _only_ RSID => ignore it completely
+                 if (!pHt->IsFormatIgnoreStart() || !pHt->IsFormatIgnoreEnd())
+                 {
+-- 
+1.8.3.1
+

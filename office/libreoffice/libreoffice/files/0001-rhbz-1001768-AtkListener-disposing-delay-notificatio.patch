@@ -1,0 +1,173 @@
+From c7ca663e1a839781589dfd6a49d8540dde2b12cc Mon Sep 17 00:00:00 2001
+From: Michael Meeks <michael.meeks@collabora.com>
+Date: Wed, 2 Oct 2013 23:03:38 +0200
+Subject: [PATCH] rhbz#1001768: AtkListener::disposing(): delay notification
+
+Frame #10 in libatk-bridge.so calls atk_misc_threads_enter(),
+and having a look at the RHEL 6.5 at-spi package in
+./at-spi-1.28.1/atk-bridge/bridge.c there is always the same call
+pattern:
+
+  bridge_threads_leave ();
+  [one function call]
+  bridge_threads_enter ();
+
+... so the bridge_threads_leave() has called the VCL gtk-plug function
+GtkHookedYieldMutex::ThreadsLeave() which releases the SolarMutex.
+
+This is of course not a good idea while there is a Window being deleted,
+and is the reason why the same Window is being deleted in thread 1 and
+thread 2:
+
+31 0x00000fff94a5fc00 in Window::~Window (this=0xfff702b2d30,
+__in_chrg=<value optimized out>) at
+/usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:4272
+
+16 0x00000fff94a5fc00 in Window::~Window (this=0xfff702b2d30,
+__in_chrg=<value optimized out>) at
+/usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:4272
+
+Try to avoid the problem by delaying the
+atk_object_notify_state_change() that will release SolarMutex until idle,
+when deletion of the Window is finished.
+
+Thread 2 (Thread 0xfff4cbcf110 (LWP 17011)):
+2  0x0000008013c6e718 in .pthread_mutex_lock () from /lib64/libc.so.6
+3  0x000000801576e4fc in osl_acquireMutex (Mutex=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/sal/osl/unx/mutex.c:114
+4  0x00000fff963a7908 in acquire (this=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/solver/unxlngppc64.pro/inc/osl/mutex.hxx:58
+5  ClearableGuard (this=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/solver/unxlngppc64.pro/inc/osl/mutex.hxx:177
+6  cppu::WeakAggComponentImplHelperBase::dispose (this=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/cppuhelper/source/implbase.cxx:392
+7  0x00000fff5f1b3444 in comphelper::disposeComponent<com::sun::star::accessibility::XAccessible> (_rxComp=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/solver/unxlngppc64.pro/inc/comphelper/types.hxx:114
+8  0x00000fff5f273ba8 in VCLXAccessibleToolBox::implReleaseToolboxItem (this=<value optimized out>, _rMapPos=<value optimized out>, _bNotifyRemoval=<value optimized out>, _bDispose=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/accessibility/source/standard/vclxaccessibletoolbox.cxx:326
+9  0x00000fff5f2747e4 in VCLXAccessibleToolBox::ProcessWindowEvent (this=0xfff5f8b8fe0, rVclWindowEvent=...) at /usr/src/debug/libreoffice-4.0.4.2/accessibility/source/standard/vclxaccessibletoolbox.cxx:612
+10 0x00000fff951e4ad4 in VCLXAccessibleComponent::WindowEventListener (this=0xfff5f8b8fe0, pEvent=0xfff4cbcc950) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxaccessiblecomponent.cxx:136
+11 0x00000fff951e4b20 in VCLXAccessibleComponent::LinkStubWindowEventListener (pThis=<value optimized out>, pCaller=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxaccessiblecomponent.cxx:121
+12 0x00000fff946dd420 in Call (this=0xfff702b32a0, pEvent=0xfff4cbcc950) at /usr/src/debug/libreoffice-4.0.4.2/solver/unxlngppc64.pro/inc/tools/link.hxx:123
+13 VclEventListeners::Call (this=0xfff702b32a0, pEvent=0xfff4cbcc950) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/app/vclevent.cxx:66
+14 0x00000fff94a4bab0 in Window::CallEventListeners (this=0xfff702b2d30, nEvent=<value optimized out>, pData=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:5272
+15 0x00000fff94a4bc80 in Window::ImplCallEventListeners (this=<value optimized out>, nEvent=<value optimized out>, pData=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:5255
+16 0x00000fff94a5fc00 in Window::~Window (this=0xfff702b2d30, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:4272
+17 0x00000fff94a61138 in Window::~Window (this=<value optimized out>, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:4683
+18 0x00000fff951efcf0 in VCLXDevice::DestroyOutputDevice (this=0xfff6801f010) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxdevice.cxx:56
+19 0x00000fff952347a8 in VCLXWindow::dispose (this=0xfff6801f010) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxwindow.cxx:957
+20 0x00000fff953c5f28 in UnoWrapper::WindowDestroyed (this=<value optimized out>, pWindow=0xfff70115a80) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/helper/unowrapper.cxx:263
+21 0x00000fff94a60130 in Window::~Window (this=0xfff70115a80, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:4334
+22 0x00000fff949cc8b4 in DockingAreaWindow::~DockingAreaWindow (this=0xfff70115a80, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/dockingarea.cxx:96
+23 0x00000fff949cc918 in DockingAreaWindow::~DockingAreaWindow (this=<value optimized out>, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/dockingarea.cxx:96
+24 0x00000fff951efcf0 in VCLXDevice::DestroyOutputDevice (this=0xfff6801c310) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxdevice.cxx:56
+25 0x00000fff952347a8 in VCLXWindow::dispose (this=0xfff6801c310) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxwindow.cxx:957
+26 0x00000fff953c5f28 in UnoWrapper::WindowDestroyed (this=<value optimized out>, pWindow=0xfff7001a320) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/helper/unowrapper.cxx:263
+27 0x00000fff94a60130 in Window::~Window (this=0xfff7001a320, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:4334
+28 0x00000fff94a1f7fc in SystemWindow::~SystemWindow (this=0xfff7001a320, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/syswin.cxx:89
+29 0x00000fff94a6c744 in WorkWindow::~WorkWindow (this=<value optimized out>, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/wrkwin.cxx:150
+30 0x00000fff94a6c7e8 in WorkWindow::~WorkWindow (this=<value optimized out>, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/wrkwin.cxx:150
+31 0x00000fff951efcf0 in VCLXDevice::DestroyOutputDevice (this=0xfff8c486f48) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxdevice.cxx:56
+32 0x00000fff952347a8 in VCLXWindow::dispose (this=0xfff8c486f48) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxwindow.cxx:957
+33 0x00000fff88258ec0 in framework::Frame::impl_disposeContainerWindow (this=<value optimized out>, xWindow=...) at /usr/src/debug/libreoffice-4.0.4.2/framework/source/services/frame.cxx:2689
+34 0x00000fff8826d71c in framework::Frame::dispose (this=0xfff8c308a08) at /usr/src/debug/libreoffice-4.0.4.2/framework/source/services/frame.cxx:1887
+35 0x00000fff88263018 in framework::Frame::close (this=0xfff8c308a08, bDeliverOwnerShip=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/framework/source/services/frame.cxx:1650
+36 0x00000fff88255908 in framework::Desktop::impl_closeFrames (this=<value optimized out>, bAllowUI=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/framework/source/services/desktop.cxx:1928
+37 0x00000fff88256120 in framework::Desktop::terminate (this=0xfff8b3de388) at /usr/src/debug/libreoffice-4.0.4.2/framework/source/services/desktop.cxx:292
+
+Thread 1 (Thread 0xfff930e82a0 (LWP 16956)):
+2  0x0000008013c6e718 in .pthread_mutex_lock () from /lib64/libc.so.6
+3  0x000000801576e4fc in osl_acquireMutex (Mutex=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/sal/osl/unx/mutex.c:114
+4  0x00000fff946cd114 in vcl::SolarMutexObject::acquire (this=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/app/solarmutex.cxx:35
+5  0x00000fff94a6ecb8 in SalYieldMutex::acquire (this=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/generic/app/geninst.cxx:49
+6  0x00000fff8c24cb90 in GtkHookedYieldMutex::acquire (this=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/unx/gtk/app/gtkinst.cxx:91
+7  0x00000fff8c24cd2c in GtkHookedYieldMutex::ThreadsEnter (this=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/unx/gtk/app/gtkinst.cxx:64
+8  0x00000fff8b6dfabc in ?? () from /usr/lib64/gtk-2.0/modules/libgail.so
+9  0x00000fff8b9f333c in .atk_misc_threads_enter () from /usr/lib64/libatk-1.0.so.0
+10 0x00000fff8c1d534c in ?? () from /usr/lib64/gtk-2.0/modules/libatk-bridge.so
+11 0x00000fff8c1d65fc in ?? () from /usr/lib64/gtk-2.0/modules/libatk-bridge.so
+12 0x00000fff936af4e0 in ?? () from /lib64/libgobject-2.0.so.0
+13 0x00000fff936b13d0 in .g_signal_emit_valist () from /lib64/libgobject-2.0.so.0
+14 0x00000fff936b18f8 in .g_signal_emit () from /lib64/libgobject-2.0.so.0
+15 0x00000fff8b9e5f3c in .atk_object_notify_state_change () from /usr/lib64/libatk-1.0.so.0
+16 0x00000fff8c23083c in AtkListener::disposing (this=0xfff5f98dbc8) at /usr/src/debug/libreoffice-4.0.4.2/vcl/unx/gtk/a11y/atklistener.cxx:81
+17 0x00000fff963aee2c in cppu::OInterfaceContainerHelper::disposeAndClear (this=<value optimized out>, rEvt=...) at /usr/src/debug/libreoffice-4.0.4.2/cppuhelper/source/interfacecontainer.cxx:316
+18 0x00000fff9659d944 in comphelper::AccessibleEventNotifier::revokeClientNotifyDisposing (_nClient=<value optimized out>, _rxEventSource=...) at /usr/src/debug/libreoffice-4.0.4.2/comphelper/source/misc/accessibleeventnotifier.cxx:162
+19 0x00000fff9659b20c in comphelper::OAccessibleContextHelper::disposing (this=0xfff5f8bb7e0) at /usr/src/debug/libreoffice-4.0.4.2/comphelper/source/misc/accessiblecontexthelper.cxx:130
+20 0x00000fff5f275898 in VCLXAccessibleToolBoxItem::disposing (this=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/accessibility/source/standard/vclxaccessibletoolboxitem.cxx:265
+21 0x00000fff963a79fc in cppu::WeakAggComponentImplHelperBase::dispose (this=0xfff5f8bb7e0) at /usr/src/debug/libreoffice-4.0.4.2/cppuhelper/source/implbase.cxx:404
+22 0x00000fff5f1b3444 in comphelper::disposeComponent<com::sun::star::accessibility::XAccessible> (_rxComp=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/solver/unxlngppc64.pro/inc/comphelper/types.hxx:114
+23 0x00000fff5f273ba8 in VCLXAccessibleToolBox::implReleaseToolboxItem (this=<value optimized out>, _rMapPos=<value optimized out>, _bNotifyRemoval=<value optimized out>, _bDispose=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/accessibility/source/standard/vclxaccessibletoolbox.cxx:326
+24 0x00000fff5f2747e4 in VCLXAccessibleToolBox::ProcessWindowEvent (this=0xfff5f8b8fe0, rVclWindowEvent=...) at /usr/src/debug/libreoffice-4.0.4.2/accessibility/source/standard/vclxaccessibletoolbox.cxx:612
+25 0x00000fff951e4ad4 in VCLXAccessibleComponent::WindowEventListener (this=0xfff5f8b8fe0, pEvent=0xfffdc31f990) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxaccessiblecomponent.cxx:136
+26 0x00000fff951e4b20 in VCLXAccessibleComponent::LinkStubWindowEventListener (pThis=<value optimized out>, pCaller=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/toolkit/source/awt/vclxaccessiblecomponent.cxx:121
+27 0x00000fff946dd420 in Call (this=0xfff702b32a0, pEvent=0xfffdc31f990) at /usr/src/debug/libreoffice-4.0.4.2/solver/unxlngppc64.pro/inc/tools/link.hxx:123
+28 VclEventListeners::Call (this=0xfff702b32a0, pEvent=0xfffdc31f990) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/app/vclevent.cxx:66
+29 0x00000fff94a4bab0 in Window::CallEventListeners (this=0xfff702b2d30, nEvent=<value optimized out>, pData=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:5272
+30 0x00000fff94a4bc80 in Window::ImplCallEventListeners (this=<value optimized out>, nEvent=<value optimized out>, pData=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:5255
+31 0x00000fff94a5fc00 in Window::~Window (this=0xfff702b2d30, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/window.cxx:4272
+32 0x00000fff949d41c4 in DockingWindow::~DockingWindow (this=0xfff702b2d30, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/dockwin.cxx:473
+33 0x00000fff94a35944 in ToolBox::~ToolBox (this=0xfff702b2d30, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/window/toolbox.cxx:1698
+34 0x00000fff88343e40 in framework::ToolBar::~ToolBar (this=<value optimized out>, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/framework/source/uielement/toolbar.cxx:35
+35 0x00000fff88343e88 in framework::ToolBar::~ToolBar (this=0xfff702b2d30, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/framework/source/uielement/toolbar.cxx:35
+36 0x00000fff94a66a00 in ~LazyDeletor (this=0xfff40007720, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/solver/unxlngppc64.pro/inc/vcl/lazydelete.hxx:162
+37 vcl::LazyDeletor<Window>::~LazyDeletor (this=0xfff40007720, __in_chrg=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/solver/unxlngppc64.pro/inc/vcl/lazydelete.hxx:164
+38 0x00000fff94998868 in vcl::LazyDelete::flush () at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/helper/lazydelete.cxx:54
+39 0x00000fff946d2294 in ImplYield (i_bAllEvents=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/app/svapp.cxx:434
+40 Application::Yield (i_bAllEvents=<value optimized out>) at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/app/svapp.cxx:463
+41 0x00000fff946d22f8 in Application::Execute () at /usr/src/debug/libreoffice-4.0.4.2/vcl/source/app/svapp.cxx:408
+
+Change-Id: Ic742442dd6ffeba59655c2e66df8dbabc906f061
+(cherry picked from commit c3ef735fd5d8866c8ce28b89744150e733087427)
+Signed-off-by: Michael Stahl <mstahl@redhat.com>
+---
+ vcl/unx/gtk/a11y/atklistener.cxx | 25 ++++++++++++++++++++-----
+ 1 file changed, 20 insertions(+), 5 deletions(-)
+
+diff --git a/vcl/unx/gtk/a11y/atklistener.cxx b/vcl/unx/gtk/a11y/atklistener.cxx
+index f4d02ce..2ff3f0c 100644
+--- a/vcl/unx/gtk/a11y/atklistener.cxx
++++ b/vcl/unx/gtk/a11y/atklistener.cxx
+@@ -33,6 +33,7 @@
+ 
+ #include "atklistener.hxx"
+ #include "atkwrapper.hxx"
++#include "vcl/svapp.hxx"
+ 
+ #include <rtl/ref.hxx>
+ #include <stdio.h>
+@@ -66,6 +67,23 @@ AtkStateType mapState( const uno::Any &rAny )
+ 
+ /*****************************************************************************/
+ 
++extern "C" {
++    // rhbz#1001768 - down to horrific problems releasing the solar mutex
++    // while destroying a Window - which occurs inside these notifications.
++    static gint
++    idle_defunc_state_change( AtkObject *atk_obj )
++    {
++        SolarMutexGuard aGuard;
++
++        // This is an equivalent to a state change to DEFUNC(T).
++        atk_object_notify_state_change( atk_obj, ATK_STATE_DEFUNCT, TRUE );
++        if( atk_get_focus_object() == atk_obj )
++            atk_focus_tracker_notify( NULL );
++        g_object_unref( G_OBJECT( atk_obj ) );
++        return FALSE;
++    }
++}
++
+ // XEventListener implementation
+ void AtkListener::disposing( const lang::EventObject& ) throw (uno::RuntimeException)
+ {
+@@ -77,11 +95,8 @@ void AtkListener::disposing( const lang::EventObject& ) throw (uno::RuntimeExcep
+         // global mutex
+         atk_object_wrapper_dispose( mpWrapper );
+ 
+-        // This is an equivalent to a state change to DEFUNC(T).
+-        atk_object_notify_state_change( atk_obj, ATK_STATE_DEFUNCT, TRUE );
+-
+-        if( atk_get_focus_object() == atk_obj )
+-            atk_focus_tracker_notify( NULL );
++        g_idle_add( (GSourceFunc) idle_defunc_state_change,
++                    g_object_ref( G_OBJECT( atk_obj ) ) );
+ 
+         // Release the wrapper object so that it can vanish ..
+         g_object_unref( mpWrapper );
+-- 
+1.8.3.1
+
