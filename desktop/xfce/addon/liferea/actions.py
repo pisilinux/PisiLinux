@@ -6,21 +6,21 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
+
+#shelltools.export("HOME", get.workDIR())
 
 def setup():
-    autotools.configure("--enable-sm \
-                        --disable-schemas-install \
-                        --enable-nm \
-                        --enable-dbus \
-                        --enable-libnotify")
+    autotools.configure("--disable-schemas-compile \
+                         --enable-introspection=yes \
+                         --enable-libnotify")
 
 def build():
     autotools.make()
 
 def install():
-    autotools.install()
-
-    pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # Empty files: NEWS
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
