@@ -8,8 +8,6 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-shelltools.export("HOME", get.workDIR())
-shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
 
 def setup():
     autotools.configure("--disable-static --enable-python")
