@@ -14,7 +14,7 @@ def setup():
                          --enable-xinerama \
                          --enable-xft \
                          --enable-nls \
-                         --with-style=/usr/share/fluxbox/styles/solaris")
+                         --with-style=/usr/share/fluxbox/styles/BlueFlux")
 
 def build():
     autotools.make()
@@ -22,6 +22,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.insinto("/usr/share/fluxbox", "data/icons")
+   # pisitools.insinto("/usr/share/fluxbox", "data/icons")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README", "TODO")
