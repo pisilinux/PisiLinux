@@ -16,13 +16,6 @@ def setup():
     shelltools.export("NOCONFIGURE", "1")
     shelltools.system("./autogen.sh")
 
-    """The following is a list of disabled plugins:
-    celt -> (celtdec, celtenc) -> Not available in Pardus repos,
-    qtwrapper, checks for QuickTime/Movies.h -> Not available in Pardus repos,
-    divx -> divx4linux,
-    dirac -> needs dirac-research package, http://dirac.sourceforge.net
-    """
-
     autotools.configure("--disable-static \
                          --disable-examples \
                          --disable-gtk-doc \
@@ -30,19 +23,6 @@ def setup():
                          --with-package-name='PisiLinux gstreamer-plugins-bad package' \
                          --with-package-origin='http://www.pisilinux.org' \
                          --disable-experimental \
-                         --disable-wininet \
-                         --disable-wildmidi \
-                         --disable-timidity \
-                         --disable-quicktime \
-                         --disable-ivorbis \
-                         --disable-mythtv \
-                         --disable-swfdec \
-                         --disable-dirac \
-                         --disable-divx \
-                         --disable-spc \
-                         --disable-celt \
-                         --disable-acm \
-                         --disable-nas \
                          --disable-assrender")
 
 def build():
