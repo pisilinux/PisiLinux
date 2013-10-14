@@ -27,6 +27,8 @@ def setup():
                          --with-gnu-ld \
                          --enable-introspection \
                          --enable-video \
+                         --enable-webgl \
+                         --enable-gamepad \
                          --enable-filters \
                          --with-font-backend=freetype \
                          --with-unicode-backend=icu \
