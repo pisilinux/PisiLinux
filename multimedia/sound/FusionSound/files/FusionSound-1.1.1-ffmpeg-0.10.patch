@@ -1,13 +1,6 @@
-Parts of:
-http://cvs.pld-linux.org/cgi-bin/viewvc.cgi/cvs/packages/FusionSound/FusionSound-ffmpeg.patch?view=markup
-
-and remove a write only variable.
-https://bugs.gentoo.org/show_bug.cgi?id=405721
-
-Index: FusionSound-1.1.1/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicprovider_ffmpeg.c
-===================================================================
---- FusionSound-1.1.1.orig/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicprovider_ffmpeg.c
-+++ FusionSound-1.1.1/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicprovider_ffmpeg.c
+diff -Nuar a/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicprovider_ffmpeg.c b/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicprovider_ffmpeg.c
+--- a/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicprovider_ffmpeg.c	2013-01-18 16:45:32.000000000 +0200
++++ b/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicprovider_ffmpeg.c	2013-10-14 21:00:05.340771751 +0300
 @@ -41,6 +41,7 @@
  
  #include <misc/sound_util.h>
@@ -16,22 +9,30 @@ Index: FusionSound-1.1.1/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicp
  #include <libavcodec/avcodec.h>
  #include <libavformat/avformat.h>
  
-@@ -476,17 +477,26 @@ static DFBResult
- IFusionSoundMusicProvider_FFmpeg_GetTrackDescription( IFusionSoundMusicProvider *thiz,
+@@ -79,7 +80,6 @@
+      DirectStream                 *stream;
+ 
+ #if (LIBAVFORMAT_VERSION_MAJOR >= 53)
+-     AVIOContext                   pb;
+ #else
+      ByteIOContext                 pb;
+ #endif
+@@ -502,6 +502,7 @@
                                                        FSTrackDescription        *desc )
  {
+      D_DEBUG_AT( FFMPEG, "%s:\n", __FUNCTION__ );
 +     AVDictionaryEntry *tag = NULL;
-+
-      DIRECT_INTERFACE_GET_DATA( IFusionSoundMusicProvider_FFmpeg )
-      
-      if (!desc)
-           return DFB_INVARG;
  
+      DIRECT_INTERFACE_GET_DATA( IFusionSoundMusicProvider_FFmpeg )
+ 
+@@ -528,11 +529,18 @@
+           if (tag && tag->value) desc->year = atoi(tag->value);
+      }
+ #else
 -     direct_snputs( desc->artist, data->ctx->author, FS_TRACK_DESC_ARTIST_LENGTH );
 -     direct_snputs( desc->title, data->ctx->title, FS_TRACK_DESC_TITLE_LENGTH );
 -     direct_snputs( desc->album, data->ctx->album, FS_TRACK_DESC_ALBUM_LENGTH );
 -     direct_snputs( desc->genre, data->ctx->genre, FS_TRACK_DESC_GENRE_LENGTH );
--     direct_snputs( desc->encoding, data->codec->codec->name, FS_TRACK_DESC_ENCODING_LENGTH );
 -     desc->year = data->ctx->year;
 +     tag = av_dict_get(data->ctx->metadata, "artist", NULL, 0);
 +     if (tag) direct_snputs( desc->artist, tag->value, FS_TRACK_DESC_ARTIST_LENGTH );
@@ -45,82 +46,119 @@ Index: FusionSound-1.1.1/interfaces/IFusionSoundMusicProvider/ifusionsoundmusicp
 +     if (tag) direct_snputs( desc->encoding, tag->value, FS_TRACK_DESC_ENCODING_LENGTH );
 +     tag = av_dict_get(data->ctx->metadata, "year", NULL, 0);
 +     if (tag) desc->year = atoi(tag->value);
-+
-      desc->bitrate = data->codec->bit_rate;
-      desc->replaygain = desc->replaygain_album = 0;
-      
-@@ -540,7 +550,6 @@ FFmpegStreamThread( DirectThread *thread
+ #endif
+      direct_snputs( desc->encoding, data->codec->codec->name, FS_TRACK_DESC_ENCODING_LENGTH );
+ 
+@@ -593,7 +601,6 @@
       IFusionSoundMusicProvider_FFmpeg_data *data = ctx;
-      
+ 
       AVPacket  pkt;
 -     u8       *pkt_data = NULL;
       int       pkt_size = 0;
       s64       pkt_pts  = AV_NOPTS_VALUE;
-      
-@@ -584,7 +593,6 @@ FFmpegStreamThread( DirectThread *thread
+ 
+@@ -637,7 +644,6 @@
                      continue;
                 }
-                
+ 
 -               pkt_data = pkt.data;
                 pkt_size = pkt.size;
                 pkt_pts  = pkt.pts;
                 if (pkt_pts != AV_NOPTS_VALUE) {
-@@ -595,14 +603,13 @@ FFmpegStreamThread( DirectThread *thread
-           }
-           
-           len = AVCODEC_MAX_AUDIO_FRAME_SIZE;
--          decoded = avcodec_decode_audio2( data->codec, 
+@@ -654,8 +660,8 @@
+                                           (s16*)data->buf, &len, &pkt);
+ 
+ #else
+-          decoded = avcodec_decode_audio2( data->codec,
 -                                          (s16*)data->buf, &len, pkt_data, pkt_size );
 +          decoded = avcodec_decode_audio3( data->codec, 
 +                                          (s16*)data->buf, &len, &pkt );
+ 
+ #endif
            if (decoded < 0) {
-                av_free_packet( &pkt );
+@@ -663,7 +669,6 @@
                 pkt_size = 0;
            }
-           else {    
+           else {
 -               pkt_data += decoded;
                 pkt_size -= decoded;
                 if (pkt_size <= 0)
                      av_free_packet( &pkt );
-@@ -739,7 +746,6 @@ FFmpegBufferThread( DirectThread *thread
+@@ -802,7 +807,6 @@
       IFusionSoundMusicProvider_FFmpeg_data *data = ctx;
-      
+ 
       AVPacket  pkt;
 -     u8       *pkt_data = NULL;
       int       pkt_size = 0;
       s64       pkt_pts  = AV_NOPTS_VALUE;
       int       pos      = 0;
-@@ -789,7 +795,6 @@ FFmpegBufferThread( DirectThread *thread
+@@ -852,7 +856,6 @@
                      continue;
                 }
-                
+ 
 -               pkt_data = pkt.data;
                 pkt_size = pkt.size;
                 pkt_pts  = pkt.pts;
                 if (pkt_pts != AV_NOPTS_VALUE) {
-@@ -800,14 +805,13 @@ FFmpegBufferThread( DirectThread *thread
-           }
-           
-           len = AVCODEC_MAX_AUDIO_FRAME_SIZE;
+@@ -869,8 +872,8 @@
+                                           (s16*)data->buf, &len, &pkt);
+ 
+ #else
 -          decoded = avcodec_decode_audio2( data->codec,
 -                                          (s16*)data->buf, &len, pkt_data, pkt_size );
-+          decoded = avcodec_decode_audio3( data->codec,
++          decoded = avcodec_decode_audio3( data->codec, 
 +                                          (s16*)data->buf, &len, &pkt );
-           if (decoded < 0) {
-                av_free_packet( &pkt );
+ 
+ #endif
+ 
+@@ -879,7 +882,6 @@
                 pkt_size = 0;
            }
-           else {    
+           else {
 -               pkt_data += decoded;
                 pkt_size -= decoded;
                 if (pkt_size <= 0)
                      av_free_packet( &pkt );
-@@ -1208,7 +1212,7 @@ Construct( IFusionSoundMusicProvider *th
+@@ -1279,21 +1281,13 @@
+           return D_OOM();
       }
-      
-      for (i = 0; i < data->ctx->nb_streams; i++) {
+ 
+-     if (init_put_byte( &data->pb, data->iobuf, 4096, 0,
+-                        (void*)data, av_read_callback, NULL,
+-                        direct_stream_seekable( stream ) ? av_seek_callback : NULL ) < 0) {
+-          D_ERROR( "IFusionSoundMusicProvider_FFmpeg: init_put_byte() failed!\n" );
+-          IFusionSoundMusicProvider_FFmpeg_Destruct( thiz );
+-          return DR_INIT;
+-     }
+-
+-     if (av_open_input_stream( &data->ctx, &data->pb, filename, fmt, NULL ) < 0) {
+-          D_ERROR( "IFusionSoundMusicProvider_FFmpeg: av_open_input_stream() failed!\n" );
++     if (avformat_open_input( &data->ctx, filename, fmt, NULL ) < 0) {
++          D_ERROR( "IFusionSoundMusicProvider_FFmpeg: avformat_open_input() failed!\n" );
+           IFusionSoundMusicProvider_FFmpeg_Destruct( thiz );
+           return DR_FAILURE;
+      }
+ 
+-     if (av_find_stream_info( data->ctx ) < 0) {
++     if (avformat_find_stream_info( data->ctx, NULL ) < 0) {
+           D_ERROR( "IFusionSoundMusicProvider_FFmpeg: couldn't find stream info!\n" );
+           IFusionSoundMusicProvider_FFmpeg_Destruct( thiz );
+           return DR_FAILURE;
+@@ -1303,7 +1297,7 @@
+ #if (LIBAVFORMAT_VERSION_MAJOR >= 53)
+           if (data->ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
+ #else
 -          if (data->ctx->streams[i]->codec->codec_type == CODEC_TYPE_AUDIO) {
 +          if (data->ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
+ #endif
                 if (!data->st || data->st->codec->bit_rate < data->ctx->streams[i]->codec->bit_rate)
                      data->st = data->ctx->streams[i];
-           }
+@@ -1318,7 +1312,7 @@
+ 
+      data->codec = data->st->codec;
+      c = avcodec_find_decoder( data->codec->codec_id );
+-     if (!c || avcodec_open( data->codec, c ) < 0) {
++     if (!c || avcodec_open2( data->codec, c, NULL ) < 0) {
+           D_ERROR( "IFusionSoundMusicProvider_FFmpeg: couldn't find audio decoder!\n" );
+           IFusionSoundMusicProvider_FFmpeg_Destruct( thiz );
+           return DR_FAILURE;
