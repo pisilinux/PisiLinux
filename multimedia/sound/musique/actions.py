@@ -19,4 +19,4 @@ def build():
 def install():
     qt4.install()
     pisitools.insinto("/usr/share/pixmaps/musique.png",  "images/app.png")
-    pisitools.dodoc("CHANGES",  "COPYING",  "LICENSE.LGPL",  "TODO")
+    pisitools.dodoc("CHANGES",  "COPYING",  "TODO")
