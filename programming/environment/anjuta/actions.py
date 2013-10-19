@@ -20,6 +20,11 @@ def setup():
                          --enable-introspection \
                          --disable-scrollkeeper \
                          --enable-gtk-doc")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
+
+    
 def build():
     autotools.make()
 
