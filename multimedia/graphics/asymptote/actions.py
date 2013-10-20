@@ -13,7 +13,8 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.autoreconf("-fi")
-    autotools.configure("--enable-gc=system \
+    autotools.configure("--enable-gsl \
+                         --enable-gc=system \
                          --with-latex=/usr/share/texmf-dist/tex/latex")
 
 def build():
