@@ -16,6 +16,9 @@ def setup():
                          --enable-telepathy \
                          --enable-downloads-monitor \
                          --enable-explain-queries")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 def build():
     autotools.make("LC_ALL=en_US.UTF-8")
 
