@@ -16,6 +16,10 @@ def setup():
                          --disable-static \
                          --enable-introspection \
                          --disable-scrollkeeper")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
+    
 def build():
     autotools.make()
 
