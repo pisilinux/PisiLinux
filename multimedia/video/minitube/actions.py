@@ -7,8 +7,6 @@
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import qt4
 
-WorkDir="minitube"
-
 def setup():
     qt4.configure()
 
@@ -19,4 +17,3 @@ def install():
     qt4.install()
 
     pisitools.dodoc("AUTHORS", "CHANGES", "COPYING", "TODO")
-
