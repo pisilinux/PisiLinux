@@ -10,6 +10,9 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--with-gtk")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def configure():
     autotools.make()
