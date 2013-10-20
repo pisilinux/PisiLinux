@@ -37,11 +37,13 @@ def setup():
     shelltools.makedirs("../gtk2-rebuild")
     shelltools.system("cp -R * ../gtk2-rebuild &>/dev/null")
 
-    #autotools.autoreconf("-fvi")
+    autotools.autoreconf("-fvi")
     autotools.configure("%s --with-gtk=3" % options)
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
     shelltools.cd("../gtk2-rebuild")
-    #autotools.autoreconf("-fvi")
-    autotools.configure("%s --with-gtk=2" % options)
+    autotools.autoreconf("-fvi")
+    autotools.configure("%s --with-gtk=2" % options)    
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
