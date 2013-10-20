@@ -31,6 +31,9 @@ def setup():
                          --with-default-image-codec=STBImageCodec \
                          --disable-devil \
                          --disable-samples")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
