@@ -15,6 +15,9 @@ def setup():
                          --disable-debug \
                          --disable-gladeui \
                          --enable-startup-notification")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
