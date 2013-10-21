@@ -10,7 +10,11 @@ from pisi.actionsapi import shelltools
 
 
 def setup():
-    autotools.configure("--disable-static --enable-python")
+    autotools.configure("--disable-static \
+                         --enable-python")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
