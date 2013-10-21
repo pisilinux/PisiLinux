@@ -11,6 +11,9 @@ def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-static\
                          --disable-schemas-install")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")     
 
 def build():
     autotools.make()
