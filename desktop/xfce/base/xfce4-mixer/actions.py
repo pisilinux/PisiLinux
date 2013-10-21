@@ -13,6 +13,9 @@ def setup():
                          --libexecdir=/usr/lib \
                          --disable-static \
                          --disable-debug")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
