@@ -13,6 +13,9 @@ def setup():
                          --enable-theora \
                          --enable-speex")
 
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")    
+
 def build():
     autotools.make()
 
