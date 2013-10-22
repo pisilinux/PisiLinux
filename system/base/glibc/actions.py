@@ -88,6 +88,7 @@ def libcSetup(cfg):
                        --enable-kernel=2.6.32 \
                        --enable-stackguard-randomization \
                        --without-selinux \
+                       --without-gd \
                        --disable-profile \
                        --enable-obsolete-rpc \
                        --enable-lock-elision \
