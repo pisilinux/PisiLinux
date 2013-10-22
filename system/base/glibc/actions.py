@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 import os
 
-WorkDir = "glibc-2.17"
+WorkDir = "glibc-2.18"
 
 defaultflags = "-O3 -g -U_FORTIFY_SOURCE -fno-strict-aliasing -fomit-frame-pointer -mno-tls-direct-seg-refs"
 # this is getting ridiculous, also gdb3 breaks resulting binary
@@ -77,21 +77,20 @@ def libcSetup(cfg):
 
     shelltools.cd(cfg["builddir"])
     shelltools.system("../configure \
-                       --with-tls \
-                       --with-__thread \
-                       --enable-add-ons=nptl,libidn \
-                       --enable-bind-now \
-                       --enable-kernel=2.6.37 \
-                       --enable-stackguard-randomization \
-                       --without-cvs \
-                       --without-gd \
-                       --without-selinux \
-                       --disable-profile \
                        --prefix=/usr \
+                       --with-headers=/usr/include \
                        --mandir=/usr/share/man \
                        --infodir=/usr/share/info \
-                       --libexecdir=/usr/lib/misc \
+                       --libexecdir=/usr/lib \
+                       --with-bugurl=https://bugs.pisilinux.org/ \
+                       --enable-add-ons=nptl,libidn \
+                       --enable-bind-now \
+                       --enable-kernel=2.6.32 \
+                       --enable-stackguard-randomization \
+                       --without-selinux \
+                       --disable-profile \
                        --enable-obsolete-rpc \
+                       --enable-lock-elision \
                        %s " % cfg["extraconfig"])
 
 def libcBuild(cfg):
@@ -165,7 +164,7 @@ def install():
         pisitools.remove("/etc/ld.so.cache")
 
     # It previously has 0755 perms which was killing things
-    shelltools.chmod("%s/usr/%s/misc/pt_chown" % (get.installDIR(), config["system"]["libdir"]), 04711)
+    #shelltools.chmod("%s/usr/%s/misc/pt_chown" % (get.installDIR(), config["system"]["libdir"]), 04711)
 
     # Prevent overwriting of the /etc/localtime symlink
     if shelltools.isFile("%s/etc/localtime" % get.installDIR()):
@@ -174,12 +173,6 @@ def install():
     # Nscd needs this to work
     pisitools.dodir("/var/run/nscd")
     pisitools.dodir("/var/db/nscd")
-    
-    #we need this headers #2013
-    #pisitools.dodir("/usr/include/rpc")
-    #pisitools.dodir("/usr/include/rpcsvc")
-    #~ shelltools.copy("sunrpc/rpc/*.h","%s/usr/include/rpc" % get.installDIR())
-    #~ shelltools.copy("nis/rpcsvc/*.h","%s/usr/include/rpcsvc" % get.installDIR())
 
     # remove zoneinfo files since they are coming from timezone packages
     # we disable timezone build with a patch, keeping these lines for easier maintenance
@@ -187,7 +180,7 @@ def install():
         pisitools.removeDir("/usr/share/zoneinfo")
 
     #while bootstrapping whole system zic should not be removed. timezone package does not build without it. # 2013
-    for i in ["zdump"]:
+    for i in ["zdump","zic"]:
         if shelltools.isFile("%s/usr/sbin/%s" % (get.installDIR(), i)):
             pisitools.remove("/usr/sbin/%s" % i)
 
