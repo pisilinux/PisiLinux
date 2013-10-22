@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.ldflags.add("-lz")
     shelltools.system("sed -i -e '/^lxdream_LDADD =/s|=|= -lX11 -lm|g' src/Makefile.in || exit 1") 
     autotools.configure("--with-gtk \
                          --with-sdl \
