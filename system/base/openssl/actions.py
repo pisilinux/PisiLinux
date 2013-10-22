@@ -15,8 +15,7 @@ def setup():
                 --openssldir=/etc/pki/tls \
                 --enginesdir=/usr/lib/openssl/engines \
                 zlib enable-camellia enable-seed enable-tlsext enable-rfc3779 \
-                enable-cms enable-md2 no-mdc2 no-rc5 no-ec no-ec2m \
-                no-ecdh no-ecdsa no-srp threads shared -Wa,--noexecstack"
+                enable-cms enable-md2 threads shared -Wa,--noexecstack"
 
     if get.buildTYPE() == "_emul32":
         options += " --prefix=/_emul32 --libdir=lib32"
@@ -25,6 +24,7 @@ def setup():
         shelltools.system("./Configure linux-elf %s" % options)
         shelltools.export("PKG_CONFIG_PATH","/usr/lib32/pkgconfig")
     else:
+        options += " enable-ec_nistp_64_gcc_128"
         shelltools.system("./config %s" % options)
         pisitools.dosed("Makefile", "^(SHARED_LDFLAGS=).*", "\\1 ${LDFLAGS}")
         pisitools.dosed("Makefile", "^(CFLAG=.*)", "\\1 ${CFLAGS}")
@@ -37,15 +37,12 @@ def build():
 def check():
     #Revert ca-dir patch not to fail test
     shelltools.system("patch -p1 -R < openssl-1.0.0-beta4-ca-dir.patch")
-    
-    #FIXME: Some tests write into /etc/pki directory which violates
-    # sandbox rules. It is not important for now. However, we will
-    # need to fix it later. (08/17/2010 --Eren)
+
     homeDir = "%s/test-home" % get.workDIR()
     shelltools.export("HOME", homeDir)
     shelltools.makedirs(homeDir)
     autotools.make("-j1 test")
-    
+
     #Passed. So, re-patch
     shelltools.system("patch -p1 < openssl-1.0.0-beta4-ca-dir.patch")
 

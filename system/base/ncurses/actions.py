@@ -4,94 +4,97 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
-import os
-
-WorkDir = "ncurses-%s-%s" % (get.srcVERSION().split("_", 1)[0], get.srcVERSION().split("_", 1)[1])
-
-
-def linknonwide(targetDir):
-    # symlink normal objects to widechar ones, to force widechar enabling
-    for f in shelltools.ls("%s/%s/*w.*" % (get.installDIR(), targetDir)):
-        source = shelltools.baseName(f)
-        destination = source.replace("w.", ".")
-        pisitools.dosym(source, "%s/%s" % (targetDir, destination))
+WorkDir = "."
+WORKDIR = "%s/%s-%s" % (get.workDIR(), get.srcNAME(), get.srcVERSION())
+NCURSES = "ncurses-build"
+NCURSESW = "ncursesw-build"
+CONFIGPARAMS = "--without-debug \
+                --with-shared \
+                --with-normal \
+                --without-profile \
+                --disable-rpath \
+                --enable-const \
+                --enable-largefile \
+                --with-terminfo-dirs='/etc/terminfo:/usr/share/terminfo' \
+                --disable-termcap \
+                --enable-hard-tabs \
+                --enable-xmc-glitch \
+                --enable-colorfgbg \
+                --with-rcs-ids \
+                --with-mmask-t='long' \
+                --without-ada \
+                --enable-symlinks \
+                --without-gpm"
 
 def setup():
-    configparams = "--without-debug \
-                   --without-profile \
-                   --disable-rpath \
-                   --enable-const \
-                   --enable-largefile \
-                   --enable-widec \
-                   --with-terminfo-dirs='/etc/terminfo:/usr/share/terminfo' \
-                   --disable-termcap \
-                   --enable-hard-tabs \
-                   --enable-xmc-glitch \
-                   --enable-colorfgbg \
-                   --with-shared \
-                   --with-rcs-ids \
-                   --with-chtype='long' \
-                   --with-mmask-t='long' \
-                   --without-ada \
-                   --enable-symlinks \
-                   --without-gpm"
+    shelltools.makedirs(NCURSES)
+    shelltools.makedirs(NCURSESW)
+    shelltools.cd(NCURSESW)
+
+    global CONFIGPARAMS
 
     if get.buildTYPE() == "_emul32":
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-        shelltools.export("CXXFLAGS", "%s -m32" % get.CXXFLAGS())
-        shelltools.export("LDFLAGS", "%s -m32" % get.LDFLAGS())
-        configparams += " --prefix=/_emul32 \
+        pisitools.flags.add("-m32")
+        pisitools.ldflags.add("-m32")
+        CONFIGPARAMS += " --prefix=/_emul32 \
                           --libdir=/usr/lib32 \
                           --libexecdir=/_emul32/lib \
                           --bindir=/_emul32/bin \
                           --sbindir=/_emul32/sbin \
-                          --mandir=/_emul32/usr/share/man"
+                          --mandir=/_emul32/share/man"
+    else:
+        CONFIGPARAMS += " --prefix=/usr \
+                          --libdir=/usr/lib \
+                          --libexecdir=/usr/lib \
+                          --bindir=/usr/bin \
+                          --sbindir=/usr/sbin \
+                          --mandir=/usr/share/man"
 
-    autotools.configure(configparams)
+    shelltools.system("%s/configure --enable-widec --enable-pc-files %s" % (WORKDIR, CONFIGPARAMS))
+
 
 def build():
+    global CONFIGPARAMS
+    shelltools.cd(NCURSESW)
+    autotools.make()
+    if not get.buildTYPE() == "_emul32" and get.ARCH() == "x86_64": CONFIGPARAMS += " --with-chtype=long"
+    shelltools.cd("../%s" % NCURSES)
+    shelltools.system("%s/configure %s" % (WORKDIR, CONFIGPARAMS))
     autotools.make()
 
 def install():
+    shelltools.cd(NCURSESW)
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    LIB = "/usr/lib32" if get.buildTYPE() == "_emul32" else "/usr/lib"
+    print LIB
+    for lib in ["ncurses", "form", "panel", "menu"]:
+        shelltools.echo("lib%s.so" % lib, "INPUT(-l%sw)" % lib)
+        pisitools.dolib_so("lib%s.so" % lib, destinationDirectory = LIB)
+        pisitools.dosym("lib%sw.a" % lib, "%s/lib%s.a" % (LIB, lib))
+    pisitools.dosym("libncurses++w.a", "%s/libncurses++.a" % LIB)
+    for lib in ["ncurses", "ncurses++", "form", "panel", "menu"]:
+        pisitools.dosym("%sw.pc" % lib, "%s/pkgconfig/%s.pc" % (LIB, lib))
 
-    if get.buildTYPE() == "_emul32":
-        libbasedir = "lib32"
-    else:
-        libbasedir = "lib"
+    shelltools.echo("libcursesw.so", "INPUT(-lncursesw)")
+    pisitools.dolib_so("libcursesw.so", destinationDirectory = LIB)
+    pisitools.dosym("libncurses.so", "%s/libcurses.so" % LIB)
+    pisitools.dosym("libncursesw.a", "%s/libcursesw.a" % LIB)
+    pisitools.dosym("libncurses.a", "%s/libcurses.a" % LIB)
 
-    # Handle static libs in /usr/%libdir/static
-    pisitools.dodir("/usr/%s/static" % libbasedir)
-    for i in shelltools.ls("%s/usr/%s/*.a" % (get.installDIR(), libbasedir)):
-        pisitools.domove("/usr/%s/%s" % (libbasedir, shelltools.baseName(i)), "/usr/%s/static/" % libbasedir)
-
-    linknonwide("/usr/%s/static" % libbasedir)
-    linknonwide("/usr/%s" % libbasedir)
+    shelltools.cd("../%s" % NCURSES)
+    for lib in ["ncurses", "form", "panel", "menu"]:
+        pisitools.dolib_so("lib/lib%s.so.%s" % (lib, get.srcVERSION()), destinationDirectory = LIB)
+        pisitools.dosym("lib%s.so.%s" % (lib, get.srcVERSION()), "%s/lib%s.so.5" % (LIB, lib))
 
     if get.buildTYPE() == "_emul32":
         pisitools.removeDir("/_emul32")
         return
 
-    # We need the basic terminfo files in /etc
-    terminfo = ["ansi", "console", "dumb", "linux", "rxvt", "screen", "sun", \
-                "vt52", "vt100", "vt102", "vt200", "vt220", "xterm", "xterm-color", "xterm-xfree86"]
-
-    # http://liste.pardus.org.tr/gelistirici/2011-October/057009.html
-    for d in ("ncurses", "ncursesw"):
-        pisitools.dodir("/usr/include/%s" % d)
-        for h in shelltools.ls("%s/usr/include/*.h" % get.installDIR()):
-            pisitools.dosym("../%s" % os.path.basename(h), "/usr/include/%s/%s" % (d, os.path.basename(h)))
-
-    for f in terminfo:
-        termfile = f[0] + "/" + f
-        if shelltools.can_access_file("/usr/share/terminfo/%s" % termfile):
-            pisitools.dodir("/etc/terminfo/%s" % f[0])
-            pisitools.domove("/usr/share/terminfo/%s" % termfile, "/etc/terminfo/%s" % f[0])
-            pisitools.dosym("../../../../etc/terminfo/%s/%s" % (f[0], f), "/usr/share/terminfo/%s/%s" % (f[0], f))
-
-    pisitools.dodoc("ANNOUNCE", "NEWS", "README*", "TO-DO")
+    shelltools.cd(WORKDIR)
+    shelltools.system("grep -B 100 '$Id' README > license.txt")
+    pisitools.dodoc("ANNOUNCE", "NEWS", "README*", "TO-DO", "license.txt")

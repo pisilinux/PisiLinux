@@ -1,18 +1,21 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+#
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/copyleft/gpl.txt
 
-from pisi.actionsapi import autotools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
+from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
     shelltools.copy("../unifont*.pcf.gz", "./unifont.pcf.gz")
     shelltools.export("GRUB_CONTRIB", "%s/grub-%s/grub-extras" % (get.workDIR(), get.srcVERSION()))
-    CFLAGS = get.CFLAGS().replace(" -fstack-protector","").replace(" -fasynchronous-unwind-tables","").replace(" -O2", "")
-    shelltools.export("CFLAGS", CFLAGS)
+
+    pisitools.cflags.remove("-fstack-protector", "-fasynchronous-unwind-tables", "-fexceptions")
+    pisitools.cflags.sub("\s?(-O[\ds]|-D_FORTIFY_SOURCE=\d)\s?", " ")
+
     shelltools.system("./autogen.sh")
     autotools.configure("--disable-werror \
                          --with-grubdir=grub2 \
@@ -24,18 +27,18 @@ def build():
     #make-dist for creating all updated translation files
     autotools.make("dist")
     autotools.make()
-    
+
 def install():
     # Install unicode.pf2 using downloaded font source. 
     shelltools.system("./grub-mkfont -o unicode.pf2 unifont.pcf.gz")
-     
+
     # Create directory for grub.cfg file
     pisitools.dodir("/boot/grub2")
     pisitools.insinto("/boot/grub2", "unicode.pf2")
-    
+
     # Insall our theme
     pisitools.insinto("/usr/share/grub/themes/","themes/pisilinux")
-    
+
     #remove -r 0x0-0x7F entries to fix ugly fonts or find a suitable range parameter -r ***
     shelltools.system("./grub-mkfont -o DejaVuSans-10.pf2 -r 0x0-0x7F -s 10 /usr/share/fonts/dejavu/DejaVuSans.ttf")
     shelltools.system("./grub-mkfont -o DejaVuSans-12.pf2 -r 0x0-0x7F -s 12 /usr/share/fonts/dejavu/DejaVuSans.ttf")
@@ -51,9 +54,8 @@ def install():
         shelltools.copy(font,"%s/usr/share/grub/themes/pisilinux" % get.installDIR())
 
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    
+
     #Remove default starfiled theme.
     pisitools.removeDir("/usr/share/grub/themes/starfield")
-    
-    pisitools.dodoc("ABOUT-NLS", "AUTHORS", "BUGS", "ChangeLog", "COPYING", "TODO", "README")
 
+    pisitools.dodoc("ABOUT-NLS", "AUTHORS", "BUGS", "ChangeLog", "COPYING", "TODO", "README")

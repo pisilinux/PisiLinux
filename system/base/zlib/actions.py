@@ -9,16 +9,13 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
+LIBDIR = "/usr/lib32" if get.buildTYPE() == "emul32" else "/usr/lib"
+
 def setup():
-    options = "--libdir=/usr/lib \
-               --includedir=/usr/include \
-               --prefix=/usr"
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-
-    autotools.rawConfigure(options)
+    autotools.rawConfigure("--libdir=%s \
+                            --includedir=/usr/include \
+                            --prefix=/usr \
+                           " % LIBDIR)
 
 def build():
     autotools.make()
@@ -29,7 +26,7 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.remove("/usr/lib*/*.a")
+    pisitools.remove("%s/*.a" % LIBDIR)
 
     if get.buildTYPE():
         return

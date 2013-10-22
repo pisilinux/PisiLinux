@@ -11,10 +11,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS", "%s -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE -fPIC" % get.CFLAGS())
+    pisitools.flags.add(" -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE -fPIC")
+
     autotools.configure("--datadir=/usr/share/misc \
                          --disable-static \
-                         --disable-rpath \
                          --enable-fsect-man5")
 
     pisitools.dosed("libtool", "^hardcode_libdir_flag_spec=.*", 'hardcode_libdir_flag_spec=""')

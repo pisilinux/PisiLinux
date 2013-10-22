@@ -9,19 +9,15 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "xz-%s" % get.srcVERSION()
-
 def setup():
     options = " --disable-static \
                 --disable-rpath"
 
     if get.buildTYPE() == "emul32":
         # Suggested C(XX)FLAGS by the upstream author
-        shelltools.export("CFLAGS", "%s -D_FILE_OFFSET_BITS=32 -m32" % get.CFLAGS())
-        shelltools.export("CXXFLAGS", "%s -D_FILE_OFFSET_BITS=32" % get.CXXFLAGS())
+        pisitools.flags.add("-D_FILE_OFFSET_BITS=32 -m32")
     else:
-        shelltools.export("CFLAGS", "%s -D_FILE_OFFSET_BITS=64" % get.CFLAGS())
-        shelltools.export("CXXFLAGS", "%s -D_FILE_OFFSET_BITS=64" % get.CXXFLAGS())
+        pisitools.flags.add("-D_FILE_OFFSET_BITS=64")
 
     autotools.configure(options)
 

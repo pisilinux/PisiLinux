@@ -9,13 +9,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--enable-nls \
-                         --bindir=%s/bin" % get.installDIR())
+    autotools.configure()
 
 def build():
     autotools.make("LDFLAGS=%s" % get.LDFLAGS())
 
 def install():
     autotools.install()
+    pisitools.dosym("/usr/bin/sed","/bin/sed")
 
     pisitools.dodoc("NEWS", "README*", "THANKS", "AUTHORS", "BUGS", "ChangeLog")

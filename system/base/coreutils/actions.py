@@ -18,9 +18,8 @@ movetobin = ["arch", "basename", "cat", "chgrp", "chmod", "chown", "cp", "cut", 
 symtousrbin = ["env", "cut", "readlink"]
 
 def setup():
-    shelltools.export("gl_cv_func_printf_directive_n", "yes")
-    shelltools.export("gl_cv_func_isnanl_works", "yes")
-    # shelltools.export("DEFAULT_POSIX2_VERSION", "199209")
+    #shelltools.export("gl_cv_func_printf_directive_n", "yes")
+    #shelltools.export("gl_cv_func_isnanl_works", "yes")
     shelltools.export("DEFAULT_POSIX2_VERSION", "200112")
     shelltools.export("AUTOPOINT", "true")
     shelltools.export("CFLAGS", "%s -fno-strict-aliasing -fPIC -D_GNU_SOURCE=1 " % get.CFLAGS())

@@ -22,21 +22,7 @@ def setup():
 
     # autoreconf breaks linker, graaaaaaaaggggghhhhhhh
     # autotools.autoreconf("-vfi")
-    autotools.configure("--disable-java \
-                         --disable-native-java \
-                         --disable-csharp \
-                         --without-included-gettext \
-                         --with-included-libcroco \
-                         --with-included-glib \
-                         --with-included-libxml \
-                         --with-pic=yes \
-                         --without-emacs \
-                         --disable-openmp \
-                         --enable-nls \
-                         --enable-shared \
-                         --disable-git \
-                         --disable-rpath \
-                         --disable-static")
+    autotools.configure()
 
 def build():
     autotools.make("GMSGFMT=../src/msgfmt")

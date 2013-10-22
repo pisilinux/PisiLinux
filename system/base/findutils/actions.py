@@ -10,9 +10,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    #who knows pisitools.dosed :)
-    cmd="sed -i '/gets is a security hole/d' gnulib/lib/stdio.in.h"
-    shelltools.system(cmd)
+    # write sed commands using pisitools.dosed :)
+    shelltools.system('sed -i "/^SUBDIRS/s/locate//" Makefile.in')
+    shelltools.system('sed -i "/gets is a security hole/d" gnulib/lib/stdio.in.h')
+
     shelltools.export("CFLAGS", "%s -D_GNU_SOURCE" % get.CFLAGS())
 
     autotools.configure("--enable-nls \
@@ -26,9 +27,8 @@ def setup():
 def build():
     autotools.make()
 
-# Sandbox ihlali: rmdir (/// -> /)
-#def check():
-#    autotools.make("check")
+def check():
+    autotools.make("check")
 
 def install():
     autotools.install()

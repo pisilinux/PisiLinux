@@ -4,18 +4,16 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vifs")
-    autotools.configure("--with-libwrap \
-                         --with-libcap-ng=yes \
-                         --with-prelude \
+    autotools.configure("--with-libcap-ng=yes \
+                         --with-python=yes \
                          --enable-gssapi-krb5=no \
-                         --without-prelude \
+                         --enable-pam=yes \
                          --disable-static")
 
 def build():

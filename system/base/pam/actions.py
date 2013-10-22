@@ -7,24 +7,15 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-WorkDir = "Linux-PAM-%s" % get.srcVERSION()
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    shelltools.export("CFLAGS", "%s -fPIC -D_GNU_SOURCE" % get.CFLAGS())
+    pisitools.flags.add("-fPIC -D_GNU_SOURCE")
 
-    libtools.libtoolize("-f")
     autotools.autoreconf("-fi")
-    autotools.rawConfigure("--disable-prelude \
-                            --disable-dependency-tracking \
-                            --enable-audit=no \
-                            --enable-db=no \
-                            --enable-nls \
-                            --enable-securedir=/lib/security \
-                            --enable-isadir=/lib/security")
+    autotools.configure("--enable-nls \
+                         --enable-securedir=/lib/security \
+                         --enable-isadir=/lib/security")
 
 def build():
     # Update .po files
@@ -34,7 +25,6 @@ def build():
 
 def check():
     autotools.make("check")
-    #One test failed now, fix it
 
     # dlopen check
     shelltools.system("./dlopen-test.sh")
@@ -42,9 +32,6 @@ def check():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    # FIXME: Check whether /var is empty!
-    #~ pisitools.removeDir("/var")
 
     pisitools.removeDir("/usr/share/doc/Linux-PAM/")
 

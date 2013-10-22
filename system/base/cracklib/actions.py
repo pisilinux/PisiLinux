@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--with-default-dict=/usr/share/cracklib/pw_dict \
+                         --without-python \
                          --disable-static")
 
 def build():
@@ -22,5 +23,5 @@ def install():
     # Create dictionary files
     shelltools.system("cat /usr/share/cracklib/cracklib-small|%s/usr/sbin/cracklib-packer %s/usr/share/cracklib/pw_dict" % (get.installDIR(),get.installDIR()))
 
-    # pisitools.domo("po/tr.po","tr","cracklib.mo")
+    pisitools.domo("po/tr.po","tr","cracklib.mo")
     pisitools.dodoc("ChangeLog", "README*", "NEWS", "COPYING.LIB", "AUTHORS")

@@ -13,11 +13,11 @@ def setup():
     autotools.configure("--enable-shadowgrp \
                          --without-selinux \
                          --with-audit \
+                         --with-libcrack \
                          --with-libpam \
                          --enable-nls \
-                         --without-group-name-max-length \
+                         --with-group-name-max-length=32 \
                          --disable-shared")
-                         #--with-skey \
 def build():
     # Rebuild gmo catalogs
     autotools.make("-C po update-gmo")

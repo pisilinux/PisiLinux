@@ -10,8 +10,7 @@ from pisi.actionsapi import shelltools
 
 
 def setup():
-    options = "--disable-static \
-               --enable-shared"
+    options = "--enable-shared"
 
     if not get.buildTYPE() == "emul32":
         options += " --libdir=/usr/lib"
@@ -23,7 +22,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    
+
     if get.buildTYPE() == "emul32":
         #pisitools.remove("/usr/lib32/*.a")
         return

@@ -10,11 +10,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    #who knows pisitools.dosed :)
-    cmd="sed -i '/gets is a security hole/d' lib/stdio.in.h"
-    shelltools.system(cmd)
-    # shelltools.touch("man/*.1")
-    # shelltools.chmod("config/*", 0775)
+    #write sed comands using pisitools.dosed
+    shelltools.system('sed -i "/gets is a security hole/d" lib/stdio.in.h')
 
     # disable automagic libsigsegv dependency
     shelltools.export("AUTOPOINT", "true")
@@ -26,8 +23,10 @@ def setup():
 def build():
     autotools.make('LDFLAGS="%s"' % get.LDFLAGS())
 
+def build():
+    autotools.make("check")
+
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("ChangeLog", "NEWS", "README")
-
