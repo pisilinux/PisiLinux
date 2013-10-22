@@ -16,6 +16,9 @@ def setup():
     shelltools.system("gtkdocize")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static --enable-introspection")
+    
+    # for fix unused dependency   
+    pisitools.dosed("libtool"," -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
