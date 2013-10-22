@@ -13,6 +13,9 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--with-moc=/usr/bin/moc --disable-static --prefix=/usr")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")    
 
 def build():
     autotools.make()
