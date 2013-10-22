@@ -9,10 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.dosed("doc/texinfo.txi", "setfilename texinfo", "setfilename texinfo.info")
-    pisitools.dosed("doc/Makefile.in", "INFO_DEPS = texinfo", "INFO_DEPS = texinfo.info")
-    pisitools.dosed("doc/Makefile.in", "texinfo:", "texinfo.info:")
-
     autotools.configure()
 
 def build():
@@ -20,7 +16,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    pisitools.newdoc("info/README", "README.info")
-    pisitools.newdoc("makeinfo/README", "README.makeinfo")
-    pisitools.dodoc("AUTHORS", "ChangeLog", "INTRODUCTION", "NEWS", "README", "TODO")
+    
+    pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "README", "TODO")
