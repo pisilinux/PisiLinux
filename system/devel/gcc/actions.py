@@ -73,23 +73,34 @@ def setup():
                        --disable-mudflap \
                        --disable-libmudflap \
                        --disable-libunwind-exceptions \
+                       --with-linker-hash-style=gnu \
                        --enable-checking=release \
                        --enable-clocale=gnu \
                        --enable-__cxa_atexit \
                        --enable-languages=c,c++,fortran,objc,obj-c++,lto \
                        --enable-libstdcxx-allocator=new \
                        --disable-libstdcxx-pch \
+                       --enable-cloog-backend=isl \
+                       --disable-cloog-version-check \
                        --enable-shared \
+                       --enable-lto \
+                       --enable-gold \
+                       --enable-ld=default \
+                       --enable-plugin \
+                       --with-plugin-ld=ld.gold \
                        --enable-ssp \
                        --disable-libssp \
                        --enable-plugin \
                        --enable-threads=posix \
+                       --disable-libstdcxx-pch \
+                       --enable-linker-build-id \
                        --without-included-gettext \
                        %s \
                        %s \
                        %s \
                        --with-tune=generic \
                        --with-system-zlib \
+                      --enable-checking=release \
                        --with-tune=generic \
                        --enable-gnu-unique-object \
                        --with-pkgversion="Pisi Linux" \
