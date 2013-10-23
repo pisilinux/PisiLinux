@@ -8,7 +8,8 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--disable-static \
+    autotools.configure("--prefix=/usr \
+                         --disable-static \
                          --enable-shared")
 
 def build():
