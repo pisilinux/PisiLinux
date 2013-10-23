@@ -23,8 +23,8 @@ def setup():
                          --enable-dwz \
                          --disable-nls \
                          --with-zlib \
-                         --with-bzlib")
-                         # --with-lzma \
+                         --with-bzlib \
+                         --with-lzma")
 
 def build():
     autotools.make()

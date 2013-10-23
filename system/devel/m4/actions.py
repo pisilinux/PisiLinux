@@ -6,9 +6,11 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.system("sed -i -e '/gets is a/d' lib/stdio.in.h")
     autotools.configure("--enable-nls \
                          --enable-changeword")
 

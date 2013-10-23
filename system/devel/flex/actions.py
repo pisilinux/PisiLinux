@@ -10,7 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS","%s -fPIC" % get.CFLAGS())
+    pisitools.flags.add("-fPIC")
     shelltools.export("AUTOPOINT", "true")
 
     autotools.autoreconf("-vfi")

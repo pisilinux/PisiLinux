@@ -10,6 +10,7 @@ from pisi.actionsapi import get
 
 
 def setup():
+    pisitools.flags.add("-U_FORTIFY_SOURCE")
     autotools.autoreconf("-vfi")
     autotools.configure("--enable-shared \
                          --disable-static")
@@ -20,7 +21,7 @@ def build():
 # https://savannah.nongnu.org/bugs/?22368
 # https://bugs.gentoo.org/273372
 #def check():
-#    autotools.make("check")
+    #autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())

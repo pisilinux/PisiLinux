@@ -8,11 +8,10 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "pkg-config-%s" % get.srcVERSION()
+#WorkDir = "pkg-config-%s" % get.srcVERSION()
 
 def setup():
-    autotools.configure("--with-installed-popt \
-                         --with-pc-path=/usr/lib/pkgconfig:/usr/share/pkgconfig")
+    autotools.configure("--with-pc-path=/usr/lib/pkgconfig:/usr/share/pkgconfig")
 
 def check():
     autotools.make("check")

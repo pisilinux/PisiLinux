@@ -7,12 +7,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    # Fix sandbox violation
-    #shelltools.export("BZR_HOME", get.workDIR())
-
     autotools.rawConfigure("--parallel=%s \
                             --system-libs \
                             --no-qt-gui \

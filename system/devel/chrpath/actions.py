@@ -18,5 +18,3 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    # FIXME: something fishy is going on, farm borks with this
-    # pisitools.remove("/%s/%s/INSTALL" % (get.docDIR(), get.srcNAME()))

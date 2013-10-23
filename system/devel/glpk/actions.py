@@ -9,6 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    if get.buildTYPE() != "emul32":
+        pisitools.flags.add("-fPIC")
+
     autotools.configure("--disable-static")
 
 def build():

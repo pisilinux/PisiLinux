@@ -20,7 +20,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    
+
     pisitools.domove("usr/share/pkgconfig/", "/usr/lib/")
-    
+
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README", "THANKS", "TODO", "VERSION")

@@ -10,16 +10,9 @@ from pisi.actionsapi import get
 
 
 def setup():
-    # autotools.autoreconf("-vfi")
-    autotools.configure('--disable-rpath \
-                         --disable-static \
-                         --disable-watchdog \
-                         --disable-debugging \
-                         --disable-optimization \
-                         --docdir="/%s/%s" \
-                         --enable-shared \
-                         --enable-interfaces="c cxx" \
-                         --with-pic' % (get.docDIR(), get.srcNAME()))
+    autotools.configure('--enable-shared \
+                         --enable-interfaces="c,cxx" \
+                         --with-pic')
 def build():
     autotools.make()
 
