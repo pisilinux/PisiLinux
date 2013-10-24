@@ -4,24 +4,25 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
-from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.autoreconf("-vifs")
+    python = "--without-python" if get.buildTYPE() == "emul32" else "--with-python=/usr/bin/python2.7 "
     # don't remove --with-debugger as it is needed for reverse dependencies
-    options = "--with-python=/usr/bin/python2.7 \
-               --with-crypto \
-               --with-debugger \
-               --disable-static"
+    autotools.configure("%s \
+                         --with-crypto \
+                         --with-debugger \
+                         --disable-static \
+                         --with-xz \
+                         --with-zlib \
+                         --disable-silent-rules \
+                        " % python)
 
-    if get.buildTYPE() == "emul32":
-        options += " --without-python"
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-
-    autotools.configure(options)
+    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
+    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
