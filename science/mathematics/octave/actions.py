@@ -18,7 +18,7 @@ def setup():
     # autotools.configure() overrides them causing some directories
     # not prefixed by /var/pisi while installing, boom sandbox violations.
     # Briefly, use rawConfigure() here, (Fixes #8738)
-    autotools.rawConfigure("--prefix=/usr \
+    autotools.rawConfigure('--prefix=/usr \
                             --build=%s \
                             --disable-static \
                             --with-f77=gfortran \
@@ -26,7 +26,8 @@ def setup():
                             --with-blas \
                             --with-glpk \
                             --with-opengl \
-                            --enable-shared" % get.HOST())
+                             --with-umfpack="-lumfpack -lsuitesparseconfig" \
+                            --enable-shared' % get.HOST())
 
 def build():
     autotools.make("-j1") #use parallel build patch to turn parallel build on
