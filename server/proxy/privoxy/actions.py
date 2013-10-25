@@ -4,18 +4,17 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "%s-stable" % get.srcDIR()
-
 def setup():
-    autotools.autoreconf("-fi")
+    autotools.autoreconf("-vfi")
     autotools.configure("--enable-dynamic-pcre \
                          --enable-zlib \
+                         --enable-compression \
                          --with-user=privoxy \
+                         --sysconfdir=/etc/privoxy \
                          --with-group=privoxy \
                          --without-docbook \
                          --without-db2html")
