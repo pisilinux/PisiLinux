@@ -9,10 +9,13 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    cmaketools.configure("-DWITH_MOZJS=0")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DCMAKE_SKIP_RPATH=ON \
+                          -DPERL_VENDORINSTALL=yes \
+                          -DCMAKE_BUILD_TYPE=Release \
+                          -DWITH_WEBKIT=ON \
+                          -DWITH_MOZJS=ON")
 
 def build():
     cmaketools.make()
