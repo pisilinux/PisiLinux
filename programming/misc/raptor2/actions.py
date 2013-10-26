@@ -18,6 +18,9 @@ def setup():
                          --disable-gtk-doc \
                          --with-html-dir=%s/html\
                          --disable-static" % docdir)
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")     
 
 def build():
     autotools.make()
