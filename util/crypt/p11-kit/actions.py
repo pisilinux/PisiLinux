@@ -7,11 +7,12 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 
 def setup():
-    if get.buildTYPE() == "emul32": options = " --with-module-path=/usr/lib32/pkcs11"
-    else: options = " --with-module-path=/usr/lib/pkcs11"
+    if get.buildTYPE() == "emul32":
+        options = " --with-module-path=/usr/lib32/pkcs11"
+    else:
+        options = " --with-module-path=/usr/lib/pkcs11"
 
     autotools.configure(options)
 
