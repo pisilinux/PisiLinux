@@ -15,7 +15,7 @@ from pisi.actionsapi import get
 shelltools.export("JAVA_HOME", "/opt/sun-jdk")
 
 def setup():
-    cmaketools.configure()
+    cmaketools.configure("-DCMAKE_SKIP_RPATH=OFF")
 
 def build():
     cmaketools.make()
