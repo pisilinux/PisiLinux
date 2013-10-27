@@ -10,9 +10,10 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 shelltools.export("LC_ALL", "C")
-shelltools.export("PKG_CONFIG_PATH=%s/folks") % get.workDIR()
 
 def setup():
+    mypath="%s/folks-%s/folks" % (get.workDIR(), get.srcVERSION())
+    shelltools.system("export PKG_CONFIG_PATH=%s" % mypath)
     autotools.configure("--disable-static \
                          --disable-fatal-warnings \
                          --enable-eds-backend \
