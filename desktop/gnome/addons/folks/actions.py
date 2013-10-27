@@ -10,6 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 shelltools.export("LC_ALL", "C")
+shelltools.export("PKG_CONFIG_PATH=%s/folks") % get.workDIR()
 
 def setup():
     autotools.configure("--disable-static \
