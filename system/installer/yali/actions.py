@@ -5,6 +5,7 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import pythonmodules
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
@@ -26,3 +27,4 @@ def build():
 
 def install():
     pythonmodules.install()
+    shelltools.system("find %s -name '*.py' -exec sed -i 's/_rcfrom/from/g' {} ';'" % get.installDIR())
