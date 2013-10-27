@@ -14,6 +14,9 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.autoreconf("-fiv")
     autotools.configure("--disable-static")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")      
 
 def build():
     autotools.make()
