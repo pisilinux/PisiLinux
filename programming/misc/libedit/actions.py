@@ -8,8 +8,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "libedit-20120601-3.0"
-
 def setup():
     autotools.configure("--disable-static \
                          --enable-widec \
