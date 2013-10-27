@@ -12,6 +12,9 @@ def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--enable-ldap \
                          --disable-static")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")     
 
 def build():
     autotools.make()
