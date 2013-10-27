@@ -9,20 +9,19 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    autotools.configure("--disable-static  \
-                         --enable-gtk-doc  \
+    autotools.configure("--disable-static \
+                         --enable-gtk-doc \
                          --enable-exchange \
                          --enable-facebook \
-                         --enable-twitter \
-                         --enable-yahoo \
-                         --libexec=/usr/lib/gnome-online-accounts \
-                         --enable-windows-live")
-    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
-    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
-    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
+                         --enable-flickr \
+                         --enable-google \
+                         --enable-imap-smtp \
+                         --enable-kerberos \
+                         --enable-owncloud \
+                         --enable-telepathy \
+                         --enable-windows-live \
+                         --libexec=/usr/lib/gnome-online-accounts")
 
 def build():
     autotools.make()
