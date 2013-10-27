@@ -19,11 +19,6 @@ def build():
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    # Replace removed bundled font them with symlinks
-    shelltools.sym("/usr/share/fonts/dejavu/DejaVuSans.ttf", "%s/usr/share/stellarium/data/DejaVuSans.ttf" % get.installDIR())
-    shelltools.sym("/usr/share/fonts/dejavu/DejaVuSansMono.ttf", "%s/usr/share/stellarium/data/DeJaVuSansMono.ttf" % get.installDIR())
-
     pisitools.insinto("/usr/share/pixmaps", "doc/images/stellarium-logo.png")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
