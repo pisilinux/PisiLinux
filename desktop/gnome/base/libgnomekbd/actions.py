@@ -6,10 +6,14 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
+shelltools.export("HOME", get.workDIR())
+
 def setup():
-    autotools.configure("--disable-static")
+    autotools.configure("--disable-static \
+                         --enable-introspection=yes")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
