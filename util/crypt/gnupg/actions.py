@@ -10,11 +10,13 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS","%s -fPIE" % get.CFLAGS())
-    shelltools.export("LDFLAGS", "%s -pie -Wl,-z,relro,-z,now"  % get.LDFLAGS())
+    #shelltools.export("CFLAGS","%s -fPIE" % get.CFLAGS())
+    #shelltools.export("LDFLAGS", "%s -pie -Wl,-z,relro,-z,now"  % get.LDFLAGS())
 
     autotools.configure("--enable-symcryptrun \
-                         --disable-rpath")
+                         --disable-rpath \
+                         --enable-gpgtar \
+                         --enable-maintainer-mode")
 
 def build():
     autotools.make("-j1")
