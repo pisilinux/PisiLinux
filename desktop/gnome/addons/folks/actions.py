@@ -11,10 +11,9 @@ from pisi.actionsapi import get
 
 shelltools.export("LC_ALL", "C")
 
-mypath="%s/folks-%s/folks" % (get.workDIR(), get.srcVERSION())
-
 def setup():
-    
+    mypath="%s/folks-%s/folks" % (get.workDIR(), get.srcVERSION())
+    shelltools.system("export PKG_CONFIG_PATH=%s" % mypath)
     autotools.configure("--disable-static \
                          --disable-fatal-warnings \
                          --enable-eds-backend \
@@ -24,7 +23,6 @@ def setup():
                          --disable-libsocialweb-backend")
 
 def build():
-    shelltools.system("export PKG_CONFIG_PATH=%s" % mypath)
     autotools.make()
 
 def install():
