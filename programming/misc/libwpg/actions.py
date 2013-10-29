@@ -13,6 +13,9 @@ def setup():
 
     autotools.autoreconf("-fvi")
     autotools.configure("--disable-static")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")     
 
 def build():
     autotools.make()
@@ -20,4 +23,4 @@ def build():
 def install():
     autotools.install()
 
-    pisitools.dodoc("README","ChangeLog","COPYING")
+    pisitools.dodoc("README","ChangeLog")
