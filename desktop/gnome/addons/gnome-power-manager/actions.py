@@ -9,9 +9,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    autotools.autoreconf("-if")
     autotools.configure("--disable-static \
-                         --disable-scrollkeeper \
-                         --disable-docbook-docs")
+                         --enable-tests \
+                         --disable-schemas-compile")
 
 def build():
     autotools.make()
