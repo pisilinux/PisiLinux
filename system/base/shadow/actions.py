@@ -13,8 +13,9 @@ def setup():
     autotools.configure("--enable-shadowgrp \
                          --without-selinux \
                          --with-audit \
-                         --with-libcrack \
+                         --without-libcrack \
                          --with-libpam \
+                         --with-sha-crypt \
                          --enable-nls \
                          --with-group-name-max-length=32 \
                          --disable-shared")
