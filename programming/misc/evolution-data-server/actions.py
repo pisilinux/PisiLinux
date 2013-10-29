@@ -15,6 +15,9 @@ def setup():
                          --libexecdir=/usr/lib/evolutiondataserver \
                          --enable-vala-bindings \
                          --disable-uoa")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")     
 
 def build():
     autotools.make()
