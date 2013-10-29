@@ -14,9 +14,11 @@ def setup():
         shelltools.touch(f)
 
     #autotools.autoreconf("-fi")
-    autotools.configure("--without-docs --disable-static")
-    pisitools.dosed("libtool", "^hardcode_libdir_flag_spec=.*", "hardcode_libdir_flag_spec=\"\"")
-    pisitools.dosed("libtool", "^runpath_var=LD_RUN_PATH", "runpath_var=DIE_RPATH_DIE")
+    autotools.configure("--without-docs --disable-static \
+                         --disable-werror")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")     
 
 def build():
     autotools.make()
@@ -25,4 +27,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("COPYING", "CREDITS", "README")
+    pisitools.dodoc("CREDITS", "README")
