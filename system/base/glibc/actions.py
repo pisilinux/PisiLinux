@@ -78,10 +78,9 @@ def libcSetup(cfg):
     shelltools.cd(cfg["builddir"])
     shelltools.system("../configure \
                        --prefix=/usr \
-                       --with-headers=/usr/include \
                        --mandir=/usr/share/man \
                        --infodir=/usr/share/info \
-                       --libexecdir=/usr/lib \
+                       --libexecdir=/usr/lib/misc \
                        --with-bugurl=https://bugs.pisilinux.org/ \
                        --enable-add-ons=nptl,libidn \
                        --enable-bind-now \
@@ -92,6 +91,7 @@ def libcSetup(cfg):
                        --disable-profile \
                        --enable-obsolete-rpc \
                        --enable-lock-elision \
+                       --with-tls \
                        %s " % cfg["extraconfig"])
 
 def libcBuild(cfg):
