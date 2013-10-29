@@ -21,8 +21,14 @@ def setup():
     # need preloadable_libintl.so for new help2man
 
     # autoreconf breaks linker, graaaaaaaaggggghhhhhhh
-    autotools.autoreconf("-vfi")
-    autotools.configure("--without-emacs")
+    #autotools.autoreconf("-vfi")
+    autotools.configure("--without-emacs \
+                         --enable-nls \
+                         --disable-static \
+                         --enable-shared \
+                         --with-pic \
+                         --disable-rpath \
+                         --with-included-libcroco")
 
 def build():
     autotools.make("GMSGFMT=../src/msgfmt")
