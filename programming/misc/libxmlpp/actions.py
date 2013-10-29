@@ -14,6 +14,10 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-examples \
                          --enable-dependency-tracking")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ") 
+    
 def build():
     autotools.make()
 
