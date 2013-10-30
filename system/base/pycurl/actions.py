@@ -12,8 +12,8 @@ def install():
     # no static libs
     pisitools.dosed("setup.py", ", \"--static-libs\"")
 
-    pythonmodules.install()
+    pythonmodules.install("--curl-config=/usr/bin/curl-config --prefix=/usr --optimize=1")
 
     pisitools.removeDir("/usr/share/doc")
 
-    pisitools.dodoc("ChangeLog", "COPYING*", "README", "TODO")
+    pisitools.dodoc("ChangeLog", "COPYING*", "TODO")
