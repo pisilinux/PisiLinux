@@ -9,9 +9,8 @@ from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
+
 def install():
-    shelltools.cd("src")
     pythonmodules.install()
 
-    shelltools.cd("..")
     pisitools.insinto("/usr/share/doc/%s/" % get.srcNAME() , "examples")
