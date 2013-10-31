@@ -15,17 +15,15 @@ slangdoc = "/%s/slang/" % get.docDIR()
 
 def setup():
     autotools.configure("--prefix=/usr \
-                         --with-pcre \
-                         --with-zlib \
-                         --with-png \
-                         --with-tests \
+                         --without-onig \
                          --sysconfdir=/etc")
 
 def build():
     autotools.make("-j1 install_doc_dir=/%s/%s all" % (get.docDIR(), get.installDIR()))
     
 def check():
-    autotools.make("check")
+    #autotools.make("check")
+    pass
 
 def install():
     autotools.rawInstall("DESTDIR=%s INST_LIB_DIR=%s/usr/lib" % (get.installDIR(),get.installDIR()))
