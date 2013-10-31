@@ -12,7 +12,7 @@ def setup():
     options = "--disable-static \
                --disable-rpath \
                --disable-dependency-tracking \
-               --enable-guile \
+               --disable-guile \
                --with-zlib \
                --disable-valgrind-tests"
 
