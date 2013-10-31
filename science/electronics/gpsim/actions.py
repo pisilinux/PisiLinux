@@ -9,10 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    shelltools.sym(".", "m4")
-    autotools.autoreconf("-fvi")
-    autotools.configure("--enable-shared --disable-static")
-
+    autotools.configure("--prefix=/usr")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ") 
+    
 def build():
     autotools.make()
 
