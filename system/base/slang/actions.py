@@ -6,19 +6,26 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
+import os
 
 slshdoc = "/%s/slsh" % get.docDIR()
 slangdoc = "/%s/slang/" % get.docDIR()
 
 def setup():
-    autotools.configure("--sysconfdir=/etc")
+    autotools.configure("--prefix=/usr \
+                         --with-pcre \
+                         --with-zlib \
+                         --with-png \
+                         --with-tests \
+                         --sysconfdir=/etc")
 
 def build():
     autotools.make("-j1 install_doc_dir=/%s/%s all" % (get.docDIR(), get.installDIR()))
-
-#def check():
-    #autotools.make("check")
+    
+def check():
+    autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s INST_LIB_DIR=%s/usr/lib" % (get.installDIR(),get.installDIR()))
