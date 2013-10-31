@@ -8,12 +8,11 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir="%s_v132" % get.srcNAME()
 
 def setup():
-    autotools.configure("--enable-shared \
-                         --enable-samples=no \
-                         --enable-debug=no")
+    autotools.configure("--enable-shared=yes \
+                         --enable-debug=no \
+                         --enable-samples=no")
 
 def build():
     autotools.make()
@@ -22,4 +21,4 @@ def build():
 def install():
     autotools.install()
 
-    pisitools.dodoc("Changes.txt", "Credits.txt", "License.txt")
+    pisitools.dodoc("Changes.txt", "License.txt")
