@@ -10,10 +10,8 @@ from pisi.actionsapi import get
 
 
 def setup():
-    autotools.autoreconf("-vfi")
     autotools.configure("--disable-static \
                          --enable-gtk-doc \
-                         --disable-valgrind \
                          --with-package-name='PisiLinux %s package' \
                          --with-package-origin='http://www.pisilinux.org/' \
                          " % get.srcNAME())
