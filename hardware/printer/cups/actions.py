@@ -45,13 +45,16 @@ def setup():
               ' % get.CFLAGS()
 
     if get.buildTYPE() == "emul32":
-        options += ' --disable-avahi \
+        options += ' --disable-ldap \
+                     --enable-threads \
+                     --enable-libusb=no \
+                     --disable-avahi \
+                     --disable-dnssd \
                      --disable-gssapi \
                      --disable-dbus \
                      --disable-gnutls \
                      --enable-ssl=no \
                      --enable-raw-printing \
-                     --without-php \
                      --bindir=/usr/bin32 \
                      --sbindir=/usr/sbin32 \
                      --libdir=/usr/lib32'
