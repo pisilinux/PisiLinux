@@ -23,6 +23,8 @@ def setup():
                --with-dbusdir=/etc/dbus-1 \
                --with-optim="%s -fstack-protector-all -DLDAP_DEPRECATED=1" \
                --with-php=/usr/bin/php-cgi \
+               --with-cupsd-file-perm=0755 \
+               --with-log-file-perm=0600 \
                --without-java \
                --enable-acl \
                --enable-ssl=yes \
