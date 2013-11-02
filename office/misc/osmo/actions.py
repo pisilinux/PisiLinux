@@ -9,7 +9,8 @@ from pisi.actionsapi import pisitools
 
 
 def setup():
-    autotools.configure("--disable-dependency-tracking")
+    autotools.autoreconf("-fi")
+    autotools.configure("--prefix=/usr")
 
 def build():
     autotools.make()
