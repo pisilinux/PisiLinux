@@ -32,6 +32,4 @@ def install():
     autotools.install("-C documentation")
     autotools.rawInstall("DESTDIR=%s -C fluid" % get.installDIR(), "install-linux")
 
-    pisitools.remove("/usr/lib/*.a")
-
     pisitools.dodoc("ANNOUNCEMENT", "CHANGES", "COPYING", "CREDITS", "README")
