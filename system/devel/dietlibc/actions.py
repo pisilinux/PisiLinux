@@ -9,10 +9,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-if get.buildTYPE() == "_emul32":
-    pisitools.flags.add("-m32")
-    pisitools.ldflags.add("-m32")
-
 WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION())
 WITHSSP = False
 XTRA_FIXCFLAGS = "" if WITHSSP else "-fno-stack-protector" 
@@ -62,7 +58,6 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    if get.buildTYPE() == "_emul32": return
 
     # Simple wrapper for gcc
     host_gcc = "/usr/bin/%s-dietlibc-gcc" % get.HOST()
