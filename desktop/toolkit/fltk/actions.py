@@ -17,27 +17,15 @@ def setup():
     pisitools.dosed("makeinclude.in", "^(docdir.*)$", r"\1/html")
 
     autotools.autoconf()
-    autotools.configure("--enable-gl \
-                         --enable-shared \
+    autotools.configure("--enable-share \
                          --enable-threads \
-                         --enable-largefile \
-                         --disable-localjpeg \
-                         --disable-localzlib \
-                         --disable-localpng \
-                         --enable-xinerama \
                          --enable-xft \
-                         --enable-xdbe \
                          --with-optim='%s' \
                          " % get.CFLAGS())
 
 def build():
     autotools.make()
     autotools.make("-C documentation all")
-
-#def check():
-#    shelltools.export("HOME", get.workDIR())
-
-#    autotools.make("check")
 
 def install():
     autotools.install()
