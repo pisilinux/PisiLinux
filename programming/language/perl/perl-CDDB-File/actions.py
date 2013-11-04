@@ -8,7 +8,7 @@ from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir="./CDDB-File-1.05"
+WorkDir=""
 
 def setup():
     perlmodules.configure()
