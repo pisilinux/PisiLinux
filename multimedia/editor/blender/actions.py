@@ -17,7 +17,7 @@ def setup():
     shelltools.cd("..")
     shelltools.makedirs("cmake-make")
     shelltools.cd("cmake-make") 
-    shelltools.system("cmake ../blender-2.68a \
+    shelltools.system("cmake ../blender-2.69 \
                       -DCMAKE_INSTALL_PREFIX=/usr \
                       -DCMAKE_BUILD_TYPE=Release \
                       -DCMAKE_SKIP_RPATH=ON \
@@ -32,26 +32,12 @@ def setup():
                       -DWITH_CODEC_SNDFILE=ON ")
 
 def build():
+    shelltools.cd("../cmake-make")
     cmaketools.make()
 
 def install():
-    shelltools.cd("../") 
-    shelltools.cd("build_linux/")
-    pisitools.insinto("/usr/bin/", "bin/blender","blender-bin")
-    pisitools.insinto("/usr/bin/", "bin/blender-thumbnailer.py")
-    pisitools.insinto("/usr/share/man/man1", "bin/blender.1")
-    pisitools.insinto("/usr/share/doc/", "bin/*.txt")
-    pisitools.insinto("/usr/share/doc/", "bin/*.html")
-    pisitools.insinto("/usr/share/pixmaps/", "bin/blender.svg")
-    pisitools.insinto("/usr/share/blender", "bin/2.68/datafiles/locale/")
-    pisitools.insinto("/usr/share/blender/", "bin/2.68/scripts")
+    shelltools.cd("../cmake-make/")
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    shelltools.cd("../") 
-    shelltools.cd("blender-2.68a/release/")
-    ## Install miscellaneous files
-    pisitools.insinto("/usr/share/blender/", "scripts/*")
+    pisitools.domove("/usr/bin/blender", "/usr/bin", "blender-bin")
 
-    pisitools.insinto("/usr/share/blender/", "datafiles/colormanagement/")
-
-    ##Install icon files
-    pisitools.insinto("/usr/share/icons/hicolor/", "freedesktop/icons/*")
