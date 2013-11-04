@@ -8,7 +8,7 @@ from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir="./Module-Runtime-0.013"
+WorkDir=""
 
 def setup():
     perlmodules.configure()
