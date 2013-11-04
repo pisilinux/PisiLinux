@@ -8,7 +8,7 @@ from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir="./Digest-MD5-2.52"
+WorkDir=""
 
 def setup():
     perlmodules.configure()
@@ -22,5 +22,4 @@ def check():
 
 def install():
     perlmodules.install()
-    
-    pisitools.remove("/usr/share/man/man3/Digest::MD5.3pm")
+
