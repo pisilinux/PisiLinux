@@ -9,12 +9,13 @@ from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "Babel-%s" % get.srcVERSION()
+#WorkDir = "Babel-%s" % get.srcVERSION()
 
 htmltxt = "%s/%s/html" % (get.docDIR(), get.srcNAME())
 
 def install():
     pythonmodules.install()
 
-    pisitools.dohtml("doc/")
-    pisitools.insinto(htmltxt, "doc/*.txt")
+    pisitools.dohtml("docs/")
+   #pisitools.insinto(htmltxt, "docs/*.txt")
+    pisitools.dodoc("LICENSE","AUTHORS","README")
