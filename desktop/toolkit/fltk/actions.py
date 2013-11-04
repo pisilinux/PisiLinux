@@ -9,15 +9,14 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
-WorkDir = get.srcDIR().replace("_", "")
+#WorkDir = get.srcDIR().replace("_", "")
 
 def setup():
+    pisitools.flags.add("-fPIC")
     pisitools.dosed("makeinclude.in", "^(docdir.*)$", r"\1/html")
 
     autotools.autoconf()
-    autotools.configure("--enable-share \
+    autotools.configure("--enable-shared \
                          --enable-threads \
                          --enable-xft \
                          --with-optim='%s' \
