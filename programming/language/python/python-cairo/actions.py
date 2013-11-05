@@ -5,18 +5,19 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import autotools
-from pisi.actionsapi import pythonmodules
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
+from pisi.actionsapi import pisitools
 
-WorkDir = "pycairo-%s" % get.srcVERSION()
+shelltools.export("JOBS", get.makeJOBS().replace("-j", ""))
 
 def setup():
-    autotools.configure()
+    shelltools.system("python waf configure --prefix=/usr")
 
 def build():
-    autotools.make()
+    shelltools.system("python waf build -v")
 
 def install():
-    autotools.install()
+    shelltools.system("DESTDIR=%s python waf install" % get.installDIR())
 
-    pythonmodules.fixCompiledPy()
+    pisitools.dodoc("AUTHORS", "COPYING", "README","COPYING-*")
