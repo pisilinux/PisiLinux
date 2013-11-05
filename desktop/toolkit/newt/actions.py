@@ -6,9 +6,12 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.configure()
+    shelltools.echo("config.h.in", "#define USE_INTERP_RESULT 1")
+    autotools.configure("--prefix=/usr \
+                         --with-gpm-support")
 
 def build():
     autotools.make()
