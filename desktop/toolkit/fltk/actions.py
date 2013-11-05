@@ -16,9 +16,9 @@ def setup():
     pisitools.dosed("makeinclude.in", "^(docdir.*)$", r"\1/html")
 
     autotools.autoconf()
-    autotools.configure("--enable-shared \
+    autotools.configure("--enable-gl \
+                         --enable-shared \
                          --enable-threads \
-                         --enable-xft \
                          --with-optim='%s' \
                          " % get.CFLAGS())
 
