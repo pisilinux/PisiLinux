@@ -21,4 +21,4 @@ def install():
     pythonmodules.install()
 
     pisitools.insinto(examples, "examples/*")
-    pisitools.dodoc("TODO")
+    pisitools.dodoc("ChangeLog","LICENSE","README")
