@@ -9,7 +9,6 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import pythonmodules
 
-WorkDir="%s-0.9.9" % get.srcNAME()[7:]
 examples = "%s/%s/examples" % (get.docDIR(), get.srcNAME())
 
 def build():
@@ -26,4 +25,4 @@ def install():
     pisitools.dodoc("COPYING*", "PKG-INFO", "README.txt")
     #pisitools.dohtml("docs/html/*")
     
-    pisitools.remove("/usr/lib/python2.7/site-packages/tests/__init__.py")
+   # pisitools.remove("/usr/lib/python2.7/site-packages/tests/__init__.py")
