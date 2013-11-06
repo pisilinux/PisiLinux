@@ -1,0 +1,130 @@
+From 0881ae68b0d7f977003e0798e52548caa2556f44 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Caol=C3=A1n=20McNamara?= <caolanm@redhat.com>
+Date: Tue, 29 Oct 2013 16:10:18 +0000
+Subject: [PATCH] Resolves: rhbz#1021915 force menubar menus to be up/down only
+
+If a menu won't fit in the desired location the default mode is to place it
+somewhere it will fit.  e.g. above, left, right. For some cases, e.g. menubars,
+it's desirable to limit the options to above/below and force the menu to scroll
+if it won't fit
+
+Change-Id: I1998a842d25752389ec9032e54673408d1ed6cb5
+---
+ include/vcl/floatwin.hxx   |  1 +
+ include/vcl/menu.hxx       | 17 +++++++++++------
+ vcl/source/window/menu.cxx | 34 ++++++++++++++++++++++++++++------
+ 3 files changed, 40 insertions(+), 12 deletions(-)
+
+diff --git a/include/vcl/floatwin.hxx b/include/vcl/floatwin.hxx
+index 4e2f97c..9a9dbdc 100644
+--- a/include/vcl/floatwin.hxx
++++ b/include/vcl/floatwin.hxx
+@@ -48,6 +48,7 @@ class ToolBox;
+ #define FLOATWIN_POPUPMODE_NEWLEVEL             ((sal_uLong)0x00008000)
+ #define FLOATWIN_POPUPMODE_NOMOUSEUPCLOSE       ((sal_uLong)0x00010000)
+ #define FLOATWIN_POPUPMODE_GRABFOCUS            ((sal_uLong)0x00020000)
++#define FLOATWIN_POPUPMODE_NOHORZPLACEMENT      ((sal_uLong)0x00040000)
+ 
+ #define FLOATWIN_POPUPMODEEND_CANCEL            ((sal_uInt16)0x0001)
+ #define FLOATWIN_POPUPMODEEND_TEAROFF           ((sal_uInt16)0x0002)
+diff --git a/include/vcl/menu.hxx b/include/vcl/menu.hxx
+index 5579149..637c701 100644
+--- a/include/vcl/menu.hxx
++++ b/include/vcl/menu.hxx
+@@ -62,12 +62,17 @@ namespace vcl { struct MenuLayoutData; }
+ #define MENU_APPEND             ((sal_uInt16)0xFFFF)
+ #define MENU_ITEM_NOTFOUND      ((sal_uInt16)0xFFFF)
+ 
+-#define POPUPMENU_EXECUTE_DOWN  ((sal_uInt16)0x0001)
+-#define POPUPMENU_EXECUTE_UP    ((sal_uInt16)0x0002)
+-#define POPUPMENU_EXECUTE_LEFT  ((sal_uInt16)0x0004)
+-#define POPUPMENU_EXECUTE_RIGHT ((sal_uInt16)0x0008)
+-
+-#define POPUPMENU_NOMOUSEUPCLOSE ((sal_uInt16)0x0010)
++#define POPUPMENU_EXECUTE_DOWN     ((sal_uInt16)0x0001)
++#define POPUPMENU_EXECUTE_UP       ((sal_uInt16)0x0002)
++#define POPUPMENU_EXECUTE_LEFT     ((sal_uInt16)0x0004)
++#define POPUPMENU_EXECUTE_RIGHT    ((sal_uInt16)0x0008)
++#define POPUPMENU_NOMOUSEUPCLOSE   ((sal_uInt16)0x0010)
++//If there isn't enough space to put the menu where it wants
++//to go, then they will be autoplaced. Toggle this bit
++//on to force menus to be placed either above or below
++//the starting rectangle and shrunk to fit and then scroll rather than place
++//the menu beside that rectangle
++#define POPUPMENU_NOHORZ_PLACEMENT ((sal_uInt16)0x0020)
+ 
+ #define MENU_FLAG_NOAUTOMNEMONICS       0x0001
+ #define MENU_FLAG_HIDEDISABLEDENTRIES   0x0002
+diff --git a/vcl/source/window/menu.cxx b/vcl/source/window/menu.cxx
+index f567ba3..6083554 100644
+--- a/vcl/source/window/menu.cxx
++++ b/vcl/source/window/menu.cxx
+@@ -3581,7 +3581,6 @@
+ {
+     ENSURE_OR_RETURN( pExecWindow, "PopupMenu::Execute: need a non-NULL window!", 0 );
+ 
+-
+     sal_uLong nPopupModeFlags = 0;
+     if ( nFlags & POPUPMENU_EXECUTE_DOWN )
+         nPopupModeFlags = FLOATWIN_POPUPMODE_DOWN;
+@@ -3597,6 +3596,9 @@
+     if (nFlags & POPUPMENU_NOMOUSEUPCLOSE )                      // allow popup menus to stay open on mouse button up
+         nPopupModeFlags |= FLOATWIN_POPUPMODE_NOMOUSEUPCLOSE;    // useful if the menu was opened on mousebutton down (eg toolbox configuration)
+ 
++    if (nFlags & POPUPMENU_NOHORZ_PLACEMENT)
++        nPopupModeFlags |= FLOATWIN_POPUPMODE_NOHORZPLACEMENT;
++
+     return ImplExecute( pExecWindow, rRect, nPopupModeFlags, 0, sal_False );
+ }
+ 
+@@ -3700,17 +3702,37 @@
+ 
+     Size aSz = ImplCalcSize( pWin );
+ 
+-    long nMaxHeight = pWin->GetDesktopRectPixel().GetHeight();
++    Rectangle aDesktopRect(pWin->GetDesktopRectPixel());
+     if( Application::GetScreenCount() > 1 && Application::IsUnifiedDisplay() )
+     {
+         Window* pDeskW = pWindow->GetWindow( WINDOW_REALPARENT );
+         if( ! pDeskW )
+             pDeskW = pWindow;
+         Point aDesktopTL( pDeskW->OutputToAbsoluteScreenPixel( aRect.TopLeft() ) );
+-        nMaxHeight = Application::GetWorkAreaPosSizePixel(
+-            Application::GetBestScreen( Rectangle( aDesktopTL, aRect.GetSize() ) )
+-            ).GetHeight();
++        aDesktopRect = Application::GetWorkAreaPosSizePixel(
++            Application::GetBestScreen( Rectangle( aDesktopTL, aRect.GetSize() ) ));
+     }
++
++    long nMaxHeight = aDesktopRect.GetHeight();
++
++    //rhbz#1021915. If a menu won't fit in the desired location the default
++    //mode is to place it somewhere it will fit.  e.g. above, left, right. For
++    //some cases, e.g. menubars, it's desirable to limit the options to
++    //above/below and force the menu to scroll if it won't fit
++    if (nPopupModeFlags & FLOATWIN_POPUPMODE_NOHORZPLACEMENT)
++    {
++        Window* pRef = pWin;
++        if ( pRef->GetParent() )
++            pRef = pRef->GetParent();
++
++        Rectangle devRect(  pRef->OutputToAbsoluteScreenPixel( aRect.TopLeft() ),
++                            pRef->OutputToAbsoluteScreenPixel( aRect.BottomRight() ) );
++
++        long nHeightAbove = devRect.Top() - aDesktopRect.Top();
++        long nHeightBelow = aDesktopRect.Bottom() - devRect.Bottom();
++        nMaxHeight = std::min(nMaxHeight, std::max(nHeightAbove, nHeightBelow));
++    }
++
+     if ( pStartedFrom && pStartedFrom->bIsMenuBar )
+         nMaxHeight -= pW->GetSizePixel().Height();
+     sal_Int32 nLeft, nTop, nRight, nBottom;
+@@ -5345,7 +5367,7 @@
+             // #99071# do not grab the focus, otherwise it will be restored to the menubar
+             // when the frame is reactivated later
+             //GrabFocus();
+-            pActivePopup->ImplExecute( this, Rectangle( aItemTopLeft, aItemBottomRight ), FLOATWIN_POPUPMODE_DOWN, pMenu, bPreSelectFirst );
++            pActivePopup->ImplExecute( this, Rectangle( aItemTopLeft, aItemBottomRight ), FLOATWIN_POPUPMODE_DOWN | FLOATWIN_POPUPMODE_NOHORZPLACEMENT, pMenu, bPreSelectFirst );
+             if ( pActivePopup )
+             {
+                 // does not have a window, if aborted before or if there are no entries
