@@ -78,7 +78,6 @@ def setup():
                        --enable-kde4 \
                        --enable-largefile \
                        --enable-lockdown \
-                       --enable-mergelibs \
                        --enable-opengl \
                        --enable-odk \
                        --enable-randr \
