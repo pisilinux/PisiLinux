@@ -19,5 +19,5 @@ def check():
 def install():
     perlmodules.install()
 
-    pisitools.dodoc("Changelog", "README", "TODO", "example.cfg")
+    pisitools.dodoc("Changelog", "README", "example.cfg")
 
