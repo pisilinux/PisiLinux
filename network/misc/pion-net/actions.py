@@ -15,10 +15,10 @@ def setup():
     #autotools.autoreconf("-fiv")
     autotools.configure("--disable-doxygen-doc \
                          --with-pic \
-			 --with-zlib \
-			 --with-bzlib \
-			 --with-openssl \
-			 --with-log4cpp")
+                         --with-zlib \
+                         --with-bzlib \
+                         --with-openssl \
+                         --with-log4cpp")
 
 def build():
     autotools.make()
