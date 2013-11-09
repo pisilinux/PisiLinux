@@ -8,7 +8,7 @@ from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "Email-Valid-%s" % get.srcVERSION()
+#WorkDir = "Email-Valid-%s" % get.srcVERSION()
 
 def setup():
     perlmodules.configure()
