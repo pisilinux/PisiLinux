@@ -23,4 +23,4 @@ def install():
 
     pisitools.dodoc("Changes", "README")
     pisitools.remove("/usr/share/man/man3/File::Copy::Recursive.3pm")
-    pisitools.remove("/usr/lib/perl5/vendor_perl/5.16.2/File/Copy/Recursive.pm")
+#    pisitools.remove("/usr/lib/perl5/vendor_perl/5.16.2/File/Copy/Recursive.pm")
