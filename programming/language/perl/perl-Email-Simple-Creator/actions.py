@@ -19,11 +19,11 @@ def check():
 
 def install():
     perlmodules.install()
-    pisitools.remove("/usr/share/man/man3/Email::Simple::Creator.3pm")
-    pisitools.remove("/usr/lib/perl5/vendor_perl/5.16.2/Email/Simple/Creator.pm")
-    pisitools.remove("/usr/share/man/man3/Email::Simple::Header.3pm")
-    pisitools.remove("/usr/lib/perl5/vendor_perl/5.16.2/Email/Simple.pm")
-    pisitools.remove("/usr/lib/perl5/vendor_perl/5.16.2/Email/Simple/Header.pm")
-    pisitools.remove("/usr/share/man/man3/Email::Simple.3pm")
+    #pisitools.remove("/usr/share/man/man3/Email::Simple::Creator.3pm")
+    #pisitools.remove("/usr/lib/perl5/vendor_perl/5.16.2/Email/Simple/Creator.pm")
+    #pisitools.remove("/usr/share/man/man3/Email::Simple::Header.3pm")
+    #pisitools.remove("/usr/lib/perl5/vendor_perl/5.16.2/Email/Simple.pm")
+    #pisitools.remove("/usr/lib/perl5/vendor_perl/5.16.2/Email/Simple/Header.pm")
+    #pisitools.remove("/usr/share/man/man3/Email::Simple.3pm")
 
     pisitools.dodoc("Changes", "README")
