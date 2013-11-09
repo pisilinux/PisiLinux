@@ -12,4 +12,4 @@ def build():
 
 def install():
     pythonmodules.install()
-    pisitools.dodoc("README.txt")
+    pisitools.dodoc("README.*")
