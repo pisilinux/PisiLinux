@@ -11,14 +11,13 @@ from pisi.actionsapi import get
 
 
 def setup():
-    autotools.autoreconf("-vif")
-
-    autotools.configure()
+   # autotools.autoreconf("-vif")
+    autotools.configure("--prefix=/usr")
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
-    autotools.install()
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "README")
