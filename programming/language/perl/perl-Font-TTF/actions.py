@@ -13,7 +13,7 @@ from pisi.actionsapi import get
 WorkDir="Font-TTF-%s" % get.srcVERSION()
 
 def setup():
-    for d in ("COPYING", "README.TXT", "TODO", "Changes"):
+    for d in ("README.TXT", "TODO", "Changes"):
         shelltools.chmod(d, 0644)
 
     perlmodules.configure()
@@ -27,4 +27,4 @@ def check():
 def install():
     perlmodules.install()
 
-    pisitools.dodoc("COPYING", "README*", "TODO", "Changes")
+    pisitools.dodoc("README*", "TODO", "Changes")
