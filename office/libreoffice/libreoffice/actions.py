@@ -122,6 +122,7 @@ def setup():
                        --with-external-thes-dir=/usr/share/mythes \
                        --with-alloc=system \
                        --without-system-sane \
+                       --without-system-boost\
                        --without-system-servlet-api \
                        --without-system-vigra \
                        --without-sun-templates \
