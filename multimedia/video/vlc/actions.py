@@ -4,15 +4,10 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
-
-shelltools.export("HOME", get.workDIR())
-
-# enable loader builds DLL loader for ELF i386 platforms only
-dllloader = "--disable-loader " if get.ARCH() == "x86_64" else ""
 
 def setup():
     # Make it build with libtool 1.5
@@ -24,11 +19,11 @@ def setup():
     autotools.rawConfigure("--prefix=/usr \
                             --sysconfdir=/etc \
                             --libdir=/usr/lib \
+                            --disable-dependency-tracking \
                             --disable-rpath \
-                            --enable-oss \
+                            --disable-oss \
+                            --enable-fast-install \
                             --enable-nls \
-                            --enable-pvr \
-                            --enable-xosd \
                             --enable-vcdx \
                             --enable-upnp \
                             --enable-opus \
@@ -41,7 +36,6 @@ def setup():
                             --enable-dvbpsi \
                             --enable-dc1394 \
                             --enable-dca \
-                            --enable-dv \
                             --enable-dvdnav \
                             --enable-dvdread \
                             --enable-faad \
@@ -55,7 +49,6 @@ def setup():
                             --enable-libxml2 \
                             --enable-lirc \
                             --enable-live555 \
-                            --enable-loader \
                             --enable-lua \
                             --enable-mad \
                             --enable-mkv \
@@ -65,13 +58,13 @@ def setup():
                             --enable-png \
                             --enable-projectm \
                             --enable-pulse \
-                            --enable-qt4 \
                             --enable-realrtsp \
                             --enable-screen \
                             --enable-sdl \
+                            --enable-sftp \
                             --enable-shared \
                             --enable-skins2 \
-                            --enable-smb \
+                            --enable-smbclient \
                             --enable-sout \
                             --enable-speex \
                             --enable-svg \
@@ -90,10 +83,14 @@ def setup():
                             --disable-gnomevfs \
                             --disable-growl \
                             --disable-jack \
-                            --disable-portaudio \
                             --disable-static \
-                            --with-x %s " % dllloader )
-
+                            --disable-update-check \
+                            --with-default-font=/usr/share/fonts/dejavu/DejaVuSans.ttf \
+                            --with-default-font-family=Sans \
+                            --with-default-monospace-font=/usr/share/fonts/dejavu/DejaVuSansMono.ttf \
+                            --with-default-monospace-font-family=Monospace \
+                            --with-x \
+                           ")
 
 def build():
     autotools.make()
