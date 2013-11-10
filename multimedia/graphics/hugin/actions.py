@@ -9,10 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure("-DENABLE_LAPACK=ON -DBUILD_HSI=1")
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
+                          -DENABLE_LAPACK=yes \
+                          -DBUILD_HSI=no")
 
 def build():
-    cmaketools.make("-j1")
+    cmaketools.make()
 
 def install():
     cmaketools.rawInstall('DESTDIR="%s"' % get.installDIR())
