@@ -4,16 +4,15 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+import os
+import psutil
+from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
-import os
-import psutil
 
-shelltools.export("HOME", get.workDIR())
-shelltools.export("LDFLAGS", "%s -L/usr/lib/nss" % get.LDFLAGS())
-shelltools.export("CXXFLAGS", get.CXXFLAGS().replace("-ggdb3", "-g"))
+pisitools.ldflags.add("-L/usr/lib/nss")
+pisitools.flags.remove("-pipe", "-Wall", "-g", "-fexceptions")
 shelltools.export("ARCH_FLAGS", get.CXXFLAGS())
 shelltools.export("LINKFLAGSOPTIMIZE", get.LDFLAGS())
 shelltools.export("PYTHON", get.curPYTHON())
@@ -44,11 +43,13 @@ def setup():
     vars = {"lang": langs,
             "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
-    
+
     pisitools.dosed("sysui/desktop/menus/startcenter.desktop", "NoDisplay=true", "NoDisplay=false")
     autotools.aclocal("-I m4")
     autotools.autoconf()
+    # avoid running autogen.sh on make
     shelltools.touch("autogen.lastrun")
+
     autotools.rawConfigure('--with-vendor="PisiLinux" \
                        --with-ant-home="/usr/share/ant" \
                        --with-jdk-home="/opt/sun-jdk" \
@@ -129,7 +130,7 @@ def setup():
                        --disable-fetch-external \
                        --with-parallelism=%(jobs)s \
                        --with-external-tar="%(etar)s"' % vars)
-        
+
 def build():
     autotools.make()
 
@@ -139,7 +140,7 @@ def check():
 
 def install():
     autotools.rawInstall("DESTDIR=%s distro-pack-install -o build -o check" % get.installDIR())
-    
+
     if not shelltools.isDirectory(langpackpath): shelltools.makedirs(langpackpath)
     else: shelltools.unlinkDir(langpackpath)
     for l in langs.split(" "):
@@ -187,3 +188,7 @@ def install():
     print("creating: %s.tar.xz" % langpackdir)
     shelltools.cd("%s/../" % get.installDIR())
     shelltools.system("tar c %s | xz -9 > %s.tar.xz" % ((langpackdir, )*2))
+
+    for f in shelltools.ls("%s/usr/lib/libreoffice/program" % get.installDIR()):
+        if f.endswith(".so") and shelltools.isFile("%s/usr/lib/libreoffice/program/%s" % (get.installDIR(), f)):
+            shelltools.system("strip %s/usr/lib/libreoffice/program/%s" % (get.installDIR(), f))
