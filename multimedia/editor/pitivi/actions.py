@@ -9,7 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--libdir=/usr/lib")
+    autotools.configure()
+    pisitools.dosed("bin/pitivi*", "python2", "python")
 
 def build():
     autotools.make()
