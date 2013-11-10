@@ -10,8 +10,9 @@ from pisi.actionsapi import get
 WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION().partition("_")[0])
 
 def setup():
-    cmaketools.configure('-DCMAKE_SKIP_RPATH:BOOL=YES \
-                          -DUSE_INSTALL_PLUGIN:BOOL=ON')
+    cmaketools.configure('-DCMAKE_BUILD_TYPE=Release \
+                          -DCMAKE_SKIP_RPATH=ON \
+                          -DCMAKE_INSTALL_LIBDIR=lib')
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
