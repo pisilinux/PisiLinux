@@ -9,7 +9,8 @@ from pisi.actionsapi import kde4
 from pisi.actionsapi import qt4
 
 def setup():
-    kde4.configure('-DCMAKE_BUILD_TYPE=Release \
+    kde4.configure('-DCMAKE_INSTALL_LIBDIR=lib \
+                    -DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_SKIP_RPATH=ON')
 
 def build():
