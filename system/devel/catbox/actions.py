@@ -9,6 +9,7 @@ from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
 
 def install():
+    pisitools.dosed("src/core.c", "^#include \<linux\/ptrace\.h\>", deleteLine=True)
     pythonmodules.install()
 
     pisitools.dodoc("README", "OKUBENİ")
