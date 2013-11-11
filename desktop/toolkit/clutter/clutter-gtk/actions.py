@@ -15,9 +15,9 @@ def setup():
     shelltools.system("gtkdocize")
     autotools.autoreconf("-fi")
     autotools.configure()
-    
+
     # for fix unused dependency
-    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")    
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     shelltools.export("HOME", "%s" %get.workDIR())
