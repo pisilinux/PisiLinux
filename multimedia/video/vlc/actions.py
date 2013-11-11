@@ -91,6 +91,9 @@ def setup():
                             --with-default-monospace-font-family=Monospace \
                             --with-x \
                            ")
+    
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
