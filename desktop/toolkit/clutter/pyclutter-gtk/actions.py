@@ -14,9 +14,9 @@ def setup():
     #pisitools.dosed("clutter-gtk/Makefile.am", "pardusPythonVersion", get.curPYTHON())
     autotools.autoreconf("-fi")
     autotools.configure()
-    
+
     # for fix unused dependency
-    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")    
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
