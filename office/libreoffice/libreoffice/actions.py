@@ -189,6 +189,3 @@ def install():
     shelltools.cd("%s/../" % get.installDIR())
     shelltools.system("tar c %s | xz -9 > %s.tar.xz" % ((langpackdir, )*2))
 
-    for f in shelltools.ls("%s/usr/lib/libreoffice/program" % get.installDIR()):
-        if f.endswith(".so") and shelltools.isFile("%s/usr/lib/libreoffice/program/%s" % (get.installDIR(), f)):
-            shelltools.system("strip %s/usr/lib/libreoffice/program/%s" % (get.installDIR(), f))
