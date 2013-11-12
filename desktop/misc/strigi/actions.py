@@ -13,8 +13,11 @@ def setup():
     cmaketools.configure("-DCMAKE_INSTALL_LIBDIR=lib \
                           -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=FALSE \
                           -DCLUCENE_LIBRARY_DIR=/usr/include \
-                          -DENABLE_FAM=ON \
+                          -DENABLE_FAM=OFF \
+                          -DCMAKE_BUILD_TYPE=Release \
+                          -DCMAKE_SKIP_RPATH=ON \
                           -DENABLE_POLLING=ON \
+                          -DENABLE_FFMPEG=OFF \
                           -DENABLE_INOTIFY=ON")
 
 def build():
