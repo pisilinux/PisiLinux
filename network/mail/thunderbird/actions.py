@@ -12,9 +12,24 @@ from pisi.actionsapi import shelltools
 WorkDir = "comm-esr24"
 MOZAPPDIR= "/usr/lib/MozillaThunderbird"
 
-#locales = ["da", "de", "es-AR", "es-ES", "fr", "hu", "it", "nl", "pl", "pt-BR", "ru",]
+locales = "be  ca  da  de  el  en-US  es-AR  es-ES  fi  fr  hr  hu  it  lt nl  pl  pt-BR  pt-PT  ro  ru  sr  sv-SE  tr  uk".split()
+xpidir = "%s/xpi" % get.workDIR()
+arch = get.ARCH()
+ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
+    # LOCALE
+    shelltools.system("rm -rf langpack-tb/*/browser/defaults")
+    if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
+    for locale in locales:
+        shelltools.system("wget -c -P %s ftp://ftp.mozilla.org/pub/mozilla.org/thunderbird/releases/%s/linux-%s/xpi/%s.xpi" % (xpidir, ver, arch, locale))
+        shelltools.makedirs("langpack-tb/langpack-%s@thunderbird.mozilla.org" % locale)
+        shelltools.system("unzip -uo %s/%s.xpi -d langpack-tb/langpack-%s@thunderbird.mozilla.org" % (xpidir, locale, locale))
+        # replace browserconfig.properties
+        #print "Replacing browser.properties for %s locale" % locale
+        #shelltools.copy("browserconfig.properties", "langpack-tb/langpack-%s@thunderbird.mozilla.org/browser/chrome/%s/locale/branding/" % (locale, locale))
+        #shelltools.copy("browserconfig.properties", "browser/branding/official/locales/")
+        
     # Use autoconf 2.13, pff
     shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
 
