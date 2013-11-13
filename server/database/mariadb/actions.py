@@ -54,17 +54,14 @@ def install():
     cmaketools.install("DESTDIR=%s benchdir_root=\"/usr/share/mysql\"" % get.installDIR())
 
     # Config
-    pisitools.insinto("/etc/mysql/my.cnf", "%s/usr/share/mysql/my-medium.cnf" % get.installDIR())
-    pisitools.insinto("/etc/mysql", "%s/%s/scripts/mysqlaccess.conf" % get.workDIR() % get.srcDIR())
+    pisitools.insinto("/etc/mysql", "%s/usr/share/mysql/my-medium.cnf" % get.installDIR(), "my.cnf")
+    pisitools.insinto("/etc/mysql", "%s/%s/scripts/mysqlaccess.conf" % (get.workDIR(), get.srcDIR()))
 
-    # mysqld-post
-    pisitools.insinto("/usr/bin/mysqld-post", "%s/scripts/" % get.installDIR())
-    
     # Data dir
     pisitools.dodir("/var/lib/mysql")
 
     # Runtime data
     pisitools.dodir("/run/mysqld")
     # Documents
-    pisitools.dodoc("%s/support-files/my-*.cnf" % get.workDIR())
+    pisitools.dodoc("%s/%s/support-files/my-*.cnf" % (get.workDIR(), get.srcDIR()))
     pisitools.dodoc("COPYING", "INSTALL-SOURCE", "README", "VERSION")
