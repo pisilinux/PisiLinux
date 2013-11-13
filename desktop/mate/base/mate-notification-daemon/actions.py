@@ -23,3 +23,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    #pisitools.remove("/usr/share/man/man1/mate-notification-properties.1")
+    pisitools.removeDir("/usr/share/man/")
