@@ -14,7 +14,6 @@ def setup():
                           -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=FALSE \
                           -DCLUCENE_LIBRARY_DIR=/usr/include \
                           -DENABLE_FAM=OFF \
-                          -DCMAKE_BUILD_TYPE=Release \
                           -DCMAKE_SKIP_RPATH=ON \
                           -DENABLE_POLLING=ON \
                           -DENABLE_FFMPEG=OFF \
