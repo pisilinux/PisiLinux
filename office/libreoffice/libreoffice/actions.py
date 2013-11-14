@@ -83,6 +83,7 @@ def setup():
                        --enable-odk \
                        --enable-randr \
                        --enable-randr-link \
+                       --enable-mergelibs \
                        --enable-extension-integration \
                        --enable-scripting-beanshell \
                        --enable-scripting-javascript \
