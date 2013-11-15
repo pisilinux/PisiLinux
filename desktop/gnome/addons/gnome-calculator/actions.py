@@ -18,5 +18,3 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("COPYING*", "NEWS")
-    pisitools.removeDir("/usr/share/appdata")
-    pisitools.removeDir("/usr/share/help")
