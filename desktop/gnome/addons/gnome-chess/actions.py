@@ -17,6 +17,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("COPYING*", "NEWS")    
-    pisitools.removeDir("/etc")
-    pisitools.removeDir("/usr/share")
+    pisitools.dodoc("COPYING*", "NEWS")
