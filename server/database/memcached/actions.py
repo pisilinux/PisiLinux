@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.dosed("configure.ac", "-Werror")
+    shelltools.system("touch README")
     autotools.autoreconf("-vfi")
     autotools.configure("%s" % ("--enable-64bit" if get.ARCH() == "x86_64" else ""))
 
@@ -24,4 +25,4 @@ def install():
     shelltools.chown("%s/run/memcached" % get.installDIR(), "memcached", "memcached")
     shelltools.chmod("%s/run/memcached" % get.installDIR())
 
-    pisitools.dodoc("AUTHORS", "README", "doc/*.txt")
+    pisitools.dodoc("AUTHORS","README.md","NEWS","COPYING","doc/*.txt")
