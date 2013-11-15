@@ -19,6 +19,9 @@ def setup():
                          --with-openssl \
                          --enable-nls \
                          --with-pam \
+                         --with-libxml \
+                         --with-libxslt \
+                         --with-ldap \
                          --enable-integer-datetimes \
                          --enable-thread-safety \
                          --enable-depend \
