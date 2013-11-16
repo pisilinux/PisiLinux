@@ -12,7 +12,7 @@ def setup():
     autotools.configure("--enable-gstreamer \
                         --enable-thunar-vfs \
                         --enable-dbus \
-                        --enable-hal")
+                        --disable-hal")
 
 def build():
     autotools.make()
