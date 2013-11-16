@@ -21,4 +21,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("COPYING")
+    pisitools.domove("/var/run/ctdb","/run")
+    pisitools.removeDir("/var/run")
+    pisitools.dodoc("COPYING","README","NEWS")
