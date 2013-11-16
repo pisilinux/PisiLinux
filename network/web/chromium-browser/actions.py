@@ -68,7 +68,7 @@ def install():
     pisitools.insinto("/usr/lib/chromium-browser", "resources.pak")
     pisitools.insinto("/usr/lib/chromium-browser", "chrome_100_percent.pak")
     pisitools.insinto("/usr/lib/chromium-browser", "content_resources.pak")
-    pisitools.insinto("/usr/lib/chromium-browser", "chrome_remote_desktop.pak")
+    #pisitools.insinto("/usr/lib/chromium-browser", "chrome_remote_desktop.pak")
     pisitools.insinto("/usr/lib/chromium-browser", "chrome", "chromium-browser")
     pisitools.insinto("/usr/lib/chromium-browser", "chrome_sandbox", "chromium-sandbox")
     
@@ -82,7 +82,7 @@ def install():
     pisitools.insinto("/usr/lib/chromium-browser", "libffmpegsumo.so")
 
     # Nacl plugin
-    # pisitools.insinto("/usr/lib/chromium-browser", "libppGoogleNaClPluginChrome.so")
+    pisitools.insinto("/usr/lib/chromium-browser", "libppGoogleNaClPluginChrome.so")
 
     pisitools.newman("chrome.1", "chromium-browser.1")
 
