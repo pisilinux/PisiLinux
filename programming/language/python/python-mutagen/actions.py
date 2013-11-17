@@ -13,4 +13,4 @@ WorkDir = "mutagen-%s" % get.srcVERSION()
 def install():
     pythonmodules.install()
 
-    pisitools.dodoc("NEWS", "COPYING", "README", "TUTORIAL", "API-NOTES", "TODO")
+    pisitools.dodoc("NEWS", "COPYING", "README", "TODO")
