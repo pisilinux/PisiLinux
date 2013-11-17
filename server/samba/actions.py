@@ -34,7 +34,6 @@ def setup():
                          --with-quotas \
                          --with-sendfile-support \
                          --with-syslog \
-                         --with-swat \
                          --with-utmp \
                          --with-winbind \
                          --with-cachedir=/var/lib/samba \
