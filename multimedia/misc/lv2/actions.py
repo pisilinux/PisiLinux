@@ -18,8 +18,5 @@ def build():
 
 def install():
     shelltools.system("DESTDIR=%s python waf install" % get.installDIR())
-    
-    pisitools.rename("/usr/include/lv2.h", "lv2core.h")
-    pisitools.rename("/usr/lib/pkgconfig/", "")
 
-    pisitools.dodoc("AUTHORS", "COPYING", "README")
+    pisitools.dodoc("NEWS", "COPYING", "README")
