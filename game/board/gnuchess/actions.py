@@ -18,5 +18,7 @@ def build():
 
 def install():
     autotools.install()
+    
+    pisitools.removeDir("/usr/share/locale/")
 
     pisitools.dodoc("ChangeLog", "NEWS", "TODO", "README")
