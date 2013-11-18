@@ -12,7 +12,7 @@ WorkDir = "%s" % get.srcNAME()
 
 def build():
 #changed for version 4.2.4
-    autotools.make('-f makefile.unix')
+    autotools.make()
 #autotools.make for older version
 #    autotools.make('-f makefile.unix \
 #                    CXXFLAGS="%s" \
