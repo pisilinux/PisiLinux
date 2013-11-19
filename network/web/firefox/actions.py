@@ -22,7 +22,7 @@ ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else 
 locales = "be  ca  da  de  el  en-US  es-AR  es-CL  es-ES  fi  fr  hr  hu  it  lt nl  pl  pt-BR  pt-PT  ro  ru  sr  sv-SE  tr  uk".split()
 xpidir = "%s/xpi" % get.workDIR()
 arch = get.ARCH()
-ver = ".".join(get.srcVERSION().split(".")[:2])
+ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
     # LOCALE
@@ -60,13 +60,6 @@ def build():
     shelltools.cd(ObjDir)
     autotools.make("-f ../client.mk build")
 
-    # LOCALE
-    # See: https://developer.mozilla.org/en/Creating_a_Language_Pack
-    # FIXME: Find an elegant solution to create the Makefile from Makefile.in
-    # We need to execute configure, otherwise the Makefile in browser/locales doesn't generate.
-    # Don't execute it before "make -f client.mk". Otherwise it's conflicts with mozconfig
-    # With 'make -f client.mk' call, build action takes place in $TOPSRCDIR/$OBJDIR by default. No need to specify l10n dir again, it's read from mozconfig
-
     autotools.make("-f ../client.mk configure")
 
     #for locale in locales:
@@ -76,13 +69,6 @@ def install():
     autotools.rawInstall("-f client.mk DESTDIR=%s" % get.installDIR())
 
     pisitools.remove("/usr/bin/firefox") # new Additional File  will replace that
-
-    #install locales
-    #for locale in locales:
-        #pisitools.insinto("/usr/lib/firefox/extensions/langpack-%s@firefox.mozilla.org" % locale, "%s/dist/xpi-stage/locale-%s/*" % (ObjDir, locale), sym=False)
-        #pisitools.removeDir("/usr/lib/firefox/extensions/langpack-%s@firefox.mozilla.org/defaults" % locale)
-        #pisitools.remove("/usr/lib/firefox/extensions/langpack-%s@firefox.mozilla.org/chrome/%s/locale/branding/browserconfig.properties" % (locale, locale))
-        #pisitools.dosym("../../../../../../browserconfig.properties", "/usr/lib/firefox/extensions/langpack-%s@firefox.mozilla.org/chrome/%s/locale/branding/browserconfig.properties" % (locale, locale))
 
     # Install language packs
     pisitools.insinto("/usr/lib/firefox/browser/extensions", "./langpack-ff/*")
