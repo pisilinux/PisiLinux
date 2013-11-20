@@ -19,5 +19,7 @@ def build():
 
 def install():
     autotools.install()
+    
+    pisitools.removeDir("/usr/share/appdata/")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "README", "TODO" )
