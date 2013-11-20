@@ -25,10 +25,6 @@ def setup():
         shelltools.system("wget -c -P %s ftp://ftp.mozilla.org/pub/mozilla.org/thunderbird/releases/%s/linux-%s/xpi/%s.xpi" % (xpidir, ver, arch, locale))
         shelltools.makedirs("langpack-tb/langpack-%s@thunderbird.mozilla.org" % locale)
         shelltools.system("unzip -uo %s/%s.xpi -d langpack-tb/langpack-%s@thunderbird.mozilla.org" % (xpidir, locale, locale))
-        # replace browserconfig.properties
-        #print "Replacing browser.properties for %s locale" % locale
-        #shelltools.copy("browserconfig.properties", "langpack-tb/langpack-%s@thunderbird.mozilla.org/browser/chrome/%s/locale/branding/" % (locale, locale))
-        #shelltools.copy("browserconfig.properties", "browser/branding/official/locales/")
         
     # Use autoconf 2.13, pff
     shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
@@ -41,48 +37,9 @@ def setup():
 
 def build():
     autotools.make("-f client.mk build")
-
-    #for locale in locales:
-        #autotools.make("-C mail/locales langpack-%s" % locale)
-        #pisitools.copy("mozilla/dist/xpi-stage/locale-%s/chrome/%s.manifest" % (locale, locale), "mozilla/dist/bin/chrome/")
-"""
-    # Build enigmail
-    shelltools.cd("mailnews/extensions/enigmail")
-    shelltools.system("./makemake -r")
-    autotools.make()
-    autotools.make("xpi")
-
-def install_enigmail():
-    # Install enigmail
-    pisitools.insinto(MOZAPPDIR, "mozilla/dist/bin/enigmail-*.xpi")
-
-    enigmail_dir = "mozilla/extensions/{3550f703-e582-4d05-9a08-453d09bdfdc6}/{847b3a00-7ab1-11d4-8f02-006008948af5}"
-    pisitools.dodir("%s/%s" % (MOZAPPDIR, enigmail_dir))
-
-    old_dir = get.curDIR()
-
-    shelltools.cd("%s/%s/%s" % (get.installDIR(), MOZAPPDIR, enigmail_dir))
-    shelltools.system("unzip %s/%s/enigmail-*.xpi" % (get.installDIR(), MOZAPPDIR))
-    shelltools.cd(old_dir)
-
-    # Remove unwanted build artifacts from enigmail
-    for f in ("enigmail.jar", "enigmail-locale.jar", "enigmail-en-US.jar", "enigmail-skin.jar", "installed-chrome.txt", "enigmime.jar"):
-        pisitools.remove("%s/chrome/%s" % (MOZAPPDIR, f))
-
-    for f in ("libenigmime.so", "ipc.xpt", "enig*"):
-        pisitools.remove("%s/components/%s" % (MOZAPPDIR, f))
-
-    pisitools.removeDir("%s/defaults/preferences" % MOZAPPDIR)
-    pisitools.removeDir("%s/platform" % MOZAPPDIR)
-    pisitools.removeDir("%s/wrappers" % MOZAPPDIR)
-    pisitools.removeDir("%s/enigmail*.xpi" % MOZAPPDIR)
-"""
+    
 def install():
     pisitools.insinto("/usr/lib/", "objdir/mozilla/dist/bin/", "MozillaThunderbird", sym=False)
-
-    # Install language packs
-    #for locale in locales:
-        #pisitools.insinto("/usr/lib/MozillaThunderbird/extensions/langpack-%s@thunderbird.mozilla.org" % locale, "mozilla/dist/xpi-stage/locale-%s/*" % locale, sym=False)
         
     # Install fix language packs
     pisitools.insinto("/usr/lib/MozillaThunderbird/extensions", "./langpack-tb/*")
