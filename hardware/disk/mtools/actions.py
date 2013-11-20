@@ -15,10 +15,10 @@ def setup():
 
     shelltools.export("INSTALL_PROGRAM", "install")
     autotools.autoreconf("-fi")
-    autotools.configure("--sysconfdir=/etc/mtools \
+    autotools.configure("--prefix=/usr \
+			 --sysconfdir=/etc/mtools \
                          --includedir=/usr/src/linux/include \
-                         --without-x \
-                         --disable-floppyd")
+                         ")
 
 def build():
     autotools.make()
@@ -26,6 +26,7 @@ def build():
 def install():
     # autotools.install("sysconfdir=%s/etc/mtools" % get.installDIR())
     autotools.rawInstall('-j1 DESTDIR="%s"' % get.installDIR())
+    
 
     pisitools.insinto("/etc/mtools","mtools.conf")
 
