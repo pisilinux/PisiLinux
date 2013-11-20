@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 
 def setup():
     cmaketools.configure("-DCMAKE_BUILD_TYPE=release \
+                          -DCMAKE_EXE_LINKER_FLAGS=-ljson-c \
                           -DCMAKE_INSTALL_PREFIX=/usr ")
 
 def build():
