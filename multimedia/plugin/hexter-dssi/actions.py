@@ -8,10 +8,10 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "hexter-%s" % get.srcVERSION()
-
 def setup():
     autotools.configure("CC=%s LDFLAGS=\"%s\" CFLAGS=\"%s\"" % (get.CC(), get.LDFLAGS(), get.CFLAGS()))
+
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
