@@ -18,9 +18,6 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "NEWS", "README", "COPYING")
-
-    pisitools.removeDir("/usr/lib")
-    pisitools.removeDir("/usr/include")
-
+    
     # Useless example output file
     pisitools.remove("/usr/share/doc/potrace/placement.pdf")
