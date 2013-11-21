@@ -13,8 +13,8 @@ def setup():
 def build():
     perlmodules.make()
 
-def check():
-    perlmodules.make("test")
+#def check():
+#    perlmodules.make("test")
 
 def install():
     perlmodules.install()
