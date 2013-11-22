@@ -14,8 +14,8 @@ VBoxDataDir = "/usr/share/virtualbox"
 XorgVersion = "114"
 
 def setup():
-    pisitools.dosed("LocalConfig.kmk", "__VBOXLIBDIR__", VBoxLibDir)
-    pisitools.dosed("LocalConfig.kmk", "__VBOXDATADIR__", VBoxDataDir)
+    #pisitools.dosed("LocalConfig.kmk", "__VBOXLIBDIR__", VBoxLibDir)
+    #pisitools.dosed("LocalConfig.kmk", "__VBOXDATADIR__", VBoxDataDir)
 
     shelltools.echo("vbox.cfg", "INSTALL_DIR=%s" % VBoxLibDir)
 
