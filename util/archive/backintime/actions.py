@@ -10,6 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.cd("..")
     shelltools.cd("kde4") 
     autotools.configure()
     shelltools.cd("..")
@@ -18,6 +19,7 @@ def setup():
     shelltools.cd("..")
 
 def build():
+    shelltools.cd("..")
     shelltools.cd("kde4")
     autotools.make()
     shelltools.cd("..")
@@ -26,9 +28,14 @@ def build():
     shelltools.cd("..")
 
 def install(): 
+    shelltools.cd("..")
     shelltools.cd("kde4")
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     shelltools.cd("..")
     shelltools.cd("common")
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     shelltools.cd("..")
+    
+    pisitools.removeDir("/etc")
+    pisitools.removeDir("/usr/share/doc/kde")
+    pisitools.remove("/usr/bin/backintime-askpass")

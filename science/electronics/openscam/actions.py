@@ -8,8 +8,8 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
 def build():
-    scons.make("-C cbang compiler=gnu")
-    scons.make("compiler=gnu")
+    scons.make("$MAKEFLAGS -C cbang compiler=gnu")
+    scons.make("$MAKEFLAGS compiler=gnu")
     
 def install():
     scons.install("install compiler=gnu install_prefix=%s/usr" % get.installDIR())
