@@ -1,0 +1,101 @@
+diff -up openssh-5.9p1/cipher-ctr.c.ctr-evp openssh-5.9p1/cipher-ctr.c
+--- openssh-5.9p1/cipher-ctr.c.ctr-evp	2012-01-11 09:24:06.000000000 +0100
++++ openssh-5.9p1/cipher-ctr.c	2012-01-11 15:54:04.675956600 +0100
+@@ -38,7 +38,7 @@ void ssh_aes_ctr_iv(EVP_CIPHER_CTX *, in
+ 
+ struct ssh_aes_ctr_ctx
+ {
+-	AES_KEY		aes_ctx;
++	EVP_CIPHER_CTX	ecbctx;
+ 	u_char		aes_counter[AES_BLOCK_SIZE];
+ };
+ 
+@@ -63,21 +63,42 @@ ssh_aes_ctr(EVP_CIPHER_CTX *ctx, u_char
+ {
+ 	struct ssh_aes_ctr_ctx *c;
+ 	size_t n = 0;
+-	u_char buf[AES_BLOCK_SIZE];
++	u_char ctrbuf[AES_BLOCK_SIZE*256];
++	u_char buf[AES_BLOCK_SIZE*256];
+ 
+ 	if (len == 0)
+ 		return (1);
+ 	if ((c = EVP_CIPHER_CTX_get_app_data(ctx)) == NULL)
+ 		return (0);
+ 
+-	while ((len--) > 0) {
++	for (; len > 0; len -= sizeof(u_int)) {
++		u_int r,a,b;
++
+ 		if (n == 0) {
+-			AES_encrypt(c->aes_counter, buf, &c->aes_ctx);
+-			ssh_ctr_inc(c->aes_counter, AES_BLOCK_SIZE);
++			int outl, i, buflen;
++
++			buflen = MIN(len, sizeof(ctrbuf));
++
++			for(i = 0; i < buflen; i += AES_BLOCK_SIZE) {
++				memcpy(&ctrbuf[i], c->aes_counter, AES_BLOCK_SIZE);
++				ssh_ctr_inc(c->aes_counter, AES_BLOCK_SIZE);
++			}
++
++			EVP_EncryptUpdate(&c->ecbctx, buf, &outl,
++				ctrbuf, buflen);
+ 		}
+-		*(dest++) = *(src++) ^ buf[n];
+-		n = (n + 1) % AES_BLOCK_SIZE;
++
++		memcpy(&a, src, sizeof(a));
++		memcpy(&b, &buf[n], sizeof(b));
++		r = a ^ b;
++		memcpy(dest, &r, sizeof(r));
++		src += sizeof(a);
++		dest += sizeof(r);
++
++		n = (n + sizeof(b)) % sizeof(buf);
+ 	}
++	memset(ctrbuf, '\0', sizeof(ctrbuf));
++	memset(buf, '\0', sizeof(buf));
+ 	return (1);
+ }
+ 
+@@ -91,9 +112,28 @@ ssh_aes_ctr_init(EVP_CIPHER_CTX *ctx, co
+ 		c = xmalloc(sizeof(*c));
+ 		EVP_CIPHER_CTX_set_app_data(ctx, c);
+ 	}
+-	if (key != NULL)
+-		AES_set_encrypt_key(key, EVP_CIPHER_CTX_key_length(ctx) * 8,
+-		    &c->aes_ctx);
++
++	EVP_CIPHER_CTX_init(&c->ecbctx);
++
++	if (key != NULL) {
++		const EVP_CIPHER *cipher;
++		switch(EVP_CIPHER_CTX_key_length(ctx)*8) {
++			case 128:
++				cipher = EVP_aes_128_ecb();
++				break;
++			case 192:
++				cipher = EVP_aes_192_ecb();
++				break;
++			case 256:
++				cipher = EVP_aes_256_ecb();
++				break;
++			default:
++				fatal("ssh_aes_ctr_init: wrong aes key length");
++		}
++		if(!EVP_EncryptInit_ex(&c->ecbctx, cipher, NULL, key, NULL))
++			fatal("ssh_aes_ctr_init: cannot initialize aes encryption");
++		EVP_CIPHER_CTX_set_padding(&c->ecbctx, 0);
++	}
+ 	if (iv != NULL)
+ 		memcpy(c->aes_counter, iv, AES_BLOCK_SIZE);
+ 	return (1);
+@@ -105,6 +145,7 @@ ssh_aes_ctr_cleanup(EVP_CIPHER_CTX *ctx)
+ 	struct ssh_aes_ctr_ctx *c;
+ 
+ 	if ((c = EVP_CIPHER_CTX_get_app_data(ctx)) != NULL) {
++		EVP_CIPHER_CTX_cleanup(&c->ecbctx);
+ 		memset(c, 0, sizeof(*c));
+ 		free(c);
+ 		EVP_CIPHER_CTX_set_app_data(ctx, NULL);

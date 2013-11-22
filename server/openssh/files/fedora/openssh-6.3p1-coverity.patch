@@ -1,0 +1,788 @@
+diff -up openssh-6.3p1/auth-pam.c.coverity openssh-6.3p1/auth-pam.c
+--- openssh-6.3p1/auth-pam.c.coverity	2013-06-02 00:07:32.000000000 +0200
++++ openssh-6.3p1/auth-pam.c	2013-10-07 13:20:36.288298063 +0200
+@@ -216,7 +216,12 @@ pthread_join(sp_pthread_t thread, void *
+ 	if (sshpam_thread_status != -1)
+ 		return (sshpam_thread_status);
+ 	signal(SIGCHLD, sshpam_oldsig);
+-	waitpid(thread, &status, 0);
++	while (waitpid(thread, &status, 0) < 0) {                     
++		if (errno == EINTR)                                
++			continue;
++		fatal("%s: waitpid: %s", __func__,         
++				strerror(errno));                      
++	}
+ 	return (status);
+ }
+ #endif
+diff -up openssh-6.3p1/channels.c.coverity openssh-6.3p1/channels.c
+--- openssh-6.3p1/channels.c.coverity	2013-09-13 08:19:31.000000000 +0200
++++ openssh-6.3p1/channels.c	2013-10-07 13:20:36.289298058 +0200
+@@ -233,11 +233,11 @@ channel_register_fds(Channel *c, int rfd
+ 	channel_max_fd = MAX(channel_max_fd, wfd);
+ 	channel_max_fd = MAX(channel_max_fd, efd);
+ 
+-	if (rfd != -1)
++	if (rfd >= 0)
+ 		fcntl(rfd, F_SETFD, FD_CLOEXEC);
+-	if (wfd != -1 && wfd != rfd)
++	if (wfd >= 0 && wfd != rfd)
+ 		fcntl(wfd, F_SETFD, FD_CLOEXEC);
+-	if (efd != -1 && efd != rfd && efd != wfd)
++	if (efd >= 0 && efd != rfd && efd != wfd)
+ 		fcntl(efd, F_SETFD, FD_CLOEXEC);
+ 
+ 	c->rfd = rfd;
+@@ -255,11 +255,11 @@ channel_register_fds(Channel *c, int rfd
+ 
+ 	/* enable nonblocking mode */
+ 	if (nonblock) {
+-		if (rfd != -1)
++		if (rfd >= 0)
+ 			set_nonblock(rfd);
+-		if (wfd != -1)
++		if (wfd >= 0)
+ 			set_nonblock(wfd);
+-		if (efd != -1)
++		if (efd >= 0)
+ 			set_nonblock(efd);
+ 	}
+ }
+diff -up openssh-6.3p1/clientloop.c.coverity openssh-6.3p1/clientloop.c
+--- openssh-6.3p1/clientloop.c.coverity	2013-06-10 05:07:12.000000000 +0200
++++ openssh-6.3p1/clientloop.c	2013-10-07 13:20:36.289298058 +0200
+@@ -2068,14 +2068,15 @@ client_input_global_request(int type, u_
+ 	char *rtype;
+ 	int want_reply;
+ 	int success = 0;
++/* success is still 0 the packet is allways SSH2_MSG_REQUEST_FAILURE, isn't it? */
+ 
+ 	rtype = packet_get_string(NULL);
+ 	want_reply = packet_get_char();
+ 	debug("client_input_global_request: rtype %s want_reply %d",
+ 	    rtype, want_reply);
+ 	if (want_reply) {
+-		packet_start(success ?
+-		    SSH2_MSG_REQUEST_SUCCESS : SSH2_MSG_REQUEST_FAILURE);
++		packet_start(/*success ?
++		    SSH2_MSG_REQUEST_SUCCESS :*/ SSH2_MSG_REQUEST_FAILURE);
+ 		packet_send();
+ 		packet_write_wait();
+ 	}
+diff -up openssh-6.3p1/key.c.coverity openssh-6.3p1/key.c
+--- openssh-6.3p1/key.c.coverity	2013-06-01 23:41:51.000000000 +0200
++++ openssh-6.3p1/key.c	2013-10-07 13:20:36.290298054 +0200
+@@ -807,8 +807,10 @@ key_read(Key *ret, char **cpp)
+ 		success = 1;
+ /*XXXX*/
+ 		key_free(k);
++/*XXXX
+ 		if (success != 1)
+ 			break;
++XXXX*/
+ 		/* advance cp: skip whitespace and data */
+ 		while (*cp == ' ' || *cp == '\t')
+ 			cp++;
+diff -up openssh-6.3p1/monitor.c.coverity openssh-6.3p1/monitor.c
+--- openssh-6.3p1/monitor.c.coverity	2013-07-20 05:21:53.000000000 +0200
++++ openssh-6.3p1/monitor.c	2013-10-07 13:54:36.761314042 +0200
+@@ -449,7 +449,7 @@ monitor_child_preauth(Authctxt *_authctx
+ 	mm_get_keystate(pmonitor);
+ 
+ 	/* Drain any buffered messages from the child */
+-	while (pmonitor->m_log_recvfd != -1 && monitor_read_log(pmonitor) == 0)
++	while (pmonitor->m_log_recvfd >= 0 && monitor_read_log(pmonitor) == 0)
+ 		;
+ 
+ 	close(pmonitor->m_sendfd);
+@@ -1202,6 +1202,10 @@ mm_answer_keyallowed(int sock, Buffer *m
+ 			break;
+ 		}
+ 	}
++
++	debug3("%s: key %p is %s",
++	    __func__, key, allowed ? "allowed" : "not allowed");
++
+ 	if (key != NULL)
+ 		key_free(key);
+ 
+@@ -1223,9 +1227,6 @@ mm_answer_keyallowed(int sock, Buffer *m
+ 		free(chost);
+ 	}
+ 
+-	debug3("%s: key %p is %s",
+-	    __func__, key, allowed ? "allowed" : "not allowed");
+-
+ 	buffer_clear(m);
+ 	buffer_put_int(m, allowed);
+ 	buffer_put_int(m, forced_command != NULL);
+diff -up openssh-6.3p1/monitor_wrap.c.coverity openssh-6.3p1/monitor_wrap.c
+--- openssh-6.3p1/monitor_wrap.c.coverity	2013-06-02 00:07:32.000000000 +0200
++++ openssh-6.3p1/monitor_wrap.c	2013-10-07 13:20:36.291298049 +0200
+@@ -710,10 +710,10 @@ mm_pty_allocate(int *ptyfd, int *ttyfd,
+ 	if ((tmp1 = dup(pmonitor->m_recvfd)) == -1 ||
+ 	    (tmp2 = dup(pmonitor->m_recvfd)) == -1) {
+ 		error("%s: cannot allocate fds for pty", __func__);
+-		if (tmp1 > 0)
++		if (tmp1 >= 0)
+ 			close(tmp1);
+-		if (tmp2 > 0)
+-			close(tmp2);
++		/*DEAD CODE if (tmp2 >= 0)
++			close(tmp2);*/
+ 		return 0;
+ 	}
+ 	close(tmp1);
+diff -up openssh-6.3p1/openbsd-compat/bindresvport.c.coverity openssh-6.3p1/openbsd-compat/bindresvport.c
+--- openssh-6.3p1/openbsd-compat/bindresvport.c.coverity	2010-12-03 00:50:26.000000000 +0100
++++ openssh-6.3p1/openbsd-compat/bindresvport.c	2013-10-07 13:20:36.291298049 +0200
+@@ -58,7 +58,7 @@ bindresvport_sa(int sd, struct sockaddr
+ 	struct sockaddr_in6 *in6;
+ 	u_int16_t *portp;
+ 	u_int16_t port;
+-	socklen_t salen;
++	socklen_t salen = sizeof(struct sockaddr_storage);
+ 	int i;
+ 
+ 	if (sa == NULL) {
+diff -up openssh-6.3p1/packet.c.coverity openssh-6.3p1/packet.c
+--- openssh-6.3p1/packet.c.coverity	2013-07-18 08:12:45.000000000 +0200
++++ openssh-6.3p1/packet.c	2013-10-07 13:20:36.291298049 +0200
+@@ -1199,6 +1199,7 @@ packet_read_poll1(void)
+ 		case DEATTACK_DETECTED:
+ 			packet_disconnect("crc32 compensation attack: "
+ 			    "network attack detected");
++			break;
+ 		case DEATTACK_DOS_DETECTED:
+ 			packet_disconnect("deattack denial of "
+ 			    "service detected");
+diff -up openssh-6.3p1/progressmeter.c.coverity openssh-6.3p1/progressmeter.c
+--- openssh-6.3p1/progressmeter.c.coverity	2013-06-02 15:46:24.000000000 +0200
++++ openssh-6.3p1/progressmeter.c	2013-10-07 13:42:32.377850691 +0200
+@@ -65,7 +65,7 @@ static void update_progress_meter(int);
+ 
+ static time_t start;		/* start progress */
+ static time_t last_update;	/* last progress update */
+-static char *file;		/* name of the file being transferred */
++static const char *file;	/* name of the file being transferred */
+ static off_t end_pos;		/* ending position of transfer */
+ static off_t cur_pos;		/* transfer position as of last refresh */
+ static volatile off_t *counter;	/* progress counter */
+@@ -247,7 +247,7 @@ update_progress_meter(int ignore)
+ }
+ 
+ void
+-start_progress_meter(char *f, off_t filesize, off_t *ctr)
++start_progress_meter(const char *f, off_t filesize, off_t *ctr)
+ {
+ 	start = last_update = monotime();
+ 	file = f;
+diff -up openssh-6.3p1/progressmeter.h.coverity openssh-6.3p1/progressmeter.h
+--- openssh-6.3p1/progressmeter.h.coverity	2006-03-26 05:30:02.000000000 +0200
++++ openssh-6.3p1/progressmeter.h	2013-10-07 13:20:36.292298044 +0200
+@@ -23,5 +23,5 @@
+  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
+-void	start_progress_meter(char *, off_t, off_t *);
++void	start_progress_meter(const char *, off_t, off_t *);
+ void	stop_progress_meter(void);
+diff -up openssh-6.3p1/scp.c.coverity openssh-6.3p1/scp.c
+--- openssh-6.3p1/scp.c.coverity	2013-07-18 08:11:25.000000000 +0200
++++ openssh-6.3p1/scp.c	2013-10-07 13:20:36.292298044 +0200
+@@ -155,7 +155,7 @@ killchild(int signo)
+ {
+ 	if (do_cmd_pid > 1) {
+ 		kill(do_cmd_pid, signo ? signo : SIGTERM);
+-		waitpid(do_cmd_pid, NULL, 0);
++		(void) waitpid(do_cmd_pid, NULL, 0);
+ 	}
+ 
+ 	if (signo)
+diff -up openssh-6.3p1/servconf.c.coverity openssh-6.3p1/servconf.c
+--- openssh-6.3p1/servconf.c.coverity	2013-07-20 05:21:53.000000000 +0200
++++ openssh-6.3p1/servconf.c	2013-10-07 13:20:36.293298039 +0200
+@@ -1323,7 +1323,7 @@ process_server_config_line(ServerOptions
+ 			fatal("%s line %d: Missing subsystem name.",
+ 			    filename, linenum);
+ 		if (!*activep) {
+-			arg = strdelim(&cp);
++			/*arg =*/ (void) strdelim(&cp);
+ 			break;
+ 		}
+ 		for (i = 0; i < options->num_subsystems; i++)
+@@ -1414,8 +1414,9 @@ process_server_config_line(ServerOptions
+ 		if (*activep && *charptr == NULL) {
+ 			*charptr = tilde_expand_filename(arg, getuid());
+ 			/* increase optional counter */
+-			if (intptr != NULL)
+-				*intptr = *intptr + 1;
++			/* DEAD CODE intptr is still NULL ;)
++  			 if (intptr != NULL)
++				*intptr = *intptr + 1; */
+ 		}
+ 		break;
+ 
+diff -up openssh-6.3p1/serverloop.c.coverity openssh-6.3p1/serverloop.c
+--- openssh-6.3p1/serverloop.c.coverity	2013-07-18 08:12:45.000000000 +0200
++++ openssh-6.3p1/serverloop.c	2013-10-07 13:43:36.620537138 +0200
+@@ -147,13 +147,13 @@ notify_setup(void)
+ static void
+ notify_parent(void)
+ {
+-	if (notify_pipe[1] != -1)
++	if (notify_pipe[1] >= 0)
+ 		(void)write(notify_pipe[1], "", 1);
+ }
+ static void
+ notify_prepare(fd_set *readset)
+ {
+-	if (notify_pipe[0] != -1)
++	if (notify_pipe[0] >= 0)
+ 		FD_SET(notify_pipe[0], readset);
+ }
+ static void
+@@ -161,8 +161,8 @@ notify_done(fd_set *readset)
+ {
+ 	char c;
+ 
+-	if (notify_pipe[0] != -1 && FD_ISSET(notify_pipe[0], readset))
+-		while (read(notify_pipe[0], &c, 1) != -1)
++	if (notify_pipe[0] >= 0 && FD_ISSET(notify_pipe[0], readset))
++		while (read(notify_pipe[0], &c, 1) >= 0)
+ 			debug2("notify_done: reading");
+ }
+ 
+@@ -336,7 +336,7 @@ wait_until_can_do_something(fd_set **rea
+ 		 * If we have buffered data, try to write some of that data
+ 		 * to the program.
+ 		 */
+-		if (fdin != -1 && buffer_len(&stdin_buffer) > 0)
++		if (fdin >= 0 && buffer_len(&stdin_buffer) > 0)
+ 			FD_SET(fdin, *writesetp);
+ 	}
+ 	notify_prepare(*readsetp);
+@@ -476,7 +476,7 @@ process_output(fd_set *writeset)
+ 	int len;
+ 
+ 	/* Write buffered data to program stdin. */
+-	if (!compat20 && fdin != -1 && FD_ISSET(fdin, writeset)) {
++	if (!compat20 && fdin >= 0 && FD_ISSET(fdin, writeset)) {
+ 		data = buffer_ptr(&stdin_buffer);
+ 		dlen = buffer_len(&stdin_buffer);
+ 		len = write(fdin, data, dlen);
+@@ -589,7 +589,7 @@ server_loop(pid_t pid, int fdin_arg, int
+ 	set_nonblock(fdin);
+ 	set_nonblock(fdout);
+ 	/* we don't have stderr for interactive terminal sessions, see below */
+-	if (fderr != -1)
++	if (fderr >= 0)
+ 		set_nonblock(fderr);
+ 
+ 	if (!(datafellows & SSH_BUG_IGNOREMSG) && isatty(fdin))
+@@ -613,7 +613,7 @@ server_loop(pid_t pid, int fdin_arg, int
+ 	max_fd = MAX(connection_in, connection_out);
+ 	max_fd = MAX(max_fd, fdin);
+ 	max_fd = MAX(max_fd, fdout);
+-	if (fderr != -1)
++	if (fderr >= 0)
+ 		max_fd = MAX(max_fd, fderr);
+ #endif
+ 
+@@ -643,7 +643,7 @@ server_loop(pid_t pid, int fdin_arg, int
+ 		 * If we have received eof, and there is no more pending
+ 		 * input data, cause a real eof by closing fdin.
+ 		 */
+-		if (stdin_eof && fdin != -1 && buffer_len(&stdin_buffer) == 0) {
++		if (stdin_eof && fdin >= 0 && buffer_len(&stdin_buffer) == 0) {
+ 			if (fdin != fdout)
+ 				close(fdin);
+ 			else
+@@ -739,15 +739,15 @@ server_loop(pid_t pid, int fdin_arg, int
+ 	buffer_free(&stderr_buffer);
+ 
+ 	/* Close the file descriptors. */
+-	if (fdout != -1)
++	if (fdout >= 0)
+ 		close(fdout);
+ 	fdout = -1;
+ 	fdout_eof = 1;
+-	if (fderr != -1)
++	if (fderr >= 0)
+ 		close(fderr);
+ 	fderr = -1;
+ 	fderr_eof = 1;
+-	if (fdin != -1)
++	if (fdin >= 0)
+ 		close(fdin);
+ 	fdin = -1;
+ 
+@@ -946,7 +946,7 @@ server_input_window_size(int type, u_int
+ 
+ 	debug("Window change received.");
+ 	packet_check_eom();
+-	if (fdin != -1)
++	if (fdin >= 0)
+ 		pty_change_window_size(fdin, row, col, xpixel, ypixel);
+ }
+ 
+@@ -1006,7 +1006,7 @@ server_request_tun(void)
+ 	}
+ 
+ 	tun = packet_get_int();
+-	if (forced_tun_device != -1) {
++	if (forced_tun_device >= 0) {
+ 		if (tun != SSH_TUNID_ANY && forced_tun_device != tun)
+ 			goto done;
+ 		tun = forced_tun_device;
+diff -up openssh-6.3p1/sftp-client.c.coverity openssh-6.3p1/sftp-client.c
+--- openssh-6.3p1/sftp-client.c.coverity	2013-07-26 00:40:00.000000000 +0200
++++ openssh-6.3p1/sftp-client.c	2013-10-07 13:48:45.885027420 +0200
+@@ -149,7 +149,7 @@ get_msg(struct sftp_conn *conn, Buffer *
+ }
+ 
+ static void
+-send_string_request(struct sftp_conn *conn, u_int id, u_int code, char *s,
++send_string_request(struct sftp_conn *conn, u_int id, u_int code, const char *s,
+     u_int len)
+ {
+ 	Buffer msg;
+@@ -165,7 +165,7 @@ send_string_request(struct sftp_conn *co
+ 
+ static void
+ send_string_attrs_request(struct sftp_conn *conn, u_int id, u_int code,
+-    char *s, u_int len, Attrib *a)
++    const char *s, u_int len, Attrib *a)
+ {
+ 	Buffer msg;
+ 
+@@ -422,7 +422,7 @@ sftp_proto_version(struct sftp_conn *con
+ }
+ 
+ int
+-do_close(struct sftp_conn *conn, char *handle, u_int handle_len)
++do_close(struct sftp_conn *conn, const char *handle, u_int handle_len)
+ {
+ 	u_int id, status;
+ 	Buffer msg;
+@@ -447,7 +447,7 @@ do_close(struct sftp_conn *conn, char *h
+ 
+ 
+ static int
+-do_lsreaddir(struct sftp_conn *conn, char *path, int printflag,
++do_lsreaddir(struct sftp_conn *conn, const char *path, int printflag,
+     SFTP_DIRENT ***dir)
+ {
+ 	Buffer msg;
+@@ -572,7 +572,7 @@ do_lsreaddir(struct sftp_conn *conn, cha
+ }
+ 
+ int
+-do_readdir(struct sftp_conn *conn, char *path, SFTP_DIRENT ***dir)
++do_readdir(struct sftp_conn *conn, const char *path, SFTP_DIRENT ***dir)
+ {
+ 	return(do_lsreaddir(conn, path, 0, dir));
+ }
+@@ -590,7 +590,7 @@ void free_sftp_dirents(SFTP_DIRENT **s)
+ }
+ 
+ int
+-do_rm(struct sftp_conn *conn, char *path)
++do_rm(struct sftp_conn *conn, const char *path)
+ {
+ 	u_int status, id;
+ 
+@@ -605,7 +605,7 @@ do_rm(struct sftp_conn *conn, char *path
+ }
+ 
+ int
+-do_mkdir(struct sftp_conn *conn, char *path, Attrib *a, int printflag)
++do_mkdir(struct sftp_conn *conn, const char *path, Attrib *a, int printflag)
+ {
+ 	u_int status, id;
+ 
+@@ -621,7 +621,7 @@ do_mkdir(struct sftp_conn *conn, char *p
+ }
+ 
+ int
+-do_rmdir(struct sftp_conn *conn, char *path)
++do_rmdir(struct sftp_conn *conn, const char *path)
+ {
+ 	u_int status, id;
+ 
+@@ -637,7 +637,7 @@ do_rmdir(struct sftp_conn *conn, char *p
+ }
+ 
+ Attrib *
+-do_stat(struct sftp_conn *conn, char *path, int quiet)
++do_stat(struct sftp_conn *conn, const char *path, int quiet)
+ {
+ 	u_int id;
+ 
+@@ -651,7 +651,7 @@ do_stat(struct sftp_conn *conn, char *pa
+ }
+ 
+ Attrib *
+-do_lstat(struct sftp_conn *conn, char *path, int quiet)
++do_lstat(struct sftp_conn *conn, const char *path, int quiet)
+ {
+ 	u_int id;
+ 
+@@ -685,7 +685,7 @@ do_fstat(struct sftp_conn *conn, char *h
+ #endif
+ 
+ int
+-do_setstat(struct sftp_conn *conn, char *path, Attrib *a)
++do_setstat(struct sftp_conn *conn, const char *path, Attrib *a)
+ {
+ 	u_int status, id;
+ 
+@@ -702,7 +702,7 @@ do_setstat(struct sftp_conn *conn, char
+ }
+ 
+ int
+-do_fsetstat(struct sftp_conn *conn, char *handle, u_int handle_len,
++do_fsetstat(struct sftp_conn *conn, const char *handle, u_int handle_len,
+     Attrib *a)
+ {
+ 	u_int status, id;
+@@ -719,7 +719,7 @@ do_fsetstat(struct sftp_conn *conn, char
+ }
+ 
+ char *
+-do_realpath(struct sftp_conn *conn, char *path)
++do_realpath(struct sftp_conn *conn, const char *path)
+ {
+ 	Buffer msg;
+ 	u_int type, expected_id, count, id;
+@@ -768,7 +768,7 @@ do_realpath(struct sftp_conn *conn, char
+ }
+ 
+ int
+-do_rename(struct sftp_conn *conn, char *oldpath, char *newpath)
++do_rename(struct sftp_conn *conn, const char *oldpath, const char *newpath)
+ {
+ 	Buffer msg;
+ 	u_int status, id;
+@@ -802,7 +802,7 @@ do_rename(struct sftp_conn *conn, char *
+ }
+ 
+ int
+-do_hardlink(struct sftp_conn *conn, char *oldpath, char *newpath)
++do_hardlink(struct sftp_conn *conn, const char *oldpath, const char *newpath)
+ {
+ 	Buffer msg;
+ 	u_int status, id;
+@@ -835,7 +835,7 @@ do_hardlink(struct sftp_conn *conn, char
+ }
+ 
+ int
+-do_symlink(struct sftp_conn *conn, char *oldpath, char *newpath)
++do_symlink(struct sftp_conn *conn, const char *oldpath, const char *newpath)
+ {
+ 	Buffer msg;
+ 	u_int status, id;
+@@ -987,7 +987,7 @@ send_read_request(struct sftp_conn *conn
+ }
+ 
+ int
+-do_download(struct sftp_conn *conn, char *remote_path, char *local_path,
++do_download(struct sftp_conn *conn, const char *remote_path, const char *local_path,
+     Attrib *a, int pflag, int resume)
+ {
+ 	Attrib junk;
+@@ -1255,7 +1255,7 @@ do_download(struct sftp_conn *conn, char
+ }
+ 
+ static int
+-download_dir_internal(struct sftp_conn *conn, char *src, char *dst,
++download_dir_internal(struct sftp_conn *conn, const char *src, const char *dst,
+     Attrib *dirattrib, int pflag, int printflag, int depth, int resume)
+ {
+ 	int i, ret = 0;
+@@ -1345,7 +1345,7 @@ download_dir_internal(struct sftp_conn *
+ }
+ 
+ int
+-download_dir(struct sftp_conn *conn, char *src, char *dst,
++download_dir(struct sftp_conn *conn, const char *src, const char *dst,
+     Attrib *dirattrib, int pflag, int printflag, int resume)
+ {
+ 	char *src_canon;
+@@ -1363,7 +1363,7 @@ download_dir(struct sftp_conn *conn, cha
+ }
+ 
+ int
+-do_upload(struct sftp_conn *conn, char *local_path, char *remote_path,
++do_upload(struct sftp_conn *conn, const char *local_path, const char *remote_path,
+     int pflag)
+ {
+ 	int local_fd;
+@@ -1548,7 +1548,7 @@ do_upload(struct sftp_conn *conn, char *
+ }
+ 
+ static int
+-upload_dir_internal(struct sftp_conn *conn, char *src, char *dst,
++upload_dir_internal(struct sftp_conn *conn, const char *src, const char *dst,
+     int pflag, int printflag, int depth)
+ {
+ 	int ret = 0, status;
+@@ -1639,7 +1639,7 @@ upload_dir_internal(struct sftp_conn *co
+ }
+ 
+ int
+-upload_dir(struct sftp_conn *conn, char *src, char *dst, int printflag,
++upload_dir(struct sftp_conn *conn, const char *src, const char *dst, int printflag,
+     int pflag)
+ {
+ 	char *dst_canon;
+@@ -1656,7 +1656,7 @@ upload_dir(struct sftp_conn *conn, char
+ }
+ 
+ char *
+-path_append(char *p1, char *p2)
++path_append(const char *p1, const char *p2)
+ {
+ 	char *ret;
+ 	size_t len = strlen(p1) + strlen(p2) + 2;
+diff -up openssh-6.3p1/sftp-client.h.coverity openssh-6.3p1/sftp-client.h
+--- openssh-6.3p1/sftp-client.h.coverity	2013-07-25 03:56:52.000000000 +0200
++++ openssh-6.3p1/sftp-client.h	2013-10-07 13:45:10.108080813 +0200
+@@ -56,49 +56,49 @@ struct sftp_conn *do_init(int, int, u_in
+ u_int sftp_proto_version(struct sftp_conn *);
+ 
+ /* Close file referred to by 'handle' */
+-int do_close(struct sftp_conn *, char *, u_int);
++int do_close(struct sftp_conn *, const char *, u_int);
+ 
+ /* Read contents of 'path' to NULL-terminated array 'dir' */
+-int do_readdir(struct sftp_conn *, char *, SFTP_DIRENT ***);
++int do_readdir(struct sftp_conn *, const char *, SFTP_DIRENT ***);
+ 
+ /* Frees a NULL-terminated array of SFTP_DIRENTs (eg. from do_readdir) */
+ void free_sftp_dirents(SFTP_DIRENT **);
+ 
+ /* Delete file 'path' */
+-int do_rm(struct sftp_conn *, char *);
++int do_rm(struct sftp_conn *, const char *);
+ 
+ /* Create directory 'path' */
+-int do_mkdir(struct sftp_conn *, char *, Attrib *, int);
++int do_mkdir(struct sftp_conn *, const char *, Attrib *, int);
+ 
+ /* Remove directory 'path' */
+-int do_rmdir(struct sftp_conn *, char *);
++int do_rmdir(struct sftp_conn *, const char *);
+ 
+ /* Get file attributes of 'path' (follows symlinks) */
+-Attrib *do_stat(struct sftp_conn *, char *, int);
++Attrib *do_stat(struct sftp_conn *, const char *, int);
+ 
+ /* Get file attributes of 'path' (does not follow symlinks) */
+-Attrib *do_lstat(struct sftp_conn *, char *, int);
++Attrib *do_lstat(struct sftp_conn *, const char *, int);
+ 
+ /* Set file attributes of 'path' */
+-int do_setstat(struct sftp_conn *, char *, Attrib *);
++int do_setstat(struct sftp_conn *, const char *, Attrib *);
+ 
+ /* Set file attributes of open file 'handle' */
+-int do_fsetstat(struct sftp_conn *, char *, u_int, Attrib *);
++int do_fsetstat(struct sftp_conn *, const char *, u_int, Attrib *);
+ 
+ /* Canonicalise 'path' - caller must free result */
+-char *do_realpath(struct sftp_conn *, char *);
++char *do_realpath(struct sftp_conn *, const char *);
+ 
+ /* Get statistics for filesystem hosting file at "path" */
+ int do_statvfs(struct sftp_conn *, const char *, struct sftp_statvfs *, int);
+ 
+ /* Rename 'oldpath' to 'newpath' */
+-int do_rename(struct sftp_conn *, char *, char *);
++int do_rename(struct sftp_conn *, const char *, const char *);
+ 
+ /* Link 'oldpath' to 'newpath' */
+-int do_hardlink(struct sftp_conn *, char *, char *);
++int do_hardlink(struct sftp_conn *, const char *, const char *);
+ 
+-/* Rename 'oldpath' to 'newpath' */
+-int do_symlink(struct sftp_conn *, char *, char *);
++/* Symlink 'oldpath' to 'newpath' */
++int do_symlink(struct sftp_conn *, const char *, const char *);
+ 
+ /* XXX: add callbacks to do_download/do_upload so we can do progress meter */
+ 
+@@ -106,27 +106,27 @@ int do_symlink(struct sftp_conn *, char
+  * Download 'remote_path' to 'local_path'. Preserve permissions and times
+  * if 'pflag' is set
+  */
+-int do_download(struct sftp_conn *, char *, char *, Attrib *, int, int);
++int do_download(struct sftp_conn *, const char *, const char *, Attrib *, int, int);
+ 
+ /*
+  * Recursively download 'remote_directory' to 'local_directory'. Preserve 
+  * times if 'pflag' is set
+  */
+-int download_dir(struct sftp_conn *, char *, char *, Attrib *, int, int, int);
++int download_dir(struct sftp_conn *, const char *, const char *, Attrib *, int, int, int);
+ 
+ /*
+  * Upload 'local_path' to 'remote_path'. Preserve permissions and times
+  * if 'pflag' is set
+  */
+-int do_upload(struct sftp_conn *, char *, char *, int);
++int do_upload(struct sftp_conn *, const char *, const char *, int);
+ 
+ /*
+  * Recursively upload 'local_directory' to 'remote_directory'. Preserve 
+  * times if 'pflag' is set
+  */
+-int upload_dir(struct sftp_conn *, char *, char *, int, int);
++int upload_dir(struct sftp_conn *, const char *, const char *, int, int);
+ 
+ /* Concatenate paths, taking care of slashes. Caller must free result. */
+-char *path_append(char *, char *);
++char *path_append(const char *, const char *);
+ 
+ #endif
+diff -up openssh-6.3p1/sftp.c.coverity openssh-6.3p1/sftp.c
+--- openssh-6.3p1/sftp.c.coverity	2013-07-25 03:56:52.000000000 +0200
++++ openssh-6.3p1/sftp.c	2013-10-07 13:49:47.322727449 +0200
+@@ -213,7 +213,7 @@ killchild(int signo)
+ {
+ 	if (sshpid > 1) {
+ 		kill(sshpid, SIGTERM);
+-		waitpid(sshpid, NULL, 0);
++		(void) waitpid(sshpid, NULL, 0);
+ 	}
+ 
+ 	_exit(1);
+@@ -324,7 +324,7 @@ local_do_ls(const char *args)
+ 
+ /* Strip one path (usually the pwd) from the start of another */
+ static char *
+-path_strip(char *path, char *strip)
++path_strip(const char *path, const char *strip)
+ {
+ 	size_t len;
+ 
+@@ -342,7 +342,7 @@ path_strip(char *path, char *strip)
+ }
+ 
+ static char *
+-make_absolute(char *p, char *pwd)
++make_absolute(char *p, const char *pwd)
+ {
+ 	char *abs_str;
+ 
+@@ -493,7 +493,7 @@ parse_df_flags(const char *cmd, char **a
+ }
+ 
+ static int
+-is_dir(char *path)
++is_dir(const char *path)
+ {
+ 	struct stat sb;
+ 
+@@ -505,7 +505,7 @@ is_dir(char *path)
+ }
+ 
+ static int
+-remote_is_dir(struct sftp_conn *conn, char *path)
++remote_is_dir(struct sftp_conn *conn, const char *path)
+ {
+ 	Attrib *a;
+ 
+@@ -519,7 +519,7 @@ remote_is_dir(struct sftp_conn *conn, ch
+ 
+ /* Check whether path returned from glob(..., GLOB_MARK, ...) is a directory */
+ static int
+-pathname_is_dir(char *pathname)
++pathname_is_dir(const char *pathname)
+ {
+ 	size_t l = strlen(pathname);
+ 
+@@ -527,7 +527,7 @@ pathname_is_dir(char *pathname)
+ }
+ 
+ static int
+-process_get(struct sftp_conn *conn, char *src, char *dst, char *pwd,
++process_get(struct sftp_conn *conn, const char *src, const char *dst, const char *pwd,
+     int pflag, int rflag, int resume)
+ {
+ 	char *abs_src = NULL;
+@@ -605,7 +605,7 @@ out:
+ }
+ 
+ static int
+-process_put(struct sftp_conn *conn, char *src, char *dst, char *pwd,
++process_put(struct sftp_conn *conn, const char *src, const char *dst, const char *pwd,
+     int pflag, int rflag)
+ {
+ 	char *tmp_dst = NULL;
+@@ -709,7 +709,7 @@ sdirent_comp(const void *aa, const void
+ 
+ /* sftp ls.1 replacement for directories */
+ static int
+-do_ls_dir(struct sftp_conn *conn, char *path, char *strip_path, int lflag)
++do_ls_dir(struct sftp_conn *conn, const char *path, const char *strip_path, int lflag)
+ {
+ 	int n;
+ 	u_int c = 1, colspace = 0, columns = 1;
+@@ -794,7 +794,7 @@ do_ls_dir(struct sftp_conn *conn, char *
+ 
+ /* sftp ls.1 replacement which handles path globs */
+ static int
+-do_globbed_ls(struct sftp_conn *conn, char *path, char *strip_path,
++do_globbed_ls(struct sftp_conn *conn, const char *path, const char *strip_path,
+     int lflag)
+ {
+ 	char *fname, *lname;
+@@ -875,7 +875,7 @@ do_globbed_ls(struct sftp_conn *conn, ch
+ }
+ 
+ static int
+-do_df(struct sftp_conn *conn, char *path, int hflag, int iflag)
++do_df(struct sftp_conn *conn, const char *path, int hflag, int iflag)
+ {
+ 	struct sftp_statvfs st;
+ 	char s_used[FMT_SCALED_STRSIZE];
+diff -up openssh-6.3p1/ssh-agent.c.coverity openssh-6.3p1/ssh-agent.c
+--- openssh-6.3p1/ssh-agent.c.coverity	2013-07-20 05:22:49.000000000 +0200
++++ openssh-6.3p1/ssh-agent.c	2013-10-07 13:20:36.296298024 +0200
+@@ -1143,8 +1143,8 @@ main(int ac, char **av)
+ 	sanitise_stdfd();
+ 
+ 	/* drop */
+-	setegid(getgid());
+-	setgid(getgid());
++	(void) setegid(getgid());
++	(void) setgid(getgid());
+ 
+ #if defined(HAVE_PRCTL) && defined(PR_SET_DUMPABLE)
+ 	/* Disable ptrace on Linux without sgid bit */
+diff -up openssh-6.3p1/sshd.c.coverity openssh-6.3p1/sshd.c
+--- openssh-6.3p1/sshd.c.coverity	2013-07-20 05:21:53.000000000 +0200
++++ openssh-6.3p1/sshd.c	2013-10-07 13:20:36.296298024 +0200
+@@ -699,8 +699,10 @@ privsep_preauth(Authctxt *authctxt)
+ 		if (getuid() == 0 || geteuid() == 0)
+ 			privsep_preauth_child();
+ 		setproctitle("%s", "[net]");
+-		if (box != NULL)
++		if (box != NULL) {
+ 			ssh_sandbox_child(box);
++			free(box);
++		}
+ 
+ 		return 0;
+ 	}
+@@ -1345,6 +1347,9 @@ server_accept_loop(int *sock_in, int *so
+ 		if (num_listen_socks < 0)
+ 			break;
+ 	}
++
++	if (fdset != NULL)
++		free(fdset);
+ }
+ 
+ 

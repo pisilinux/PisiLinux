@@ -1,0 +1,406 @@
+diff -up openssh-6.3p1/auth-rsa.c.fingerprint openssh-6.3p1/auth-rsa.c
+diff -up openssh-6.3p1/auth.c.fingerprint openssh-6.3p1/auth.c
+--- openssh-6.3p1/auth.c.fingerprint	2013-10-07 14:02:36.998968153 +0200
++++ openssh-6.3p1/auth.c	2013-10-07 15:42:05.243812405 +0200
+@@ -685,9 +685,10 @@ auth_key_is_revoked(Key *key)
+ 	case 1:
+  revoked:
+ 		/* Key revoked */
+-		key_fp = key_fingerprint(key, SSH_FP_MD5, SSH_FP_HEX);
++		key_fp = key_selected_fingerprint(key, SSH_FP_HEX);
+ 		error("WARNING: authentication attempt with a revoked "
+-		    "%s key %s ", key_type(key), key_fp);
++		    "%s key %s%s ", key_type(key),
++		    key_fingerprint_prefix(), key_fp);
+ 		free(key_fp);
+ 		return 1;
+ 	}
+diff -up openssh-6.3p1/auth2-hostbased.c.fingerprint openssh-6.3p1/auth2-hostbased.c
+--- openssh-6.3p1/auth2-hostbased.c.fingerprint	2013-10-07 14:02:36.998968153 +0200
++++ openssh-6.3p1/auth2-hostbased.c	2013-10-07 15:43:49.747355927 +0200
+@@ -200,16 +200,18 @@ hostbased_key_allowed(struct passwd *pw,
+ 
+ 	if (host_status == HOST_OK) {
+ 		if (key_is_cert(key)) {
+-			fp = key_fingerprint(key->cert->signature_key,
+-			    SSH_FP_MD5, SSH_FP_HEX);
++			fp = key_selected_fingerprint(key->cert->signature_key,
++			    SSH_FP_HEX);		
+ 			verbose("Accepted certificate ID \"%s\" signed by "
+-			    "%s CA %s from %s@%s", key->cert->key_id,
+-			    key_type(key->cert->signature_key), fp,
++			    "%s CA %s%s from %s@%s", key->cert->key_id,
++			    key_type(key->cert->signature_key),
++			    key_fingerprint_prefix(), fp,
+ 			    cuser, lookup);
+ 		} else {
+-			fp = key_fingerprint(key, SSH_FP_MD5, SSH_FP_HEX);
+-			verbose("Accepted %s public key %s from %s@%s",
+-			    key_type(key), fp, cuser, lookup);
++			fp = key_selected_fingerprint(key, SSH_FP_HEX);
++			verbose("Accepted %s public key %s%s from %s@%s",
++			    key_type(key), key_fingerprint_prefix(),
++			    fp, cuser, lookup);
+ 		}
+ 		free(fp);
+ 	}
+diff -up openssh-6.3p1/auth2-pubkey.c.fingerprint openssh-6.3p1/auth2-pubkey.c
+--- openssh-6.3p1/auth2-pubkey.c.fingerprint	2013-07-18 08:10:10.000000000 +0200
++++ openssh-6.3p1/auth2-pubkey.c	2013-10-07 15:50:44.617495624 +0200
+@@ -359,10 +359,10 @@ check_authkeys_file(FILE *f, char *file,
+ 				continue;
+ 			if (!key_is_cert_authority)
+ 				continue;
+-			fp = key_fingerprint(found, SSH_FP_MD5,
+-			    SSH_FP_HEX);
+-			debug("matching CA found: file %s, line %lu, %s %s",
+-			    file, linenum, key_type(found), fp);
++			fp = key_selected_fingerprint(found, SSH_FP_HEX);
++			debug("matching CA found: file %s, line %lu, %s %s%s",
++			    file, linenum, key_type(found),
++			    key_fingerprint_prefix(), fp);
+ 			/*
+ 			 * If the user has specified a list of principals as
+ 			 * a key option, then prefer that list to matching
+@@ -400,9 +400,9 @@ check_authkeys_file(FILE *f, char *file,
+ 			if (key_is_cert_authority)
+ 				continue;
+ 			found_key = 1;
+-			fp = key_fingerprint(found, SSH_FP_MD5, SSH_FP_HEX);
+-			debug("matching key found: file %s, line %lu %s %s",
+-			    file, linenum, key_type(found), fp);
++			fp = key_selected_fingerprint(found, SSH_FP_HEX);
++			verbose("Found matching %s key: %s%s",
++			    key_type(found), key_fingerprint_prefix(), fp);
+ 			free(fp);
+ 			break;
+ 		}
+@@ -425,13 +425,13 @@ user_cert_trusted_ca(struct passwd *pw,
+ 	if (!key_is_cert(key) || options.trusted_user_ca_keys == NULL)
+ 		return 0;
+ 
+-	ca_fp = key_fingerprint(key->cert->signature_key,
+-	    SSH_FP_MD5, SSH_FP_HEX);
++	ca_fp = key_selected_fingerprint(key->cert->signature_key, SSH_FP_HEX);
+ 
+ 	if (key_in_file(key->cert->signature_key,
+ 	    options.trusted_user_ca_keys, 1) != 1) {
+-		debug2("%s: CA %s %s is not listed in %s", __func__,
+-		    key_type(key->cert->signature_key), ca_fp,
++		debug2("%s: CA %s%s %s is not listed in %s", __func__,
++		    key_type(key->cert->signature_key),
++		    key_fingerprint_prefix(), ca_fp,
+ 		    options.trusted_user_ca_keys);
+ 		goto out;
+ 	}
+diff -up openssh-6.3p1/key.c.fingerprint openssh-6.3p1/key.c
+--- openssh-6.3p1/key.c.fingerprint	2013-10-07 14:02:36.971968285 +0200
++++ openssh-6.3p1/key.c	2013-10-07 14:02:36.999968148 +0200
+@@ -598,6 +598,34 @@ key_fingerprint(const Key *k, enum fp_ty
+ 	return retval;
+ }
+ 
++enum fp_type
++key_fingerprint_selection(void)
++{
++	static enum fp_type rv;
++	static char rv_defined = 0;
++	char *env;
++
++	if (!rv_defined) {
++		env = getenv("SSH_FINGERPRINT_TYPE");
++		rv = (env && !strcmp (env, "sha")) ?
++			SSH_FP_SHA1 : SSH_FP_MD5;
++		rv_defined = 1;
++	}
++	return rv;
++}
++
++char *
++key_selected_fingerprint(Key *k, enum fp_rep dgst_rep)
++{
++	return key_fingerprint(k, key_fingerprint_selection(), dgst_rep);
++}
++
++char *
++key_fingerprint_prefix(void)
++{
++	return key_fingerprint_selection() == SSH_FP_SHA1 ? "sha1:" : "";
++}
++
+ /*
+  * Reads a multiple-precision integer in decimal from the buffer, and advances
+  * the pointer.  The integer must already be initialized.  This function is
+diff -up openssh-6.3p1/key.h.fingerprint openssh-6.3p1/key.h
+--- openssh-6.3p1/key.h.fingerprint	2013-10-07 14:02:36.999968148 +0200
++++ openssh-6.3p1/key.h	2013-10-07 15:44:17.574233450 +0200
+@@ -97,6 +97,9 @@ int		 key_equal_public(const Key *, cons
+ int		 key_equal(const Key *, const Key *);
+ char		*key_fingerprint(const Key *, enum fp_type, enum fp_rep);
+ u_char		*key_fingerprint_raw(const Key *, enum fp_type, u_int *);
++enum fp_type	 key_fingerprint_selection(void);
++char		*key_selected_fingerprint(Key *, enum fp_rep);
++char		*key_fingerprint_prefix(void);
+ const char	*key_type(const Key *);
+ const char	*key_cert_type(const Key *);
+ int		 key_write(const Key *, FILE *);
+diff -up openssh-6.3p1/ssh-add.c.fingerprint openssh-6.3p1/ssh-add.c
+--- openssh-6.3p1/ssh-add.c.fingerprint	2013-10-07 14:02:37.000968143 +0200
++++ openssh-6.3p1/ssh-add.c	2013-10-07 14:44:57.466515766 +0200
+@@ -326,10 +326,10 @@ list_identities(AuthenticationConnection
+ 		    key = ssh_get_next_identity(ac, &comment, version)) {
+ 			had_identities = 1;
+ 			if (do_fp) {
+-				fp = key_fingerprint(key, SSH_FP_MD5,
+-				    SSH_FP_HEX);
+-				printf("%d %s %s (%s)\n",
+-				    key_size(key), fp, comment, key_type(key));
++				fp = key_selected_fingerprint(key, SSH_FP_HEX);
++				printf("%d %s%s %s (%s)\n",
++				    key_size(key), key_fingerprint_prefix(),
++				    fp, comment, key_type(key));
+ 				free(fp);
+ 			} else {
+ 				if (!key_write(key, stdout))
+diff -up openssh-6.3p1/ssh-agent.c.fingerprint openssh-6.3p1/ssh-agent.c
+--- openssh-6.3p1/ssh-agent.c.fingerprint	2013-10-07 14:02:37.000968143 +0200
++++ openssh-6.3p1/ssh-agent.c	2013-10-07 15:41:11.627044336 +0200
+@@ -198,9 +198,9 @@ confirm_key(Identity *id)
+ 	char *p;
+ 	int ret = -1;
+ 
+-	p = key_fingerprint(id->key, SSH_FP_MD5, SSH_FP_HEX);
+-	if (ask_permission("Allow use of key %s?\nKey fingerprint %s.",
+-	    id->comment, p))
++	p = key_selected_fingerprint(id->key, SSH_FP_HEX);
++	if (ask_permission("Allow use of key %s?\nKey fingerprint %s%s.",
++	    id->comment, key_fingerprint_prefix(), p))
+ 		ret = 0;
+ 	free(p);
+ 
+diff -up openssh-6.3p1/ssh-keygen.c.fingerprint openssh-6.3p1/ssh-keygen.c
+--- openssh-6.3p1/ssh-keygen.c.fingerprint	2013-07-20 05:22:32.000000000 +0200
++++ openssh-6.3p1/ssh-keygen.c	2013-10-07 14:25:52.864145038 +0200
+@@ -767,13 +767,14 @@ do_fingerprint(struct passwd *pw)
+ {
+ 	FILE *f;
+ 	Key *public;
+-	char *comment = NULL, *cp, *ep, line[16*1024], *fp, *ra;
++	char *comment = NULL, *cp, *ep, line[16*1024], *fp, *ra, *pfx;
+ 	int i, skip = 0, num = 0, invalid = 1;
+ 	enum fp_rep rep;
+ 	enum fp_type fptype;
+ 	struct stat st;
+ 
+-	fptype = print_bubblebabble ? SSH_FP_SHA1 : SSH_FP_MD5;
++	fptype = print_bubblebabble ? SSH_FP_SHA1 : key_fingerprint_selection();
++	pfx =	 print_bubblebabble ? "" : key_fingerprint_prefix();
+ 	rep =    print_bubblebabble ? SSH_FP_BUBBLEBABBLE : SSH_FP_HEX;
+ 
+ 	if (!have_identity)
+@@ -785,8 +786,8 @@ do_fingerprint(struct passwd *pw)
+ 	public = key_load_public(identity_file, &comment);
+ 	if (public != NULL) {
+ 		fp = key_fingerprint(public, fptype, rep);
+-		ra = key_fingerprint(public, SSH_FP_MD5, SSH_FP_RANDOMART);
+-		printf("%u %s %s (%s)\n", key_size(public), fp, comment,
++		ra = key_selected_fingerprint(public, SSH_FP_RANDOMART);
++		printf("%u %s%s %s (%s)\n", key_size(public), pfx, fp, comment,
+ 		    key_type(public));
+ 		if (log_level >= SYSLOG_LEVEL_VERBOSE)
+ 			printf("%s\n", ra);
+@@ -851,8 +852,8 @@ do_fingerprint(struct passwd *pw)
+ 		}
+ 		comment = *cp ? cp : comment;
+ 		fp = key_fingerprint(public, fptype, rep);
+-		ra = key_fingerprint(public, SSH_FP_MD5, SSH_FP_RANDOMART);
+-		printf("%u %s %s (%s)\n", key_size(public), fp,
++		ra = key_selected_fingerprint(public, SSH_FP_RANDOMART);
++		printf("%u %s%s %s (%s)\n", key_size(public), pfx, fp,
+ 		    comment ? comment : "no comment", key_type(public));
+ 		if (log_level >= SYSLOG_LEVEL_VERBOSE)
+ 			printf("%s\n", ra);
+@@ -970,13 +971,15 @@ printhost(FILE *f, const char *name, Key
+ 	if (print_fingerprint) {
+ 		enum fp_rep rep;
+ 		enum fp_type fptype;
+-		char *fp, *ra;
++		char *fp, *ra, *pfx;
+ 
+-		fptype = print_bubblebabble ? SSH_FP_SHA1 : SSH_FP_MD5;
++		fptype = print_bubblebabble ? SSH_FP_SHA1 : key_fingerprint_selection();
++		pfx =	 print_bubblebabble ? "" : key_fingerprint_prefix();
+ 		rep =    print_bubblebabble ? SSH_FP_BUBBLEBABBLE : SSH_FP_HEX;
++
+ 		fp = key_fingerprint(public, fptype, rep);
+-		ra = key_fingerprint(public, SSH_FP_MD5, SSH_FP_RANDOMART);
+-		printf("%u %s %s (%s)\n", key_size(public), fp, name,
++		ra = key_selected_fingerprint(public, SSH_FP_RANDOMART);
++		printf("%u %s%s %s (%s)\n", key_size(public), pfx, fp, name,
+ 		    key_type(public));
+ 		if (log_level >= SYSLOG_LEVEL_VERBOSE)
+ 			printf("%s\n", ra);
+@@ -1855,16 +1858,17 @@ do_show_cert(struct passwd *pw)
+ 		fatal("%s is not a certificate", identity_file);
+ 	v00 = key->type == KEY_RSA_CERT_V00 || key->type == KEY_DSA_CERT_V00;
+ 
+-	key_fp = key_fingerprint(key, SSH_FP_MD5, SSH_FP_HEX);
+-	ca_fp = key_fingerprint(key->cert->signature_key,
+-	    SSH_FP_MD5, SSH_FP_HEX);
++	key_fp = key_selected_fingerprint(key, SSH_FP_HEX);
++	ca_fp = key_selected_fingerprint(key->cert->signature_key, SSH_FP_HEX);
+ 
+ 	printf("%s:\n", identity_file);
+ 	printf("        Type: %s %s certificate\n", key_ssh_name(key),
+ 	    key_cert_type(key));
+-	printf("        Public key: %s %s\n", key_type(key), key_fp);
+-	printf("        Signing CA: %s %s\n",
+-	    key_type(key->cert->signature_key), ca_fp);
++	printf("        Public key: %s %s%s\n", key_type(key),
++	    key_fingerprint_prefix(), key_fp);
++	printf("        Signing CA: %s %s%s\n",
++	    key_type(key->cert->signature_key),
++	    key_fingerprint_prefix(), ca_fp);
+ 	printf("        Key ID: \"%s\"\n", key->cert->key_id);
+ 	if (!v00) {
+ 		printf("        Serial: %llu\n",
+@@ -2655,13 +2659,12 @@ passphrase_again:
+ 	fclose(f);
+ 
+ 	if (!quiet) {
+-		char *fp = key_fingerprint(public, SSH_FP_MD5, SSH_FP_HEX);
+-		char *ra = key_fingerprint(public, SSH_FP_MD5,
+-		    SSH_FP_RANDOMART);
++		char *fp = key_selected_fingerprint(public, SSH_FP_HEX);
++		char *ra = key_selected_fingerprint(public, SSH_FP_RANDOMART);
+ 		printf("Your public key has been saved in %s.\n",
+ 		    identity_file);
+ 		printf("The key fingerprint is:\n");
+-		printf("%s %s\n", fp, comment);
++		printf("%s%s %s\n", key_fingerprint_prefix(), fp, comment);
+ 		printf("The key's randomart image is:\n");
+ 		printf("%s\n", ra);
+ 		free(ra);
+diff -up openssh-6.3p1/sshconnect.c.fingerprint openssh-6.3p1/sshconnect.c
+--- openssh-6.3p1/sshconnect.c.fingerprint	2013-06-01 23:31:19.000000000 +0200
++++ openssh-6.3p1/sshconnect.c	2013-10-07 14:43:54.859822036 +0200
+@@ -830,10 +830,10 @@ check_host_key(char *hostname, struct so
+ 				    "key for IP address '%.128s' to the list "
+ 				    "of known hosts.", type, ip);
+ 		} else if (options.visual_host_key) {
+-			fp = key_fingerprint(host_key, SSH_FP_MD5, SSH_FP_HEX);
+-			ra = key_fingerprint(host_key, SSH_FP_MD5,
+-			    SSH_FP_RANDOMART);
+-			logit("Host key fingerprint is %s\n%s\n", fp, ra);
++			fp = key_selected_fingerprint(host_key, SSH_FP_HEX);
++			ra = key_selected_fingerprint(host_key, SSH_FP_RANDOMART);
++			logit("Host key fingerprint is %s%s\n%s\n",
++			    key_fingerprint_prefix(), fp, ra);
+ 			free(ra);
+ 			free(fp);
+ 		}
+@@ -871,9 +871,8 @@ check_host_key(char *hostname, struct so
+ 			else
+ 				snprintf(msg1, sizeof(msg1), ".");
+ 			/* The default */
+-			fp = key_fingerprint(host_key, SSH_FP_MD5, SSH_FP_HEX);
+-			ra = key_fingerprint(host_key, SSH_FP_MD5,
+-			    SSH_FP_RANDOMART);
++			fp = key_selected_fingerprint(host_key, SSH_FP_HEX);
++			ra = key_selected_fingerprint(host_key, SSH_FP_RANDOMART);
+ 			msg2[0] = '\0';
+ 			if (options.verify_host_key_dns) {
+ 				if (matching_host_key_dns)
+@@ -888,10 +887,11 @@ check_host_key(char *hostname, struct so
+ 			snprintf(msg, sizeof(msg),
+ 			    "The authenticity of host '%.200s (%s)' can't be "
+ 			    "established%s\n"
+-			    "%s key fingerprint is %s.%s%s\n%s"
++			    "%s key fingerprint is %s%s.%s%s\n%s"
+ 			    "Are you sure you want to continue connecting "
+ 			    "(yes/no)? ",
+-			    host, ip, msg1, type, fp,
++			    host, ip, msg1, type,
++			    key_fingerprint_prefix(), fp,
+ 			    options.visual_host_key ? "\n" : "",
+ 			    options.visual_host_key ? ra : "",
+ 			    msg2);
+@@ -1136,8 +1136,9 @@ verify_host_key(char *host, struct socka
+ 	int flags = 0;
+ 	char *fp;
+ 
+-	fp = key_fingerprint(host_key, SSH_FP_MD5, SSH_FP_HEX);
+-	debug("Server host key: %s %s", key_type(host_key), fp);
++	fp = key_selected_fingerprint(host_key, SSH_FP_HEX);
++	debug("Server host key: %s %s%s", key_type(host_key),
++	    key_fingerprint_prefix(), fp);
+ 	free(fp);
+ 
+ 	/* XXX certs are not yet supported for DNS */
+@@ -1238,14 +1239,15 @@ show_other_keys(struct hostkeys *hostkey
+ 			continue;
+ 		if (!lookup_key_in_hostkeys_by_type(hostkeys, type[i], &found))
+ 			continue;
+-		fp = key_fingerprint(found->key, SSH_FP_MD5, SSH_FP_HEX);
+-		ra = key_fingerprint(found->key, SSH_FP_MD5, SSH_FP_RANDOMART);
++		fp = key_selected_fingerprint(found->key, SSH_FP_HEX);
++		ra = key_selected_fingerprint(found->key, SSH_FP_RANDOMART);
+ 		logit("WARNING: %s key found for host %s\n"
+ 		    "in %s:%lu\n"
+-		    "%s key fingerprint %s.",
++		    "%s key fingerprint %s%s.",
+ 		    key_type(found->key),
+ 		    found->host, found->file, found->line,
+-		    key_type(found->key), fp);
++		    key_type(found->key),
++		    key_fingerprint_prefix(), fp);
+ 		if (options.visual_host_key)
+ 			logit("%s", ra);
+ 		free(ra);
+@@ -1260,7 +1262,7 @@ warn_changed_key(Key *host_key)
+ {
+ 	char *fp;
+ 
+-	fp = key_fingerprint(host_key, SSH_FP_MD5, SSH_FP_HEX);
++	fp = key_selected_fingerprint(host_key, SSH_FP_HEX);
+ 
+ 	error("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+ 	error("@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @");
+@@ -1268,8 +1270,8 @@ warn_changed_key(Key *host_key)
+ 	error("IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!");
+ 	error("Someone could be eavesdropping on you right now (man-in-the-middle attack)!");
+ 	error("It is also possible that a host key has just been changed.");
+-	error("The fingerprint for the %s key sent by the remote host is\n%s.",
+-	    key_type(host_key), fp);
++	error("The fingerprint for the %s key sent by the remote host is\n%s%s.",
++	    key_type(host_key),key_fingerprint_prefix(),  fp);
+ 	error("Please contact your system administrator.");
+ 
+ 	free(fp);
+diff -up openssh-6.3p1/sshconnect2.c.fingerprint openssh-6.3p1/sshconnect2.c
+--- openssh-6.3p1/sshconnect2.c.fingerprint	2013-10-07 14:02:37.001968139 +0200
++++ openssh-6.3p1/sshconnect2.c	2013-10-07 15:20:09.403234714 +0200
+@@ -590,8 +590,9 @@ input_userauth_pk_ok(int type, u_int32_t
+ 		    key->type, pktype);
+ 		goto done;
+ 	}
+-	fp = key_fingerprint(key, SSH_FP_MD5, SSH_FP_HEX);
+-	debug2("input_userauth_pk_ok: fp %s", fp);
++	fp = key_selected_fingerprint(key, SSH_FP_HEX);
++	debug2("input_userauth_pk_ok: fp %s%s",
++	    key_fingerprint_prefix(), fp);
+ 	free(fp);
+ 
+ 	/*
+@@ -1202,8 +1203,9 @@ sign_and_send_pubkey(Authctxt *authctxt,
+ 	int have_sig = 1;
+ 	char *fp;
+ 
+-	fp = key_fingerprint(id->key, SSH_FP_MD5, SSH_FP_HEX);
+-	debug3("sign_and_send_pubkey: %s %s", key_type(id->key), fp);
++	fp = key_selected_fingerprint(id->key, SSH_FP_HEX);
++	debug3("sign_and_send_pubkey: %s %s%s", key_type(id->key),
++	    key_fingerprint_prefix(), fp);
+ 	free(fp);
+ 
+ 	if (key_to_blob(id->key, &blob, &bloblen) == 0) {
