@@ -45,13 +45,14 @@ def setup():
                         -Duse_system_libxml=1 \
                         -Duse_system_libwebp=0 \
                         -Duse_system_speex=1 \
+                        -Duse_system_harfbuzz=1 \
                         -Duse_system_zlib=0 \
                         -Duse_system_flac=1 \
                         -Duse_system_vpx=0 \
                         -Duse_system_xdg_utils=1 \
                         -Duse_system_yasm=1 \
                         -Duse_system_ssl=0 \
-                        -Duse_system_icu=0 \
+                        -Duse_system_icu=1 \
                         -Ddisable_sse2=1 \
                         -Ddisable_nacl=1 \
                         -Dtarget_arch=%s" % ARCH)
@@ -68,15 +69,14 @@ def install():
     pisitools.insinto("/usr/lib/chromium-browser", "resources.pak")
     pisitools.insinto("/usr/lib/chromium-browser", "chrome_100_percent.pak")
     pisitools.insinto("/usr/lib/chromium-browser", "content_resources.pak")
-    #pisitools.insinto("/usr/lib/chromium-browser", "chrome_remote_desktop.pak")
     pisitools.insinto("/usr/lib/chromium-browser", "chrome", "chromium-browser")
-    pisitools.insinto("/usr/lib/chromium-browser", "chrome_sandbox", "chromium-sandbox")
+    pisitools.insinto("/usr/lib/chromium-browser", "chrome_sandbox", "chrome-sandbox")
     
     # We need to set SUID otherwise it will not run
-    shelltools.chmod("%s/usr/lib/chromium-browser/chromium-sandbox" % get.installDIR(), 04755)
+    shelltools.chmod("%s/usr/lib/chromium-browser/chrome-sandbox" % get.installDIR(), 04755)
 
     pisitools.insinto("/usr/lib/chromium-browser", "locales")
-    pisitools.insinto("/usr/lib/chromium-browser", "resources")
+    #pisitools.insinto("/usr/lib/chromium-browser", "resources")
 
     # Internal ffmpeg libraries
     pisitools.insinto("/usr/lib/chromium-browser", "libffmpegsumo.so")
@@ -86,15 +86,8 @@ def install():
 
     pisitools.newman("chrome.1", "chromium-browser.1")
 
-    # Chromium looks for these in its folder
-    # See media_posix.cc and base_paths_linux.cc
-    #for lib in ["libavcodec.so.52" , "libavformat.so.52", "libavutil.so.50"]:
-    #    shelltools.sym("/usr/lib/%s" % lib, "%s/usr/lib/chromium-browser/%s" % (get.installDIR(), lib))
-
-
     shelltools.cd("../..")
     for size in ["22", "24", "48", "64", "128", "256"]:
         pisitools.insinto("/usr/share/icons/hicolor/%sx%s/apps" %(size, size), "chrome/app/theme/chromium/product_logo_%s.png" % size, "chromium-browser.png")
 
     pisitools.dosym("/usr/share/icons/hicolor/256x256/apps/chromium-browser.png", "/usr/share/pixmaps/chromium-browser.png")
-
