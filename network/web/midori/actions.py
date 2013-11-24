@@ -6,25 +6,28 @@
 from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 
-shelltools.export("JOBS", get.makeJOBS().replace("-j", ""))
 shelltools.export("LC_ALL", "C")
 
 def setup():
-    autotools.rawConfigure("--prefix=/usr \
-                            --enable-nls \
-                            --update-po \
-                            --enable-docs \
-                            --enable-apidocs  \
-                            --enable-unique \
-                            --disable-gtk3 \
-                            --enable-addons")
+    autotools.rawConfigure("--prefix=/usr")
+    cmaketools.configure("\
+                          -DUSE_GTK3=OFF \
+                          -DUSE_APIDOCS=ON \
+                          -DUSE_GRANITE=ON \
+                          -DUSE_ZEITGEIST=ON \
+                          -DCMAKE_SKIP_RPATH=ON \
+                          -DCMAKE_SKIP_INSTALL_RPATH=ON \
+                         ")
+    pisitools.dosed("CMakeCache.txt", "lib64", "lib")
+    pisitools.dosed(".", "lib64", "lib", filePattern="cmake_install.cmake")
 
 def build():
-    shelltools.system("make")
+    cmaketools.make()
+
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.removeDir("/usr/share/gir-1.0")
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
