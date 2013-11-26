@@ -6,6 +6,7 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
     pisitools.dosed("src/input/cdio_paranoia_input_plugin.c", "cdio/paranoia.h", "cdio/paranoia/paranoia.h")
@@ -20,7 +21,7 @@ def setup():
                          --with-zeroconf=avahi \
                          --enable-shout \
                          --enable-sndfile \
-                         --enable-lastfm \
+                         --disable-mpc \
                          --enable-bzip2 \
                          --enable-iso9660 \
                          --disable-systemd-daemon \
