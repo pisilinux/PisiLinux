@@ -12,6 +12,10 @@ from pisi.actionsapi import get
 
 
 def setup():
+    #transcode-1.1.7-ffmpeg-0.10.patch
+    pisitools.dosed("filter/filter_pp.c", "pp_mode_t", "pp_mode")
+    pisitools.dosed("filter/filter_pp.c", "pp_context_t", "pp_context")
+    
     autotools.autoreconf("-vfi")
     libtools.libtoolize("--copy --force")
 
@@ -59,4 +63,3 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "README", "TODO")
-
