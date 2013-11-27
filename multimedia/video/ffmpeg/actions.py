@@ -32,7 +32,6 @@ def setup():
                             --enable-libschroedinger \
                             --enable-librtmp \
                             --enable-libspeex \
-                            --enable-libfreetype \
                             --enable-libnut \
                             --enable-libgsm \
                             --enable-libcelt \
