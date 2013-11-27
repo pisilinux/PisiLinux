@@ -16,7 +16,6 @@ def setup():
     autotools.configure("--enable-ipv6 \
                          --with-ssl \
                          --with-smi \
-                         --enable-ipv6 \
                          --disable-smb \
                          --mandir=/usr/share/man")
 
@@ -27,4 +26,4 @@ def install():
     pisitools.dosbin("tcpdump")
 
     pisitools.doman("tcpdump.1")
-    pisitools.dodoc("CHANGES", "LICENSE", "README", "CREDITS", "*.awk")
+    pisitools.dodoc("CHANGES", "LICENSE", "CREDITS", "*.awk")
