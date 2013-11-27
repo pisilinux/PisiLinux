@@ -19,6 +19,7 @@ def setup():
     shelltools.cd("cmake-make") 
     shelltools.system("cmake ../blender-2.69 \
                       -DCMAKE_INSTALL_PREFIX=/usr \
+                      -DFREETYPE_INCLUDE_DIRS=/usr/include/freetype2 \
                       -DCMAKE_BUILD_TYPE=Release \
                       -DCMAKE_SKIP_RPATH=ON \
                       -DWITH_JACK=ON \
