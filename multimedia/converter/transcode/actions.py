@@ -15,6 +15,7 @@ def setup():
     #transcode-1.1.7-ffmpeg-0.10.patch
     pisitools.dosed("filter/filter_pp.c", "pp_mode_t", "pp_mode")
     pisitools.dosed("filter/filter_pp.c", "pp_context_t", "pp_context")
+    pisitools.dosed("filter/subtitler/load_font.c", "freetype/ftglyph.h", "freetype2/freetype/ftglyph.h")
     
     autotools.autoreconf("-vfi")
     libtools.libtoolize("--copy --force")
