@@ -9,9 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-NoStrip=["/usr/share"]
-
 def setup():
     kde4.configure()
 
@@ -20,5 +17,10 @@ def build():
 
 def install():
     kde4.install()
+    
+    #subversion confilicts
+    pisitools.remove("/usr/bin/svnrevertlast")
+    pisitools.remove("/usr/bin/svnlastchange")
+    pisitools.remove("/usr/bin/svnlastlog")
     
     pisitools.dodoc("COPYING*", "README")
