@@ -9,10 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 from pisi.actionsapi import kde4
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    kde4.configure("-DWITH_MP4V2=ON -DWITH_CHROMAPRINT:BOOL=ON")
+    kde4.configure("-DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release")
 
 def build():
     kde4.make()
