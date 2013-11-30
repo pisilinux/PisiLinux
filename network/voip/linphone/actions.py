@@ -6,32 +6,20 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("CFLAGS", get.CFLAGS().replace("-D_FORTIFY_SOURCE=2", ""))
-
 def setup():
-    shelltools.system("./autogen.sh")
-    autotools.autoreconf("-vfi")
-    shelltools.cd("mediastreamer2")
-    autotools.autoreconf("-vfi")
-    shelltools.cd("..")
-    autotools.rawConfigure("--enable-shared \
-                            --disable-static \
-                            --disable-strict \
-                            --enable-external-ortp \
-                            --enable-nonstandard-gsm \
-                            --enable-rsvp \
-                            --enable-ssl \
-                            --enable-portaudio \
-                            --enable-video \
-                            --enable-ipv6 \
-                            --enable-alsa \
-                            --disable-tests \
-                            --disable-rpath \
-                            --libdir=/usr/lib \
-                            --prefix=/usr")
+    autotools.configure("--prefix=/usr \
+                         --disable-static \
+                         --enable-ipv6 \
+                         --enable-video \
+                         --enable-alsa \
+                         --disable-artsc \
+                         --disable-strict \
+                         --libexecdir=/usr/lib/linphone \
+                         --enable-external-mediastreamer \
+                         --enable-external-ortp \
+                         --enable-zrtp")
 
 def build():
     autotools.make()
