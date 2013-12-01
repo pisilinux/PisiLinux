@@ -29,6 +29,7 @@ def setup():
     pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
     pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")
     pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.h$")
+    # Write xulrunner version correctly including the minor part
     # LOCALE
     shelltools.system("rm -rf langpack-ff/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
