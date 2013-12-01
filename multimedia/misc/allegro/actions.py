@@ -9,9 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    # fix docdir
-    pisitools.dosed("docs/CMakeLists.txt", "allegro-\${ALLEGRO_VERSION}", get.srcNAME())
-
     cmaketools.configure("-DDOCDIR=share/doc \
                           -DINFODIR=share/info \
                           -DMANDIR=share/man \

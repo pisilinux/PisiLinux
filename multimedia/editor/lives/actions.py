@@ -21,6 +21,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
     pisitools.dodoc("COPYING")
     pisitools.remove("/usr/bin/lives")
     pisitools.dosym("/usr/bin/lives-exe", "/usr/bin/lives")
