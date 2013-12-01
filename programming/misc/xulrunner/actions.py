@@ -19,9 +19,9 @@ ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else 
 
 def setup():
     # Fix build with new freetype
-pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
-pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")
-pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.h$")
+    pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
+    pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")
+    pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.h$")
     # Write xulrunner version correctly including the minor part
     for f in ("xulrunner/installer/Makefile.in", ".mozconfig", "20-xulrunner.conf"):
         pisitools.dosed(f, "PSPEC_VERSION", XulVersion)
