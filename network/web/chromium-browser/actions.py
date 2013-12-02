@@ -76,7 +76,7 @@ def install():
     shelltools.chmod("%s/usr/lib/chromium-browser/chrome-sandbox" % get.installDIR(), 04755)
 
     pisitools.insinto("/usr/lib/chromium-browser", "locales")
-    #pisitools.insinto("/usr/lib/chromium-browser", "resources")
+    pisitools.insinto("/usr/lib/chromium-browser", "resources")
 
     # Internal ffmpeg libraries
     pisitools.insinto("/usr/lib/chromium-browser", "libffmpegsumo.so")
