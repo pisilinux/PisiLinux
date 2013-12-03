@@ -7,10 +7,10 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.configure("--disable-static \
-                         --disable-debug")
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()
@@ -19,4 +19,5 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "HISTORY", "README", "NEWS", "THANKS")
+    
     pisitools.dohtml("doc/*")
