@@ -10,7 +10,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.configure("--disable-static")
+    autotools.autoreconf("-fiv")
+    autotools.configure("--disable-static --with-pic --enable-debug=no")
 
 def build():
     autotools.make()
