@@ -12,10 +12,13 @@ def setup():
     pisitools.dosed("yali/constants.py", "@REPO_URI@", repo_uri)
     pisitools.dosed("yali/constants.py", "@REPO_NAME@", "pisi") # FIXME
 
-    pisitools.dosed("conf/yali.conf", "@INSTALL_TYPE@", "system")
+    pisitools.dosed("conf/yali.conf", "@INSTALL_TYPE@", "default")
 
 def build():
     pythonmodules.compile()
 
 def install():
     pythonmodules.install()
+    
+    pisitools.domove("/usr/share/applications/yali.desktop", "/usr/share/display-managers/")
+    pisitools.removeDir("usr/share/applications")
