@@ -8,6 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
+    pisitools.dosed("configure", "(HAVE_SYSTEM_WEED=)true", r"\1false")
     # fix sandbox violation
     pisitools.dosed("libweed/Makefile.in", "^(\srm -f )\/usr\/lib(\/libweed.*)", r"\1libweed\2")
     # fix doc dir
