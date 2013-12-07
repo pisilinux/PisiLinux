@@ -9,8 +9,6 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
     perlmodules.configure()
     pisitools.dosed("Makefile", "^OTHERLDFLAGS.*$", "OTHERLDFLAGS = %s" % get.LDFLAGS())
@@ -25,5 +23,5 @@ def install():
     perlmodules.install()
 
     pisitools.insinto("/usr/share/doc/%s/" % get.srcNAME(), "examples/")
-    pisitools.dodoc("AUTHORS", "ChangeLog", "LICENSE", "NEWS", "README", "TODO")
+    pisitools.dodoc("AUTHORS", "ChangeLog*", "LICENSE", "NEWS", "README", "TODO")
 
