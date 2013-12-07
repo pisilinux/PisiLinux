@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 WorkDir = "pygobject-%s" % get.srcVERSION()
 
 def setup():
-    autotools.autoreconf("-fi")
+    #autotools.autoreconf("-fi")
     autotools.configure("--disable-introspection")
 
 def build():
