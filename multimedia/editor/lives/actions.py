@@ -8,10 +8,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.dosed("configure.in", "(HAVE_SYSTEM_WEED=)true", r"\1false")
-    pisitools.dosed("configure.in", "(HAVE_SYSTEM_WEED_SLICE=)true", r"\1false")
+    pisitools.dosed("configure.ac", "(HAVE_SYSTEM_WEED=)true", r"\1false")
+    pisitools.dosed("configure.ac", "(HAVE_SYSTEM_WEED_SLICE=)true", r"\1false")
     
-    pisitools.dosed('Makefile.in', '^(docdir.*PACKAGE\)).*', r'\1"')
+    pisitools.dosed('Makefile.in',  '^(docdir.*PACKAGE\)).*', r'\1"')
     autotools.configure("--disable-static \
                          --disable-rpath")
 
