@@ -9,5 +9,5 @@ from pisi.actionsapi import pisitools
 
 def install():
     pythonmodules.install()
-    pisitools.dodoc("COPYING", "PKG-INFO")
+    pisitools.dodoc("LICENSE", "PKG-INFO","README.*")
 
