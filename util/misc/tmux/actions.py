@@ -25,4 +25,4 @@ def install():
     # Bash completion
     pisitools.domove("/usr/share/doc/tmux/examples/bash_completion_tmux.sh", "/etc/bash_completion.d", "tmux")
 
-    pisitools.dodoc("CHANGES", "FAQ", "NOTES")
+    pisitools.dodoc("CHANGES", "FAQ")
