@@ -9,11 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "pygobject-%s" % get.srcVERSION()
-
 def setup():
-    autotools.autoreconf("-fi")
-    autotools.configure("--disable-introspection")
+    pisitools.dosed("configure", "-Werror=format", "#-Werror=format")
+    autotools.configure()
 
 def build():
     autotools.make()
