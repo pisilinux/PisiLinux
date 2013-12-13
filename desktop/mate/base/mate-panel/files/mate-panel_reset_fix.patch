@@ -1,0 +1,143 @@
+From 1cfee5fd5836c47761b874c351c1c90f3114c15d Mon Sep 17 00:00:00 2001
+From: Stefano Karapetsas <stefano@karapetsas.com>
+Date: Sun, 14 Jul 2013 20:15:56 +0000
+Subject: Fix mate-panel --reset
+
+---
+diff --git a/mate-panel/libpanel-util/panel-dconf.c b/mate-panel/libpanel-util/panel-dconf.c
+index a103bcf..26ca092 100644
+--- a/mate-panel/libpanel-util/panel-dconf.c
++++ b/mate-panel/libpanel-util/panel-dconf.c
+@@ -111,3 +111,12 @@ panel_dconf_list_subdirs (const gchar *dir,
+ 
+         return (gchar **) g_array_free (array, FALSE);
+ }
++
++void panel_dconf_sync ()
++{
++#ifdef HAVE_DCONF_0_13
++        DConfClient  *client = panel_dconf_client_get ();
++        dconf_client_sync (client);
++        g_object_unref (client);
++#endif
++}
+diff --git a/mate-panel/libpanel-util/panel-dconf.h b/mate-panel/libpanel-util/panel-dconf.h
+index 1683ec0..ba1abfd 100644
+--- a/mate-panel/libpanel-util/panel-dconf.h
++++ b/mate-panel/libpanel-util/panel-dconf.h
+@@ -39,6 +39,8 @@ gboolean panel_dconf_recursive_reset (const gchar  *dir,
+ gchar **panel_dconf_list_subdirs (const gchar *dir,
+                                   gboolean     remove_trailing_slash);
+ 
++void panel_dconf_sync ();
++
+ G_END_DECLS
+ 
+ #endif /* __PANEL_DCONF_H__ */
+diff --git a/mate-panel/panel-layout.c b/mate-panel/panel-layout.c
+index 4732420..9ad4026 100644
+--- a/mate-panel/panel-layout.c
++++ b/mate-panel/panel-layout.c
+@@ -122,6 +122,7 @@ panel_layout_append_group_helper (GKeyFile                  *keyfile,
+     char       *unique_id = NULL;
+     char       *path = NULL;
+     GSettings  *settings = NULL;
++    GSettings  *panel_settings = NULL;
+     char      **keyfile_keys = NULL;
+     char       *value_str;
+     int         value_int;
+@@ -184,6 +185,8 @@ panel_layout_append_group_helper (GKeyFile                  *keyfile,
+     g_free (path);
+ 
+     keyfile_keys = g_key_file_get_keys (keyfile, group, NULL, NULL);
++    panel_settings = g_settings_new (PANEL_SCHEMA);
++    g_settings_delay (panel_settings);
+ 
+     if (keyfile_keys) {
+ 
+@@ -247,12 +250,9 @@ panel_layout_append_group_helper (GKeyFile                  *keyfile,
+                                 PANEL_TOPLEVEL_SCREEN_KEY,
+                                 set_screen_to);
+ 
+-        GSettings *panel_settings;
+-        panel_settings = g_settings_new (PANEL_SCHEMA);
+         panel_gsettings_append_strv (panel_settings,
+                                      id_list_key,
+                                      unique_id);
+-        g_object_unref (panel_settings);
+ 
+         retval = TRUE;
+     }
+@@ -263,6 +263,11 @@ panel_layout_append_group_helper (GKeyFile                  *keyfile,
+     if (settings)
+         g_object_unref (settings);
+ 
++    if (panel_settings) {
++        g_settings_apply (panel_settings);
++        g_object_unref (panel_settings);
++    }
++
+     if (unique_id)
+         g_free (unique_id);
+ 
+diff --git a/mate-panel/panel-profile.c b/mate-panel/panel-profile.c
+index 57e11d0..37a2433 100644
+--- a/mate-panel/panel-profile.c
++++ b/mate-panel/panel-profile.c
+@@ -1601,7 +1601,7 @@ panel_profile_load_list (GSettings              *settings,
+ 	g_free (key);
+ }
+ 
+-static void
++void
+ panel_profile_ensure_toplevel_per_screen ()
+ {
+ 	GSList     *toplevels;
+diff --git a/mate-panel/panel-profile.h b/mate-panel/panel-profile.h
+index 665e237..162d84c 100644
+--- a/mate-panel/panel-profile.h
++++ b/mate-panel/panel-profile.h
+@@ -154,6 +154,8 @@ gboolean    panel_profile_can_be_moved_freely         (PanelToplevel *toplevel);
+ 
+ GSettings*  panel_profile_get_attached_object_settings (PanelToplevel *toplevel);
+ 
++void        panel_profile_ensure_toplevel_per_screen  ();
++
+ G_END_DECLS
+ 
+ #endif /* __PANEL_PROFILE_H__ */
+diff --git a/mate-panel/panel-reset.c b/mate-panel/panel-reset.c
+index e441f55..6307ba2 100644
+--- a/mate-panel/panel-reset.c
++++ b/mate-panel/panel-reset.c
+@@ -28,19 +28,24 @@
+ 
+ #include <stdlib.h>
+ #include <glib.h>
++#include <gio/gio.h>
+ #include "panel-reset.h"
+ #include "panel-schemas.h"
++#include "panel-profile.h"
+ #include <libpanel-util/panel-dconf.h>
+ 
+ void
+ panel_reset()
+ {
++	/* reset configuration */
+ 	panel_dconf_recursive_reset (PANEL_GENERAL_PATH, NULL);
+ 	panel_dconf_recursive_reset (PANEL_TOPLEVEL_PATH, NULL);
+ 	panel_dconf_recursive_reset (PANEL_OBJECT_PATH, NULL);
++	panel_dconf_sync ();
+ 
+-	/* TODO: send a dbus message to mate-panel, if active, to reload the panel
+-	 * configuration */
++	/* create default panels */
++	panel_profile_ensure_toplevel_per_screen ();
++	g_settings_sync ();
+ }
+ 
+ #endif /* !__PANEL_RESET_C__ */
+--
+cgit 
+
+
