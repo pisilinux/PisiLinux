@@ -1,142 +1,126 @@
-diff -Naur old/Makefile new/Makefile
---- old/Makefile	2011-10-23 03:56:55.000000000 +1100
-+++ new/Makefile	2013-03-18 23:40:48.561529595 +1100
-@@ -15,21 +15,9 @@
- 
- ifneq ($(KERNELRELEASE),)
- 
--  LINUXVER_GOODFOR_CFG80211:=$(strip $(shell \
--    if [ "$(VERSION)" -ge "2" -a "$(PATCHLEVEL)" -ge "6" -a "$(SUBLEVEL)" -ge "32" ]; then \
--      echo TRUE; \
--    else \
--      echo FALSE; \
--    fi \
--  ))
-+  LINUXVER_GOODFOR_CFG80211:=TRUE
- 
--    LINUXVER_WEXT_ONLY:=$(strip $(shell \
--    if [ "$(VERSION)" -ge "2" -a "$(PATCHLEVEL)" -ge "6" -a "$(SUBLEVEL)" -ge "17" ]; then \
--      echo FALSE; \
--    else \
--      echo TRUE; \
--    fi \
--  ))
-+  LINUXVER_WEXT_ONLY:=FALSE
- 
-   ifneq ($(API),)
-     ifeq ($(API), CFG80211)
-diff -Naur old/src/wl/sys/wl_cfg80211.c new/src/wl/sys/wl_cfg80211.c
---- old/src/wl/sys/wl_cfg80211.c	2011-10-23 03:56:55.000000000 +1100
-+++ new/src/wl/sys/wl_cfg80211.c	2013-03-18 23:54:16.904968829 +1100
-@@ -42,7 +42,7 @@
-            enum nl80211_iftype type, u32 *flags, struct vif_params *params);
- static s32 __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
-            struct cfg80211_scan_request *request, struct cfg80211_ssid *this_ssid);
--static s32 wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
-+static s32 wl_cfg80211_scan(struct wiphy *wiphy,
-            struct cfg80211_scan_request *request);
- static s32 wl_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed);
- static s32 wl_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *dev,
-@@ -56,15 +56,10 @@
-            struct cfg80211_connect_params *sme);
- static s32 wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev, u16 reason_code);
- 
--#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
--static s32 wl_cfg80211_set_tx_power(struct wiphy *wiphy,
--           enum nl80211_tx_power_setting type, s32 dbm);
--#else
--static s32 wl_cfg80211_set_tx_power(struct wiphy *wiphy,
--           enum tx_power_setting type, s32 dbm);
--#endif
--
--static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy, s32 *dbm);
-+static s32 wl_cfg80211_set_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
-+                                    enum nl80211_tx_power_setting type, s32 dbm);
-+static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
-+                                    s32 *dbm);
- 
- #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 38)
- static s32 wl_cfg80211_config_default_key(struct wiphy *wiphy,
-@@ -570,10 +565,12 @@
+--- a/src/wl/sys/wl_linux.c	2013-08-01 08:52:22.000000000 +0200
++++ b/src/wl/sys/wl_linux.c	2013-09-13 14:25:36.463020788 +0200
+@@ -910,7 +910,11 @@
+ 	pci_set_drvdata(pdev, NULL);
  }
  
- static s32
--wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
-+wl_cfg80211_scan(struct wiphy *wiphy,
-                  struct cfg80211_scan_request *request)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)
+ static struct pci_driver wl_pci_driver = {
++#else
++static struct pci_driver wl_pci_driver __refdata = {
++#endif
+ 	name:		"wl",
+ 	probe:		wl_pci_probe,
+ 	suspend:	wl_suspend,
+@@ -3235,7 +3239,7 @@
+ void
+ wl_tkip_printstats(wl_info_t *wl, bool group_key)
  {
- 	s32 err = 0;
-+	struct wl_priv *wl = wiphy_to_wl(wiphy);
-+	struct net_device *ndev = wl_to_ndev(wl);
- 
- 	CHECK_SYS_UP();
- 	err = __wl_cfg80211_scan(wiphy, ndev, request, NULL);
-@@ -742,7 +739,7 @@
- 	else
- 		memset(&join_params.params.bssid, 0, ETHER_ADDR_LEN);
- 
--	wl_ch_to_chanspec(params->channel, &join_params, &join_params_size);
-+	wl_ch_to_chanspec(params->chandef.chan, &join_params, &join_params_size);
- 
- 	err = wl_dev_ioctl(dev, WLC_SET_SSID, &join_params, join_params_size);
- 	if (err) {
-@@ -1099,16 +1096,9 @@
- 	return err;
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 14)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 14) && LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
+ 	char debug_buf[512];
+ 	int idx;
+ 	if (wl->tkipmodops) {
+@@ -3408,6 +3412,7 @@
+ 	return 0;
  }
  
--#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
--static s32
--wl_cfg80211_set_tx_power(struct wiphy *wiphy, enum nl80211_tx_power_setting type, s32 dbm)
--#else
--#define NL80211_TX_POWER_AUTOMATIC TX_POWER_AUTOMATIC
--#define NL80211_TX_POWER_LIMITED TX_POWER_LIMITED
--#define NL80211_TX_POWER_FIXED TX_POWER_FIXED
- static s32
--wl_cfg80211_set_tx_power(struct wiphy *wiphy, enum tx_power_setting type, s32 dbm)
--#endif
-+wl_cfg80211_set_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
-+                         enum nl80211_tx_power_setting type, s32 dbm)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
+ static int
+ wl_proc_read(char *buffer, char **start, off_t offset, int length, int *eof, void *data)
  {
- 
- 	struct wl_priv *wl = wiphy_to_wl(wiphy);
-@@ -1158,7 +1148,8 @@
- 	return err;
+@@ -3462,19 +3467,90 @@
+ 	return length;
  }
  
--static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy, s32 *dbm)
-+static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy, struct wireless_dev *wdev,
-+                                    s32 *dbm)
++#else
++
++static int
++wl_proc_read(struct seq_file *seq, void *offset)
++{
++	wl_info_t * wl = (wl_info_t *)seq->private;
++	int bcmerror, to_user;
++
++	WL_LOCK(wl);
++	bcmerror = wlc_ioctl(wl->wlc, WLC_GET_MONITOR, &to_user, sizeof(int), NULL);
++	WL_UNLOCK(wl);
++
++	seq_printf(seq, "%d\n", to_user);
++	return bcmerror;
++}
++
++static ssize_t wl_proc_write(struct file *file, const char __user *buff,
++			     size_t length, loff_t *ppos)
++{
++	struct seq_file *seq = file->private_data;
++	wl_info_t * wl = (wl_info_t *)seq->private;
++	int bcmerror, from_user = 0;
++
++	if (length != 1) {
++		WL_ERROR(("%s: Invalid data length\n", __FUNCTION__));
++		return -EIO;
++	}
++
++	if (copy_from_user(&from_user, buff, 1)) {
++		WL_ERROR(("%s: copy from user failed\n", __FUNCTION__));
++		return -EFAULT;
++	}
++
++	if (from_user >= 0x30)
++		from_user -= 0x30;
++
++	WL_LOCK(wl);
++	bcmerror = wlc_ioctl(wl->wlc, WLC_SET_MONITOR, &from_user, sizeof(int), NULL);
++	WL_UNLOCK(wl);
++
++	if (bcmerror < 0) {
++		WL_ERROR(("%s: SET_MONITOR failed with %d\n", __FUNCTION__, bcmerror));
++		return -EIO;
++	}
++	*ppos += length;
++	return length;
++}
++
++static int wl_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, wl_proc_read, PDE_DATA(inode));
++}
++
++static const struct file_operations wl_proc_fops = {
++	.owner = THIS_MODULE,
++	.open = wl_proc_open,
++	.read = seq_read,
++	.write = wl_proc_write,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++#endif
++
+ static int
+ wl_reg_proc_entry(wl_info_t *wl)
  {
- 	struct wl_priv *wl = wiphy_to_wl(wiphy);
- 	struct net_device *ndev = wl_to_ndev(wl);
-@@ -2036,6 +2027,7 @@
- 
- static s32 wl_update_bss_info(struct wl_priv *wl)
- {
-+	struct cfg80211_bss_ies *ies;
- 	struct cfg80211_bss *bss;
- 	struct wl_bss_info *bi;
- 	struct wlc_ssid *ssid;
-@@ -2074,8 +2066,9 @@
- 		beacon_interval = cpu_to_le16(bi->beacon_period);
- 	} else {
- 		WL_DBG(("Found the AP in the list - BSSID %pM\n", bss->bssid));
--		ie = bss->information_elements;
--		ie_len = bss->len_information_elements;
-+		ies = (struct cfg80211_bss_ies *)rcu_dereference(bss->ies);
-+		ie = ies->data;
-+		ie_len = ies->len;
- 		beacon_interval = bss->beacon_interval;
- 		cfg80211_put_bss(bss);
+ 	char tmp[32];
+ 	sprintf(tmp, "%s%d", HYBRID_PROC, wl->pub->unit);
+-	if ((wl->proc_entry = create_proc_entry(tmp, 0644, NULL)) == NULL) {
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
++	wl->proc_entry = create_proc_entry(tmp, 0644, NULL);
++	if (wl->proc_entry) {
++		wl->proc_entry->read_proc = wl_proc_read;
++		wl->proc_entry->write_proc = wl_proc_write;
++		wl->proc_entry->data = wl;
++	} 
++#else
++	wl->proc_entry = proc_create_data(tmp, 0644, NULL, &wl_proc_fops, wl);
++#endif
++	if (!wl->proc_entry) {
+ 		WL_ERROR(("%s: create_proc_entry %s failed\n", __FUNCTION__, tmp));
+ 		ASSERT(0);
+ 		return -1;
  	}
-diff -Naur old/src/wl/sys/wl_iw.h new/src/wl/sys/wl_iw.h
---- old/src/wl/sys/wl_iw.h	2011-10-23 03:56:55.000000000 +1100
-+++ new/src/wl/sys/wl_iw.h	2013-03-18 23:40:48.561529595 +1100
-@@ -15,6 +15,7 @@
- #ifndef _wl_iw_h_
- #define _wl_iw_h_
- 
-+#include <linux/semaphore.h>
- #include <linux/wireless.h>
- 
- #include <typedefs.h>
+-	wl->proc_entry->read_proc = wl_proc_read;
+-	wl->proc_entry->write_proc = wl_proc_write;
+-	wl->proc_entry->data = wl;
+ 	return 0;
+ }
+ #ifdef WLOFFLD

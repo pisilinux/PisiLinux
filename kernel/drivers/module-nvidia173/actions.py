@@ -20,7 +20,7 @@ libdir = "/usr/lib/%s" % driver
 datadir = "/usr/share/%s" % driver
 
 def setup():
-    shelltools.system("sh NVIDIA-Linux-%s-%s-pkg0.run -x --target tmp" % (arch, version))
+    shelltools.system("sh NVIDIA-Linux-%s-%s-pkg2.run -x --target tmp" % (arch, version))
     shelltools.move("tmp/*", ".")
 
     # Our libc is TLS enabled so use TLS library
@@ -34,7 +34,7 @@ def setup():
     shelltools.echo("ld.so.conf", libdir)
     shelltools.echo("XvMCConfig", "%s/libXvMCNVIDIA.so" % libdir)
 
-    shelltools.system("patch --remove-empty-files --no-backup-if-mismatch -p1 -i fix-build-with-linux-3.10.patch")
+    #shelltools.system("patch --remove-empty-files --no-backup-if-mismatch -p1 -i fix-build-with-linux-3.10.patch")
 
 def build():
     shelltools.export("SYSSRC", "/lib/modules/%s/build" % KDIR)
