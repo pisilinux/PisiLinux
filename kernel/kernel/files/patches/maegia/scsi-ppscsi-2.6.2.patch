@@ -1,0 +1,5083 @@
+---
+ drivers/scsi/Kconfig   |   36 +
+ drivers/scsi/Makefile  |   10 
+ drivers/scsi/epsa2.c   |  507 +++++++++++++++++++
+ drivers/scsi/epst.c    |  478 ++++++++++++++++++
+ drivers/scsi/onscsi.c  |  544 ++++++++++++++++++++
+ drivers/scsi/ppscsi.c  | 1294 +++++++++++++++++++++++++++++++++++++++++++++++++
+ drivers/scsi/ppscsi.h  |  356 +++++++++++++
+ drivers/scsi/sparcsi.c |  389 ++++++++++++++
+ drivers/scsi/t348.c    |  318 ++++++++++++
+ drivers/scsi/t358.c    |  394 ++++++++++++++
+ drivers/scsi/vpi0.c    |  276 ++++++++++
+ drivers/scsi/vpi2.c    |  418 +++++++++++++++
+ 12 files changed, 5020 insertions(+)
+
+--- /dev/null
++++ b/drivers/scsi/vpi2.c
+@@ -0,0 +1,418 @@
++/*
++	vpi2.c	(c) 1995-1999 Grant Guenther <grant@torque.net>
++		(c) 1997-1999 David Campbell <campbell@torque.net>
++		(c) 2000 Tim Waugh <twaugh@redhat.com>
++
++	This is the ppSCSI protocol module for the Iomega VPI2 adapter
++	found in the newer ZIP-100 drives.
++
++*/
++
++#error "This doesn't work yet."
++
++#define	VPI2_VERSION	"0.91"
++
++#define PPSC_BASE
++#define PPSC_HA_MODULE
++
++#include "ppscsi.h"
++
++static char vpi2_map[256];	/* status bits permutation */
++
++static void vpi2_init (PHA *pha)
++{
++
++/*  *** No MSG line on the VPI2 ! *** */ /* tmw: is this true for VPI2? */
++
++/*                       { REQ, BSY, MSG,  CD,  IO}     */
++
++	char key[5] = {0x80,0x40,0x00,0x20,0x10};
++
++	ppsc_make_map(vpi2_map,key,0);
++	sprintf(pha->ident,"vpi2 %s (%s) ",VPI2_VERSION,PPSC_H_VERSION);
++}
++
++#define	j44(a,b)	((a&0xf0)|((b>>4)&0x0f))
++
++#define CST(v)	w2(0xc);w0(v);w2(4);w2(6);w2(4);w2(0xc);
++#define DST(v)	w2(0xc);w0(v);w2(0xc);w2(0xe);w2(0xc);w2(4);w2(0xc);
++
++static inline int imm_cpp (PHA *pha, unsigned char b)
++{
++	unsigned char s1, s2, s3;
++
++	w2(0xc);
++	udelay(2);                  /* 1 usec - infinite */
++	w0(0xaa);
++	udelay(10);                 /* 7 usec - infinite */
++	w0(0x55);
++	udelay(10);                 /* 7 usec - infinite */
++	w0(0x00);
++	udelay(10);                 /* 7 usec - infinite */
++	w0(0xff);
++	udelay(10);                 /* 7 usec - infinite */
++	s1 = r1() & 0xb8;
++	w0(0x87);
++	udelay(10);                 /* 7 usec - infinite */
++	s2 = r1() & 0xb8;
++	w0(0x78);
++	udelay(10);
++	s3 = r1() & 0x38;
++	/*
++	 * Values for b are:
++	 * 0000 00aa    Assign address aa to current device
++	 * 0010 00aa    Select device aa in EPP Winbond mode
++	 * 0010 10aa    Select device aa in EPP mode
++	 * 0011 xxxx    Deselect all devices
++	 * 0110 00aa    Test device aa
++	 * 1101 00aa    Select device aa in ECP mode
++	 * 1110 00aa    Select device aa in Compatible mode
++	 */
++	w0(b);
++	udelay(2);                  /* 1 usec - infinite */
++	w2(0x0c);
++	udelay(10);                 /* 7 usec - infinite */
++	w2(0x0d);
++	udelay(2);                  /* 1 usec - infinite */
++	w2(0x0c);
++	udelay(10);                 /* 7 usec - infinite */
++	w0(0xff);
++	udelay(10);                 /* 7 usec - infinite */
++
++	/*
++	 * The following table is electrical pin values.
++	 * (BSY is inverted at the CTR register)
++	 *
++	 *       BSY  ACK  POut SEL  Fault
++	 * S1    0    X    1    1    1
++	 * S2    1    X    0    1    1
++	 * S3    L    X    1    1    S
++	 *
++	 * L => Last device in chain
++	 * S => Selected
++	 *
++	 * Observered values for S1,S2,S3 are:
++	 * Disconnect => f8/58/78
++	 * Connect    => f8/58/70
++	 */
++	if ((s1 == 0xb8) && (s2 == 0x18) && (s3 == 0x30))
++		return 1;               /* Connected */
++	if ((s1 == 0xb8) && (s2 == 0x18) && (s3 == 0x38))
++		return 0;               /* Disconnected */
++
++	return -1;                  /* No device present */
++}
++
++static inline int do_vpi2_connect (PHA *pha)
++{
++	pha->saved_r0 = r0();
++	pha->saved_r2 = r2();
++
++	imm_cpp(pha, 0xe0); /* Select device 0 in compatible mode */
++	imm_cpp(pha, 0x30); /* Disconnect all devices */
++
++	if (pha->mode >= 2)
++		/* Select device 0 in EPP mode */
++		return imm_cpp (pha, 0x28);
++
++	/* Select device 0 in compatible mode */
++	return imm_cpp (pha, 0xe0);
++}
++
++static void vpi2_connect (PHA *pha)
++{
++	printk ("--> vpi2_connect\n");
++	do_vpi2_connect (pha);
++	printk ("<--\n");
++}
++
++static void vpi2_disconnect (PHA *pha)
++{
++	printk ("--> vpi2_disconnect\n");
++	imm_cpp (pha, 0x30); /* Disconnect all devices */
++
++	w2(pha->saved_r2);
++	w0(pha->saved_r0);
++	printk ("<--\n");
++}
++
++
++/* There are no data-transfer tests available, just this simple
++   check that we are talking to a VPI2.  */
++static int vpi2_test_proto (PHA *pha)
++{
++	int	e = 1;
++
++	printk ("--> vpi2_test_proto\n");
++	if (do_vpi2_connect(pha) == 1)
++		e--;
++
++	vpi2_disconnect (pha);
++	printk ("<-- %d\n", e);
++	return e;
++}
++
++static int vpi2_select (PHA *pha, int initiator, int target)
++{
++	printk ("--> vpi2_select\n");
++	w2(0xc);
++	if (r1() & 0x08) {
++		printk ("<-- -1 (busy)\n");
++		return -1;	/* bus busy */
++	}
++
++	/*
++	 * Now assert the SCSI ID (HOST and TARGET) on the data bus
++	 */
++	w2(0x4);
++	w0(0x80 | (1 << target));
++	udelay (1);
++
++	/*
++	 * Deassert SELIN first followed by STROBE
++	 */
++	w2(0xc);
++	w2(0xd);
++
++	printk ("<-- 0\n");
++	return 0;
++
++}
++
++static int vpi2_test_select (PHA *pha)
++{
++	int val = r1() & 0x08;
++	printk ("--> vpi2_test_select\n<-- %d\n", val);
++	return val;	/* BSY asserted ? */
++}
++
++static void vpi2_select_finish (PHA *pha)
++{
++	printk ("--> vpi2_select_finish\n<--\n");
++	w2(0xc);
++}
++
++static void vpi2_deselect (PHA *pha)
++{
++	printk ("--> vpi2_deselect\n<--\n");
++	w2(0xc);
++}
++
++static int vpi2_get_bus_status (PHA *pha)
++{
++	int val;
++	printk ("--> vpi2_get_bus_status\n");
++	w2(0xc);
++	val = vpi2_map[r1()];
++	printk ("<-- %d\n", val);
++	return val;
++}
++
++/* These functions are inlined so the C optimiser can move the switches
++   outside of loops where possible, am I dreaming ?  */
++
++static inline int vpi2_read (PHA *pha, int first)
++{
++	int l, h;
++
++	printk ("--> vpi2_read\n<--\n");
++
++	switch (pha->mode) {
++
++	case 0:	if (first) w2(4);
++		w2(0x6); h = r1();
++		w2(0x5); l = r1(); w2(4);
++		return j44(h,l);
++
++	case 1: if (first) w2(0x25);
++		w2(0x26);
++		l = r0();
++		w2(0x25);
++		return l;
++
++	case 2: if (first) w2(0x24);
++		return r4();
++
++	default: return -1;
++
++	}
++}
++
++static inline void vpi2_write (PHA *pha, int v, int first )
++{
++	static int alternate;
++
++	printk ("--> vpi2_write\n");
++
++	switch (pha->mode) {
++
++	case 0:
++	case 1:
++		if (first) {
++			w2(0xc);
++			alternate = 0;
++		}
++		w0(v);
++		if (alternate)
++			w2(0x0);
++		else
++			w2(0x5);
++		alternate = 1 - alternate;
++		break;
++
++	case 2:	if (first) w2(0x4);
++		w4(v);
++		break;
++
++	}
++	printk ("<--\n");
++}
++
++static void vpi2_slow_start (PHA *pha, char *val)
++{
++	int r;
++
++	printk ("--> vpi2_slow_start\n");
++
++	w2(0xc);
++
++	r = (r1() & 0x10);
++
++	if (r) *val = vpi2_read(pha,1);
++	  else vpi2_write(pha,*val,1);
++
++	printk ("<--\n");
++}
++
++static int vpi2_slow_done (PHA *pha)
++{
++	printk ("--> vpi2_slow_done\n<--\n");
++	return 1;  /* vpi2 does its own REQ/ACK handshaking */
++}
++
++static void vpi2_slow_end (PHA *pha)
++{
++	printk ("--> vpi2_slow_end\n<--\n");
++	w2(0xc);
++}
++
++static void vpi2_start_block (PHA *pha, int rd)
++{
++	printk ("--> vpi2_start_block\n<--\n");
++	pha->priv_flag = rd;
++}
++
++static int vpi2_transfer_ready (PHA *pha)
++{
++	int b;
++
++	printk ("--> vpi2_transfer_ready\n<--\n");
++	b = vpi2_get_bus_status(pha);
++	if ((b & PPSC_PH_STAT) == PPSC_PH_STAT) return -1;
++	if (b == (PPSC_REQ|PPSC_BSY| pha->priv_flag)) return 128;
++	return 0;
++}
++
++static int vpi2_transfer_block (PHA *pha, char * buf, int buflen, int rd)
++{
++	int k, n, i;
++
++	printk ("--> vpi2_transfer_block\n");
++	k = 0;
++	while (k < buflen) {
++	    n = vpi2_transfer_ready(pha);
++	    if (n <= 0 ) break;
++	    if (n > (buflen-k)) n = buflen-k;
++	    for (i=0;i<n;i++)
++		if (rd) buf[k++] = vpi2_read(pha,!i);
++	          else vpi2_write(pha,buf[k++],!i);
++	    w2(0xc);
++	}
++	printk ("<-- %d\n", k);
++	return k;
++}
++
++static int vpi2_transfer_done (PHA *pha)
++{
++	printk ("--> vpi2_transfer_done\n<-- 1\n");
++	return 1;
++}
++
++static void vpi2_end_block (PHA *pha, int rd)
++{
++	printk ("--> vpi2_end_block\n<--\n");
++	w2(0xc);
++}
++
++static void vpi2_reset_bus (PHA *pha)
++{
++	printk ("--> vpi2_reset_bus\n<--\n");
++	w2(0xc);
++	w0(0x40); w2(8); udelay(60);
++	w2(0xc);
++}
++
++/* Make these correspond to the actual modes supported by the adapter */
++
++static char *(mode_strings[3]) = {"Nybble","PS/2","EPP"};
++
++static struct ppsc_protocol vpi2_psp =  {
++
++ 	{&host0,&host1,&host2,&host3}, 		/* params        */
++	&host_structs,				/* hosts         */
++	3,					/* num_modes     */
++	2,					/* epp_first     */
++	1,					/* default_delay */
++	0,					/* can_message   */
++	16,					/* sg_tablesize  */
++	mode_strings,
++	vpi2_init,
++	NULL,
++	vpi2_connect,
++	vpi2_disconnect,
++	vpi2_test_proto,
++	vpi2_select,
++	vpi2_test_select,
++	vpi2_select_finish,
++	vpi2_deselect,
++	vpi2_get_bus_status,
++	vpi2_slow_start,
++	vpi2_slow_done,
++	vpi2_slow_end,
++	vpi2_start_block,
++	vpi2_transfer_block,
++	vpi2_transfer_ready,
++	vpi2_transfer_done,
++	vpi2_end_block,
++	vpi2_reset_bus
++};
++
++int vpi2_detect (struct scsi_host_template *tpnt)
++{
++	int val;
++	printk ("--> vpi2_detect\n");
++	val = ppsc_detect( &vpi2_psp, tpnt, verbose);
++	printk ("<-- %d\n", val);
++	return val;
++}
++
++#ifdef MODULE
++
++struct scsi_host_template driver_template = PPSC_TEMPLATE(vpi2);
++
++#include "scsi_module.c"
++
++MODULE_LICENSE("GPL");
++
++#else
++
++void vpi2_setup (char *str, int *ints)
++{
++	printk ("--> vpi2_setup\n");
++	ppsc_gen_setup(stt,4,str);
++	printk ("<--\n");
++}
++
++#endif
++
++/* end of vpi2.c */
+--- /dev/null
++++ b/drivers/scsi/vpi0.c
+@@ -0,0 +1,276 @@
++/*
++	vpi0.c	(c) 1995-1999 Grant Guenther <grant@torque.net>
++		(c) 1997-1999 David Campbell <campbell@torque.net>
++
++	This is the ppSCSI protocol module for the Iomega VPI0 adapter
++	found in the original ZIP-100 drives and the Jaz Traveller.
++
++*/
++
++#define	VPI0_VERSION	"0.91"
++
++#define PPSC_BASE
++#define PPSC_HA_MODULE
++
++#include "ppscsi.h"
++
++static char vpi0_map[256];	/* status bits permutation */
++
++static void vpi0_init (PHA *pha)
++{
++
++/*  *** No MSG line on the VPI0 ! *** */
++
++/*                       { REQ, BSY, MSG,  CD,  IO}     */
++
++	char key[5] = {0x80,0x40,0x00,0x20,0x10};
++
++	ppsc_make_map(vpi0_map,key,0);
++	sprintf(pha->ident,"vpi0 %s (%s) ",VPI0_VERSION,PPSC_H_VERSION);
++}
++
++#define	j44(a,b)	((a&0xf0)|((b>>4)&0x0f))
++
++#define CST(v)	w2(0xc);w0(v);w2(4);w2(6);w2(4);w2(0xc);
++#define DST(v)	w2(0xc);w0(v);w2(0xc);w2(0xe);w2(0xc);w2(4);w2(0xc);
++
++static void vpi0_connect (PHA *pha)
++{
++	pha->saved_r0 = r0();
++	pha->saved_r2 = r2();
++
++	CST(0); CST(0x3c); CST(0x20);
++	if (pha->mode >= 2) { CST(0xcf) } else { CST(0x8f) }
++}
++
++static void vpi0_disconnect (PHA *pha)
++{
++	DST(0); DST(0x3c); DST(0x20); DST(0xf);
++
++	w2(pha->saved_r2);
++	w0(pha->saved_r0);
++}
++
++
++/* There are no data-transfer tests available, just this simple
++   check that we are talking to a VPI0.  */
++static int vpi0_test_proto (PHA *pha)
++{
++	int	e = 2;
++
++	vpi0_connect(pha);
++	w2(0xe);
++	if ((r1() & 8) == 8) e--;
++	w2(0xc);
++	if ((r1() & 8) == 0) e--;
++	vpi0_disconnect(pha);
++	return e;
++}
++
++static int vpi0_select (PHA *pha, int initiator, int target)
++{
++	w2(0xc);
++	if (r1() & 0x40) return -1;	/* bus busy */
++
++	w0(1<<target);
++	w2(0xe); w2(0xc);
++	w0(0x80); w2(8);	/* assert SEL */
++
++	return 0;
++
++}
++
++static int vpi0_test_select (PHA *pha)
++{
++	return (r1() & 0x40);	/* BSY asserted ? */
++}
++
++static void vpi0_select_finish (PHA *pha)
++{
++	w2(0xc);
++}
++
++static void vpi0_deselect (PHA *pha)
++{
++	w2(0xc);
++}
++
++static int vpi0_get_bus_status (PHA *pha)
++{
++	w2(0xc);
++	return vpi0_map[r1()];
++}
++
++/* These functions are inlined so the C optimiser can move the switches
++   outside of loops where possible, am I dreaming ?  */
++
++static inline int vpi0_read (PHA *pha, int first)
++{
++	int l, h;
++
++	switch (pha->mode) {
++
++	case 0:	if (first) w2(4);
++		h = r1(); w2(6);
++		l = r1(); w2(4);
++		return j44(h,l);
++
++	case 1: if (first) w2(0x25);
++		l = r0();
++		w2(0x27); w2(0x25);
++		return l;
++
++	case 2: if (first) w2(0x24);
++		return r4();
++
++	default: return -1;
++
++	}
++}
++
++static inline void vpi0_write (PHA *pha, int v, int first )
++{
++	switch (pha->mode) {
++
++	case 0:
++	case 1:	if (first) w2(0xc);
++		w0(v); w2(0xe); w2(0xc);
++		break;
++
++	case 2:	if (first) w2(0x4);
++		w4(v);
++		break;
++
++	}
++}
++
++static void vpi0_slow_start (PHA *pha, char *val)
++{
++	int r;
++
++	w2(0xc);
++
++	r = (r1() & 0x10);
++
++	if (r) *val = vpi0_read(pha,1);
++	  else vpi0_write(pha,*val,1);
++
++}
++
++static int vpi0_slow_done (PHA *pha)
++{
++	return 1;  /* vpi0 does its own REQ/ACK handshaking */
++}
++
++static void vpi0_slow_end (PHA *pha)
++{
++	w2(0xc);
++}
++
++static void vpi0_start_block (PHA *pha, int rd)
++{
++	pha->priv_flag = rd;
++}
++
++static int vpi0_transfer_ready (PHA *pha)
++{
++	int b;
++
++	b = vpi0_get_bus_status(pha);
++	if ((b & PPSC_PH_STAT) == PPSC_PH_STAT) return -1;
++	if (b == (PPSC_REQ|PPSC_BSY| pha->priv_flag)) return 128;
++	return 0;
++}
++
++static int vpi0_transfer_block (PHA *pha, char * buf, int buflen, int rd)
++{
++	int k, n, i;
++
++	k = 0;
++	while (k < buflen) {
++	    n = vpi0_transfer_ready(pha);
++	    if (n <= 0 ) break;
++	    if (n > (buflen-k)) n = buflen-k;
++	    for (i=0;i<n;i++)
++		if (rd) buf[k++] = vpi0_read(pha,!i);
++	          else vpi0_write(pha,buf[k++],!i);
++	    w2(0xc);
++	}
++	return k;
++}
++
++static int vpi0_transfer_done (PHA *pha)
++{
++       return 1;
++}
++
++static void vpi0_end_block (PHA *pha, int rd)
++{
++	w2(0xc);
++}
++
++static void vpi0_reset_bus (PHA *pha)
++{
++	w2(0xc);
++	w0(0x40); w2(8); udelay(60);
++	w2(0xc);
++}
++
++/* Make these correspond to the actual modes supported by the adapter */
++
++static char *(mode_strings[3]) = {"Nybble","PS/2","EPP"};
++
++static struct ppsc_protocol vpi0_psp =  {
++
++ 	{&host0,&host1,&host2,&host3}, 		/* params        */
++	&host_structs,				/* hosts         */
++	3,					/* num_modes     */
++	2,					/* epp_first     */
++	1,					/* default_delay */
++	0,					/* can_message   */
++	16,					/* sg_tablesize  */
++	mode_strings,
++	vpi0_init,
++	NULL,
++	vpi0_connect,
++	vpi0_disconnect,
++	vpi0_test_proto,
++	vpi0_select,
++	vpi0_test_select,
++	vpi0_select_finish,
++	vpi0_deselect,
++	vpi0_get_bus_status,
++	vpi0_slow_start,
++	vpi0_slow_done,
++	vpi0_slow_end,
++	vpi0_start_block,
++	vpi0_transfer_block,
++	vpi0_transfer_ready,
++	vpi0_transfer_done,
++	vpi0_end_block,
++	vpi0_reset_bus
++};
++
++int vpi0_detect (struct scsi_host_template *tpnt)
++{
++	return ppsc_detect( &vpi0_psp, tpnt, verbose);
++}
++
++#ifdef MODULE
++
++struct scsi_host_template driver_template = PPSC_TEMPLATE(vpi0);
++
++#include "scsi_module.c"
++
++MODULE_LICENSE("GPL");
++
++#else
++
++void vpi0_setup (char *str, int *ints)
++{
++	ppsc_gen_setup(stt,4,str);
++}
++
++#endif
++
++/* end of vpi0.c */
+--- /dev/null
++++ b/drivers/scsi/t348.c
+@@ -0,0 +1,318 @@
++/*
++	t348.c	(c) 1997-1999 Grant Guenther <grant@torque.net>
++
++	This is the low-level protocol module for the Adaptec APA-348
++	(aka Trantor T348) parallel port SCSI adapter.  It forms part
++	of the 'ppSCSI' suite of drivers.
++
++*/
++
++#define T348_VERSION	"0.92"
++
++#define PPSC_BASE
++#define PPSC_HA_MODULE
++
++#include "ppscsi.h"
++
++#define j44(a,b)                (((a<<1)&0xf0)+((b>>3)&0x0f))
++
++static char t348_map[256];	/* status bits permutation */
++
++static void t348_init (PHA *pha)
++{
++
++/*			 { REQ, BSY, MSG,  CD,	IO}	*/
++
++	char key[5] = {0x20,0x40,0x10,0x08,0x04};
++
++	ppsc_make_map(t348_map,key,0);
++	sprintf(pha->ident,"t348 %s (%s), Adaptec APA-348",
++		T348_VERSION,PPSC_H_VERSION);
++}
++
++static void t348_write_regr (PHA *pha, int regr, int value)
++{
++       w0(0x40+regr); w2(1); w2(0); w0(value); w2(8); w2(0);
++}
++
++static int t348_read_regr (PHA *pha, int regr)
++{
++	int s,a,b;
++
++	w0(0x10+regr); s = r2(); w2(s|1); w2(s); w2(8);
++	w0(0x80); a = r1(); w0(0); b = r1(); w2(0);
++	return j44(a,b);
++}
++
++static void t348_connect (PHA *pha)
++{
++	int t;
++
++	pha->saved_r0 = r0();
++	w0(0);
++	t = r2();
++	w2(t%16); w0(0xfe); w2(t%4); w2((t%4)+8); w2(0);
++	pha->saved_r2 = t;
++}
++
++static void t348_disconnect (PHA *pha)
++{
++	w0(0x71); w2(1); w2(0);
++	w0(pha->saved_r0);
++	w2(pha->saved_r2);
++}
++
++static int t348_test_proto (PHA *pha)
++{
++	int k, e, a, b;
++	int wnt[3] = {0x6c, 0x55, 0xaa};
++
++	e = 0;
++
++	t348_connect(pha);
++
++	switch (pha->mode) {
++
++	case 0:	w0(0x70); w2(1); w2(0); w0(0);
++		for (k=0;k<3;k++) {
++			w2(8);	a = r1(); w2(0);
++			w2(8); w2(8); w2(8); w2(8); w2(8);
++			b = r1(); w2(0);
++			if (j44(b,a) != wnt[k]) e++;
++		}
++		break;
++
++	case 1: w0(0x50); w2(1); w2(0);
++		for (k=0;k<3;k++) {
++			w2(0xe0); w2(0xe8);
++			if (r0() != wnt[k]) e++;
++			w2(0xe0); w2(0xe8);
++		}
++
++	}
++
++	t348_disconnect(pha);
++
++	return e;
++}
++
++/* The T348 appears to contain a NCR 5380 core.	 The following
++   functions use the 5380 registers. See NCR5380.h for clues.
++*/
++
++#define WR(r,v)		t348_write_regr(pha,r,v)
++#define RR(r)		(t348_read_regr(pha,r))
++
++static int t348_select (PHA *pha, int initiator, int target)
++{
++	WR(3,0); WR(1,1);
++	WR(0,(1 << initiator));	 WR(2,1);  udelay(100);
++	if (RR(1) != 0x41) {
++		WR(1,0);
++		return -1;
++	}
++
++	WR(1,5); WR(0,(1 << initiator)|(1 << target));
++	WR(2,0); WR(2,0); WR(2,0);
++	return 0;
++}
++
++static int t348_test_select (PHA *pha)
++{
++	return ((RR(4) & 0x42) == 0x42);
++}
++
++static void t348_select_finish (PHA *pha)
++{
++	WR(3,2); WR(1,5); WR(1,1);
++}
++
++static void t348_deselect (PHA *pha)
++{
++	WR(1,0);
++}
++
++static int t348_get_bus_status (PHA *pha)
++{
++	int s;
++
++	s = RR(4);
++	return t348_map[s];
++}
++
++static void t348_slow_start (PHA *pha, char *val)
++{
++	int ph, io;
++
++	ph = ((RR(4)>>2)&7);
++	io = (ph & 1);
++
++	WR(3,ph);
++	WR(1,1-io);
++	if (io) *val = RR(0); else WR(0,*val);
++	WR(1,0x10+(1-io));
++}
++
++static int t348_slow_done (PHA *pha)
++{
++	return ((RR(4) & 0x20) == 0);
++}
++
++static void t348_slow_end (PHA *pha)
++{
++	int io;
++
++	io = ((RR(4)>>2)&1);
++
++	WR(1,1-io);
++}
++
++static void t348_start_block (PHA *pha, int rd)
++{
++	if (rd) {
++
++		WR(3,1); WR(1,0);
++		WR(2,2); WR(7,3);
++		WR(3,1); WR(1,0);
++
++		switch (pha->mode) {
++
++		case 0:	w0(0x31); w2(1); w2(0); w0(0x80); w2(8);
++			break;
++
++		case 1: w0(0x21); w2(1); w2(0); w2(0xe8);
++			break;
++		}
++
++	} else {
++
++		WR(3,0); WR(1,1);
++		WR(2,2); WR(5,0);
++		WR(3,0); WR(1,1);
++
++		w0(0x61); w2(1); w2(0);
++	}
++}
++
++static int t348_transfer_ready (PHA *pha)
++{
++	if (r1() & 0x80) return 1;
++
++	if (pha->data_dir == 0) return 0;
++	return -1;
++}
++
++static int t348_transfer_block (PHA *pha, char * buf, int buflen, int rd)
++{
++	int k, a, b;
++
++	k = 0;
++	while (k < buflen) {
++
++	    if (t348_transfer_ready(pha) <= 0) break;
++
++	    if (rd) {
++		switch(pha->mode) {
++
++		case 0:	a = r1(); w0(0); b = r1(); w0(0xc0);
++			buf[k++] = j44(a,b);
++			a = r1(); w0(0x40); b = r1(); w0(0x80);
++			buf[k++] = j44(a,b);
++			break;
++
++		case 1: buf[k++] = r0(); w2(0xea);
++			buf[k++] = r0(); w2(0xe8);
++			break;
++		}
++
++	    } else {
++
++		w0(buf[k++]); w2(2);
++		w0(buf[k++]); w2(0);
++	    }
++
++	}
++
++	return k;
++}
++
++static int t348_transfer_done (PHA *pha)
++{
++       return 1;
++}
++
++static void t348_end_block (PHA *pha, int rd)
++{
++	w2(0);
++	WR(2,0);
++}
++
++
++static void t348_reset_bus (PHA *pha)
++{
++	WR(1,1); WR(3,0);
++	WR(2,0);
++	WR(1,0x80); udelay(60);
++	WR(1,0);
++	WR(2,0);
++	WR(1,1); WR(3,0);
++	WR(2,0);
++}
++
++static char *(mode_strings[2]) = {"Nybble","PS/2"};
++
++static struct ppsc_protocol t348_psp =	{
++
++	{&host0,&host1,&host2,&host3},		/* params	 */
++	&host_structs,				/* hosts	 */
++	2,					/* num_modes	 */
++	2,					/* epp_first	 */
++	1,					/* default_delay */
++	1,					/* can_message	 */
++	0,					/* sg_tablesize	 */
++	mode_strings,
++	t348_init,
++	NULL,
++	t348_connect,
++	t348_disconnect,
++	t348_test_proto,
++	t348_select,
++	t348_test_select,
++	t348_select_finish,
++	t348_deselect,
++	t348_get_bus_status,
++	t348_slow_start,
++	t348_slow_done,
++	t348_slow_end,
++	t348_start_block,
++	t348_transfer_block,
++	t348_transfer_ready,
++	t348_transfer_done,
++	t348_end_block,
++	t348_reset_bus
++};
++
++int t348_detect (struct scsi_host_template *tpnt)
++{
++	return ppsc_detect( &t348_psp, tpnt, verbose);
++}
++
++#ifdef MODULE
++
++struct scsi_host_template	driver_template = PPSC_TEMPLATE(t348);
++
++#include "scsi_module.c"
++
++MODULE_LICENSE("GPL");
++
++#else
++
++void t348_setup (char *str, int *ints)
++{
++	ppsc_gen_setup(stt,4,str);
++}
++
++#endif
++
++/* end of t348.c */
++
+--- /dev/null
++++ b/drivers/scsi/t358.c
+@@ -0,0 +1,394 @@
++/*
++	t358.c	(c) 1997-1999 Grant Guenther <grant@torque.net>
++
++	This is the low-level protocol module for the Adaptec APA-358
++	(aka Trantor T358) parallel port SCSI adapter.  It forms part
++	of the 'ppSCSI' suite of drivers.
++
++*/
++
++#define T358_VERSION	"0.91"
++
++#define PPSC_BASE
++#define PPSC_HA_MODULE
++
++#include "ppscsi.h"
++
++#define j44(a,b)                (((a<<1)&0xf0)+((b>>3)&0x0f))
++
++static char t358_map[256];	/* status bits permutation */
++
++static void t358_init (PHA *pha)
++{
++
++/*			 { REQ, BSY, MSG,  CD,	IO}	*/
++
++	char key[5] = {0x20,0x40,0x10,0x08,0x04};
++
++	ppsc_make_map(t358_map,key,0);
++	sprintf(pha->ident,"t358 %s (%s), Adaptec APA-358",
++			T358_VERSION,PPSC_H_VERSION);
++}
++
++static void t358_write_regr (PHA *pha, int regr, int value)
++{
++	int x;
++
++	switch (pha->mode) {
++
++	case 0:
++	case 1: w0(regr); x = r2(); w2(1); w2(9); w2(0); w2(0);
++		w0(value); w2(1); w2(3); w2(0); w2(x);
++		break;
++
++	case 2: w2(0xc0); w3(regr); w4(value);
++		break;
++
++	}
++}
++
++static int t358_read_regr (PHA *pha, int regr)
++{
++	int h, l;
++
++	switch (pha->mode) {
++
++	case 0: w0(regr); w2(1); w2(9); w2(0); w2(0);
++		w0(0x80); w2(2); h = r1();
++		w0(0); l = r1(); w2(0);
++		return j44(h,l);
++
++	case 1: w0(regr); h = r2(); w2(1); w2(9); w2(0); w2(0);
++		w2(0xe2); l = r0(); w2(h);
++		return l;
++
++	case 2: h = r2(); w2(0xe0); w3(regr); w2(0xe0);
++		l = r4(); w2(h);
++		return l;
++	}
++
++	return 0;
++}
++
++static void t358_read_block (PHA *pha, char *buf, int len)
++{
++	int k, h, l;
++
++	switch (pha->mode) {
++
++	case 0: w0(0x10); w2(1); w2(9); w2(0); w2(0);
++		for (k=0;k<len;k++) {
++			w0(0x80); w2(2); h = r1();
++			w0(0); l = r1(); w2(0);
++			buf[k] = j44(h,l);
++                }
++		break;
++
++        case 1: w0(0x10); w2(1); w2(9); w2(0); w2(0);
++		for (k=0;k<len;k++) {
++			w2(0xe2);
++			buf[k] = r0();
++			w2(0xe0);
++		}
++		break;
++
++	case 2: w2(0xc0); w3(0x10); w2(0xe0);
++		for (k=0;k<len;k++) buf[k] = r4();
++		w2(0xc0);
++		break;
++	}
++}
++
++static void t358_write_block (PHA *pha, char *buf, int len)
++{
++	int k, x;
++
++	switch (pha->mode) {
++
++	case 0:
++	case 1: w0(0x10); x = r2();
++		w2(1); w2(9); w2(0); w2(0);
++		for (k=0;k<len;k++) {
++			w0(buf[k]);
++			w2(1); w2(3); w2(0);
++		}
++		w2(x);
++		break;
++
++	case 2: w2(0xc0); w3(0x10); w2(0xc0);
++		for (k=0;k<len;k++) w4(buf[k]);
++		break;
++	}
++}
++
++static void t358_connect (PHA *pha)
++{
++	int b;
++
++	pha->saved_r0 = r0();
++	w0(0);
++	pha->saved_r2 = r2();
++	b = pha->saved_r2 % 4;
++	w0(0xf7); w2(b+4); w2(b); w2(b+8); w2(b); w2(0);
++
++	if (pha->mode) { w0(0x80); w2(1); w2(9); w2(1); w2(0); }
++	else { w0(0xa0); w2(1); w2(9); w2(0); }
++}
++
++static void t358_disconnect (PHA *pha)
++{
++	w0(pha->saved_r0);
++	w2(pha->saved_r2);
++}
++
++static int t358_test_proto (PHA *pha)
++{
++	int h, l, a, b;
++	int j = 0, k = 0, e = 0;
++
++	t358_connect(pha);
++
++	switch (pha->mode) {
++
++	case 0:	w0(0x80); w2(8); h = r1(); w0(0); l = r1();
++        	w2(0); w2(8); a = r1(); w0(0); b = r1(); w2(0);
++        	k = j44(h,l); j = j44(a,b);
++		break;
++
++	case 1: w2(0xe0); w0(0); w2(0xe8); k = r0();
++		w2(0xe0); w2(0xe8); j = r0(); w2(0xe0);
++		break;
++
++	case 2:	w0(0xa0); w2(1); w2(9); w2(0);
++		w0(0x80); w2(8); h = r1(); w0(0); l = r1();
++                w2(0); w2(8); a = r1(); w0(0); b = r1(); w2(0);
++                k = j44(h,l); j = j44(a,b);
++		w0(0x80); w2(1); w2(9); w2(1); w2(0);
++
++	}
++
++	if (V_PROBE) printk("%s: Signature: %x %x\n",pha->device,k,j);
++
++        if ((k != 0xe8) || (j != 0xff)) e++;
++
++	t358_disconnect(pha);
++
++	if (!e) {
++
++	    t358_connect(pha);
++
++	    for (j=0;j<256;j++) {
++		t358_write_regr(pha,0,j);
++		k = t358_read_regr(pha,0);
++		if (k != j) e++;
++		}
++
++	    t358_disconnect(pha);
++
++	}
++
++	return e;
++}
++
++/* The T358 appears to contain a NCR 53c400 core.  Check NCR5380.h
++   for hints about the regrs ...  */
++
++#define WR(r,v)         t358_write_regr(pha,r+8,v)
++#define RR(r)           (t358_read_regr(pha,r+8))
++
++static int t358_select (PHA *pha, int initiator, int target)
++{
++	WR(3,0); WR(1,1);
++	WR(0,(1 << initiator));  WR(2,1);  udelay(100);
++	if (RR(1) != 0x41) {
++		WR(1,0);
++		return -1;
++	}
++
++	WR(1,5); WR(0,(1 << initiator)|(1 << target));
++	WR(2,0); WR(2,0); WR(2,0);
++	return 0;
++}
++
++static int t358_test_select (PHA *pha)
++{
++	return ((RR(4) & 0x42) == 0x42);
++}
++
++static void t358_select_finish (PHA *pha)
++{
++	WR(3,2); WR(1,5); WR(1,1);
++}
++
++static void t358_deselect (PHA *pha)
++{
++	WR(1,0);
++}
++
++static int t358_get_bus_status (PHA *pha)
++{
++	int s;
++
++	s = RR(4);
++	return t358_map[s];
++}
++
++static void t358_slow_start (PHA *pha, char *val)
++{
++	int ph, io;
++
++	ph = ((RR(4)>>2)&7);
++	io = (ph & 1);
++
++	WR(3,ph);
++	WR(1,1-io);
++	if (io) *val = RR(0); else WR(0,*val);
++	WR(1,0x10+(1-io));
++}
++
++static int t358_slow_done (PHA *pha)
++{
++	return ((RR(4) & 0x20) == 0);
++}
++
++static void t358_slow_end (PHA *pha)
++{
++	int io;
++
++	io = ((RR(4)>>2)&1);
++
++	WR(1,1-io);
++}
++
++static void t358_start_block (PHA *pha, int rd)
++{
++	if (rd) {
++		WR(3,1); WR(1,0);
++        	WR(2,2);
++		WR(0x10,0x40); WR(2,0); WR(2,0xa);
++		WR(3,1); WR(1,0); WR(7,3);
++	} else {
++		WR(3,0); WR(1,1);
++		WR(2,2);
++		WR(0x10,0); WR(2,0); WR(2,0xa);
++		WR(3,0); WR(1,1); WR(5,0);
++	}
++	WR(0x11,pha->tlen/128);
++}
++
++static int t358_transfer_ready (PHA *pha)
++{
++	int r;
++
++	r = RR(0x10);
++
++	if (!(r & 4)) return 128;	/* 4 is host buffer not ready */
++
++	if (r & 1) return -1;		/* last block transferred */
++
++	return 0;
++}
++
++static int t358_transfer_block (PHA *pha, char * buf, int buflen, int rd)
++{
++	int k, n;
++
++	k = 0;
++	while (k < buflen) {
++
++	    n = t358_transfer_ready(pha);
++
++	    if (n <= 0) break;
++
++	    if (n > (buflen - k)) n = buflen - k;
++
++	    if (rd) t358_read_block(pha,buf,n);
++	    else  t358_write_block(pha,buf,n);
++
++	    k += n; buf += n;
++
++	}
++
++	return k;
++}
++
++static int t358_transfer_done (PHA *pha)
++{
++	if (RR(0x10) & 1) return 1;	/* last block transferred */
++	return 0;
++}
++
++static void t358_end_block (PHA *pha, int rd)
++{
++	WR(2,0);
++}
++
++
++static void t358_reset_bus (PHA *pha)
++{
++	WR(1,1); WR(3,0);
++        WR(2,0);
++        WR(1,0x80); udelay(60);
++        WR(1,0);
++        WR(2,0);
++        WR(1,1); WR(3,0);
++        WR(2,0);
++}
++
++static char *(mode_strings[3]) = {"Nybble","PS/2","EPP"};
++
++static struct ppsc_protocol t358_psp =  {
++
++ 	{&host0,&host1,&host2,&host3}, 		/* params        */
++	&host_structs,				/* hosts         */
++	3,					/* num_modes     */
++	2,					/* epp_first     */
++	1,					/* default_delay */
++	1,					/* can_message   */
++	16,					/* sg_tablesize  */
++	mode_strings,
++	t358_init,
++	NULL,
++	t358_connect,
++	t358_disconnect,
++	t358_test_proto,
++	t358_select,
++	t358_test_select,
++	t358_select_finish,
++	t358_deselect,
++	t358_get_bus_status,
++	t358_slow_start,
++	t358_slow_done,
++	t358_slow_end,
++	t358_start_block,
++	t358_transfer_block,
++	t358_transfer_ready,
++	t358_transfer_done,
++	t358_end_block,
++	t358_reset_bus
++};
++
++int t358_detect (struct scsi_host_template *tpnt )
++{
++	return ppsc_detect( &t358_psp, tpnt, verbose);
++}
++
++#ifdef MODULE
++
++struct scsi_host_template	driver_template = PPSC_TEMPLATE(t358);
++
++#include "scsi_module.c"
++
++MODULE_LICENSE("GPL");
++
++#else
++
++void t358_setup (char *str, int *ints)
++{
++	ppsc_gen_setup(stt,4,str);
++}
++
++#endif
++
++/* end of t358.c */
++
+--- a/drivers/scsi/Makefile
++++ b/drivers/scsi/Makefile
+@@ -129,6 +129,16 @@ obj-$(CONFIG_SCSI_CXGB3_ISCSI)	+= libisc
+ 
+ obj-$(CONFIG_ARM)		+= arm/
+ 
++obj-$(CONFIG_PPSCSI)		+= ppscsi.o
++obj-$(CONFIG_PPSCSI_T348)	+= t348.o
++obj-$(CONFIG_PPSCSI_T358)	+= t358.o
++obj-$(CONFIG_PPSCSI_ONSCSI)	+= onscsi.o
++obj-$(CONFIG_PPSCSI_EPSA2)	+= epsa2.o
++obj-$(CONFIG_PPSCSI_EPST)	+= epst.o
++obj-$(CONFIG_PPSCSI_VPI0)	+= vpi0.o
++obj-$(CONFIG_PPSCSI_VPI2)	+= vpi2.o
++obj-$(CONFIG_PPSCSI_SPARCSI)	+= sparcsi.o
++
+ obj-$(CONFIG_CHR_DEV_ST)	+= st.o
+ obj-$(CONFIG_CHR_DEV_OSST)	+= osst.o
+ obj-$(CONFIG_BLK_DEV_SD)	+= sd_mod.o
+--- /dev/null
++++ b/drivers/scsi/epst.c
+@@ -0,0 +1,478 @@
++/*
++	epst.c	(c) 1996-1999 Grant Guenther <grant@torque.net>
++
++	This is the ppSCSI protocol module for the Shuttle
++	Technologies EPST parallel port SCSI adapter.
++
++*/
++
++#define	EPST_VERSION	"0.92"
++
++#define PPSC_BASE
++#define PPSC_HA_MODULE
++
++#include "ppscsi.h"
++
++#define EPST_VER_CODE	0xb2
++
++#define j44(a,b)                (((a>>4)&0x0f)+(b&0xf0))
++#define j53(a,b)                (((a>>3)&0x1f)+((b<<4)&0xe0))
++
++static char epst_map[256];	/* status bits permutation */
++
++static void epst_init (PHA *pha)
++{
++
++/*			 { REQ, BSY, MSG,  CD,	IO}	*/
++
++	char key[5] = {0x20,0x40,0x04,0x02,0x01};
++
++	ppsc_make_map(epst_map,key,0);
++	sprintf(pha->ident,"epst %s (%s), Shuttle EPST",
++		EPST_VERSION,PPSC_H_VERSION);
++}
++
++static void epst_write_regr (PHA *pha, int regr, int value)
++{
++	switch (pha->mode) {
++
++	case 0:
++	case 1:
++	case 2: w0(0x60+regr); w2(1); w0(value); w2(4);
++		break;
++
++	case 3:
++	case 4:
++	case 5: w3(0x40+regr); w4(value);
++		break;
++
++	}
++}
++
++static int epst_read_regr (PHA *pha, int regr)
++{
++	int a, b;
++
++	switch (pha->mode) {
++
++	case 0: w0(regr); w2(1); w2(3);
++		a = r1(); w2(4); b = r1();
++		return j44(a,b);
++
++	case 1: w0(0x40+regr); w2(1); w2(4);
++		a = r1(); b = r2(); w0(0xff);
++		return j53(a,b);
++
++	case 2: w0(0x20+regr); w2(1); w2(0x25);
++		a = r0(); w2(4);
++		return a;
++
++	case 3:
++	case 4:
++	case 5: w3(regr); w2(0x24); a = r4();
++		return a;
++
++	}
++
++	return -1;
++}
++
++/* for performance reasons, these block transfer functions make
++   some assumptions about the behaviour of the SCSI devices.  In
++   particular, DMA transfers are assumed not to stall within the
++   last few bytes of a block ...
++*/
++
++static int epst_read_block (PHA *pha, char *buf, int len)
++{
++	int t, k, p, a, b;
++
++	k = 0;
++
++	switch (pha->mode) {
++
++	case 0: w0(7); w2(1); w2(3); w0(0xff);
++		p = 1;
++		while (k < len) {
++			w2(6+p); a = r1();
++			if (a & 8) b = a; else { w2(4+p); b = r1(); }
++			buf[k++] = j44(a,b);
++			p = 1 - p;
++			if (!(k % 16)) {
++				w0(0xfe); t = r1(); w0(0xff);
++				if (t & 8) break;
++		        }
++		}
++		w0(0); w2(4);
++		break;
++
++	case 1: w0(0x47); w2(1); w2(5); w0(0xff);
++		p = 0;
++		while (k < len) {
++			a = r1(); b = r2();
++			buf[k++] = j53(a,b);
++			w2(4+p);
++			p = 1 - p;
++			if (!(k % 16)) {
++				w0(0xfe); t = r1(); w0(0xff);
++				if (t & 8) break;
++			}
++		}
++		w0(0); w2(4);
++		break;
++
++	case 2: w0(0x27); w2(1);
++		p = 1;
++		while (k < len) {
++			w2(0x24+p);
++			buf[k++] = r0();
++			p = 1 - p;
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(6); w2(4);
++		break;
++
++	case 3: w3(0x80); w2(0x24);
++		while (k < len) {
++			buf[k++] = r4();
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++
++	case 4: w3(0x80); w2(0x24);
++		while (k < len) {
++			if ((len - k) > 1) {
++				*((u16 *)(&buf[k])) = r4w();
++				k += 2;
++			} else {
++				buf[k++] = r4();
++			}
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++
++	case 5: w3(0x80); w2(0x24);
++		while (k < len) {
++			if ((len - k) > 3) {
++				*((u32 *)(&buf[k])) = r4l();
++				k += 4;
++			} else {
++				buf[k++] = r4();
++			}
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++	}
++
++	return k;
++}
++
++static int epst_write_block (PHA *pha, char *buf, int len)
++{
++	int p, k;
++
++	k = 0;
++
++	switch (pha->mode) {
++
++	case 0:
++	case 1:
++	case 2: w0(0x67); w2(1);
++		p = 1;
++		while (k < len) {
++			w2(4+p);
++			w0(buf[k++]);
++			p = 1 - p;
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(5); w2(7); w2(4);
++		break;
++
++	case 3: w3(0xc0);
++		while (k < len) {
++			w4(buf[k++]);
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++
++	case 4: w3(0xc0);
++		while (k < len) {
++			if ((len - k) > 1) {
++				w4w(*((u16 *)(&buf[k])));
++				k += 2;
++			} else {
++				w4(buf[k++]);
++			}
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++
++	case 5: w3(0xc0);
++		while (k < len) {
++			if ((len - k) > 3) {
++				w4l(*((u32 *)(&buf[k])));
++				k += 4;
++			} else {
++				w4(buf[k++]);
++			}
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++	}
++
++	return k;
++}
++
++#define WR(r,v)         epst_write_regr(pha,r,v)
++#define RR(r)           (epst_read_regr(pha,r))
++
++#define CPP(x)	w2(4);w0(0x22);w0(0xaa);w0(0x55);w0(0);w0(0xff);\
++		w0(0x87);w0(0x78);w0(x);w2(5);w2(4);w0(0xff);
++
++static void epst_connect (PHA *pha)
++{
++	w2(4);
++	CPP(0x40); CPP(0xe0);
++	w0(0); w2(1); w2(3); w2(4);
++
++	if (pha->mode >= 3) {
++		w0(0); w2(1); w2(3); w2(4); w2(0xc);
++		w0(0x40); w2(6); w2(7); w2(4);
++	}
++
++	WR(0x1d,0x20); WR(0x1d,0);  /* clear the ring buffer */
++	WR(0xa,0x1e); 		    /* set up PDMA           */
++	WR(0xc,4);                  /* enable status bits    */
++	WR(8,2);		    /* deglitch timing	     */
++}
++
++static void epst_disconnect (PHA *pha)
++{
++	CPP(0x30); w2(4);
++	CPP(0x40); w2(4);
++}
++
++#define Wsr(r,v)        WR(0x18+r,v)
++#define Rsr(r)          (RR(0x18+r))
++
++static int epst_test_proto (PHA *pha)
++{
++	int i, j, e;
++	char wb[16], rb[16];
++
++	e = 0;
++
++	epst_connect(pha);
++	i = RR(0xb);
++	if (V_PROBE) printk("%s: version code reads: 0x%x\n",pha->device,i);
++	epst_disconnect(pha);
++
++	if (i != EPST_VER_CODE) return 1;
++
++	epst_connect(pha);
++
++	for (j=0;j<200;j++) {
++		for (i=0;i<16;i++) { wb[i] = i+j; rb[i] = i+j+6; }
++		Wsr(5,1);
++		epst_write_block(pha,wb,16);
++		Wsr(5,0x11);
++		epst_read_block(pha,rb,16);
++		for (i=0;i<16;i++) if (wb[i] != rb[i]) e++;
++	}
++
++	epst_disconnect(pha);
++
++	if (V_FULL)
++		printk("%s: test port 0x%x mode %d errors %d\n",
++		       pha->device,pha->port,pha->mode,e);
++
++	return e;
++}
++
++/* The EPST contains a core SCSI controller that is very
++   similar to the NCR 5380.  Some bits have been shuffled
++   around, but the basic structure is the same.
++*/
++
++static int epst_select (PHA *pha, int initiator, int target)
++{
++	Wsr(4,(1<<initiator));
++	Wsr(5,0); Wsr(1,0); Wsr(2,0);
++
++	Wsr(3,0); Wsr(1,1);
++	Wsr(0,(1<<initiator)); Wsr(2,1); udelay(100);
++	if (Rsr(1) != 0x41) {
++		Wsr(1,0);
++		return -1;
++	}
++
++	Wsr(1,5); Wsr(0,(1<<initiator)|(1<<target));
++	Wsr(2,0); Wsr(2,0); Wsr(2,0);
++
++	return 0;
++}
++
++static int epst_test_select (PHA *pha)
++{
++	return ((Rsr(4) & 0x50) == 0x50);
++}
++
++static void epst_select_finish (PHA *pha)
++{
++	Wsr(3,2); Wsr(1,5); Wsr(1,1);
++}
++
++static void epst_deselect (PHA *pha)
++{
++	Wsr(1,0); Wsr(2,0); Wsr(3,0);
++}
++
++static int epst_get_bus_status (PHA *pha)
++{
++	return epst_map[Rsr(4)];
++}
++
++static void epst_slow_start (PHA *pha, char *val)
++{
++	int ph, io;
++
++	ph = Rsr(4) & 7;
++	io = ph & 1;
++
++	Wsr(3,ph);
++	Wsr(1,1-io);
++	if (io) *val = Rsr(0); else Wsr(0,*val);
++	Wsr(1,0x11-io);
++}
++
++static int epst_slow_done (PHA *pha)
++{
++	return ((Rsr(4) & 0x20) == 0);
++}
++
++static void epst_slow_end (PHA *pha)
++{
++	Wsr(1,1-(Rsr(4)&1));
++}
++
++static void epst_start_block (PHA *pha, int rd)
++{
++	Wsr(5,0);
++
++	if (rd)	{
++
++		Wsr(3,1); Wsr(1,0);
++		Wsr(5,0x15); Wsr(2,2);
++
++	} else  {
++
++		Wsr(3,0); Wsr(1,1);
++		Wsr(5,5); Wsr(2,2);
++
++	}
++}
++
++static int epst_transfer_ready (PHA *pha)
++{
++	int r;
++
++	r = Rsr(5);
++
++	if (r & 0x10) return 1;		/* ring buffer half ready */
++	if ((!(r & 8)) && (r & 0x20)) return 1;  /* last fragment */
++	if (!(r & 8)) return -1;	/* phase change */
++	return 0;
++}
++
++static int epst_transfer_done (PHA *pha)
++{
++	if (Rsr(5) & 0x20) return 0;		/* ring buffer not empty */
++	return 1;
++}
++
++static int epst_transfer_block (PHA *pha, char * buf, int buflen, int rd)
++{
++	if (epst_transfer_ready(pha) <= 0) return 0;
++
++	if (rd) return epst_read_block(pha,buf,buflen);
++	else    return epst_write_block(pha,buf,buflen);
++}
++
++static void epst_end_block (PHA *pha, int rd)
++{
++	Wsr(2,0); Wsr(3,0); Wsr(1,0);
++}
++
++static void epst_reset_bus (PHA *pha)
++{
++	Wsr(1,1); Wsr(3,0);
++	Wsr(2,0);
++	Wsr(1,0x80); udelay(60);
++	Wsr(1,0);
++	Wsr(2,0);
++	Wsr(1,1); Wsr(3,0);
++	Wsr(2,0);
++}
++
++static char *(mode_strings[6]) = {"Nybble","5/3","PS/2","EPP","EPP-16","EPP-32"};
++
++static struct ppsc_protocol epst_psp =  {
++
++ 	{&host0,&host1,&host2,&host3}, 		/* params        */
++	&host_structs,				/* hosts         */
++	6,					/* num_modes     */
++	3,					/* epp_first     */
++	1,					/* default_delay */
++	1,					/* can_message   */
++	16,					/* sg_tablesize  */
++	mode_strings,
++	epst_init,
++	NULL,
++	epst_connect,
++	epst_disconnect,
++	epst_test_proto,
++	epst_select,
++	epst_test_select,
++	epst_select_finish,
++	epst_deselect,
++	epst_get_bus_status,
++	epst_slow_start,
++	epst_slow_done,
++	epst_slow_end,
++	epst_start_block,
++	epst_transfer_block,
++	epst_transfer_ready,
++	epst_transfer_done,
++	epst_end_block,
++	epst_reset_bus
++};
++
++int epst_detect (struct scsi_host_template *tpnt)
++{
++	return ppsc_detect( &epst_psp, tpnt, verbose);
++}
++
++#ifdef MODULE
++
++struct scsi_host_template	driver_template = PPSC_TEMPLATE(epst);
++
++#include "scsi_module.c"
++
++MODULE_LICENSE("GPL");
++
++#else
++
++void epst_setup (char *str, int *ints)
++{
++	ppsc_gen_setup(stt,4,str);
++}
++
++#endif
++
++/* end of epst.c */
+--- /dev/null
++++ b/drivers/scsi/sparcsi.c
+@@ -0,0 +1,389 @@
++/*
++	sparcsi.c	(c) 1997-1999 Grant Guenther <grant@torque.net>
++
++	This is the low-level protocol module for the WBS-11A parallel
++	port SCSI adapter.  This adapter has been marketed by LinkSys
++	as the "ParaSCSI+" and by Shining Technologies as the "SparCSI".
++	The device is constructed from the KBIC-951A ISA replicator
++	chip from KingByte and the NCR 5380.
++
++*/
++
++#define SPARCSI_VERSION	"0.91"
++
++#define PPSC_BASE
++#define PPSC_HA_MODULE
++
++#include "ppscsi.h"
++
++#define r12w()			(delay_p,inw(pha->port+1)&0xffff)
++
++#define j44(a,b)		((((a>>4)&0x0f)|(b&0xf0))^0x88)
++#define j53(w)			(((w>>3)&0x1f)|((w>>4)&0xe0))
++
++static char sparcsi_map[256];	/* status bits permutation */
++
++static void sparcsi_init (PHA *pha)
++{
++
++/*			 { REQ, BSY, MSG,  CD,	IO}	*/
++
++	char key[5] = {0x20,0x40,0x10,0x08,0x04};
++
++	ppsc_make_map(sparcsi_map,key,0);
++	sprintf(pha->ident,"sparcsi %s (%s), WBS-11A",
++		SPARCSI_VERSION,PPSC_H_VERSION);
++}
++
++static void sparcsi_write_regr (PHA *pha, int regr, int value)
++{
++	switch (pha->mode) {
++
++	case 0:
++	case 1:
++	case 2: w0(regr|0x10); w2(4); w2(6); w2(4);
++		w0(value); w2(5); w2(4);
++		break;
++
++	case 3: w0(0x20); w2(4); w2(6); w2(4); w3(regr);
++		w4(value); w2(4); w2(0); w2(4);
++		break;
++
++	}
++}
++
++static int sparcsi_read_regr (PHA *pha, int regr)
++{
++	int a, b;
++
++	switch (pha->mode) {
++
++	case 0: w0(regr|0x18); w2(4); w2(6); w2(4); w2(5);
++		a = r1(); w0(0x58); b = r1(); w2(4);
++		return j44(a,b);
++
++	case 1: w0(regr|0x58); w2(4); w2(6); w2(4); w2(5);
++		a = r12w(); w2(4);
++		return j53(a);
++
++	case 2: w0(regr|0x98); w2(4); w2(6); w2(4); w2(0xa5);
++		a = r0(); w2(4);
++		return a;
++
++	case 3: w0(0x20); w2(4); w2(6); w2(4); w3(regr);
++		w2(0xe4); a = r4(); w2(4); w2(0); w2(4);
++		return a;
++
++	}
++	return -1;
++}
++
++static void sparcsi_read_block (PHA *pha, char *buf, int len)
++{
++	int k, a, b;
++
++	switch (pha->mode) {
++
++	case 0: w0(8); w2(4); w2(6); w2(4);
++		for (k=0;k<len/2;k++) {
++			w2(5); a = r1(); w0(0x48); b = r1(); w2(4);
++			buf[2*k] = j44(a,b);
++			w2(5); b = r1(); w0(8); a = r1(); w2(4);
++			buf[2*k+1] = j44(a,b);
++		}
++		break;
++
++	case 1: w0(0x48); w2(4); w2(6); w2(4);
++		for (k=0;k<len;k++) {
++			w2(5); buf[k] = j53(r12w()); w2(4);
++		}
++		break;
++
++	case 2: w0(0x88); w2(4); w2(6); w2(4);
++		for (k=0;k<len;k++) {
++			w2(0xa5); buf[k] = r0(); w2(0xa4);
++		}
++		w2(4);
++		break;
++
++	case 3: w0(0x20); w2(4); w2(6); w2(4); w3(6); w2(0xe4);
++		for (k=0;k<len;k++) buf[k] = r4();
++		w2(4); w2(0); w2(4);
++		break;
++
++	}
++}
++
++static void  sparcsi_write_block (PHA *pha, char *buf, int len)
++{
++	int k;
++
++	switch (pha->mode) {
++
++	case 0:
++	case 1:
++	case 2: w0(0); w2(4); w2(6); w2(4);
++		for(k=0;k<len;k++) {
++			w0(buf[k]); w2(5); w2(4);
++		}
++		break;
++
++	case 3: w0(0x20); w2(4); w2(6); w2(4); w3(6);
++		for(k=0;k<len;k++) w4(buf[k]);
++		w2(4); w2(0); w2(4);
++		break;
++	}
++}
++
++static void sparcsi_connect (PHA *pha)
++{
++	pha->saved_r0 = r0();
++	pha->saved_r2 = r2();
++	w2(4);
++}
++
++static void sparcsi_disconnect (PHA *pha)
++{
++	w0(pha->saved_r0);
++	w2(pha->saved_r2);
++}
++
++#define WR(r,v)		sparcsi_write_regr(pha,r,v)
++#define RR(r)		(sparcsi_read_regr(pha,r))
++
++static int sparcsi_test_proto (PHA *pha)
++{
++	int k, e;
++
++	e = 0;
++
++	sparcsi_connect(pha);
++
++	if (!pha->private[0]) {	  /* reset the SCSI bus on first sight */
++
++		if (V_FULL) printk("%s: SCSI reset ...\n",pha->device);
++
++		WR(1,0x80); udelay(60);
++		WR(1,0);
++		scsi_sleep(5*HZ);
++		pha->private[0] = 1;
++	}
++
++	WR(1,0);
++	WR(1,1);
++
++	if (V_PROBE)
++		printk("%s: 5380 regrs [4]=%x [5]=%x\n",pha->device,RR(4),RR(5));
++
++	for (k=0;k<256;k++) {
++		WR(0,k);
++		if (RR(0) != k) e++;
++		WR(0,255-k);
++		if (RR(0) != (255-k)) e++;
++	}
++
++	WR(1,0);
++
++	sparcsi_disconnect(pha);
++
++	return e;
++}
++
++static int sparcsi_select (PHA *pha, int initiator, int target)
++{
++	WR(3,0); WR(1,1);
++	WR(0,(1 << initiator));	 WR(2,1);  udelay(100);
++	if (RR(1) != 0x41) {
++		WR(1,0);
++		return -1;
++	}
++
++	WR(1,5); WR(0,(1 << initiator)|(1 << target));
++	WR(2,0); WR(2,0); WR(2,0);
++	return 0;
++}
++
++static int sparcsi_test_select (PHA *pha)
++{
++	return ((RR(4) & 0x42) == 0x42);
++}
++
++static void sparcsi_select_finish (PHA *pha)
++{
++	WR(3,2); WR(1,5); WR(1,1);
++}
++
++static void sparcsi_deselect (PHA *pha)
++{
++	WR(1,0);
++}
++
++static int sparcsi_get_bus_status (PHA *pha)
++{
++	int s;
++
++	s = RR(4);
++	return sparcsi_map[s];
++}
++
++static void sparcsi_slow_start (PHA *pha, char *val)
++{
++	int ph, io;
++
++	ph = ((RR(4)>>2)&7);
++	io = (ph & 1);
++
++	WR(3,ph);
++	WR(1,1-io);
++	if (io) *val = RR(0); else WR(0,*val);
++	WR(1,0x10+(1-io));
++}
++
++static int sparcsi_slow_done (PHA *pha)
++{
++	return ((RR(4) & 0x20) == 0);
++}
++
++static void sparcsi_slow_end (PHA *pha)
++{
++	int io;
++
++	io = ((RR(4)>>2)&1);
++
++	WR(1,1-io);
++}
++
++static void sparcsi_start_block (PHA *pha, int rd)
++{
++	if (rd) {
++
++		WR(3,1); WR(1,0);
++		WR(2,2); WR(7,3);
++		WR(3,1); WR(1,0);
++
++	} else {
++
++		WR(3,0); WR(1,1);
++		WR(2,2); WR(5,0);
++		WR(3,0); WR(1,1);
++
++	}
++	pha->priv_flag = rd;
++}
++
++static int sparcsi_transfer_ready (PHA *pha)
++{
++	int chunk;
++
++	chunk = 512;
++	if ((pha->data_count == 0) && (!pha->priv_flag)) chunk++;
++
++	if (r1() & 0x40) return chunk;
++	if (!(RR(5) & 8)) return -1;
++	return 0;
++}
++
++static int sparcsi_transfer_block (PHA *pha, char * buf, int buflen, int rd)
++{
++	int k, n;
++
++	k = 0;
++	while (k < buflen) {
++
++		n = sparcsi_transfer_ready(pha);
++
++		if (n <= 0) break;
++
++		if (n > (buflen - k)) n = buflen - k;
++
++		if (rd) sparcsi_read_block(pha,buf,n);
++		else  sparcsi_write_block(pha,buf,n);
++
++		k += n; buf += n;
++	}
++
++	return k;
++}
++
++static int sparcsi_transfer_done (PHA *pha)
++{
++	return 1;
++}
++
++static void sparcsi_end_block (PHA *pha, int rd)
++{
++	char buf[2] = {0,0};
++
++	if (!rd) sparcsi_write_block(pha,buf,1);
++
++	WR(2,0);
++}
++
++static void sparcsi_reset_bus (PHA *pha)
++{
++	WR(1,1); WR(3,0);
++	WR(2,0);
++	WR(1,0x80); udelay(60);
++	WR(1,0);
++	WR(2,0);
++	WR(1,1); WR(3,0);
++	WR(2,0);
++}
++
++static char *(mode_strings[4]) = {"Nybble","KBIC 5/3","PS/2","EPP"};
++
++static struct ppsc_protocol sparcsi_psp =  {
++
++	{&host0,&host1,&host2,&host3},		/* params	 */
++	&host_structs,				/* hosts	 */
++	4,					/* num_modes	 */
++	3,					/* epp_first	 */
++	1,					/* default_delay */
++	1,					/* can_message	 */
++	16,					/* sg_tablesize	 */
++	mode_strings,
++	sparcsi_init,
++	NULL,
++	sparcsi_connect,
++	sparcsi_disconnect,
++	sparcsi_test_proto,
++	sparcsi_select,
++	sparcsi_test_select,
++	sparcsi_select_finish,
++	sparcsi_deselect,
++	sparcsi_get_bus_status,
++	sparcsi_slow_start,
++	sparcsi_slow_done,
++	sparcsi_slow_end,
++	sparcsi_start_block,
++	sparcsi_transfer_block,
++	sparcsi_transfer_ready,
++	sparcsi_transfer_done,
++	sparcsi_end_block,
++	sparcsi_reset_bus
++};
++
++int sparcsi_detect (Scsi_Host_Template *tpnt)
++{
++	return ppsc_detect( &sparcsi_psp, tpnt, verbose);
++}
++
++#ifdef MODULE
++
++Scsi_Host_Template	driver_template = PPSC_TEMPLATE(sparcsi);
++
++#include "scsi_module.c"
++
++MODULE_LICENSE("GPL");
++
++#else
++
++void sparcsi_setup (char *str, int *ints)
++{
++	ppsc_gen_setup(stt,4,str);
++}
++
++#endif
++
++/* end of sparcsi.c */
++
+--- /dev/null
++++ b/drivers/scsi/epsa2.c
+@@ -0,0 +1,507 @@
++/*
++	epsa2.c	(c) 1996-1999 Grant Guenther <grant@torque.net>
++
++	This is the ppSCSI protocol module for the Shuttle
++	Technologies EPSA2 parallel port SCSI adapter.	EPSA2 is
++	a predecessor to the EPST.  It uses slightly different
++	command encoding and has a less elaborate internal register
++	model.
++
++*/
++
++#define	EPSA2_VERSION	"0.91"
++
++#define PPSC_BASE
++#define PPSC_HA_MODULE
++
++#include "ppscsi.h"
++
++#define EPSA2_VER_CODE	0xb1
++
++#define j44(a,b)		(((a>>4)&0x0f)+(b&0xf0))
++#define j53(a,b)		(((a>>3)&0x1f)+((b<<4)&0xe0))
++
++static char epsa2_map[256];	/* status bits permutation */
++
++static void epsa2_init( PHA *pha)
++{
++
++/*			 { REQ, BSY, MSG,  CD,	IO}	*/
++
++	char key[5] = {0x20,0x40,0x04,0x02,0x01};
++
++	ppsc_make_map(epsa2_map,key,0);
++	sprintf(pha->ident,"epsa2 %s (%s), Shuttle EPSA2",
++		EPSA2_VERSION,PPSC_H_VERSION);
++}
++
++static void epsa2_write_regr (PHA *pha, int regr, int value)
++{
++	switch (pha->mode) {
++
++	case 0:
++	case 1:
++	case 2: w0(0x70+regr); w2(1); w0(value); w2(4);
++		break;
++
++	case 3:
++	case 4:
++	case 5: w3(0x40+regr); w4(value); w2(4);
++		break;
++
++	}
++}
++
++static int epsa2_read_regr (PHA *pha, int regr)
++{
++	int  a, b;
++
++	switch (pha->mode) {
++
++	case 0: w0(0x40+regr); w2(1); w2(3);
++		a = r1(); w2(4); b = r1();
++		return j44(a,b);
++
++	case 1: w0(0x60+regr); w2(1); w2(4);
++		a = r1(); b = r2(); w0(0xff);
++		return j53(a,b);
++
++	case 2: w0(0x50+regr); w2(1); w2(0x25);
++		a = r0(); w2(4);
++		return a;
++
++	case 3:
++	case 4:
++	case 5: w3(regr); w2(0x24); a = r4(); w2(4);
++		return a;
++
++	}
++
++	return -1;
++}
++
++/* for performance reasons, these block transfer functions make
++   some assumptions about the behaviour of the SCSI devices.  In
++   particular, DMA transfers are assumed not to stall within the
++   last few bytes of a block ...
++*/
++
++static int epsa2_read_block (PHA *pha, char *buf, int len)
++{
++	int t, k, p, a, b;
++
++	k = 0;
++
++	switch (pha->mode) {
++
++	case 0: w0(7); w2(1); w2(3); w0(0xff);
++		p = 1;
++		while (k < len) {
++			w2(6+p); a = r1();
++			if (a & 8) b = a; else { w2(4+p); b = r1(); }
++			buf[k++] = j44(a,b);
++			p = 1 - p;
++			if (!(k % 16)) {
++				w0(0xfe); t = r1(); w0(0xff);
++				if (t & 8) break;
++			}
++		}
++		w0(0); w2(4);
++		break;
++
++	case 1: w0(0x27); w2(1); w2(5); w0(0xff);
++		p = 0;
++		while (k < len) {
++			a = r1(); b = r2();
++			buf[k++] = j53(a,b);
++			w2(4+p);
++			p = 1 - p;
++			if (!(k % 16)) {
++				w0(0xfe); t = r1(); w0(0xff);
++				if (t & 8) break;
++			}
++		}
++		w0(0); w2(4);
++		break;
++
++	case 2: w0(0x17); w2(1);
++		p = 1;
++		while (k < len) {
++			w2(0x24+p);
++			buf[k++] = r0();
++			p = 1 - p;
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(6); w2(4);
++		break;
++
++	case 3: w3(6); w2(0x24);
++		while (k < len) {
++			buf[k++] = r4();
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++
++	case 4: w3(6); w2(0x24);
++		while (k < len) {
++			if ((len - k) > 1) {
++				*((u16 *)(&buf[k])) = r4w();
++				k += 2;
++			} else {
++				buf[k++] = r4();
++			}
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++
++	case 5: w3(6); w2(0x24);
++		while (k < len) {
++			if ((len - k) > 3) {
++				*((u32 *)(&buf[k])) = r4l();
++				k += 4;
++			} else {
++				buf[k++] = r4();
++			}
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++	}
++
++	return k;
++}
++
++static int epsa2_write_block (PHA *pha, char *buf, int len)
++{
++	int p, k;
++
++	k = 0;
++
++	switch (pha->mode) {
++
++	case 0:
++	case 1:
++	case 2: w0(0x37); w2(1);
++		p = 1;
++		while (k < len) {
++			w2(4+p);
++			w0(buf[k++]);
++			p = 1 - p;
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(5); w2(7); w2(4);
++		break;
++
++	case 3: w3(0x46);
++		while (k < len) {
++			w4(buf[k++]);
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++
++	case 4: w3(0x46);
++		while (k < len) {
++			if ((len - k) > 1) {
++				w4w(*((u16 *)(&buf[k])));
++				k += 2;
++			} else {
++				w4(buf[k++]);
++			}
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++
++	case 5: w3(0x46);
++		while (k < len) {
++			if ((len - k) > 3) {
++				w4l(*((u32 *)(&buf[k])));
++				k += 4;
++			} else {
++				w4(buf[k++]);
++			}
++			if ((!(k % 16)) && (r1() & 8)) break;
++		}
++		w2(4);
++		break;
++	}
++
++	return k;
++}
++
++#define WR(r,v)		epsa2_write_regr(pha,r,v)
++#define RR(r)		(epsa2_read_regr(pha,r))
++
++#define CPP(x)	w2(4);w0(0x22);w0(0xaa);w0(0x55);w0(0);w0(0xff);\
++		w0(0x87);w0(0x78);w0(x);w2(5);w2(4);w0(0xff);
++
++static void epsa2_connect (PHA *pha)
++{
++	CPP(0x40); CPP(0xe0);
++
++	w0(0x73); w2(1); w0(0); w2(4);
++	w0(0x72); w2(1); w0(0x40); w2(4);
++
++	w0(0); w2(1); w2(4);
++
++	CPP(0x50); CPP(0x48);
++
++	switch (pha->mode) {
++
++	case 0:	WR(7,0x82);
++		break;
++
++	case 1:
++	case 2: WR(7,0xa2);
++		break;
++
++	case 3:
++	case 4:
++	case 5: CPP(0x30); CPP(0x20);
++		WR(7,0xa3);
++		break;
++	}
++
++	w2(4);
++}
++
++static void epsa2_disconnect (PHA *pha)
++{
++	switch (pha->mode) {
++
++	case 0:	WR(7,2); WR(2,0);
++		break;
++
++	case 1:
++	case 2: WR(7,0x22); WR(2,0);
++		break;
++
++	case 3:
++	case 4:
++	case 5: WR(7,0x23); w2(4);
++		w0(0x72); w2(1); w0(0); w2(4);
++		break;
++	}
++
++	CPP(0x30); CPP(0x40);
++}
++
++static int epsa2_test_proto (PHA *pha)
++{
++	int i, j, e;
++	char wb[16], rb[16];
++
++	e = 0;
++
++	epsa2_connect(pha);
++	i = RR(7);
++	if (V_PROBE) printk("%s: version code reads: 0x%x\n",pha->device,i);
++	epsa2_disconnect(pha);
++
++	if (i != EPSA2_VER_CODE) return 1;
++
++	epsa2_connect(pha);
++
++	for (j=0;j<200;j++) {
++		for (i=0;i<16;i++) { wb[i] = i+j; rb[i] = i+j+6; }
++		WR(5,1);
++		epsa2_write_block(pha,wb,16);
++		udelay(100);
++		WR(5,0x11);
++		epsa2_read_block(pha,rb,16);
++		for (i=0;i<16;i++) if (wb[i] != rb[i]) e++;
++	}
++
++	epsa2_disconnect(pha);
++
++	if (V_FULL)
++		printk("%s: test port 0x%x mode %d errors %d\n",
++		       pha->device,pha->port,pha->mode,e);
++
++	return e;
++}
++
++/* The EPSA2 contains a core SCSI controller that is very
++   similar to the NCR 5380.  Some bits have been shuffled
++   around, but the basic structure is the same.
++*/
++
++static int epsa2_select (PHA *pha, int initiator, int target)
++{
++	WR(4,(1<<initiator));
++	WR(5,0); WR(1,0); WR(2,0x40);
++
++	WR(3,0); WR(1,1);
++	WR(0,(1<<initiator)); WR(2,0x41); udelay(100);
++	if (RR(1) != 0x41) {
++		WR(1,0);
++		return -1;
++	}
++
++	WR(1,5); WR(0,(1<<initiator)|(1<<target));
++	WR(2,0x40); WR(2,0x40); WR(2,0x40);
++
++	return 0;
++}
++
++static int epsa2_test_select (PHA *pha)
++{
++	return ((RR(4) & 0x50) == 0x50);
++}
++
++static void epsa2_select_finish (PHA *pha)
++{
++	WR(3,2); WR(1,5); WR(1,1);
++}
++
++static void epsa2_deselect (PHA *pha)
++{
++	WR(1,0); WR(2,0x40); WR(3,0);
++}
++
++static int epsa2_get_bus_status (PHA *pha)
++{
++	return epsa2_map[RR(4)];
++}
++
++static void epsa2_slow_start (PHA *pha, char *val)
++{
++	int ph, io;
++
++	ph = RR(4) & 7;
++	io = ph & 1;
++
++	WR(3,ph);
++	WR(1,1-io);
++	if (io) *val = RR(0); else WR(0,*val);
++	WR(1,0x11-io);
++}
++
++static int epsa2_slow_done (PHA *pha)
++{
++	return ((RR(4) & 0x20) == 0);
++}
++
++static void epsa2_slow_end (PHA *pha)
++{
++	WR(1,1-(RR(4)&1));
++}
++
++static void epsa2_start_block (PHA *pha, int rd)
++{
++	WR(5,0);
++
++	if (rd)	{
++
++		WR(3,1); WR(1,0);
++		WR(5,0x55); WR(2,0x42);
++
++	} else	{
++
++		WR(3,0); WR(1,1);
++		WR(5,0x45); WR(2,0x42);
++
++	}
++}
++
++static int epsa2_transfer_ready (PHA *pha)
++{
++	int r;
++
++	r = RR(5);
++
++	if (r & 0x10) return 1;		/* ring buffer half ready */
++	if ((!(r & 8)) && (r & 0x20)) return 1;	 /* last fragment */
++	if (!(r & 8)) return -1;	/* phase change */
++	return 0;
++}
++
++static int epsa2_transfer_done (PHA *pha)
++{
++	if (RR(5) & 0x20) return 0;		/* ring buffer not empty */
++	return 1;
++}
++
++static int epsa2_transfer_block (PHA *pha, char * buf, int buflen, int rd)
++{
++	if (epsa2_transfer_ready(pha) <= 0) return 0;
++
++	if (rd) return epsa2_read_block(pha,buf,buflen);
++	else	return epsa2_write_block(pha,buf,buflen);
++}
++
++static void epsa2_end_block (PHA *pha, int rd)
++{
++	WR(2,0x40); WR(3,0); WR(1,0);
++}
++
++static void epsa2_reset_bus (PHA *pha)
++{
++	WR(1,1); WR(3,0);
++	WR(2,0x40);
++	WR(1,0x80); udelay(60);
++	WR(1,0);
++	WR(2,0x40);
++	WR(1,1); WR(3,0);
++	WR(2,0x40);
++}
++
++static char *(mode_strings[6]) = {"Nybble","5/3","PS/2","EPP","EPP-16","EPP-32"};
++
++static struct ppsc_protocol epsa2_psp =	 {
++
++	{&host0,&host1,&host2,&host3},		/* params	 */
++	&host_structs,				/* hosts	 */
++	6,					/* num_modes	 */
++	3,					/* epp_first	 */
++	1,					/* default_delay */
++	1,					/* can_message	 */
++	16,					/* sg_tablesize	 */
++	mode_strings,
++	epsa2_init,
++	NULL,
++	epsa2_connect,
++	epsa2_disconnect,
++	epsa2_test_proto,
++	epsa2_select,
++	epsa2_test_select,
++	epsa2_select_finish,
++	epsa2_deselect,
++	epsa2_get_bus_status,
++	epsa2_slow_start,
++	epsa2_slow_done,
++	epsa2_slow_end,
++	epsa2_start_block,
++	epsa2_transfer_block,
++	epsa2_transfer_ready,
++	epsa2_transfer_done,
++	epsa2_end_block,
++	epsa2_reset_bus
++};
++
++int epsa2_detect (struct scsi_host_template *tpnt)
++{
++	return ppsc_detect( &epsa2_psp, tpnt, verbose);
++}
++
++#ifdef MODULE
++
++struct scsi_host_template	driver_template = PPSC_TEMPLATE(epsa2);
++
++#include "scsi_module.c"
++
++MODULE_LICENSE("GPL");
++
++#else
++
++void epsa2_setup (char *str, int *ints)
++{
++	ppsc_gen_setup(stt,4,str);
++}
++
++#endif
++
++/* end of epsa2.c */
+--- /dev/null
++++ b/drivers/scsi/ppscsi.c
+@@ -0,0 +1,1294 @@
++/*
++        ppscsi.c        (C) 1999 Grant Guenther <grant@torque.net>
++                        (C) 2000 Tim Waugh <tim@cyberelk.demon.co.uk>
++                        Under the terms of the GNU general public license.
++
++	This is the common code shared by the PPSCSI family of
++	low-level drivers for parallel port SCSI host adapters.
++
++
++	To use one of the ppSCSI drivers, you must first have this module
++	built-in to your kernel, or loaded.  Then, you can load the
++	appropriate protocol module.  All protocol modules accept the
++	same parameters:
++
++	verbose=N	determines the logging level where N=
++			  0   only serious errors are logged
++			  1   report progress messages while probing adapters
++			  2   log the scsi commands sent to adapters
++			  3   basic debugging information
++			  4   full debugging (generates lots of output)
++
++	hostN=<port>,<mode>,<dly>,<nice>,<sgts>,<slow>
++
++			sets per-host-adapter parameters where
++
++			N 	is between 0 and 3, each protocol can
++                        	support up to four separate adapters.
++
++			<port>	The parport for this adapter, eg:
++				0 for parport0.
++
++			<mode>	Protocol dependent mode number.  Usually
++				probed to determine the fastest available
++				mode.
++
++			<dly>   microseconds of delay per port access.
++				Default is protocol dependent.
++
++			<nice>  Determines this host's ability to load
++				the system.  Default 0.  Set to 1 or 2
++				to reduce load at the expense of device
++				performance.
++
++			<sgts>	scatter-gather table size.
++
++			<slow>  bit mask of targets on which to force
++				all commands to use explicit REQ/ACK
++				handshaking, rather than adapter buffers.
++
++*/
++
++#define PPSC_VERSION	"0.92"
++
++#define PPSC_BASE
++#include "ppscsi.h"
++#include <linux/ctype.h>
++#include <linux/string.h>
++#include <linux/spinlock.h>
++#include <linux/ioport.h>
++
++#include <linux/parport.h>
++
++#define PPSC_GEN_TMO	40*HZ
++#define PPSC_SELECT_TMO HZ/10
++#define PPSC_PROBE_TMO  HZ/2
++#define PPSC_RESET_TMO	4*HZ
++#define PPSC_SLOW_LOOPS	30
++#define PPSC_BUSY_SNOOZE HZ;
++
++#define PPSC_DEF_NICE	0
++#define PPSC_INITIATOR  7
++
++spinlock_t      ppsc_spinlock = SPIN_LOCK_UNLOCKED;
++
++static char	ppsc_bulk_map[256];
++
++struct ppsc_port_list_struct {
++	struct parport *port;
++	struct ppsc_port_list_struct *next;
++};
++static struct ppsc_port_list_struct *ppsc_port_list;
++
++/* ppsc_attach and ppsc_detach are for keeping a list of currently
++ * available ports, held under a mutex.  We do this rather than
++ * using parport_enumerate because it stops a load of races.
++ */
++
++static void ppsc_attach (struct parport *port)
++{
++	struct ppsc_port_list_struct *add;
++
++	add = kmalloc (sizeof (struct ppsc_port_list_struct), GFP_KERNEL);
++	if (!add) {
++		printk (KERN_WARNING "ppscsi: memory squeeze\n");
++		return;
++	}
++
++	add->port = parport_get_port (port);
++	add->next = ppsc_port_list;
++	wmb ();
++	ppsc_port_list = add;
++}
++
++static void ppsc_detach (struct parport *port)
++{
++	/* Do nothing.  We have a reference to the port already, so
++	 * it won't go away.  We'll clean up the port list when we
++	 * unload. */
++}
++
++static struct parport_driver ppsc_driver = {
++	name:	"ppscsi",
++	attach:	ppsc_attach,
++	detach:	ppsc_detach
++};
++
++void ppsc_make_map (char map[256], char key[5], int inv)
++{
++	int i, j;
++
++	for (i=0;i<256;i++) {
++		map[i] = 0;
++		for (j=0;j<5;j++)
++			map[i] = (map[i] << 1) | ((i & key[j]) != inv*key[j]);
++	}
++}
++
++void ppsc_gen_setup (STT t[], int n, char *ss)
++{
++	int j, k, sgn;
++
++	k = 0;
++	for (j=0;j<n;j++) {
++		k = strlen(t[j].tag);
++		if (strncmp(ss,t[j].tag,k) == 0) break;
++	}
++	if (j == n) return;
++
++	if (ss[k] == 0) {
++		t[j].iv[0] = 1;
++		return;
++	}
++
++	if (ss[k] != '=') return;
++	ss += (k+1);
++
++	k = 0;
++	while (ss && (k < t[j].size)) {
++		if (!*ss) break;
++		sgn = 1;
++		if (*ss == '-') { ss++; sgn = -1; }
++		if (!*ss) break;
++		if (isdigit(*ss))
++			t[j].iv[k] = sgn * simple_strtoul(ss,NULL,0);
++		k++;
++		if ((ss = strchr(ss,',')) != NULL) ss++;
++	}
++}
++
++static void ppsc_set_intr (PHA *pha, void (*continuation)(PHA *),
++			   int (*ready)(PHA *), int timeout)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&ppsc_spinlock,flags);
++
++	pha->continuation = continuation;
++	pha->ready = ready;
++	if (timeout)
++		pha->timeout = jiffies + timeout;
++	  else	pha->timeout = pha->then + pha->tmo;
++
++	if (!pha->nice && !pha->wq_active) {
++#ifdef HAVE_DISABLE_HLT
++		disable_hlt();
++#endif
++		pha->wq_active = 1;
++		schedule_work (&pha->wq);
++	}
++
++	if (!pha->timer_active) {
++		pha->timer_active = 1;
++		pha->timer.expires = jiffies + ((pha->nice>0)?(pha->nice-1):0);
++		add_timer(&pha->timer);
++	}
++
++	spin_unlock_irqrestore(&ppsc_spinlock,flags);
++}
++
++static void ppsc_tq_int (void *data)
++{
++	void (*con)(PHA *);
++	unsigned long flags;
++	PHA *pha = (PHA *)data;
++
++	spin_lock_irqsave(&ppsc_spinlock,flags);
++
++	con = pha->continuation;
++
++#ifdef HAVE_DISABLE_HLT
++	enable_hlt();
++#endif
++
++	pha->wq_active = 0;
++
++	if (!con) {
++		spin_unlock_irqrestore(&ppsc_spinlock,flags);
++		return;
++	}
++	pha->timedout = time_after_eq (jiffies, pha->timeout);
++	if (!pha->ready || pha->ready(pha) || pha->timedout) {
++		pha->continuation = NULL;
++		spin_unlock_irqrestore(&ppsc_spinlock,flags);
++		con(pha);
++		return;
++	}
++
++#ifdef HAVE_DISABLE_HLT
++	disable_hlt();
++#endif
++
++	pha->wq_active = 1;
++	schedule_work (&pha->wq);
++	spin_unlock_irqrestore(&ppsc_spinlock,flags);
++}
++
++static void ppsc_timer_int (unsigned long data)
++{
++	void (*con)(PHA *);
++	unsigned long flags;
++	PHA *pha = (PHA *)data;
++
++	spin_lock_irqsave(&ppsc_spinlock,flags);
++
++	con = pha->continuation;
++	pha->timer_active = 0;
++	if (!con) {
++		spin_unlock_irqrestore(&ppsc_spinlock,flags);
++		return;
++	}
++	pha->timedout = time_after_eq (jiffies, pha->timeout);
++	if (!pha->ready || pha->ready(pha) || pha->timedout) {
++		pha->continuation = NULL;
++		spin_unlock_irqrestore(&ppsc_spinlock,flags);
++		con(pha);
++		return;
++	}
++	pha->timer_active = 1;
++	pha->timer.expires = jiffies + ((pha->nice>0)?(pha->nice-1):0);
++	add_timer(&pha->timer);
++	spin_unlock_irqrestore(&ppsc_spinlock,flags);
++}
++
++static void ppsc_wake_up( void *p)
++{
++	PHA *pha = (PHA *) p;
++	unsigned long flags;
++	void (*cont)(PHA *) = NULL;
++
++	spin_lock_irqsave(&ppsc_spinlock,flags);
++
++	if (pha->claim_cont &&
++	    !parport_claim(pha->pardev)) {
++		cont = pha->claim_cont;
++		pha->claim_cont = NULL;
++		pha->claimed = 1;
++	}
++
++	spin_unlock_irqrestore(&ppsc_spinlock,flags);
++
++	wake_up(&(pha->parq));
++
++	if (cont) cont(pha);
++}
++
++void ppsc_do_claimed (PHA *pha, void(*cont)(PHA *))
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&ppsc_spinlock,flags);
++
++	if (!parport_claim(pha->pardev)) {
++		pha->claimed = 1;
++		spin_unlock_irqrestore(&ppsc_spinlock,flags);
++		cont(pha);
++	} else {
++		pha->claim_cont = cont;
++		spin_unlock_irqrestore(&ppsc_spinlock,flags);
++	}
++}
++
++static void ppsc_claim (PHA *pha)
++{
++	if (pha->claimed) return;
++	pha->claimed = 1;
++
++	wait_event (pha->parq, !parport_claim (pha->pardev));
++}
++
++static void ppsc_unclaim (PHA *pha)
++{
++	pha->claimed = 0;
++	parport_release(pha->pardev);
++}
++
++static void ppsc_unregister_parport (PHA *pha)
++{
++	parport_unregister_device(pha->pardev);
++	pha->pardev = NULL;
++}
++
++static int ppsc_register_parport (PHA *pha, int verbose)
++{
++	struct ppsc_port_list_struct *ports;
++	struct parport *port = NULL;
++
++	ports = ppsc_port_list;
++	while((ports)&&(ports->port->number != pha->port))
++		ports = ports->next;
++	if (ports) {
++		port = ports->port;
++		pha->pardev = parport_register_device(port, pha->device,
++						      NULL, ppsc_wake_up, NULL,
++						      0, (void *)pha);
++	} else {
++		printk (KERN_DEBUG "%s: no such device: parport%d\n",
++			pha->device, pha->port);
++		return 1;
++	}
++
++	if (!pha->pardev) {
++		printk (KERN_DEBUG "%s: couldn't register device\n",
++			pha->device);
++		return 1;
++	}
++
++	init_waitqueue_head (&pha->parq);
++
++	/* For now, cache the port base address.  Won't need this
++	   after transition to parport_xxx_yyy. */
++	pha->port = port->base;
++
++	if (verbose)
++		printk("%s: 0x%x is %s\n",pha->device,pha->port,
++		       port->name);
++	pha->parname = port->name;
++	return 0;
++}
++
++/* Here's the actual core SCSI stuff ... */
++
++#define PPSC_FAIL(err,msg)  { ppsc_fail_command(pha,err,msg); return; }
++
++static void ppsc_start (PHA *pha);
++static void ppsc_select_intr (PHA *pha);
++static void ppsc_engine (PHA *pha);
++static void ppsc_transfer (PHA *pha);
++static void ppsc_transfer_done (PHA *pha);
++static int ppsc_slow (PHA *pha, char *val);
++static void ppsc_slow_done (PHA *pha);
++static void ppsc_cleanup (PHA *pha);
++static void ppsc_fail_command (PHA *pha, int err_code, char *msg);
++static int ppsc_ready (PHA *pha);
++
++/* synchronous interface is deprecated, but we maintain it for
++   internal use.  It just starts an asynchronous command and waits
++   for it to complete.
++*/
++
++int ppsc_command (struct scsi_cmnd *cmd)
++{
++	PHA *pha = (PHA *) cmd->device->host->hostdata[0];
++
++	pha->cur_cmd = cmd;
++	pha->done = NULL;
++	pha->then = jiffies;
++
++	ppsc_do_claimed(pha,ppsc_start);
++
++	while (pha->cur_cmd) scsi_sleep(1);
++
++	return cmd->result;
++}
++
++int ppsc_queuecommand (struct scsi_cmnd *cmd, void (*done)(struct scsi_cmnd *))
++{
++	PHA *pha = (PHA *) cmd->device->host->hostdata[0];
++
++	if (pha->cur_cmd) {
++		printk("%s: Driver is busy\n",pha->device);
++		return 0;
++	}
++
++	pha->cur_cmd = cmd;
++	pha->done = done;
++	pha->then = jiffies;
++
++	ppsc_do_claimed(pha,ppsc_start);
++
++	return 0;
++}
++
++static void ppsc_arb_fail (PHA *pha)
++{
++	PPSC_FAIL(DID_BUS_BUSY,"Arbitration failure");
++}
++
++static void ppsc_start (PHA *pha)
++{
++	int k, r, b, bf;
++	struct scatterlist *p;
++
++	pha->last_phase = PPSC_PH_NONE;
++	pha->return_code = (DID_OK << 16);
++	pha->overflow = 0;
++	pha->protocol_error = 0;
++	pha->cmd_count = 0;
++
++	k = pha->cur_cmd->cmnd[0];
++	bf = ppsc_bulk_map[k];
++
++	bf &= (!((1<<pha->cur_cmd->device->id) & pha->slow_targets));
++
++	r = pha->cur_cmd->use_sg;
++	if (r) {
++		b = 0;
++		p = (struct scatterlist *)pha->cur_cmd->request_buffer;
++		for (k=0;k<r;k++) {
++			b += p->length;
++			p++;
++		}
++	} else {
++		b = pha->cur_cmd->request_bufflen;
++	}
++
++	bf &= (b > 127);
++
++	if (V_DEBUG)
++		printk("%s: Target %d, bl=%d us=%d bf=%d cm=%x\n",
++		       pha->device,pha->cur_cmd->device->id,b,r,bf,k);
++
++	pha->bulk = bf;
++	pha->tlen = b;
++
++	pha->proto->connect(pha);
++
++	r = 0;
++	while (r++ < 5) {
++		k = pha->proto->select(pha,PPSC_INITIATOR,pha->cur_cmd->device->id);
++		if (k != -1) break;
++		udelay(200);
++	}
++
++	if (k == -1) {
++		ppsc_set_intr(pha,ppsc_arb_fail,NULL,1);
++		return;
++	}
++
++	ppsc_set_intr(pha,ppsc_select_intr,pha->proto->test_select,
++		      PPSC_SELECT_TMO);
++}
++
++static void ppsc_select_intr (PHA *pha)
++{
++	if (!pha->proto->test_select(pha)) {
++		pha->return_code = DID_NO_CONNECT << 16;
++		ppsc_cleanup(pha);
++		return;
++	}
++	if (pha->proto->select_finish)
++		pha->proto->select_finish(pha);
++
++	if (V_FULL)
++		printk("%s: selected target\n",pha->device);
++
++	pha->timedout = 0;
++	ppsc_engine(pha);
++}
++
++static void ppsc_update_sg (PHA *pha)
++{
++	if ((!pha->cur_len) && pha->sg_count) {
++		pha->sg_count--;
++		pha->sg_list++;
++		pha->cur_buf = page_address(pha->sg_list->page) + pha->sg_list->offset;
++		pha->cur_len = pha->sg_list->length;
++	}
++}
++
++static void ppsc_engine (PHA *pha)
++{
++	int phase, i;
++	char *sb;
++
++	while (1) {
++		if ((pha->last_phase == PPSC_PH_MSGIN) ||
++		    ((pha->last_phase == PPSC_PH_STAT)
++		     && (!pha->proto->can_message))) {
++			pha->return_code |= (pha->status_byte & STATUS_MASK)
++				|  (pha->message_byte << 8);
++			ppsc_cleanup(pha);
++			return;
++		}
++
++		phase = pha->proto->get_bus_status(pha);
++
++		if (pha->abort_flag)
++			PPSC_FAIL(DID_ABORT,"Command aborted");
++
++		if (pha->protocol_error)
++			PPSC_FAIL(DID_ERROR,"Adapter protocol failure");
++
++		if (!(phase & PPSC_BSY)) {
++			if (pha->last_phase == PPSC_PH_STAT) {
++				if (V_DEBUG) printk("%s: No msg phase ?\n", pha->device);
++				pha->return_code |= (pha->status_byte & STATUS_MASK);
++				ppsc_cleanup(pha);
++				return;
++			}
++			PPSC_FAIL(DID_ERROR,"Unexpected bus free");
++		}
++
++		if (!(phase & PPSC_REQ)) {
++			if (pha->timedout)
++				PPSC_FAIL(DID_TIME_OUT,"Pseudo-interrupt timeout");
++			ppsc_set_intr(pha,ppsc_engine,ppsc_ready,0);
++			return;
++		}
++
++		switch (phase) {
++
++		case PPSC_PH_CMD:
++
++			if (phase != pha->last_phase) {
++				if (pha->last_phase != PPSC_PH_NONE)
++					PPSC_FAIL(DID_ERROR,"Phase sequence error 1");
++				pha->cmd_count = 0;
++				if (V_TRACE) {
++					printk("%s: Command to %d (%d): ",
++					       pha->device, pha->cur_cmd->device->id,
++					       pha->cur_cmd->cmd_len);
++					for (i=0;i<pha->cur_cmd->cmd_len;i++)
++						printk("%2x ",pha->cur_cmd->cmnd[i]);
++					printk("\n");
++				}
++			}
++
++			pha->last_phase = phase;
++
++			if (pha->cmd_count >= pha->cur_cmd->cmd_len)
++				PPSC_FAIL(DID_ERROR,"Command buffer overrun");
++
++			if (!ppsc_slow(pha,&(pha->cur_cmd->cmnd[pha->cmd_count++])))
++				return;
++
++			break;
++
++		case PPSC_PH_READ:
++		case PPSC_PH_WRITE:
++
++			if (phase != pha->last_phase) {
++				if (pha->last_phase != PPSC_PH_CMD)
++					PPSC_FAIL(DID_ERROR,"Phase sequence error 2");
++				pha->data_dir = phase & PPSC_IO;
++				pha->data_count = 0;
++
++				pha->sg_count = pha->cur_cmd->use_sg;
++				if (pha->sg_count) {
++					pha->sg_count--;
++					pha->sg_list =
++						(struct scatterlist *)pha->cur_cmd->request_buffer;
++					pha->cur_buf = page_address(pha->sg_list->page) + pha->sg_list->offset;
++					pha->cur_len = pha->sg_list->length;
++				} else {
++					pha->cur_buf = pha->cur_cmd->request_buffer;
++					pha->cur_len = pha->cur_cmd->request_bufflen;
++				}
++
++				pha->last_phase = phase;
++
++			}
++
++			if ((pha->bulk) && (pha->cur_len > 0 )) {
++				pha->proto->start_block(pha,pha->data_dir);
++				ppsc_transfer(pha);
++				return;
++			}
++
++			ppsc_update_sg(pha);
++
++			if (!pha->cur_len) {
++				pha->cur_len = 1;
++				pha->cur_buf = (char *)&i;
++				i = 0x5a;
++				pha->overflow++;
++			}
++
++			pha->cur_len--;
++			pha->data_count++;
++
++			if (!ppsc_slow(pha,pha->cur_buf++)) return;
++
++			break;
++
++		case PPSC_PH_STAT:
++
++			if ((pha->last_phase != PPSC_PH_CMD) &&
++			    (pha->last_phase != PPSC_PH_READ) &&
++			    (pha->last_phase != PPSC_PH_WRITE))
++				PPSC_FAIL(DID_ERROR,"Phase sequence error 3");
++
++			if ((pha->last_phase != PPSC_PH_CMD) &&
++			    (V_DEBUG)) {
++				printk("%s: %s%s %d bytes\n",
++				       pha->device,
++				       pha->bulk?"":"slow ",
++				       pha->data_dir?"read":"write",
++				       pha->data_count);
++
++				if (pha->cur_cmd->cmnd[0] == REQUEST_SENSE) {
++
++					sb = (char *)pha->cur_cmd->request_buffer;
++					printk("%s: Sense key: %x ASC: %x ASCQ: %x\n",
++					       pha->device, sb[2] & 0xff,
++					       sb[12] & 0xff, sb[13] & 0xff);
++				}
++			}
++
++			if (pha->overflow)
++				printk("%s: WARNING: data %s overran by %d/%d bytes\n",
++				       pha->device,pha->data_dir?"read":"write",
++				       pha->overflow,pha->data_count);
++
++			pha->last_phase = phase;
++
++			if (!ppsc_slow(pha,&pha->status_byte)) return;
++
++			break;
++
++		case PPSC_PH_MSGIN:
++
++			if (pha->last_phase != PPSC_PH_STAT)
++				PPSC_FAIL(DID_ERROR,"Phase sequence error 4");
++
++			pha->last_phase = phase;
++
++			if (V_FULL)
++				printk("%s: status = %x\n",pha->device,pha->status_byte);
++
++			if (!ppsc_slow(pha,&pha->message_byte)) return;
++
++			break;
++
++		default:
++
++			PPSC_FAIL(DID_ERROR,"Unexpected bus phase");
++
++		}
++	}
++}
++
++static void ppsc_transfer (PHA *pha)
++{
++	int i, j;
++
++	if (pha->timedout)
++		PPSC_FAIL(DID_TIME_OUT,"PDMA timeout");
++
++	while(1) {
++
++		if (!(j=pha->proto->transfer_ready(pha))) {
++			ppsc_set_intr(pha,ppsc_transfer,
++				      pha->proto->transfer_ready,0);
++			return;
++		}
++
++		if (j < 0) {
++			if (V_DEBUG)
++				printk("%s: short transfer\n",pha->device);
++			ppsc_set_intr(pha,ppsc_transfer_done,
++				      pha->proto->transfer_done,0);
++			return;
++		}
++
++		i = pha->proto->transfer_block(pha,pha->cur_buf,
++					       pha->cur_len,pha->data_dir);
++
++		if (V_FULL)
++			printk("%s: Fragment %d\n",pha->device,i);
++
++		if ((i < 0) || (i > pha->cur_len))
++			PPSC_FAIL(DID_ERROR,"Block transfer error");
++
++		pha->cur_len -= i;
++		pha->cur_buf += i;
++		pha->data_count += i;
++
++		ppsc_update_sg(pha);
++
++		if (pha->cur_len == 0 )  {
++			ppsc_set_intr(pha,ppsc_transfer_done,
++				      pha->proto->transfer_done,0);
++			return;
++		}
++	}
++}
++
++static void ppsc_transfer_done (PHA *pha)
++{
++	if (pha->timedout) PPSC_FAIL(DID_TIME_OUT,"PDMA done timeout");
++
++	pha->proto->end_block(pha,pha->data_dir);
++	ppsc_engine(pha);
++}
++
++static int ppsc_slow (PHA *pha, char *val)
++{
++	int k;
++
++	pha->proto->slow_start(pha,val);
++
++	k = 0;
++	while (k++ < PPSC_SLOW_LOOPS)
++		if (pha->proto->slow_done(pha)) {
++			pha->proto->slow_end(pha);
++			return 1;
++		}
++
++	ppsc_set_intr(pha,ppsc_slow_done,pha->proto->slow_done,0);
++	return 0;
++}
++
++static void ppsc_slow_done (PHA *pha)
++{
++	int k;
++
++	if (pha->timedout) PPSC_FAIL(DID_TIME_OUT,"PIO timeout");
++
++	pha->proto->slow_end(pha);
++
++	k = 0;
++	while (k++ < PPSC_SLOW_LOOPS)
++		if (ppsc_ready(pha)) break;
++
++	ppsc_engine(pha);
++}
++
++static void ppsc_try_again (unsigned long data )
++{
++	PHA *pha = (PHA *)data;
++
++	ppsc_do_claimed(pha,ppsc_start);
++}
++
++static void ppsc_cleanup (PHA *pha)
++{
++	struct scsi_cmnd *cmd;
++	void (*done)(struct scsi_cmnd *);
++	unsigned long saved_flags;
++
++	pha->tot_bytes += pha->data_count;
++
++	cmd = pha->cur_cmd;
++	done = pha->done;
++	cmd->result = pha->return_code;
++	pha->cur_cmd = 0;
++
++	pha->proto->deselect(pha);
++	pha->proto->disconnect(pha);
++
++	if (V_FULL) printk("%s: releasing parport\n",pha->device);
++
++	ppsc_unclaim(pha);
++
++	if (pha->abort_flag) {
++
++		if (V_DEBUG) printk("%s: command aborted !\n",pha->device);
++
++		return;	 /* kill the thread */
++	}
++
++	if (V_DEBUG)
++		printk("%s: Command status %08x last phase %o\n",
++		       pha->device,cmd->result,pha->last_phase);
++
++	if (status_byte(pha->return_code) == BUSY) {
++
++		pha->cur_cmd = cmd;
++
++		if (V_FULL)
++			printk("%s: BUSY, sleeping before retry ...\n",
++			       pha->device);
++
++		init_timer (&pha->sleeper);
++		pha->sleeper.data = (unsigned long) pha;
++		pha->sleeper.function = ppsc_try_again;
++		pha->sleeper.expires = jiffies + PPSC_BUSY_SNOOZE;
++		add_timer(&pha->sleeper);
++
++		return;
++
++	}
++
++	pha->tot_cmds++;
++
++	if ((cmd->cmnd[0] != REQUEST_SENSE) &&
++	    (status_byte(pha->return_code) == CHECK_CONDITION)) {
++
++		if (V_FULL)
++			printk("%s: Requesting sense data\n",pha->device);
++
++		cmd->cmnd[0] = REQUEST_SENSE;
++		cmd->cmnd[1] &= 0xe0;
++		cmd->cmnd[2] = 0;
++		cmd->cmnd[3] = 0;
++		cmd->cmnd[4] = sizeof(cmd->sense_buffer);
++		cmd->cmnd[5] = 0;
++		cmd->cmd_len = 6;
++		cmd->use_sg = 0;
++		cmd->request_buffer = (char *) cmd->sense_buffer;
++		cmd->request_bufflen = sizeof(cmd->sense_buffer);
++
++		pha->cur_cmd = cmd;
++		ppsc_do_claimed(pha,ppsc_start);
++
++		return;
++	}
++
++	if (done) {
++
++		spin_lock_irqsave(pha->host_ptr->host_lock,saved_flags);
++		done(cmd);
++		spin_unlock_irqrestore(pha->host_ptr->host_lock,saved_flags);
++
++	}
++
++}
++
++static void ppsc_fail_command (PHA *pha, int err_code, char *msg)
++{
++	int bs;
++
++	pha->tot_errs++;
++
++	bs = pha->proto->get_bus_status(pha);
++
++	pha->return_code = err_code << 16;
++	if (!pha->quiet)
++		printk("%s: %s, bs=%o cb=%d db=%d bu=%d sg=%d "
++		       "rd=%d lp=%o pe=%d cc=%d\n",
++		       pha->device, msg, bs,
++		       pha->cmd_count, pha->data_count,
++		       pha->bulk, pha->sg_count, pha->data_dir,
++		       pha->last_phase, pha->protocol_error, pha->tot_cmds);
++
++	ppsc_cleanup(pha);
++}
++
++static int ppsc_ready (PHA *pha)
++{
++	int bs;
++
++	if (pha->abort_flag || pha->protocol_error) return 1;
++	bs = pha->proto->get_bus_status(pha);
++
++	if ( (bs & (PPSC_REQ|PPSC_BSY)) != PPSC_BSY) return 1;
++
++	return 0;
++}
++
++int ppsc_abort (struct scsi_cmnd * cmd)
++{
++	PHA *pha = (PHA *)cmd->device->host->hostdata[0];
++
++	printk("%s: Command abort not supported\n",pha->device);
++	return FAILED;
++}
++
++static void ppsc_reset_pha (PHA *pha)
++{
++	if (!pha->proto->reset_bus) {
++		printk("%s: No reset method available\n",pha->device);
++		return;
++	}
++
++	ppsc_claim(pha);
++	pha->proto->connect(pha);
++	pha->proto->reset_bus(pha);
++	scsi_sleep(4*HZ);
++	pha->proto->disconnect(pha);
++	ppsc_unclaim(pha);
++
++	if (!pha->quiet) printk("%s: Bus reset\n",pha->device);
++}
++
++int ppsc_reset (struct scsi_cmnd * cmd)
++{
++	PHA *pha = (PHA *)cmd->device->host->hostdata[0];
++	int k = 0;
++
++	if (!pha->proto->reset_bus)
++		return FAILED;
++
++	if (pha->cur_cmd)
++		pha->abort_flag = PPSC_DO_RESET;
++
++	while (pha->cur_cmd && (k < PPSC_RESET_TMO)) {
++		scsi_sleep(HZ/10);
++		k += HZ/10;
++	}
++
++	if (pha->cur_cmd) {
++		printk("%s: Driver won't give up for reset\n",pha->device);
++		return FAILED;
++	}
++
++	ppsc_reset_pha(pha);
++
++	return SUCCESS;
++}
++
++#define PROCIN(n,var)						\
++	if ((length>n+1)&&(strncmp(buffer,#var"=",n+1)==0)) {	\
++		pha->var = simple_strtoul(buffer+n+1,NULL,0);	\
++		return length;					\
++	}
++
++#define PROCOUT(fmt,val)  len+=sprintf(buffer+len,fmt"\n",val);
++
++int ppsc_proc_info(struct Scsi_Host *p, char *buffer, char **start, off_t offset,
++		   int length, int inout)
++{
++	int len = 0;
++	PHA *pha;
++
++	if (!p) return 0;  /* should never happen */
++	pha = (PHA *)p->hostdata[0];
++
++	if (inout) {
++
++		PROCIN(4,mode);
++		PROCIN(5,delay);
++		PROCIN(7,verbose);
++		PROCIN(10,abort_flag);
++		PROCIN(4,nice);
++
++		return (-EINVAL);
++	}
++
++	PROCOUT("ident:		 %s",pha->ident);
++	PROCOUT("base port:	 0x%03x",pha->port);
++	PROCOUT("mode:		 %d",pha->mode);
++	if (pha->proto->mode_names)
++		PROCOUT("mode name:	    %s",pha->proto->mode_names[pha->mode]);
++	PROCOUT("delay:		 %d",pha->delay);
++	PROCOUT("nice:		 %d",pha->nice);
++	PROCOUT("verbose:	 %d",pha->verbose);
++	PROCOUT("quiet:		 %d",pha->quiet);
++	PROCOUT("tot_cmds:	 %d",pha->tot_cmds);
++	PROCOUT("tot_bytes:	 %ld",pha->tot_bytes);
++	PROCOUT("tot_errs:	 %d",pha->tot_errs);
++
++	if (pha->pardev) {
++		PROCOUT("parport device: %s",pha->parname);
++		PROCOUT("claimed:	   %d",pha->claimed);
++	}
++	if (V_DEBUG) {
++		PROCOUT("then:	   %ld",pha->then);
++		PROCOUT("timeout:	   %ld",pha->timeout);
++		PROCOUT("now:		   %ld",jiffies);
++		PROCOUT("timer active:   %d",pha->timer_active);
++		PROCOUT("wq_active:	   %d",pha->wq_active);
++		PROCOUT("abort_flag:	   %d",pha->abort_flag);
++		PROCOUT("return_code:	   %08x",pha->return_code);
++		PROCOUT("last_phase:	   %o",pha->last_phase);
++		PROCOUT("cmd_count:	   %d",pha->cmd_count);
++		PROCOUT("data_count:	   %d",pha->data_count);
++		PROCOUT("data_dir:	   %d",pha->data_dir);
++		PROCOUT("bulk:	   %d",pha->bulk);
++		PROCOUT("tlen:	   %d",pha->tlen);
++		PROCOUT("overflow:	   %d",pha->overflow);
++	}
++
++	if (offset > len) return 0;
++
++	*start = buffer+offset; len -= offset;
++	if (len > length) len = length;
++	return len;
++}
++
++int ppsc_biosparam (struct scsi_device * sdev, struct block_device *bdev, sector_t capacity, int ip[])
++{
++	ip[0] = 0x40;
++	ip[1] = 0x20;
++	ip[2] = (capacity +1) / (ip[0] * ip[1]);
++	if (ip[2] > 1024) {
++		ip[0] = 0xff;
++		ip[1] = 0x3f;
++		ip[2] = (capacity +1) / (ip[0] * ip[1]);
++		if (ip[2] > 1023)
++			ip[2] = 1023;
++	}
++	return 0;
++}
++
++static int ppsc_inquire (PHA *pha, int target, char *buf)
++{
++	char inq[6] = {0x12,0,0,0,36,0};
++	int i;
++	struct scsi_cmnd cmd;
++	struct scsi_device dev;
++
++	dev.host = pha->host_ptr;
++	dev.id = target;
++	cmd.device = &dev;
++	cmd.cmd_len = 6;
++	for (i=0;i<6;i++) cmd.cmnd[i] = inq[i];
++	cmd.use_sg = 0;
++	cmd.request_buffer = buf;
++	cmd.request_bufflen = 36;
++
++	return ppsc_command(&cmd);
++}
++
++static void ppsc_test_mode (PHA *pha, int mode)
++{
++	int i, t, s, e, f, g, ok, old_mode;
++	char ibuf[38];
++
++	if ((mode >= pha->proto->epp_first) &&
++	    !(pha->pardev->port->modes & PARPORT_MODE_EPP))
++		return;
++
++	old_mode = pha->mode;
++	pha->mode = mode;
++
++	e = -1;	 f = -1;  g = 0;
++
++	if (pha->proto->test_proto) {
++		ppsc_claim(pha);
++		e = pha->proto->test_proto(pha);
++		ppsc_unclaim(pha);
++	}
++
++	if (e <= 0) {
++		f = 0;
++		for (t=0;t<8;t++) {
++			s = ppsc_inquire(pha,t,ibuf);
++			if (s == DID_NO_CONNECT << 16) continue;
++			if (s) {
++				f++;
++				break;
++			}
++			if (V_FULL) {
++				for (i=0;i<36;i++)
++					if ((ibuf[i] < ' ') || (ibuf[i] >= '~')) ibuf[i] = '.';
++				ibuf[36] = 0;
++				printk("%s: port 0x%x mode %d targ %d: %s\n",
++				       pha->device,pha->port,mode,t,ibuf);
++			}
++			g++;
++		}
++		if (f)  ppsc_reset_pha(pha);
++	}
++
++	ok = (e<=0) && (f == 0);
++
++	if (!ok) pha->mode = old_mode;
++
++	if (V_PROBE) printk("%s: port 0x%3x mode %d test %s (%d,%d,%d)\n",
++			    pha->device,pha->port,mode,ok?"passed":"failed",e,f,g);
++}
++
++
++int ppsc_release_pha (PHA *pha)
++{
++	if (pha->proto->release) pha->proto->release(pha);
++
++	ppsc_unregister_parport(pha);
++
++	/* MOD_DEC_USE_COUNT; */
++
++	return 0;
++}
++
++
++int ppsc_detect (PSP *proto, Scsi_Host_Template *tpnt, int verbose)
++{
++	int i, m, p, d, n, s, z;
++	struct ppsc_port_list_struct *next_port = NULL; /* shut gcc up */
++	int user_specified = 1;
++	PHA *pha;
++	int host_count = 0;
++	struct Scsi_Host *hreg;
++
++	m = 0;
++	for (i=0;i<4;i++) if ((*proto->params[i])[PPSC_PARM_PORT] != -1) m++;
++
++	if (!m) {
++		/* Just take parports from the list as they come. */
++		next_port = ppsc_port_list;
++		user_specified = 0;
++	}
++
++	tpnt->this_id = PPSC_INITIATOR;
++
++	for (i=0;i<4;i++) {
++		if (!user_specified) {
++			if (!next_port)
++				break;
++
++			p = next_port->port->number;
++			next_port = next_port->next;
++		}
++		else {
++			p = (*proto->params[i])[PPSC_PARM_PORT];
++			if (p < 0)
++				continue;
++		}
++
++		m = (*proto->params[i])[PPSC_PARM_MODE];
++		n = (*proto->params[i])[PPSC_PARM_NICE];
++		if (n == -1) n = PPSC_DEF_NICE;
++		d = (*proto->params[i])[PPSC_PARM_DLY];
++		if (d == -1) d = proto->default_delay;
++		s = (*proto->params[i])[PPSC_PARM_SGTS];
++		if (s == -1) s = proto->default_sg_tablesize;
++		z = (*proto->params[i])[PPSC_PARM_SLOW];
++		if (z == -1) z = 0;
++
++		/* MOD_INC_USE_COUNT; */
++
++		pha = &(((*proto->hosts)[i]));
++
++		pha->proto = proto;
++
++		pha->port = p;
++		pha->delay = d;
++		pha->nice = n;
++
++		d = sizeof(pha->device)-3;
++		p = strlen(tpnt->name);
++		if (p > d) p = d;
++		for (n=0;n<p;n++) pha->device[n] = tpnt->name[n];
++		pha->device[p] = '.';
++		pha->device[p+1] = '0' + i;
++		pha->device[p+2] = 0;
++
++		INIT_WORK(&pha->wq, ppsc_tq_int, pha);
++
++		init_timer (&pha->timer);
++		pha->timer.data = (unsigned long) pha;
++		pha->timer.function = ppsc_timer_int;
++
++		init_waitqueue_head (&pha->parq);
++		pha->pardev = NULL;
++		pha->claimed = 0;
++		pha->claim_cont = NULL;
++		pha->timer_active = 0;
++		pha->wq_active = 0;
++		pha->timedout = 0;
++
++		pha->cur_cmd = NULL;
++		pha->done = NULL;
++		pha->abort_flag = 0;
++		pha->protocol_error = 0;
++		pha->tot_errs = 0;
++		pha->tot_cmds = 0;
++		pha->tot_bytes = 0;
++
++		for (n=0;n<8;n++) pha->private[n] = 0;
++
++		pha->slow_targets = z;
++
++		if (ppsc_register_parport(pha,verbose)) {
++			/* MOD_DEC_USE_COUNT; */
++			continue;
++		}
++
++		pha->proto->init(pha);
++
++		pha->verbose = verbose;
++		pha->quiet = 1;		  /* no errors until probe over */
++		if (V_FULL) pha->quiet = 0;	  /* unless we want them ... */
++
++		pha->tmo = PPSC_PROBE_TMO;
++
++		hreg = scsi_register(tpnt,sizeof(PHA*));
++		hreg->dma_channel = -1;
++		hreg->n_io_port = 0;
++		hreg->unique_id = (int) pha; /* What should we put in here??? */
++		hreg->sg_tablesize = s;
++		hreg->hostdata[0]=(unsigned long)pha; /* Will be our pointer */
++
++		pha->host_ptr = hreg;
++
++		pha->mode = -1;
++
++		if (m == -1) for (m=0;m<proto->num_modes;m++)
++			ppsc_test_mode(pha,m);
++		else ppsc_test_mode(pha,m);
++
++		if (pha->mode != -1) {
++
++			pha->quiet = 0;		  /* enable PPSC_FAIL msgs */
++			pha->tmo = PPSC_GEN_TMO;
++			host_count++;
++
++			printk("%s: %s at 0x%3x mode %d (%s) dly %d nice %d sg %d\n",
++			       pha->device,
++			       pha->ident,
++			       pha->port,
++			       pha->mode,
++			       (pha->proto->mode_names)?
++			       pha->proto->mode_names[pha->mode]:"",
++			       pha->delay,
++			       pha->nice,
++			       hreg->sg_tablesize);
++
++		} else {
++
++			scsi_unregister(hreg);
++			ppsc_release_pha(pha);
++
++		}
++	}
++	return host_count;
++}
++
++int ppsc_release (struct Scsi_Host *host)
++{
++	PHA *pha = (PHA *) host->hostdata[0];
++
++	return ppsc_release_pha(pha);
++}
++
++int ppsc_initialise (void)
++{
++	int i;
++
++	for (i=0;i<256;i++) ppsc_bulk_map[i] = 0;
++
++/* commands marked in this map will use pseudo-DMA transfers, while
++   the rest will use the slow handshaking.
++*/
++
++	ppsc_bulk_map[READ_6] = 1;
++	ppsc_bulk_map[READ_10] = 1;
++	ppsc_bulk_map[READ_BUFFER] = 1;
++	ppsc_bulk_map[WRITE_6] = 1;
++	ppsc_bulk_map[WRITE_10] = 1;
++	ppsc_bulk_map[WRITE_BUFFER] = 1;
++
++	if (parport_register_driver (&ppsc_driver)) {
++		printk (KERN_WARNING "ppscsi: couldn't register driver\n");
++		return -EIO;
++	}
++
++	printk("ppSCSI %s (%s) installed\n",PPSC_VERSION,PPSC_H_VERSION);
++	return 0;
++}
++
++#ifdef MODULE
++
++int init_module (void)
++{
++	return ppsc_initialise();
++}
++
++void cleanup_module (void)
++{
++	struct ppsc_port_list_struct *ports, *next;
++	parport_unregister_driver (&ppsc_driver);
++	for (ports = ppsc_port_list; ports; ports = next) {
++		next = ports->next;
++		parport_put_port (ports->port);
++		kfree (ports);
++	}
++}
++
++MODULE_LICENSE("GPL");
++
++#endif
++
++EXPORT_SYMBOL(ppsc_make_map);
++EXPORT_SYMBOL(ppsc_queuecommand);
++EXPORT_SYMBOL(ppsc_abort);
++EXPORT_SYMBOL(ppsc_reset);
++EXPORT_SYMBOL(ppsc_proc_info);
++EXPORT_SYMBOL(ppsc_biosparam);
++EXPORT_SYMBOL(ppsc_detect);
++EXPORT_SYMBOL(ppsc_release);
++
++/* end of ppscsi.c */
+--- /dev/null
++++ b/drivers/scsi/ppscsi.h
+@@ -0,0 +1,356 @@
++#ifndef _PPSC_H
++#define _PPSC_H
++
++/*
++	ppscsi.h	(c) 1999 Grant Guenther <grant@torque.net>
++			Under the terms of the GNU public license.
++
++        This header file defines a common interface for constructing
++        low-level SCSI drivers for parallel port SCSI adapters.
++
++*/
++
++#define	PPSC_H_VERSION	"0.92"
++
++#include <linux/module.h>
++#include <linux/config.h>
++#include <linux/stddef.h>
++#include <linux/types.h>
++#include <asm/io.h>
++#include <linux/blkdev.h>
++
++#include "scsi.h"
++#include "hosts.h"
++
++
++/* ppscsi global functions */
++
++extern void ppsc_make_map( char map[256], char key[5], int inv);
++
++extern int ppsc_proc_info(struct Scsi_Host *, char *,char **,off_t,int,int);
++extern int ppsc_command(struct scsi_cmnd *);
++extern int ppsc_queuecommand(struct scsi_cmnd *, void (* done)(struct scsi_cmnd *));
++extern int ppsc_abort(struct scsi_cmnd *);
++extern int ppsc_reset(struct scsi_cmnd *);
++extern int ppsc_biosparam(struct scsi_device *, struct block_device *, sector_t capacity, int[]);
++extern int ppsc_release(struct Scsi_Host *);
++
++#ifndef PPSC_BASE
++
++/* imports for hosts.c */
++
++#ifdef CONFIG_PPSCSI_T348
++extern int t348_detect( Scsi_Host_Template *);
++#endif
++
++#ifdef CONFIG_PPSCSI_T358
++extern int t358_detect( Scsi_Host_Template *);
++#endif
++
++#ifdef CONFIG_PPSCSI_ONSCSI
++extern int onscsi_detect( Scsi_Host_Template *);
++#endif
++
++#ifdef CONFIG_PPSCSI_EPST
++extern int epst_detect( Scsi_Host_Template *);
++#endif
++
++#ifdef CONFIG_PPSCSI_EPSA2
++extern int epsa2_detect( Scsi_Host_Template *);
++#endif
++
++#ifdef CONFIG_PPSCSI_VPI0
++extern int vpi0_detect( Scsi_Host_Template *);
++#endif
++
++#ifdef CONFIG_PPSCSI_SPARCSI
++extern int sparcsi_detect( Scsi_Host_Template *);
++#endif
++
++#endif
++
++#define PPSC_TEMPLATE(proto){			   \
++	.name =			#proto,	   	   \
++        .detect =         	proto##_detect,    \
++	.release =		ppsc_release,      \
++	.proc_name =		#proto,		   \
++        .proc_info =      	ppsc_proc_info,    \
++        .queuecommand =   	ppsc_queuecommand, \
++	.eh_abort_handler =	ppsc_abort,	   \
++	.eh_bus_reset_handler =   ppsc_reset,	   \
++	.eh_host_reset_handler =  ppsc_reset,	   \
++        .bios_param =     	ppsc_biosparam,    \
++        .can_queue =      	1,         	   \
++        .sg_tablesize =   	SG_NONE,           \
++        .cmd_per_lun =    	1,                 \
++        .use_clustering = 	DISABLE_CLUSTERING \
++}
++
++/* types used by the actual driver modules */
++
++#ifdef PPSC_BASE
++
++#include <linux/sched.h>
++#include <linux/timer.h>
++#include <linux/workqueue.h>
++#include <linux/errno.h>
++#include <linux/kernel.h>
++#include <linux/delay.h>
++
++
++struct setup_tab_t {
++
++        char    *tag;   /* variable name */
++        int     size;   /* number of elements in array */
++        int     *iv;    /* pointer to variable */
++};
++
++typedef struct setup_tab_t STT;
++
++extern void ppsc_gen_setup( STT t[], int n, char *ss );
++
++typedef struct ppsc_host_adapter PHA;
++
++struct ppsc_host_adapter {
++
++	char	ident[80];		/* Adapter name and version info */
++
++	char	device[12];		/* device name for messages */
++
++	struct Scsi_Host *host_ptr;	/* SCSI host structure */
++	struct ppsc_protocol *proto;	/* adapter protocol */
++
++	int	port;			/* parallel port base address */
++	int 	mode;			/* transfer mode in use */
++	int	delay;  		/* parallel port settling delay */
++	int     saved_r0;		/* saved port state */
++	int	saved_r2;		/* saved port state */
++
++	int	reserved;		/* number of ports reserved */
++	int     tmo;			/* default command timeout */
++	int	verbose;		/* logging level */
++	int	quiet;			/* do not log PPSC_FAIL msgs */
++
++	int	slow_targets;		/* bit mask for disabling block mode */
++
++	wait_queue_head_t parq;		/* semaphore for parport sharing */
++	struct pardevice *pardev;	/* pointer to pardevice */
++	const char *parname;		/* parport name */
++	int	claimed;		/* parport has been claimed */
++	void	(*claim_cont)(PHA *);   /* continuation for parport wait */
++
++	void 	(*continuation)(PHA *); /* next "interrupt" handler */
++	int  	(*ready)(PHA *);	/* current ready test */
++	unsigned long  	then;		/* jiffies at start of last wait */
++	unsigned long  	timeout;	/* when to timeout this wait */
++	int	timedout;		/* timeout was seen */
++	int  	timer_active;		/* we're using a timer */
++	int  	wq_active;		/* we have a task queued */
++	int	nice;			/* tune the CPU load */
++	struct timer_list timer;	/* timer queue element */
++	struct work_struct wq;		/* task queue element */
++
++	int	private[8];		/* for the protocol layer, if needed */
++	char	*priv_ptr;
++	int	priv_flag;
++
++	struct scsi_cmnd *cur_cmd;		/* current command on this host */
++	void  (*done)(struct scsi_cmnd *);	/* current "done" function */
++
++	int	overflow;		/* excess bytes transferred */
++	int	bulk;			/* should we use block mode ? */
++	int	tlen;			/* total transfer length */
++	int	abort_flag;		/* abort=1 reset=2 requested */
++	int	return_code;		/* build return value here */
++
++	struct scatterlist *sg_list;	/* current fragment, if any */
++	int 	sg_count;		/* remaining fragments */
++	char	*cur_buf;		/* current buffer pointer */
++	int	cur_len;		/* remaining bytes in buffer */
++
++	struct timer_list sleeper;	/* for BUSY handling */
++
++	int	last_phase;		/* to detect phase changes */
++	char	message_byte;
++	char	status_byte;
++
++	int	cmd_count;		/* bytes of command transfered */
++	int	data_count;		/* bytes of data transferred */
++	int	data_dir;		/* direction of transfer */
++
++	int	tot_cmds;		/* number of commands processed */
++	long	tot_bytes;		/* total bytes transferred */
++	int	tot_errs;		/* number of failed commands */
++
++	int	protocol_error;		/* Some protocols can set this
++					   != zero to signal a fatal error
++					   we report it and expect to die
++					*/
++};
++
++/* constants for 'verbose' */
++
++#define PPSC_VERB_NORMAL 0
++#define PPSC_VERB_PROBE  1
++#define PPSC_VERB_TRACE  2
++#define PPSC_VERB_DEBUG  3
++#define PPSC_VERB_FULL   4
++
++#define V_PROBE	(pha->verbose >= PPSC_VERB_PROBE)
++#define V_TRACE	(pha->verbose >= PPSC_VERB_TRACE)
++#define V_DEBUG	(pha->verbose >= PPSC_VERB_DEBUG)
++#define V_FULL	(pha->verbose >= PPSC_VERB_FULL)
++
++/* constants for abort_flag */
++
++#define	PPSC_DO_ABORT	1
++#define PPSC_DO_RESET	2
++
++
++struct ppsc_protocol {
++
++	int	(*params[4])[8];	/* hostN tuning parameters */
++
++	PHA     (*hosts)[4];		/* actual PHA structs */
++
++        int     num_modes;      	/* number of modes*/
++        int     epp_first;      	/* modes >= this use 8 ports */
++        int     default_delay;  	/* delay parameter if not specified */
++
++	int	can_message;		/* adapter can send/rcv SCSI msgs */
++	int	default_sg_tablesize;	/* sg_tablesize if not specified */
++
++	char	**mode_names;		/* printable names of comm. modes */
++
++/* first two functions are NOT called with the port claimed. */
++
++	void (*init)(PHA *);		/* (pha)
++					   protocol initialisation
++				           should fill in pha->ident */
++	void (*release)(PHA *);		/* (pha)  optional
++					   protocol no longer in use */
++	void (*connect)(PHA *);		/* (pha)
++					   connect to adapter */
++	void (*disconnect)(PHA *);	/* (pha)
++					   release adapter */
++	int (*test_proto)(PHA *);	/* (pha)   optional
++					   test protocol in current settings,
++					   returns error count */
++	int (*select)(PHA *,int,int);   /* (pha,initiator,target)
++					   start artibration and selection
++					   0 = OK, -1 = arb. failed */
++	int (*test_select)(PHA *);	/* (pha)
++					   test for selection to complete
++					   1 = OK, 0 try again */
++	void (*select_finish)(PHA *);	/* (pha) optional
++					   called after successful select */
++	void (*deselect)(PHA *);	/* (pha)
++					   release SCSI bus */
++	int (*get_bus_status)(PHA *);	/* (pha)
++					   return (REQ,BSY,MSG,C/D,I/O) */
++	void (*slow_start)(PHA *,char *); /* (pha,byte)
++					   start transfer of one byte using
++					   explicit handshaking */
++	int (*slow_done)(PHA *);	/* (pha)
++					   has the device acked the byte ? */
++	void (*slow_end)(PHA *);	/* (pha)
++					   shut down the slow transfer */
++	void (*start_block)(PHA *,int);	/* (pha,read)
++					   start data transfer */
++	int (*transfer_block)(PHA *,char *,int,int);
++					/* (pha,buf,len,read)
++					   transfer as much as possible and
++					   return count of bytes
++					   can return -1 if error detected */
++	int (*transfer_ready)(PHA *pha);/* (pha)
++					   can we go again yet ?
++					   >0 = yes, 0 = try again, -1 = done */
++	int (*transfer_done)(PHA *pha); /* (pha)
++					   has all data been flushed ?
++					   1 = yes, 0 = try again */
++	void (*end_block)(PHA *,int);	/* (pha,read)
++					   shut down block transfer */
++	void (*reset_bus)(PHA *);	/* (pha) optional
++					   reset SCSI bus if possible */
++
++};
++
++/* constants for the params array */
++
++#define PPSC_PARM_PORT	0
++#define PPSC_PARM_MODE	1
++#define PPSC_PARM_DLY	2
++#define PPSC_PARM_NICE	3
++#define PPSC_PARM_SGTS  4
++#define PPSC_PARM_SLOW  5
++
++/* constants for get_bus_status */
++
++#define	PPSC_REQ	16
++#define PPSC_BSY	8
++#define PPSC_MSG	4
++#define PPSC_CD		2
++#define PPSC_IO		1
++
++/* phases */
++
++#define PPSC_PH_NONE	0
++#define PPSC_PH_WRITE	(PPSC_REQ|PPSC_BSY)
++#define PPSC_PH_READ	(PPSC_PH_WRITE|PPSC_IO)
++#define PPSC_PH_CMD	(PPSC_PH_WRITE|PPSC_CD)
++#define PPSC_PH_STAT	(PPSC_PH_READ|PPSC_CD)
++#define PPSC_PH_MSGIN	(PPSC_PH_STAT|PPSC_MSG)
++
++typedef struct ppsc_protocol PSP;
++
++extern int ppsc_detect( PSP *, Scsi_Host_Template *, int);
++
++#ifdef PPSC_HA_MODULE
++
++static int verbose = PPSC_VERB_NORMAL;
++
++static int host0[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
++static int host1[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
++static int host2[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
++static int host3[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
++
++#ifndef MODULE
++
++static STT stt[4] = { {"host0",8,host0},
++		      {"host1",8,host1},
++		      {"host2",8,host2},
++		      {"host3",8,host3} };
++#endif
++
++MODULE_PARM(host0,"1-8i");
++MODULE_PARM(host1,"1-8i");
++MODULE_PARM(host2,"1-8i");
++MODULE_PARM(host3,"1-8i");
++MODULE_PARM(verbose,"i");
++
++static struct ppsc_host_adapter host_structs[4];
++
++#define delay_p                 (pha->delay?udelay(pha->delay):0)
++#define out_p(offs,byte)        outb(byte,pha->port+offs); delay_p;
++#define in_p(offs)              (delay_p,inb(pha->port+offs))
++
++#define w0(byte)                do {out_p(0,byte);} while (0)
++#define r0()                    (in_p(0) & 0xff)
++#define w1(byte)                do {out_p(1,byte);} while (0)
++#define r1()                    (in_p(1) & 0xff)
++#define w2(byte)                do {out_p(2,byte);} while (0)
++#define r2()                    (in_p(2) & 0xff)
++#define w3(byte)                do {out_p(3,byte);} while (0)
++#define w4(byte)                do {out_p(4,byte);} while (0)
++#define r4()                    (in_p(4) & 0xff)
++#define w4w(data)               do {outw(data,pha->port+4); delay_p;} while (0)
++#define w4l(data)               do {outl(data,pha->port+4); delay_p;} while (0)
++#define r4w()                   (delay_p,inw(pha->port+4)&0xffff)
++#define r4l()                   (delay_p,inl(pha->port+4)&0xffffffff)
++
++#endif  /* PPSC_HA_MODULE */
++#endif  /* PPSC_BASE */
++#endif  /* _PPSC_H */
++
++/* end of ppscsi.h */
++
+--- /dev/null
++++ b/drivers/scsi/onscsi.c
+@@ -0,0 +1,544 @@
++/*
++	onscsi.c	(c) 1999 Grant Guenther <grant@torque.net>
++
++	This is the ppSCSI protocol module for the OnSpec 90c26
++	in its SCSI adapter mode.
++*/
++
++#define	ONSCSI_VERSION	"0.91"
++
++#define PPSC_BASE
++#define PPSC_HA_MODULE
++
++#include "ppscsi.h"
++
++#define ONSCSI_REP_COUNT	256
++
++#define	TOGL	pha->private[0]
++
++static char onscsi_map[256];	/* status bits permutation */
++
++static void onscsi_init (PHA *pha)
++{
++
++/*			 { REQ, BSY, MSG,  CD,	IO}	*/
++
++	char key[5] = {0x10,0x01,0x20,0x40,0x80};
++
++	ppsc_make_map(onscsi_map,key,0);
++	sprintf(pha->ident,"onscsi %s (%s), OnSpec 90c26",
++		ONSCSI_VERSION,PPSC_H_VERSION);
++}
++
++#define j44(a,b)		((b&0xf0)|((a>>4)&0x0f))
++
++#define CMD(x)	w0(x);w2(5);w2(0xd);w2(5);w2(0xd);w2(5);w2(4);
++#define VAL(v)	w0(v);w2(5);w2(7);w2(5);w2(4);
++
++static inline void onscsi_opcode (PHA *pha, int x )
++{
++	if (pha->mode < 2) {
++		CMD(x);
++	} else {
++		w3(x);
++	}
++}
++
++#define OP(x)		onscsi_opcode(pha,x)
++#define FULLBYTE	(pha->mode > 0)
++
++static void onscsi_write_regr (PHA *pha, int r, int v)
++{
++	onscsi_opcode(pha,r);
++
++	if (pha->mode < 2) {
++		VAL(v);
++	} else {
++		w2(5); w4(v); w2(4);
++	}
++}
++
++static inline int onscsi_read_nybble (PHA *pha)
++{
++	int a, b;
++
++	w2(6); a = r1(); w2(4);
++	w2(6); b = r1(); w2(4);
++
++	return j44(a,b);
++}
++
++static int onscsi_read_regr (PHA *pha, int r)
++{
++	int v = -1;
++
++	onscsi_opcode(pha,r);
++
++	switch (pha->mode) {
++
++	case 0:	v = onscsi_read_nybble(pha);
++		break;
++
++	case 1: w2(0x26); v = r0(); w2(4);
++		break;
++
++	case 2:
++	case 3:
++	case 4:	w2(0x24); v = r4(); w2(4);
++		break;
++
++	}
++
++	return v;
++}
++
++#define	RR(r)		onscsi_read_regr(pha,r)
++#define WR(r,v)		onscsi_write_regr(pha,r,v)
++
++static void onscsi_write_block (PHA *pha, char *buf, int n)
++{
++	int i;
++
++	w2(5+TOGL);
++
++	switch (pha->mode) {
++
++	case 0:
++	case 1:	for (i=0;i<n;i++) {
++			w0(buf[i]);
++			TOGL = 2 - TOGL;
++			w2(5 + TOGL);
++			}
++		break;
++
++	case 2:	for (i=0;i<n;i++) w4(buf[i]);
++		break;
++
++	case 3: for (i=0;i<(n/2);i++) w4w(((u16 *)buf)[i]);
++		if (n%2) w4(buf[n-1]);
++		break;
++
++	case 4: for (i=0;i<(n/4);i++) w4l(((u32 *)buf)[i]);
++		for (i=(n-(n%4));i<n;i++) w4(buf[i]);
++		break;
++
++	}
++
++}
++
++static void onscsi_read_block (PHA *pha, char *buf, int n)
++{
++	int i;
++
++	w2(0x24 + TOGL);
++
++	switch (pha->mode) {
++
++	case 0:	w2(4);
++		for (i=0;i<n;i++) buf[i] = onscsi_read_nybble(pha);
++		break;
++
++	case 1:	for (i=0;i<n;i++) {
++			TOGL = 2 - TOGL;
++			w2(0x24 + TOGL);
++			buf[i] = r0();
++			}
++		break;
++
++	case 2:	for (i=0;i<n;i++) buf[i] = r4();
++		break;
++
++	case 3:	for (i=0;i<(n/2);i++) ((u16 *) buf)[i] = r4w();
++		if (n%2) buf[n-1] = r4();
++		break;
++
++	case 4:	for (i=0;i<(n/4);i++) ((u32 *) buf)[i] = r4l();
++		for (i=(n-(n%4));i<n;i++) buf[i] = r4();
++		break;
++
++	}
++
++}
++
++#define CPP(x,y)	w0(0xfe);w0(0xaa);w0(0x55);w0(0);w0(0xff);\
++			w0(0x87);w0(0x78);w0(x);w2(y|1);w2(y);w0(0xff);
++
++static void onscsi_connect (PHA *pha)
++{
++	pha->saved_r0 = r0();
++	pha->saved_r2 = r2();
++
++	CPP(0x20,4);
++
++	CMD(2); VAL(0);
++	CMD(2); VAL(FULLBYTE);
++
++	WR(2,FULLBYTE);
++}
++
++static void onscsi_disconnect (PHA *pha)
++{
++	WR(3,0); WR(7,0x48);
++	OP(4);
++	CPP(0x30,pha->saved_r2);
++
++	w0(pha->saved_r0);
++	w2(pha->saved_r2);
++}
++
++static int onscsi_test_proto (PHA *pha)
++{
++	int i, k, j;
++	char wbuf[16], rbuf[16];
++	int e = 0;
++
++	pha->saved_r0 = r0();
++	pha->saved_r2 = r2();
++
++	CPP(0x30,pha->saved_r2);
++	CPP(0x0,pha->saved_r2);
++
++	w0(0xfe);w0(0xaa);w0(0x55);w0(0);w0(0xff);
++	i = ((r1() & 0xf0) << 4); w0(0x87);
++	i |= (r1() & 0xf0); w0(0x78);
++	w0(0x20);w2(5);
++	i |= ((r1() & 0xf0) >> 4);
++	w2(4);w0(0xff);
++
++	if (V_PROBE) printk("%s: signature 0x%x\n",pha->device,i);
++
++	if (i == 0xb5f) {
++
++		CMD(2); VAL(FULLBYTE);
++
++		w2(4); w2(0xc); udelay(100); w2(4); udelay(100);
++
++		CMD(2); VAL(0);
++		CMD(2); VAL(FULLBYTE);
++
++		WR(2,FULLBYTE);
++
++		k = RR(4);
++
++		if (V_PROBE)
++			printk("%s: OnSpec 90c26 version %x\n",pha->device,k);
++	}
++
++	CPP(0x30,pha->saved_r2);
++
++	w0(pha->saved_r0);
++	w2(pha->saved_r2);
++
++	if (i != 0xb5f) return 1;
++
++	onscsi_connect(pha);
++
++	for (k=0;k<ONSCSI_REP_COUNT;k++) {
++
++		for (j=0;j<16;j++) wbuf[j] = (k+j)%256;
++
++		if (pha->mode == 0) WR(2,0x30);
++		if (pha->mode == 1) WR(2,0x10);
++
++		WR(3,0); WR(7,0x48);
++
++		WR(3,1); WR(7,0x48); OP(5);
++		TOGL = 0;
++		onscsi_write_block(pha,wbuf,16);
++		w2(4);
++
++		if (pha->mode == 0) WR(2,0);
++		if (pha->mode == 1) WR(2,0x11);
++
++		WR(3,5); WR(7,0x48); OP(5);
++		TOGL = 0;
++		onscsi_read_block(pha,rbuf,16);
++		w2(4);
++
++		for (j=0;j<16;j++)
++			if (rbuf[j] != wbuf[j]) e++;
++
++	}
++
++	onscsi_disconnect(pha);
++
++#ifdef EXPERIMENT
++
++	/* enable this to see how the buffer status bits work */
++
++	if (pha->mode == 2) {
++
++		onscsi_connect(pha);
++
++		WR(3,0); WR(7,0x48);
++		WR(3,1); WR(7,0x48); OP(5);
++		w2(5);
++
++		for (k=0;k<16;k++) {
++			j = r1(); w4(k);
++			printk("%2x:%d ",j,k);
++		}
++		printk("\n");
++
++		w2(4); WR(3,5); WR(7,0x48); OP(5);
++		w2(0x24);
++
++		for (k=0;k<16;k++) {
++			j = r1();
++			printk("%2x:%d ",j,r4());
++		}
++		printk("\n");
++
++		w2(4);
++
++		onscsi_disconnect(pha);
++	}
++
++	if (pha->mode == 1) {
++
++		onscsi_connect(pha);
++
++		WR(2,0x11);
++		WR(3,0); WR(7,0x48);
++		WR(3,1); WR(7,0x48); OP(5);
++		w2(5);	i = 0;
++
++		for (k=0;k<16;k++) {
++			j = r1(); w0(k); i = 2 - i; w2(5+i);
++			printk("%2x:%d ",j,k);
++		}
++		printk("%2x.\n",r1());
++
++		w2(4);
++
++		WR(2,0x11);
++		WR(3,0); WR(7,0x48);
++		WR(3,5); WR(7,0x48); OP(5);
++		w2(0x24); i = 0;
++
++		printk("%2x  ",r1());
++		for (k=0;k<16;k++) {
++			i = 2 - i; w2(0x24+i); j = r1();
++			printk("%2x:%d ",j,r0());
++		}
++		printk("\n");
++
++		w2(4);
++
++		onscsi_disconnect(pha);
++	}
++
++#endif
++
++	if (V_FULL)
++		printk("%s: test port 0x%x mode %d errors %d\n",
++		       pha->device,pha->port,pha->mode,e);
++
++	return e;
++}
++
++static int onscsi_select (PHA *pha, int initiator, int target)
++{
++	WR(1,0);
++	WR(2,0x80+FULLBYTE);
++	if (RR(1) != 0) return -1;
++	WR(0,((1 << initiator) | (1 << target)));
++	WR(1,2);
++	return 0;
++}
++
++static int onscsi_test_select (PHA *pha)
++{
++	return ((RR(1) & 3) == 3);
++}
++
++static void onscsi_select_finish (PHA *pha)
++{
++	WR(1,0);
++}
++
++static void onscsi_deselect (PHA *pha)
++{
++	WR(1,0);
++	/* WR(2,0x20+FULLBYTE); */
++	WR(2,FULLBYTE);
++	WR(3,0); WR(7,0x48);
++}
++
++static int onscsi_get_bus_status (PHA *pha)
++{
++	WR(2,0x20+FULLBYTE);
++	return onscsi_map[RR(1)];
++}
++
++static void onscsi_slow_start (PHA *pha, char *val)
++{
++	pha->priv_flag = (RR(1) & 0x80);
++	pha->priv_ptr = val;
++
++	if (pha->priv_flag) WR(2,0x20); else WR(2,0x21);
++
++	OP(0);
++
++	if (pha->priv_flag) {
++		w2(6);
++	} else {
++		w0(*val); w2(5); w2(7);
++	}
++}
++
++static int onscsi_slow_done (PHA *pha)
++{
++	return (!(r1() & 8));
++}
++
++static void onscsi_slow_end (PHA *pha)
++{
++	if (pha->priv_flag) {
++		 *pha->priv_ptr = onscsi_read_nybble(pha);
++	} else {
++		 w2(5); w2(4);
++	}
++}
++
++static void onscsi_start_block (PHA *pha, int rd)
++{
++	pha->priv_flag = rd;
++
++	if (rd) {
++		WR(3,5); WR(7,0x48);
++		if (pha->mode == 1) WR(2,0x31);
++		OP(5);
++		w2(5); w0(0xff); w2(4);
++	} else {
++		WR(3,1); WR(7,0x48);
++		if (pha->mode == 1) WR(2,0x31);
++		OP(5);
++	}
++	TOGL = 0;
++}
++
++static int onscsi_transfer_done (PHA *pha)
++{
++	int x;
++
++	if (pha->priv_flag) return 1;
++
++	if (pha->mode == 0) { WR(2,0x20); OP(5); }
++	x = r1(); x = r1();
++	if (pha->mode == 0) { WR(2,0x30); OP(5); }
++
++	if ((x & 0xf0) == 0x80) return 16;
++	return 0;
++}
++
++static int onscsi_transfer_ready (PHA *pha)
++{
++	int x;
++
++	if (pha->priv_flag) {
++		x = r1();  x = r1();
++		if ((x & 0xf0) == 0xf0) return 16;
++		if ((x & 0xf0) == 0xb0) return 8;
++		if ((x & 0xf0) == 0x90) return 1;
++		if ((x & 0xf8) == 0x88) return -1;
++		if ((x & 0xf8) == 0x08) return -1;
++		if ((x & 0xf8) == 0x0) return 1;
++
++		if ((x & 0xf8) != 0x80) printk("DEBUG: %x\n",x);
++
++		return 0;
++	}
++
++	return onscsi_transfer_done(pha);
++}
++
++
++static int onscsi_transfer_block (PHA *pha, char * buf, int buflen, int rd)
++{
++	int k, b;
++
++	k = 0;
++	while ( k < buflen) {
++
++		if ((b=onscsi_transfer_ready(pha)) <= 0) break;
++		if (b > (buflen-k)) b = buflen-k;
++
++		if (rd) onscsi_read_block(pha,buf,b);
++		else onscsi_write_block(pha,buf,b);
++
++		k += b; buf += b;
++	}
++
++	return k;
++}
++
++static void onscsi_end_block (PHA *pha, int rd)
++{
++	w2(4); WR(3,0); WR(7,0x48);
++}
++
++static void onscsi_reset_bus (PHA *pha)
++{
++	WR(2,2);
++	udelay(500);
++	WR(2,0);
++	WR(2,FULLBYTE);
++}
++
++static char *(mode_strings[5]) = {"Nybble","PS/2","EPP","EPP-16","EPP-32"};
++
++static struct ppsc_protocol onscsi_psp =  {
++
++	{&host0,&host1,&host2,&host3},		/* params	 */
++	&host_structs,				/* hosts	 */
++	5,					/* num_modes	 */
++	2,					/* epp_first	 */
++	1,					/* default_delay */
++	1,					/* can_message	 */
++	16,					/* sg_tablesize	 */
++	mode_strings,
++	onscsi_init,
++	NULL,  /* release */
++	onscsi_connect,
++	onscsi_disconnect,
++	onscsi_test_proto,
++	onscsi_select,
++	onscsi_test_select,
++	onscsi_select_finish,
++	onscsi_deselect,
++	onscsi_get_bus_status,
++	onscsi_slow_start,
++	onscsi_slow_done,
++	onscsi_slow_end,
++	onscsi_start_block,
++	onscsi_transfer_block,
++	onscsi_transfer_ready,
++	onscsi_transfer_done,
++	onscsi_end_block,
++	onscsi_reset_bus
++};
++
++int onscsi_detect (struct scsi_host_template *tpnt )
++{
++	return ppsc_detect( &onscsi_psp, tpnt, verbose);
++}
++
++#ifdef MODULE
++
++struct scsi_host_template	driver_template = PPSC_TEMPLATE(onscsi);
++
++#include "scsi_module.c"
++
++MODULE_LICENSE("GPL");
++
++#else
++
++void onscsi_setup (char *str, int *ints)
++{
++	ppsc_gen_setup(stt,4,str);
++}
++
++#endif
++
++/* end of onscsi.c */
+--- linux-2.6.31-rc3-git5.mnb1/drivers/scsi/Kconfig.scsi-ppscsi-2.6.2.orig	2009-07-22 01:11:12.000000000 +0300
++++ linux-2.6.31-rc3-git5.mnb1/drivers/scsi/Kconfig	2009-07-22 21:54:04.000000000 +0300
+@@ -1062,6 +1062,42 @@ config SCSI_IZIP_SLOW_CTR
+ 
+ 	  Generally, saying N is fine.
+ 
++config PPSCSI
++	tristate "Parallel Port SCSI adapters"
++	depends on SCSI && PARPORT
++
++config PPSCSI_T348
++	tristate "Adaptec APA-348 adapter"
++	depends on PPSCSI
++
++config PPSCSI_T358
++	tristate "Adaptec APA-358 adapter"
++	depends on PPSCSI
++
++config PPSCSI_VPI0
++	tristate "Iomega VPI0 adapter"
++	depends on PPSCSI
++
++config PPSCSI_VPI2
++	tristate "Iomega VPI2 adapter (EXPERIMENTAL)"
++	depends on PPSCSI && EXPERIMENTAL
++
++config PPSCSI_ONSCSI
++	tristate "OnSpec 90c26 adapter"
++	depends on PPSCSI
++
++config PPSCSI_SPARCSI
++	tristate "Shining SparSCI adapter"
++	depends on PPSCSI
++
++config PPSCSI_EPSA2
++	tristate "Shuttle EPSA-2 adapter"
++	depends on PPSCSI
++
++config PPSCSI_EPST
++	tristate "Shuttle EPST adapter"
++	depends on PPSCSI
++
+ config SCSI_NCR53C406A
+ 	tristate "NCR53c406a SCSI support"
+ 	depends on ISA && SCSI

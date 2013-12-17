@@ -1,0 +1,67 @@
+x86, cpufreq: set reasonable default for scaling_min_freq with p4-clockmod
+
+We don't want p4_clockmod by default throttling too much, otherwise machine
+performance suffers a lot with p4_clockmod supported processors when frequency
+is set at lowest level (for example, common case is when using ondemand governor
+and using the machine under almost idle load). Make p4-clockmod choose a
+reasonable default for scaling_min_freq (nothing less than 600MHz).
+
+Signed-off-by: Herton Ronaldo Krzesinski <herton@mandriva.com.br>
+[rebased for 3.0-rc7-git2 / tmb]
+Signed-off-by: Thomas Backlund <tmb@mageia.org>
+
+---
+ drivers/cpufreq/p4-clockmod.c |   26 ++++++++++++++++++++++++--
+ 1 file changed, 24 insertions(+), 2 deletions(-)
+
+--- a/drivers/cpufreq/p4-clockmod.c.orig	2011-07-14 21:54:32.626570475 +0300
++++ a/drivers/cpufreq/p4-clockmod.c	2011-07-14 23:24:12.474112807 +0300
+@@ -201,7 +201,9 @@ static int cpufreq_p4_cpu_init(struct cp
+ {
+ 	struct cpuinfo_x86 *c = &cpu_data(policy->cpu);
+ 	int cpuid = 0;
++	unsigned int min = 0;
+ 	unsigned int i;
++	int err;
+ 
+ #ifdef CONFIG_SMP
+ 	cpumask_copy(policy->cpus, cpu_sibling_mask(policy->cpu));
+@@ -233,8 +235,20 @@ static int cpufreq_p4_cpu_init(struct cp
+ 	for (i = 1; (p4clockmod_table[i].frequency != CPUFREQ_TABLE_END); i++) {
+ 		if ((i < 2) && (has_N44_O17_errata[policy->cpu]))
+ 			p4clockmod_table[i].frequency = CPUFREQ_ENTRY_INVALID;
+-		else
++		else {
+ 			p4clockmod_table[i].frequency = (stock_freq * i)/8;
++			/* Hack: We don't want p4_clockmod by default throttling
++			 * too much, otherwise machine performance suffers a lot
++			 * with p4_clockmod supported processors when frequency
++			 * is set at lowest level (for example, common case is
++			 * when using ondemand governor and using the machine
++			 * under almost idle load). Simply save a minimum
++			 * reasonable default for scaling_min_freq (not less
++			 * than 600Mhz). */
++			if (p4clockmod_table[i].frequency >= 600000 &&
++			    min < 600000)
++				min = p4clockmod_table[i].frequency;
++		}
+ 	}
+ 	cpufreq_frequency_table_get_attr(p4clockmod_table, policy->cpu);
+ 
+@@ -245,7 +259,15 @@ static int cpufreq_p4_cpu_init(struct cp
+ 	policy->cpuinfo.transition_latency = 10000001;
+ 	policy->cur = stock_freq;
+ 
+-	return cpufreq_frequency_table_cpuinfo(policy, &p4clockmod_table[0]);
++	err = cpufreq_frequency_table_cpuinfo(policy, &p4clockmod_table[0]);
++	if (err)
++		return err;
++	if (min)
++		policy->min = min;
++	else
++		policy->min = policy->max;
++
++	return 0;
+ }
+ 
+ 

@@ -1,0 +1,264 @@
+ipt_IFWLOG: Mandriva changes
+
+This patch holds all the Mandriva changes done in ipt_IFWLOG
+netfilter module.
+
+This work is mostly done by Thomas Backlund, Herton R. Krzesinski
+and Luiz Fernando N. Capitulino.
+
+Signed-off-by: Luiz Fernando N. Capitulino <lcapitulino@mandriva.com.br>
+Signed-off-by: Herton Ronaldo Krzesinski <herton@mandriva.com.br>
+
+---
+ include/linux/netfilter_ipv4/Kbuild       |    1
+ include/linux/netfilter_ipv4/ipt_IFWLOG.h |   23 +++++-
+ net/ipv4/netfilter/ipt_IFWLOG.c           |  108 +++++++++++++++---------------
+ 3 files changed, 77 insertions(+), 55 deletions(-)
+
+diff -p -up linux-2.6.28/include/linux/netfilter_ipv4/ipt_IFWLOG.h.orig linux-2.6.28/include/linux/netfilter_ipv4/ipt_IFWLOG.h
+--- linux-2.6.28/include/linux/netfilter_ipv4/ipt_IFWLOG.h.orig	2008-12-12 10:55:07.000000000 -0500
++++ linux-2.6.28/include/linux/netfilter_ipv4/ipt_IFWLOG.h	2008-12-12 10:56:30.000000000 -0500
+@@ -1,10 +1,25 @@
+-#ifndef _IPT_IFWLOG_H
+-#define _IPT_IFWLOG_H
++#ifndef _LINUX_IPT_IFWLOG_H
++#define _LINUX_IPT_IFWLOG_H
+ 
+ #ifndef NETLINK_IFWLOG
+-#define NETLINK_IFWLOG  19
++#define NETLINK_IFWLOG  20
+ #endif
+ 
++#ifndef __KERNEL__
++/* Multicast groups - backwards compatiblility for userspace */
++#define IFWLOG_NLGRP_NONE 0x00000000
++#define IFWLOG_NLGRP_DEF  0x00000001 /* default message group */
++#endif
++
++enum {
++	IFWLOGNLGRP_NONE,
++#define IFWLOGNLGRP_NONE IFWLOGNLGRP_NONE
++	IFWLOGNLGRP_DEF,
++#define IFWLOGNLGRP_DEF IFWLOGNLGRP_DEF
++	__IFWLOGNLGRP_MAX
++};
++#define IFWLOGNLGRP_MAX (__IFWLOGNLGRP_MAX - 1)
++
+ #define PREFSIZ         32
+ 
+ struct nl_msg {				/* Netlink message */
+@@ -23,4 +38,4 @@ struct ipt_IFWLOG_info {
+ 	char prefix[PREFSIZ];
+ };
+ 
+-#endif /* _IPT_IFWLOG_H */
++#endif /* _LINUX_IPT_IFWLOG_H */
+diff -p -up linux-2.6.28/net/ipv4/netfilter/ipt_IFWLOG.c.orig linux-2.6.28/net/ipv4/netfilter/ipt_IFWLOG.c
+--- linux-2.6.28/net/ipv4/netfilter/ipt_IFWLOG.c.orig	2008-12-12 10:55:07.000000000 -0500
++++ linux-2.6.28/net/ipv4/netfilter/ipt_IFWLOG.c	2008-12-12 10:57:16.000000000 -0500
+@@ -4,6 +4,14 @@
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License version 2 as
+  * published by the Free Software Foundation.
++ * 
++ * 2007-10-10 Thomas Backlund <tmb@mandriva.org>: build fixes for 2.6.22.9
++ * 2007-11-11 Herton Krzesinski <herton@mandriva.com>: build fixes for 2.6.24-rc
++ * 2007-12-03 Luiz Capitulino <lcapitulino@mandriva.com.br>: v1.1
++ * 		- Better multicast group usage
++ * 		- Coding style fixes
++ * 		- Do not return -EINVAL by default in ipt_ifwlog_init()
++ * 		- Minor refinements
+  */
+ 
+ #include <linux/module.h>
+@@ -19,12 +27,10 @@
+ #include <linux/string.h>
+ 
+ #include <linux/netfilter.h>
++#include <linux/netfilter/x_tables.h>
+ #include <linux/netfilter_ipv4/ip_tables.h>
+ #include <linux/netfilter_ipv4/ipt_IFWLOG.h>
+ 
+-MODULE_LICENSE("GPL");
+-MODULE_AUTHOR("Samir Bellabes <sbellabes@mandriva.com>");
+-MODULE_DESCRIPTION("Interactive firewall logging and module");
+ 
+ #if 0
+ #define DEBUGP PRINTR
+@@ -36,44 +42,41 @@ MODULE_DESCRIPTION("Interactive firewall
+ 
+ static struct sock *nl;
+ 
+-#define GROUP 10
+-
+ /* send struct to userspace */
+-static void send_packet(struct nl_msg msg)
++static void send_packet(const struct nl_msg *msg)
+ {
+ 	struct sk_buff *skb = NULL;
+ 	struct nlmsghdr *nlh;
++	unsigned int size;
+ 
+-	skb = alloc_skb(NLMSG_SPACE(sizeof(struct nl_msg)), GFP_ATOMIC);
++	size = NLMSG_SPACE(sizeof(*msg));
++	skb = alloc_skb(size, GFP_ATOMIC);
+ 	if (!skb) {
+ 		PRINTR(KERN_WARNING "IFWLOG: OOM can't allocate skb\n");
+-		return ;
++		return;
+ 	}
+ 
+-	nlh = NLMSG_PUT(skb, 0, 0, 0, sizeof(struct nl_msg) - sizeof(*nlh));
++	nlh = NLMSG_PUT(skb, 0, 0, 0, size - sizeof(*nlh));
+ 
+-	memcpy(NLMSG_DATA(nlh), (const void*)&msg, sizeof(struct nl_msg));
++	memcpy(NLMSG_DATA(nlh), (const void *) msg, sizeof(*msg));
+ 
+ 	NETLINK_CB(skb).pid = 0;  /* from kernel */
+-	NETLINK_CB(skb).dst_pid = 0;  /* multicast */
+-	NETLINK_CB(skb).dst_group = 10;
++	NETLINK_CB(skb).dst_group = IFWLOGNLGRP_DEF;
+ 
+ 	if (nl) {
+ 		DEBUGP(KERN_WARNING
+ 		       "IFWLOG: nlmsg_len=%ld\nnlmsg_type=%d nlmsg_flags=%d\nnlmsg_seq=%ld nlmsg_pid = %ld\n",
+ 		       (long)nlh->nlmsg_len,  nlh->nlmsg_type, nlh->nlmsg_flags,
+ 		       (long)nlh->nlmsg_seq, (long)nlh->nlmsg_pid);
+-		DEBUGP(KERN_WARNING "prefix : %s\n", msg.prefix);
++		DEBUGP(KERN_WARNING "prefix : %s\n", msg->prefix);
+ 
+-		netlink_broadcast(nl, skb, 0, 10, GFP_ATOMIC);
+-		return ;
++		netlink_broadcast(nl, skb, 0, IFWLOGNLGRP_DEF, GFP_ATOMIC);
++		return;
+ 	}
+ 
+- nlmsg_failure:
+-        if (skb)
+-                kfree_skb(skb);
+-        PRINTR(KERN_WARNING "IFWLOG: Error sending netlink packet\n");
+-        return ;
++nlmsg_failure:
++	kfree_skb(skb);
++	PRINTR(KERN_WARNING "IFWLOG: Error sending netlink packet\n");
+ }
+ 
+ /* fill struct for userspace */
+@@ -128,73 +131,76 @@ static void ipt_IFWLOG_packet(const stru
+ 	do_gettimeofday((struct timeval *)&tv);
+         msg.timestamp_sec = tv.tv_sec;
+ 
+-	send_packet(msg);
++	send_packet(&msg);
+ }
+ 
+-static unsigned int ipt_IFWLOG_target(struct sk_buff **pskb,
+-				      const struct net_device *in,
+-				      const struct net_device *out,
+-				      unsigned int hooknum,
+-				      const void *targinfo,
+-				      void *userinfo)
++static unsigned int ipt_IFWLOG_target(struct sk_buff *skb,
++				      const struct xt_target_param *target_param)
+ {
+-	const struct ipt_IFWLOG_info *info = targinfo;
++	const struct ipt_IFWLOG_info *info = target_param->targinfo;
+ 
+-	ipt_IFWLOG_packet(*pskb, in, out, info);
++	ipt_IFWLOG_packet(skb, target_param->in, target_param->out, info);
+ 
+ 	return IPT_CONTINUE;
+ }
+ 
+-static int ipt_IFWLOG_checkentry(const char *tablename,
+-				 const struct ipt_entry *e,
+-				 void *targinfo,
+-				 unsigned int targinfosize,
+-				 unsigned int hook_mask)
++static bool ipt_IFWLOG_checkentry(const struct xt_tgchk_param *tgchk_param)
+ {
+-	const struct ipt_IFWLOG_info *info = targinfo;
++	const struct ipt_IFWLOG_info *info = tgchk_param->targinfo;
+ 
+ 	if (info->prefix[sizeof(info->prefix)-1] != '\0') {
+ 		DEBUGP("IFWLOG: prefix term %i\n",
+ 		       info->prefix[sizeof(info->prefix)-1]);
+-		return 0;
++		return false;
+ 	}
+ 
+-	return 1;
++	return true;
+ }
+ 
+-static struct ipt_target ipt_IFWLOG = {
++static struct xt_target ipt_IFWLOG = {
+ 	.name		= "IFWLOG",
++	.family		= AF_INET,
+ 	.target		= ipt_IFWLOG_target,
+ 	.targetsize	= sizeof(struct ipt_IFWLOG_info),
+ 	.checkentry	= ipt_IFWLOG_checkentry,
+ 	.me		= THIS_MODULE,
+ };
+ 
+-static int __init init(void)
++static int __init ipt_ifwlog_init(void)
+ {
+-	nl = (struct sock*) netlink_kernel_create(NETLINK_IFWLOG, GROUP, NULL, THIS_MODULE);
+-        if (!nl) {
+-                PRINTR(KERN_WARNING "IFWLOG: cannot create netlink socket\n");
+-                return -EINVAL;
+-        }
++	int err;
+ 
+-	if (ipt_register_target(&ipt_IFWLOG)) {
++	nl = netlink_kernel_create(&init_net, NETLINK_IFWLOG, IFWLOGNLGRP_MAX,
++				   NULL, NULL, THIS_MODULE);
++	if (!nl) {
++		PRINTR(KERN_WARNING "IFWLOG: cannot create netlink socket\n");
++		return -ENOMEM;
++	}
++
++	err = xt_register_target(&ipt_IFWLOG);
++	if (err) {
+ 		if (nl && nl->sk_socket)
+ 			sock_release(nl->sk_socket);
+-		return -EINVAL;
++		return err;
+ 	}
+ 
+ 	PRINTR(KERN_INFO "IFWLOG: register target\n");
+ 	return 0;
+ }
+ 
+-static void __exit fini(void)
++static void __exit ipt_ifwlog_fini(void)
+ {
+ 	if (nl && nl->sk_socket)
+-                sock_release(nl->sk_socket);
++		sock_release(nl->sk_socket);
+ 	PRINTR(KERN_INFO "IFWLOG: unregister target\n");
+-	ipt_unregister_target(&ipt_IFWLOG);
++	xt_unregister_target(&ipt_IFWLOG);
+ }
+ 
+-module_init(init);
+-module_exit(fini);
++module_init(ipt_ifwlog_init);
++module_exit(ipt_ifwlog_fini);
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Samir Bellabes <sbellabes@mandriva.com>");
++MODULE_AUTHOR("Luiz Capitulino <lcapitulino@mandriva.com.br>");
++MODULE_DESCRIPTION("Interactive firewall logging and module");
++MODULE_VERSION("v1.1");
+--- linux/include/uapi/linux/netfilter_ipv4/Kbuild.net-netfilter-IFWLOG-mdv.orig
++++ linux/include/uapi/linux/netfilter_ipv4/Kbuild
+@@ -2,6 +2,7 @@ header-y += ip_queue.h
+ header-y += ip_tables.h
+ header-y += ipt_CLUSTERIP.h
+ header-y += ipt_ECN.h
++header-y += ipt_IFWLOG.h
+ header-y += ipt_LOG.h
+ header-y += ipt_REJECT.h
+ header-y += ipt_TTL.h

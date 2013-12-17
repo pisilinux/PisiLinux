@@ -1,0 +1,49 @@
+Subject: mpt scsi modules for VMWare's emulated
+
+The attached patch is a workaround for a bug in VMWare's emulated LSI
+Fusion SCSI HBA.  The emulated firmware returns zero for the maximum
+number of attached devices; the real firmware returns a positive
+number.  Therefore, the kernel that boots and works fine on bare metal
+will fail on VMWare because this firmware value is handed to the SCSI
+midlayer, which then skips the entire bus scan.
+
+F7 bz 241935
+
+The patch below was submitted by Eric Moore of LSI to the linux-scsi
+mailing list:
+
+http://marc.info/?l=linux-scsi&m=117432237404247
+
+then immediately rejected by Christoph Hellwig, who prefers that
+VMWare fix their emulation instead.
+
+This patch is workaround.
+
+---
+ drivers/message/fusion/mptbase.c |   15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+--- a/drivers/message/fusion/mptbase.c
++++ b/drivers/message/fusion/mptbase.c
+@@ -3051,8 +3051,19 @@ GetPortFacts(MPT_ADAPTER *ioc, int portn
+ 	pfacts->MaxPersistentIDs = le16_to_cpu(pfacts->MaxPersistentIDs);
+ 	pfacts->MaxLanBuckets = le16_to_cpu(pfacts->MaxLanBuckets);
+ 
+-	max_id = (ioc->bus_type == SAS) ? pfacts->PortSCSIID :
+-	    pfacts->MaxDevices;
++	switch (ioc->bus_type) {
++	case SAS:
++		max_id = pfacts->PortSCSIID;
++		break;
++	case FC:
++		max_id = pfacts->MaxDevices;
++		break;
++	case SPI:
++	default:
++		max_id = MPT_MAX_SCSI_DEVICES;
++		break;
++	}
++
+ 	ioc->devices_per_bus = (max_id > 255) ? 256 : max_id;
+ 	ioc->number_of_buses = (ioc->devices_per_bus < 256) ? 1 : max_id/256;
+ 
