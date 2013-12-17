@@ -86,6 +86,10 @@ def install():
 
     # Install branding icon
     pisitools.insinto("/usr/share/pixmaps", "browser/branding/official/default256.png", "firefox.png")
+    
+    # We don't want the development stuff
+    pisitools.removeDir("/usr/lib/firefox-devel")    
+    pisitools.removeDir("/usr/share/idl")
 
     # Install docs
     pisitools.dodoc("LEGAL", "LICENSE")
