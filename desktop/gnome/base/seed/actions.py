@@ -13,17 +13,19 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.configure("--disable-static \
-			 --with-webkit=3.0 \
-			 --enable-readline-module \
-			 --enable-os-module \
-			 --enable-ffi-module \
-			 --enable-gtkbuilder-module \
-			 --enable-cairo-module \
-			 --enable-gettext-module \
-			 --enable-dbus-module \
-			 --enable-mpfr-module \
-			 --enable-sqlite-module \
-			 --enable-libxml-module")
+                         --with-webkit=3.0 \
+                         --enable-readline-module \
+                         --enable-os-module \
+                         --enable-ffi-module \
+                         --enable-gtkbuilder-module \
+                         --enable-cairo-module \
+                         --enable-gettext-module \
+                         --enable-dbus-module \
+                         --enable-mpfr-module \
+                         --enable-sqlite-module \
+                         --enable-libxml-module")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
