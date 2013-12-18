@@ -41,6 +41,9 @@ def build():
     autotools.make()
 
 def install():
-    autotools.rawInstall("MATECONF_DISABLE_MAKEFILE_SCHEMA_INSTALL=1 DESTDIR=%s" % get.installDIR())
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    # remove needless gsettings convert file to avoid slow session start
+    pisitools.removeDir("/usr/share/MateConf")
 
     pisitools.dodoc("README", "NEWS", "AUTHORS", "COPYING")

@@ -24,5 +24,8 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    # remove needless gsettings convert file to avoid slow session start
+    pisitools.removeDir("/usr/share/MateConf")
 
     pisitools.dodoc("README", "NEWS", "ChangeLog", "AUTHORS", "COPYING")
