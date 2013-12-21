@@ -11,7 +11,7 @@ from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 from pisi.actionsapi import qt4
 
-WorkDir = "QScintilla-gpl-%s" % get.srcVERSION()
+#WorkDir = "QScintilla-gpl-%s" % get.srcVERSION()
 NoStrip = ["/usr/share/doc"]
 
 def setup():
