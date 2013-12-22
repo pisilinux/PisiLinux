@@ -18,6 +18,8 @@ def setup():
                          --libexecdir=/usr/lib/mate-disk-utility \
                          --disable-static \
                          --disable-scrollkeeper")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
