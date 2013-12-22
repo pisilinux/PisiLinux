@@ -15,7 +15,6 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
                          --sbindir=/usr/bin \
-                         --libexecdir=/usr/lib/mate-color-manager \
                          --disable-static \
                          --disable-scrollkeeper")
 
