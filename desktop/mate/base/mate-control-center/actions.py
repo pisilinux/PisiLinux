@@ -31,3 +31,5 @@ def install():
     pisitools.removeDir("/usr/share/MateConf")
 
     pisitools.dodoc("README", "COPYING", "NEWS", "ChangeLog", "AUTHORS", "TODO")
+    
+    pisitools.remove("/usr/share/applications/mimeinfo.cache")
