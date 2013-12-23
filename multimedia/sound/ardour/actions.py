@@ -68,3 +68,5 @@ def install():
 
     #Remove temporarily created directory
     os.removedirs("%s/%s" % (get.installDIR(), get.installDIR()))
+    
+    pisitools.remove("/usr/share/applications/mimeinfo.cache")
