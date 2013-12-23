@@ -10,14 +10,10 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-   # shelltools.export("LDFLAGS", "%s -lgmodule-2.0 -lICE" % get.LDFLAGS())
-  #  autotools.autoreconf("-fiv")
     autotools.configure("--disable-static\
                          --enable-spell\
                          --enable-python \
                          --disable-schemas-compile")
-
-
 
 def build():
     autotools.make()
