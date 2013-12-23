@@ -21,6 +21,7 @@ def check():
 
 def install():
     perlmodules.install()
+    
+    pisitools.remove("/usr/share/man/man3/File::Temp.3pm")
 
     pisitools.dodoc("Changes", "README")
-
