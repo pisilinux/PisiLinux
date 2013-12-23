@@ -48,8 +48,8 @@ def install():
     pisitools.remove("/usr/share/man/man3/ExtUtils::MM_OS2.3pm")
     pisitools.remove("/usr/bin/instmodsh")
     pisitools.remove("/usr/share/man/man3/ExtUtils::MakeMaker::Config.3pm")
-    pisitools.remove("/usr/share/man/man3/JSON::PP.3pm")")")
-    pisitools.remove("/usr/share/man/man3/JSON::PP::Boolean.3pm")")
+    pisitools.remove("/usr/share/man/man3/JSON::PP.3pm")
+    pisitools.remove("/usr/share/man/man3/JSON::PP::Boolean.3pm")
     pisitools.remove("/usr/share/man/man3/Parse::CPAN::Meta.3pm")
       
     pisitools.dodoc("Changes", "MANIFEST", "README")
