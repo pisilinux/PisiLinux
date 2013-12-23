@@ -23,5 +23,5 @@ def check():
 def install():
     perlmodules.install()
     
-    perl-docs Conflicted
+    #perl-docs Conflicted
     pisitools.remove("/usr/share/man/man3/Digest::MD5.3pm")
