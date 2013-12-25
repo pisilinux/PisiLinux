@@ -11,6 +11,8 @@ from pisi.actionsapi import get
 
 
 def setup():
+    #package name change
+    pisitools.dosed("mate-system-monitor.desktop.in*", "_Name=MATE System Monitor", "_Name=System Monitor")
     autotools.configure("--disable-static \
                          --disable-scrollkeeper")
 

@@ -11,6 +11,8 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    #package name change
+    pisitools.dosed("data/mate-calc.desktop.in", "_Name=MATE Calculator", "_Name=Calculator")
     shelltools.system("./autogen.sh")
     autotools.configure("--prefix=/usr \
                          --disable-schemas-install")
