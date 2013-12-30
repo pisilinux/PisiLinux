@@ -15,23 +15,24 @@ def setup():
     shelltools.system("./buildconf")
     shelltools.export("ac_cv_search_shm_open", "no")
 
-
-    autotools.configure("--enable-ipv6 \
-                         --enable-threads \
+    autotools.configure("--disable-static \
+                         --includedir=/usr/include/apr-1 \
                          --with-installbuilddir=/usr/lib/apr-1/build \
                          --with-devrandom=/dev/urandom \
-                         --enable-nonportable-atomics \
-                         --disable-static")
+                         --enable-nonportable-atomics --without-sendfile")
 
     # Make it use system's libtool
     pisitools.dosed("build/apr_rules.mk", "\$\(apr_builddir\)\/libtool", "/usr/bin/libtool")
     pisitools.dosed("apr-1-config", "\$\{installbuilddir\}\/libtool", "/usr/bin/libtool")
+    
+    # fix unused-direct-shlib-dependency
+    pisitools.dosed("libtool", "( -shared )", " -Wl,-O1,--as-needed\\1")
 
 def build():
     autotools.make()
 
 def check():
-    autotools.make("-j1 check")
+    autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
@@ -43,7 +44,5 @@ def install():
     # Install find_apr.m4
     pisitools.dodir("/usr/share/aclocal")
     pisitools.insinto("/usr/share/aclocal", "build/find_apr.m4")
-
-    pisitools.remove("/usr/lib/apr.exp")
 
     pisitools.dodoc("CHANGES", "LICENSE", "NOTICE")
