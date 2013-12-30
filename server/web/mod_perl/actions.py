@@ -10,11 +10,14 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 shelltools.export("CFLAGS", "%s -fpic" % get.CFLAGS())
-shelltools.export("HOME", get.installDIR())
 
 def setup():
-    perlmodules.configure("MP_APR_CONFIG=/usr/bin/apr-1-config \
+    shelltools.system("sed -i -e 's:^Apache-\(Reload\|SizeLimit\|Test\).*::' lib/Bundle/Apache2.pm") 
+    perlmodules.configure("MP_APR_CONFIG=/usr/bin/apr-1-config MP_APU_CONFIG=/usr/bin/apu-1-config MP_USE_DSO=1 \
                            MP_APXS=/usr/bin/apxs")
+    
+    #pisitools.dosed("WrapXS/Apache2/Connection/Connection.xs", "remote_addr;", "remote_ip;")
+    shelltools.system("sed -i -e 's:^Apache-\(Reload\|SizeLimit\|Test\).*::' lib/Bundle/Apache2.pm") 
 
 def build():
     perlmodules.make()
