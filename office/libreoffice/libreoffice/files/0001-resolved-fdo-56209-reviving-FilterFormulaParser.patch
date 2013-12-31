@@ -1,0 +1,405 @@
+From 4a7096b9c8c0e6451fa0ced06143cb8a65ec10fc Mon Sep 17 00:00:00 2001
+From: Eike Rathke <erack@redhat.com>
+Date: Mon, 28 Oct 2013 22:46:01 +0100
+Subject: [PATCH] resolved fdo#56209 reviving FilterFormulaParser
+
+First it was moved from oox to sc without carrying over the component
+factory bits, then subsequent commits removed the remaining bits in
+steps as it appeared to be unused:
+
+8ada1cd2846e5e60ad63250c68ddea3a9356546f
+887d7945addeb823e0d3f783609c4e79d92ad4a7
+effda59a12cedd3cf200d2e9f5186a623b0855bb
+f2fd2a66ee827024b31a310d67804cb7cb18d2da
+
+(cherry picked from commit 20e0afa76087e20f95247406d265a122263a8c6f)
+
+Backported.
+
+Change-Id: I445b11c95daff6f30b3654936d0f22a113158f97
+Reviewed-on: https://gerrit.libreoffice.org/6469
+Reviewed-by: David Tardon <dtardon@redhat.com>
+Tested-by: David Tardon <dtardon@redhat.com>
+---
+ sc/Library_scfilt.mk                      |   1 +
+ sc/source/filter/excel/xestream.cxx       |  10 ++
+ sc/source/filter/inc/ooxformulaparser.hxx | 110 +++++++++++++++++
+ sc/source/filter/oox/ooxformulaparser.cxx | 196 ++++++++++++++++++++++++++++++
+ sc/util/scfilt.component                  |   3 +
+ 5 files changed, 320 insertions(+)
+ create mode 100644 sc/source/filter/inc/ooxformulaparser.hxx
+ create mode 100644 sc/source/filter/oox/ooxformulaparser.cxx
+
+diff --git a/sc/Library_scfilt.mk b/sc/Library_scfilt.mk
+index 5b383c4..3cc4b1a 100644
+--- a/sc/Library_scfilt.mk
++++ b/sc/Library_scfilt.mk
+@@ -188,6 +188,7 @@ $(eval $(call gb_Library_add_exception_objects,scfilt,\
+ 	sc/source/filter/oox/formulabuffer \
+ 	sc/source/filter/oox/formulaparser \
+ 	sc/source/filter/oox/numberformatsbuffer \
++	sc/source/filter/oox/ooxformulaparser \
+ 	sc/source/filter/oox/pagesettings \
+ 	sc/source/filter/oox/pivotcachebuffer \
+ 	sc/source/filter/oox/pivotcachefragment \
+diff --git a/sc/source/filter/excel/xestream.cxx b/sc/source/filter/excel/xestream.cxx
+index bf9c1d8..8421006 100644
+--- a/sc/source/filter/excel/xestream.cxx
++++ b/sc/source/filter/excel/xestream.cxx
+@@ -1179,6 +1179,11 @@ namespace oox { namespace xls {
+     Sequence< OUString > SAL_CALL ExcelFilter_getSupportedServiceNames() throw();
+     Reference< XInterface > SAL_CALL ExcelFilter_createInstance(
+         const Reference< XComponentContext >& rxContext ) throw( Exception );
++
++    OUString SAL_CALL OOXMLFormulaParser_getImplementationName() throw();
++    Sequence< OUString > SAL_CALL OOXMLFormulaParser_getSupportedServiceNames() throw();
++    Reference< XInterface > SAL_CALL OOXMLFormulaParser_create(
++        const Reference< XComponentContext >& rxContext ) throw();
+ } }
+ 
+ #ifdef __cplusplus
+@@ -1201,6 +1206,11 @@ extern "C"
+         oox::xls::ExcelFilter_getSupportedServiceNames, ::cppu::createSingleComponentFactory,
+         0, 0
+     },
++    {
++        oox::xls::OOXMLFormulaParser_create, oox::xls::OOXMLFormulaParser_getImplementationName,
++        oox::xls::OOXMLFormulaParser_getSupportedServiceNames, ::cppu::createSingleComponentFactory,
++        0, 0
++    },
+     { 0, 0, 0, 0, 0, 0 }
+ };
+ 
+diff --git a/sc/source/filter/inc/ooxformulaparser.hxx b/sc/source/filter/inc/ooxformulaparser.hxx
+new file mode 100644
+index 0000000..e6c5797
+--- /dev/null
++++ b/sc/source/filter/inc/ooxformulaparser.hxx
+@@ -0,0 +1,110 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ *
++ * This file incorporates work covered by the following license notice:
++ *
++ *   Licensed to the Apache Software Foundation (ASF) under one or more
++ *   contributor license agreements. See the NOTICE file distributed
++ *   with this work for additional information regarding copyright
++ *   ownership. The ASF licenses this file to you under the Apache
++ *   License, Version 2.0 (the "License"); you may not use this file
++ *   except in compliance with the License. You may obtain a copy of
++ *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
++ */
++
++#ifndef OOX_XLS_OOXFORMULAPARSER_HXX
++#define OOX_XLS_OOXFORMULAPARSER_HXX
++
++#include <boost/shared_ptr.hpp>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include <com/sun/star/lang/XInitialization.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/sheet/XFilterFormulaParser.hpp>
++#include <cppuhelper/implbase3.hxx>
++
++namespace oox {
++namespace xls {
++
++class OOXMLFormulaParserImpl;
++
++// ============================================================================
++
++typedef ::cppu::WeakImplHelper3<
++    ::com::sun::star::lang::XServiceInfo,
++    ::com::sun::star::lang::XInitialization,
++    ::com::sun::star::sheet::XFilterFormulaParser > OOXMLFormulaParser_BASE;
++
++/** OOXML formula parser/compiler service for usage in ODF filters. */
++class OOXMLFormulaParser : public OOXMLFormulaParser_BASE
++{
++public:
++    explicit            OOXMLFormulaParser();
++    virtual             ~OOXMLFormulaParser();
++
++    // com.sun.star.lang.XServiceInfo interface -------------------------------
++
++    virtual ::rtl::OUString SAL_CALL
++                        getImplementationName() throw( ::com::sun::star::uno::RuntimeException );
++
++    virtual sal_Bool SAL_CALL
++                        supportsService( const ::rtl::OUString& rService )
++                            throw( ::com::sun::star::uno::RuntimeException );
++
++    virtual ::com::sun::star::uno::Sequence< ::rtl::OUString > SAL_CALL
++                        getSupportedServiceNames() throw( ::com::sun::star::uno::RuntimeException );
++
++    // com.sun.star.lang.XInitialization interface ----------------------------
++
++    virtual void SAL_CALL initialize(
++                            const ::com::sun::star::uno::Sequence< ::com::sun::star::uno::Any >& rArgs )
++                            throw( ::com::sun::star::uno::Exception, ::com::sun::star::uno::RuntimeException );
++
++    // com.sun.star.sheet.XFilterFormulaParser interface ----------------------
++
++    virtual ::rtl::OUString SAL_CALL
++                        getSupportedNamespace()
++                            throw( ::com::sun::star::uno::RuntimeException );
++
++    // com.sun.star.sheet.XFormulaParser interface ----------------------------
++
++    virtual ::com::sun::star::uno::Sequence< ::com::sun::star::sheet::FormulaToken > SAL_CALL
++                        parseFormula(
++                            const ::rtl::OUString& rFormula,
++                            const ::com::sun::star::table::CellAddress& rReferencePos )
++                        throw( ::com::sun::star::uno::RuntimeException );
++
++    virtual ::rtl::OUString SAL_CALL
++                        printFormula(
++                            const ::com::sun::star::uno::Sequence< ::com::sun::star::sheet::FormulaToken >& rTokens,
++                            const ::com::sun::star::table::CellAddress& rReferencePos )
++                        throw( ::com::sun::star::uno::RuntimeException );
++
++private:
++    typedef ::boost::shared_ptr< OOXMLFormulaParserImpl >   ParserImplRef;
++
++    ::com::sun::star::uno::Reference< ::com::sun::star::lang::XComponent >
++                        mxComponent;
++    ParserImplRef       mxParserImpl;       /// Implementation of import parser.
++};
++
++css::uno::Reference< css::uno::XInterface > SAL_CALL OOXMLFormulaParser_create(
++    css::uno::Reference< css::uno::XComponentContext > const & context);
++
++OUString SAL_CALL OOXMLFormulaParser_getImplementationName();
++
++css::uno::Sequence< OUString > SAL_CALL OOXMLFormulaParser_getSupportedServiceNames();
++
++// ============================================================================
++
++} // namespace xls
++} // namespace oox
++
++#endif
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sc/source/filter/oox/ooxformulaparser.cxx b/sc/source/filter/oox/ooxformulaparser.cxx
+new file mode 100644
+index 0000000..9b91c79
+--- /dev/null
++++ b/sc/source/filter/oox/ooxformulaparser.cxx
+@@ -0,0 +1,196 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ *
++ * This file incorporates work covered by the following license notice:
++ *
++ *   Licensed to the Apache Software Foundation (ASF) under one or more
++ *   contributor license agreements. See the NOTICE file distributed
++ *   with this work for additional information regarding copyright
++ *   ownership. The ASF licenses this file to you under the Apache
++ *   License, Version 2.0 (the "License"); you may not use this file
++ *   except in compliance with the License. You may obtain a copy of
++ *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
++ */
++
++#include "ooxformulaparser.hxx"
++
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include "formulaparser.hxx"
++
++namespace oox {
++namespace xls {
++
++// ============================================================================
++
++using namespace ::com::sun::star::lang;
++using namespace ::com::sun::star::sheet;
++using namespace ::com::sun::star::table;
++using namespace ::com::sun::star::uno;
++
++using ::rtl::OUString;
++
++// ============================================================================
++
++class OOXMLFormulaParserImpl : private FormulaFinalizer
++{
++public:
++    explicit            OOXMLFormulaParserImpl( const Reference< XMultiServiceFactory >& rxModelFactory );
++
++    Sequence< FormulaToken > parseFormula( const OUString& rFormula, const CellAddress& rReferencePos );
++
++protected:
++    virtual const FunctionInfo* resolveBadFuncName( const OUString& rTokenData ) const;
++
++private:
++    ApiParserWrapper    maApiParser;
++};
++
++// ----------------------------------------------------------------------------
++
++OOXMLFormulaParserImpl::OOXMLFormulaParserImpl( const Reference< XMultiServiceFactory >& rxModelFactory ) :
++    FormulaFinalizer( OpCodeProvider( rxModelFactory, FILTER_OOXML, BIFF_UNKNOWN, true ) ),
++    maApiParser( rxModelFactory, *this )
++{
++}
++
++Sequence< FormulaToken > OOXMLFormulaParserImpl::parseFormula( const OUString& rFormula, const CellAddress& rReferencePos )
++{
++    return finalizeTokenArray( maApiParser.parseFormula( rFormula, rReferencePos ) );
++}
++
++const FunctionInfo* OOXMLFormulaParserImpl::resolveBadFuncName( const OUString& rTokenData ) const
++{
++    /*  Try to parse calls to library functions. The format of such a function
++        call is assumed to be
++            "'<path-to-office-install>\Library\<libname>'!<funcname>". */
++
++    // the string has to start with an apostroph (followed by the library URL)
++    if( (rTokenData.getLength() >= 6) && (rTokenData[ 0 ] == '\'') )
++    {
++        // library URL and function name are separated by an exclamation mark
++        sal_Int32 nExclamPos = rTokenData.lastIndexOf( '!' );
++        if( (1 < nExclamPos) && (nExclamPos + 1 < rTokenData.getLength()) && (rTokenData[ nExclamPos - 1 ] == '\'') )
++        {
++            // find the last backslash that separates library path and name
++            sal_Int32 nFileSep = rTokenData.lastIndexOf( '\\', nExclamPos - 2 );
++            if( nFileSep > 1 )
++            {
++                // find preceding backslash that separates the last directory name
++                sal_Int32 nDirSep = rTokenData.lastIndexOf( '\\', nFileSep - 1 );
++                // function library is located in a directory called 'library'
++                if( (nDirSep > 0) && rTokenData.matchIgnoreAsciiCaseAsciiL( RTL_CONSTASCII_STRINGPARAM( "\\LIBRARY\\" ), nDirSep ) )
++                {
++                    // try to find a function info for the function name
++                    OUString aFuncName = rTokenData.copy( nExclamPos + 1 ).toAsciiUpperCase();
++                    const FunctionInfo* pFuncInfo = getFuncInfoFromOoxFuncName( aFuncName );
++                    if( pFuncInfo && (pFuncInfo->meFuncLibType != FUNCLIB_UNKNOWN) )
++                    {
++                        // check that the name of the library matches
++                        OUString aLibName = rTokenData.copy( nFileSep + 1, nExclamPos - nFileSep - 2 );
++                        if( pFuncInfo->meFuncLibType == getFuncLibTypeFromLibraryName( aLibName ) )
++                            return pFuncInfo;
++                    }
++                }
++            }
++        }
++    }
++    return 0;
++}
++
++// ============================================================================
++
++Sequence< OUString > OOXMLFormulaParser_getSupportedServiceNames()
++{
++    Sequence< OUString > aServiceNames( 1 );
++    aServiceNames[ 0 ] =  "com.sun.star.sheet.FilterFormulaParser";
++    return aServiceNames;
++}
++
++OUString OOXMLFormulaParser_getImplementationName()
++{
++    return OUString( "com.sun.star.comp.oox.xls.FormulaParser");
++}
++
++Reference< XInterface > OOXMLFormulaParser_create( const Reference< XComponentContext >& )
++{
++    return static_cast< ::cppu::OWeakObject* >( new OOXMLFormulaParser );
++}
++
++// ============================================================================
++
++OOXMLFormulaParser::OOXMLFormulaParser()
++{
++}
++
++OOXMLFormulaParser::~OOXMLFormulaParser()
++{
++}
++
++// com.sun.star.lang.XServiceInfo interface -----------------------------------
++
++OUString SAL_CALL OOXMLFormulaParser::getImplementationName() throw( RuntimeException )
++{
++    return OOXMLFormulaParser_getImplementationName();
++}
++
++sal_Bool SAL_CALL OOXMLFormulaParser::supportsService( const OUString& rService ) throw( RuntimeException )
++{
++    const Sequence< OUString > aServices( OOXMLFormulaParser_getSupportedServiceNames() );
++    const OUString* pArray = aServices.getConstArray();
++    const OUString* pArrayEnd = pArray + aServices.getLength();
++    return ::std::find( pArray, pArrayEnd, rService ) != pArrayEnd;
++}
++
++Sequence< OUString > SAL_CALL OOXMLFormulaParser::getSupportedServiceNames() throw( RuntimeException )
++{
++    return OOXMLFormulaParser_getSupportedServiceNames();
++}
++
++// com.sun.star.lang.XInitialization interface --------------------------------
++
++void SAL_CALL OOXMLFormulaParser::initialize( const Sequence< Any >& rArgs ) throw( Exception, RuntimeException )
++{
++    OSL_ENSURE( rArgs.hasElements(), "OOXMLFormulaParser::initialize - missing arguments" );
++    if( !rArgs.hasElements() )
++        throw RuntimeException();
++    mxComponent.set( rArgs[ 0 ], UNO_QUERY_THROW );
++}
++
++// com.sun.star.sheet.XFilterFormulaParser interface --------------------------
++
++OUString SAL_CALL OOXMLFormulaParser::getSupportedNamespace() throw( RuntimeException )
++{
++    return OUString( "http://schemas.microsoft.com/office/excel/formula");
++}
++
++// com.sun.star.sheet.XFormulaParser interface --------------------------------
++
++Sequence< FormulaToken > SAL_CALL OOXMLFormulaParser::parseFormula(
++        const OUString& rFormula, const CellAddress& rReferencePos ) throw( RuntimeException )
++{
++    if( !mxParserImpl )
++    {
++        Reference< XMultiServiceFactory > xModelFactory( mxComponent, UNO_QUERY_THROW );
++        mxParserImpl.reset( new OOXMLFormulaParserImpl( xModelFactory ) );
++    }
++    return mxParserImpl->parseFormula( rFormula, rReferencePos );
++}
++
++OUString SAL_CALL OOXMLFormulaParser::printFormula(
++        const Sequence< FormulaToken >& /*rTokens*/, const CellAddress& /*rReferencePos*/ ) throw( RuntimeException )
++{
++    // not implemented
++    throw RuntimeException();
++}
++
++// ============================================================================
++
++} // namespace xls
++} // namespace oox
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sc/util/scfilt.component b/sc/util/scfilt.component
+index 13b884b..292fbd4 100644
+--- a/sc/util/scfilt.component
++++ b/sc/util/scfilt.component
+@@ -26,4 +26,7 @@
+     <service name="com.sun.star.document.ImportFilter"/>
+     <service name="com.sun.star.document.ExportFilter"/>
+   </implementation>
++  <implementation name="com.sun.star.comp.oox.xls.FormulaParser">
++    <service name="com.sun.star.sheet.FilterFormulaParser"/>
++  </implementation>
+ </component>
+-- 
+1.8.3.1
+

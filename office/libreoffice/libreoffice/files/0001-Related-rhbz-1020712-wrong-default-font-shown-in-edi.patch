@@ -1,0 +1,134 @@
+From e3bde35198d8a5420b7106c983766b88ccfba51a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Caol=C3=A1n=20McNamara?= <caolanm@redhat.com>
+Date: Fri, 18 Oct 2013 15:36:28 +0100
+Subject: [PATCH] Related: rhbz#1020712 wrong default font shown in editengine
+
+Only in editengine could we have this fiasco.
+
+There are two ImpEditEngine::GetScriptType's
+
+a) sal_uInt16 ImpEditEngine::GetScriptType(const EditPaM& rPaM, sal_uInt16* pEndPos) const
+this one returns i18n::ScriptType
+
+b) sal_uInt16 ImpEditEngine::GetScriptType(const EditSelection& rSel) const
+this one returns SCRIPTTYPE
+
+Could there be a better way to ensure that mistakes will be made.
+
+Anyway, within variant b, with an empty edit engine
+ImpEditEngine::GetScriptType calls GetI18NScriptTypeOfLanguage but *that*
+returns i18n::ScriptType's not SCRIPTTYPEs but when there is content then a
+SCRIPTTYPE is truly returned.
+
+Change-Id: I3a4a7c8746728e0fdfb25d961004c8339a24c93d
+(cherry picked from commit e63a0d5657c7b9c7431525ba669b3edab0e56af3)
+
+Related: rhbz#1020712 more i18n::ScriptType being compared against SCRIPTTYPE
+
+Change-Id: I5da9114a3fd8330df2b63dc9187323765d305791
+(cherry picked from commit b57ffef61afd61b57087150b1a9245e21079e15b)
+
+Resolves: rhbz#1020712 return all the selected scripts
+
+What we want here is *all* the scripts in the range, that's the whole point of
+using SCRIPTTYPE. We use this to determine the font to show in the fontbox. If
+it's an exclusive script then we can show the font that that script, and if
+there are multiple scripts we know to set it empty.
+
+With the other intermediate bugs out of the way, this now appears to work
+correctly.
+
+(cherry picked from commit f1a8aefec91f51a15c951f53f283a38a2edcd141)
+
+Conflicts:
+	editeng/source/editeng/impedit2.cxx
+
+Change-Id: I58426123602d70c151bd878e96fa5cbab7d3fd3e
+---
+ editeng/source/editeng/impedit2.cxx | 39 ++++++++++++++++++++-----------------
+ editeng/source/editeng/impedit4.cxx |  4 ++--
+ 2 files changed, 23 insertions(+), 20 deletions(-)
+
+diff --git a/editeng/source/editeng/impedit2.cxx b/editeng/source/editeng/impedit2.cxx
+index 4bc6d70..21d0d32 100644
+--- a/editeng/source/editeng/impedit2.cxx
++++ b/editeng/source/editeng/impedit2.cxx
+@@ -1788,32 +1788,35 @@ sal_uInt16 ImpEditEngine::GetScriptType( const EditSelection& rSel ) const
+ 
+         const ScriptTypePosInfos& rTypes = pParaPortion->aScriptInfos;
+ 
+-        // find the first(!) script type position that holds the
+-        // complete selection. Thus it will work for selections as
+-        // well as with just moving the cursor from char to char.
++        // find all the scripts of this range
+         sal_uInt16 nS = ( nPara == nStartPara ) ? aSel.Min().GetIndex() : 0;
+         sal_uInt16 nE = ( nPara == nEndPara ) ? aSel.Max().GetIndex() : pParaPortion->GetNode()->Len();
+-        for ( size_t n = 0; n < rTypes.size(); n++ )
++
++        //no selection, just bare cursor
++        if (nStartPara == nEndPara && nS == nE)
+         {
+-            if (rTypes[n].nStartPos <= nS  &&  nE <= rTypes[n].nEndPos)
+-               {
++            //If we are not at the start of the paragraph we want the properties of the
++            //preceding character. Otherwise get the properties of the next (or what the
++            //next would have if it existed)
++            if (nS != 0)
++                --nS;
++            else
++                ++nE;
++        }
++
++        for (size_t n = 0; n < rTypes.size(); ++n)
++        {
++            bool bStartInRange = rTypes[n].nStartPos <= nS && nS < rTypes[n].nEndPos;
++            bool bEndInRange = rTypes[n].nStartPos < nE && nE <= rTypes[n].nEndPos;
++
++            if (bStartInRange || bEndInRange)
++            {
+                 if ( rTypes[n].nScriptType != i18n::ScriptType::WEAK )
+-                {
+                     nScriptType |= GetItemScriptType ( rTypes[n].nScriptType );
+-                }
+-                else
+-                {
+-                    if ( !nScriptType && n )
+-                    {
+-                        // #93548# When starting with WEAK, use prev ScriptType...
+-                        nScriptType = rTypes[n-1].nScriptType;
+-                    }
+-                }
+-                break;
+             }
+         }
+     }
+-    return nScriptType ? nScriptType : GetI18NScriptTypeOfLanguage( GetDefaultLanguage() );
++    return nScriptType ? nScriptType : SvtLanguageOptions::GetScriptTypeOfLanguage( GetDefaultLanguage() );
+ }
+ 
+ sal_Bool ImpEditEngine::IsScriptChange( const EditPaM& rPaM ) const
+diff --git a/editeng/source/editeng/impedit4.cxx b/editeng/source/editeng/impedit4.cxx
+index 39e8156..5e0fa09 100644
+--- a/editeng/source/editeng/impedit4.cxx
++++ b/editeng/source/editeng/impedit4.cxx
+@@ -2124,7 +2124,7 @@ void ImpEditEngine::ApplyChangedSentence(EditView& rEditView,
+                     rEditView.pImpEditView->SetEditSelection( aCurrentOldPosition->Max() );
+                 }
+ 
+-                sal_uInt16 nScriptType = GetI18NScriptTypeOfLanguage( aCurrentNewPortion->eLanguage );
++                sal_uInt16 nScriptType = SvtLanguageOptions::GetScriptTypeOfLanguage( aCurrentNewPortion->eLanguage );
+                 sal_uInt16 nLangWhichId = EE_CHAR_LANGUAGE;
+                 switch(nScriptType)
+                 {
+@@ -2171,7 +2171,7 @@ void ImpEditEngine::ApplyChangedSentence(EditView& rEditView,
+                 LanguageType eCurLanguage = GetLanguage( aCurrentPaM );
+                 if(eCurLanguage != aCurrentNewPortion->eLanguage)
+                 {
+-                    sal_uInt16 nScriptType = GetI18NScriptTypeOfLanguage( aCurrentNewPortion->eLanguage );
++                    sal_uInt16 nScriptType = SvtLanguageOptions::GetScriptTypeOfLanguage( aCurrentNewPortion->eLanguage );
+                     sal_uInt16 nLangWhichId = EE_CHAR_LANGUAGE;
+                     switch(nScriptType)
+                     {
+-- 
+1.8.3.1
+
