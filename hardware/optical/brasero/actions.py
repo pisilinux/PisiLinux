@@ -11,7 +11,8 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--prefix=/usr \
                          --disable-caches \
-                         --disable-schemas-compile")
+                         --disable-schemas-compile \
+                         --enable-nautilus=no")
     # for fix unused dependency
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ") 
     
