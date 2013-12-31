@@ -10,6 +10,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
+    # fix freetype headers
+    pisitools.dosed("util", "^(#include <freetyp)e\/", "\\1e2/", filePattern=".*\.c")
+
     shelltools.copy("../unifont*.pcf.gz", "./unifont.pcf.gz")
     shelltools.export("GRUB_CONTRIB", "%s/grub-%s/grub-extras" % (get.workDIR(), get.srcVERSION()))
 
