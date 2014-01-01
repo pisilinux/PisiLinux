@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--enable-wifi")
+    autotools.configure("--enable-wif")
 
 def build():
     autotools.make()
