@@ -23,4 +23,7 @@ def install():
     pisitools.remove("/usr/bin/svnlastchange")
     pisitools.remove("/usr/bin/svnlastlog")
     
+    #colorsvn conflicts
+    pisitools.remove("/usr/bin/colorsvn")
+    
     pisitools.dodoc("COPYING*", "README")
