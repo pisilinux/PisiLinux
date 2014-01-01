@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure()
+    autotools.configure("--prefix=/usr")
 
 def build():
     autotools.make()
@@ -19,5 +19,3 @@ def install():
 
     # move docs into proper place
     pisitools.domove("/usr/share/libatomic_ops/", "/usr/share/doc/%s" % get.srcNAME())
-
-    pisitools.remove("/usr/include/atomic_ops/sysdeps/README")
