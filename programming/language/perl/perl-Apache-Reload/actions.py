@@ -19,5 +19,8 @@ def check():
 
 def install():
     perlmodules.install()
+    
+    #remove conflicted files - mod_perl
+    pisitools.remove("/usr/share/man/man3/Apach*::Reload.3pm")
 
     pisitools.dodoc("Changes", "MANIFEST", "README", "LICENSE")
