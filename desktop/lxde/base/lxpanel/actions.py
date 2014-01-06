@@ -10,10 +10,8 @@ from pisi.actionsapi import shelltools
 
 def setup():
     shelltools.system("intltoolize --force --copy --automake")
-    autotools.configure("--disable-alsa \
-                        --with-x \
-                        --with-plugins=all \
-                        --enable-man")
+    autotools.configure("--with-plugins=all \
+                         --enable-man")
 
 def build():
     autotools.make()
