@@ -12,6 +12,8 @@ def setup():
     shelltools.system("intltoolize --force --copy --automake")
     autotools.configure("--with-plugins=all \
                          --enable-man")
+    
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
