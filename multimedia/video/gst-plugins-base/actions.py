@@ -9,11 +9,8 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
     pisitools.dosed("configure.ac", "AM_CONFIG_HEADER", "AC_CONFIG_HEADERS")
-    autotools.autoreconf("-vfi")
     opts = {
             "introspection": "no" if get.buildTYPE() == "emul32" else "yes",
             "gnome-vfs": "dis" if get.buildTYPE() == "emul32" else "en"
@@ -34,7 +31,7 @@ def build():
 
 # tests fail sandbox
 #def check():
-#    autotools.make("-C tests/check check")
+    #autotools.make("-C tests/check check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())

@@ -11,6 +11,8 @@ from pisi.actionsapi import get
 
 
 def setup():
+    #package name change
+    pisitools.dosed("mate-system-monitor.desktop.in*", "_Name=MATE System Monitor", "_Name=System Monitor")
     autotools.configure("--disable-static \
                          --disable-scrollkeeper")
 
@@ -19,5 +21,8 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    # remove needless gsettings convert file to avoid slow session start
+    pisitools.removeDir("/usr/share/MateConf")
 
     pisitools.dodoc("README", "NEWS", "ChangeLog", "AUTHORS", "COPYING")

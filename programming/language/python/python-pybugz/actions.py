@@ -7,7 +7,7 @@
 from pisi.actionsapi import get
 from pisi.actionsapi import pythonmodules
 
-WorkDir = "pybugz-0.9.2_20121116"
+#WorkDir = "pybugz-0.9.2_20121116"
 
 def build():
     pythonmodules.compile()

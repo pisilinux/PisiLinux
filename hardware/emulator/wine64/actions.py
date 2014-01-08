@@ -22,11 +22,12 @@ def setup():
     #     to the 64bit files that was compiled in the first step (files in the work)
     #
     # More info can be obtained here: http://wiki.winehq.org/Wine64
-
+    shelltools.export("CPPFLAGS", "-D_FORTIFY_SOURCE=0")
     autotools.autoreconf("-vif")
     options = "--without-capi \
                --with-curses \
                --without-hal \
+               --without-gstreamer \
                --with-dbus \
                --with-opengl \
                --with-alsa \
@@ -52,3 +53,7 @@ def install():
         autotools.install("UPDATE_DESKTOP_DATABASE=/bin/true libdir=%s/usr/lib dlldir=%s/usr/lib/wine" % (get.installDIR(), get.installDIR()))
 
     pisitools.dodoc("ANNOUNCE", "AUTHORS", "COPYING.LIB", "LICENSE*", "README", "documentation/README.*")
+    
+    pisitools.insinto("/usr/share/wine/mono/", "wine-mono-4.5.2.msi")
+    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.24-x86.msi")
+    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.24-x86_64.msi")

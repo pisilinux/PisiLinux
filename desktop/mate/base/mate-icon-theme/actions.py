@@ -18,4 +18,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
+    #pisitools.remove("/usr/share/icons/matefaenza/icon-theme.cache")
+
     pisitools.dodoc("COPYING", "TODO", "README", "NEWS", "AUTHORS")

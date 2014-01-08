@@ -23,5 +23,9 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    # remove needless gsettings convert file to avoid slow session start
+    pisitools.removeDir("/usr/share/MateConf")
+    
     #pisitools.remove("/usr/share/man/man1/mate-notification-properties.1")
     pisitools.removeDir("/usr/share/man/")

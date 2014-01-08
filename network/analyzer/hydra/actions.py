@@ -20,11 +20,7 @@ moduleconfig = {"XDEFINES": "-DLIBOPENSSL -DLIBSSH",
 
 
 def setup():
-    pisitools.dosed("Makefile.am", "-O2", get.CFLAGS())
     autotools.configure("--disable-xhydra")
-
-#    for i in moduleconfig:
-#        pisitools.dosed("Makefile", "^%s=.*" % i, "%s=%s" % (i, moduleconfig[i]))
 
 def build():
     autotools.make()

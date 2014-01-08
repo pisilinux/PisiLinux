@@ -1,0 +1,37 @@
+commit 6d565409503f4e1f74ac30de14e8c91a2b826cd8
+Author: Phillip Lougher <phillip@squashfs.org.uk>
+Date:   Sun Nov 24 00:40:24 2013 +0000
+
+    Squashfs: fix failure to unlock pages on decompress error
+    
+    Direct decompression into the page cache.  If we fall back
+    to using an intermediate buffer (because we cannot grab all the
+    page cache pages) and we get a decompress fail, we forgot to
+    release the pages.
+    
+    Reported-by: Roman Peniaev <r.peniaev@gmail.com>
+    Signed-off-by: Phillip Lougher <phillip@squashfs.org.uk>
+
+diff --git a/fs/squashfs/file_direct.c b/fs/squashfs/file_direct.c
+index 2943b2b..62a0de6 100644
+--- a/fs/squashfs/file_direct.c
++++ b/fs/squashfs/file_direct.c
+@@ -84,6 +84,9 @@ int squashfs_readpage_block(struct page *target_page, u64 block, int bsize)
+ 		 */
+ 		res = squashfs_read_cache(target_page, block, bsize, pages,
+ 								page);
++		if (res < 0)
++			goto mark_errored;
++
+ 		goto out;
+ 	}
+ 
+@@ -119,7 +122,7 @@ mark_errored:
+ 	 * dealt with by the caller
+ 	 */
+ 	for (i = 0; i < pages; i++) {
+-		if (page[i] == target_page)
++		if (page[i] == NULL || page[i] == target_page)
+ 			continue;
+ 		flush_dcache_page(page[i]);
+ 		SetPageError(page[i]);

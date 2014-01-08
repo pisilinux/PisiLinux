@@ -10,11 +10,18 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--with-gtk \
-                         --with-sdl \
-                         --without-esd")
+    shelltools.export("LDFLAGS", "%s -lz" % get.LDFLAGS())
+    shelltools.system("sed -i -e '/^lxdream_LDADD =/s|=|= -lz|g' src/Makefile.in || exit 1") 
+    autotools.autoconf()
 
-def build(): 
+    autotools.configure(" --prefix=/usr \
+                          --with-gtk \
+                          --sysconfdir=/etc \
+                          --with-sdl \
+                          --without-esd \
+                          --disable-dependency-tracking")
+
+def build():
     autotools.make()
 
 def install():

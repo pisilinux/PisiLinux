@@ -6,20 +6,22 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-static\
-                         --disable-schemas-install")
+                         --disable-schemas-compile \
+                         --prefix=/usr")
     
-    # for fix unused dependency
+   # for fix unused dependency
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")     
 
 def build():
     autotools.make()
 
 def install():
-    autotools.install()
-    pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    #pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
 
     pisitools.dodoc("AUTHORS", "COPYING", "NEWS", "README")

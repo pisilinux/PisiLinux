@@ -5,11 +5,13 @@
 
 from pisi.actionsapi import scons
 from pisi.actionsapi import get
+from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def build():
-    scons.make("$MAKEFLAGS -C cbang compiler=gnu")
-    scons.make("$MAKEFLAGS compiler=gnu")
+    pisitools.dosed("src/openscam/view/GLFreeType.cpp", "freetype\/(.*\.h)", r"\1")
+    scons.make("-C cbang compiler=gnu")
+    scons.make("compiler=gnu")
     
 def install():
     scons.install("install compiler=gnu install_prefix=%s/usr" % get.installDIR())

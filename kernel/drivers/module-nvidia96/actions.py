@@ -22,10 +22,13 @@ datadir = "/usr/share/%s" % driver
 def setup():
     shelltools.system("sh NVIDIA-Linux-%s-%s-pkg0.run -x --target tmp" % (arch, version))
     shelltools.move("tmp/*", ".")
-
-    shelltools.system("patch -p0 < 173.14.36-37.patch")
-    shelltools.system("patch -p1 -i linux-3.10.patch")
-
+    
+    shelltools.cd("usr/src/nv")
+    shelltools.system("patch -p1  < ../../../173.14.36-37.patch")
+    shelltools.system("patch -p1  < ../../../173.14.37-38.patch")
+    #shelltools.system("patch -p1 -i linux-3.10.patch")
+    shelltools.cd("../../../")
+    
     # Our libc is TLS enabled so use TLS library
     shelltools.unlink("usr/lib/*-tls.so*")
     shelltools.move("usr/lib/tls/*", "usr/lib")

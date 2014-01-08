@@ -7,7 +7,7 @@
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
 
-WorkDir = "Pylons-pylons-c4d26be"
+#WorkDir = "Pylons-pylons-c4d26be"
 
 def install():
     pythonmodules.install()

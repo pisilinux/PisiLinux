@@ -8,6 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
+    pisitools.dosed("themes/Adwaita/gtk-3.0/gtk-widgets.css", "@menu_bg_color;", "transparent;")
     autotools.autoreconf("-vif")
     autotools.configure("--disable-static")
 

@@ -6,21 +6,21 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
-# You can use these as variables, they will replace GUI values before build.
-# Package Name : rhino
-# Version : 1.7
-# Summary : Open-source implementation of JavaScript written entirely in Java
+WorkDir = "rhino1_7R4"
 
-# If the project that you are tying to compile is in a sub directory in the 
-# source archive, than you can define working directory. For example; 
-# WorkDir="rhino-"+ get.srcVERSION() +"/sub_project_dir/"
+shelltools.export("JAVA_HOME", "/opt/sun-jdk")
+
+def build():    
+    shelltools.system("ant -Dxbean.jar=xmlbeans-2.5.0/lib/xbean.jar -Djsr173.jar=xmlbeans-2.5.0/lib/jsr173_1.0_api.jar jar javadoc")
 
 def install():
-    pisitools.dobin("js.jar", "/usr/share/java")
-
-# Take a look at the source folder for these file as documentation.
-#    pisitools.dodoc("AUTHORS", "BUGS", "ChangeLog", "COPYING", "README")
-# If there is no install rule for a runnable binary, you can 
-# install it to binary directory.
-#    pisitools.dobin("rhino")
+    pisitools.dobin("rhino")
+    pisitools.dobin("rhino-jsc")
+    pisitools.dobin("rhino-debugger")
+    pisitools.doman("rhino.1")
+    pisitools.doman("rhino-jsc.1")
+    pisitools.doman("rhino-debugger.1")
+    pisitools.insinto("/usr/share/java", "js-14.jar", "js.jar")        
+    pisitools.insinto("/usr/share/java/rhino", "javadoc")

@@ -67,6 +67,10 @@ def install():
 
     for s in (16, 22, 24, 32, 48, 256):
         pisitools.insinto("/usr/share/icons/hicolor/%dx%d/apps" % (s,s), "other-licenses/branding/thunderbird/mailicon%d.png" % s, "thunderbird.png")
+    
+    # We don't want the development stuff
+    #pisitools.removeDir("/usr/lib/firefox-devel")    
+    #pisitools.removeDir("/usr/share/idl")
 
     # Install docs
     pisitools.dodoc("mozilla/LEGAL", "mozilla/LICENSE")

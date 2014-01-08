@@ -23,8 +23,4 @@ def install():
     #Remove files conflicts with kdesdk(cervisia)
     pisitools.remove("usr/share/kde4/services/svn*.protocol")
 
-    #Remove duplicate files with libsvnqt
-    pisitools.remove("/usr/lib/libsvnqt.so*")
-    pisitools.removeDir("/usr/include/")
-
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "GPL*", "TODO")

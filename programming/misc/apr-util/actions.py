@@ -36,9 +36,6 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    # Not used
-    pisitools.remove("/usr/lib/aprutil.exp")
-
     pisitools.dosed("%s/usr/bin/apu-1-config" % get.installDIR(), get.workDIR(), "")
 
     pisitools.dodoc("CHANGES", "NOTICE")

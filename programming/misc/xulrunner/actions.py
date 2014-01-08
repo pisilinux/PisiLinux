@@ -13,11 +13,15 @@ import os
 
 WorkDir = "mozilla-release"
 NoStrip = ["/usr/include", "/usr/share/idl"]
-XulVersion = "22.0"
+XulVersion = "26.0"
 XulDir = "/usr/lib/%s-%s" % (get.srcNAME(), XulVersion)
 ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else "obj-%s-pc-linux-gnu" % get.ARCH()
 
 def setup():
+    # Fix build with new freetype
+    pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
+    pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")
+    pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.h$")
     # Write xulrunner version correctly including the minor part
     for f in ("xulrunner/installer/Makefile.in", ".mozconfig", "20-xulrunner.conf"):
         pisitools.dosed(f, "PSPEC_VERSION", XulVersion)
