@@ -50,7 +50,6 @@ def setup():
                --enable-local \
                --enable-proctitle \
                --enable-overlays=mod \
-               --with-tls=moznss \
                --with-pic \
                --with-cyrus-sasl \
                --with-threads \
@@ -72,7 +71,9 @@ def setup():
                      --disable-wrappers \
                      --disable-spasswd \
                      --disable-perl \
+                     --with-tls \
                      --without-cyrus-sasl"
+    else: options += " --with-tls=moznss"
 
     shelltools.export("AUTOMAKE", "/bin/true")
     autotools.autoreconf("-fi")
@@ -84,10 +85,9 @@ def build():
 def install():
     if get.buildTYPE() == "emul32":
         autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-        pisitools.remove("/usr/lib32/*.a")
         return
-    else:
-        autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
 
     pisitools.dodir("/run/openldap")
