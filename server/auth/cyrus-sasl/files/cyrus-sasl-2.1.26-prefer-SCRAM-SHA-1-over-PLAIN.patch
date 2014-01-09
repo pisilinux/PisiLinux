@@ -1,0 +1,51 @@
+commit 26dcfb2d7176b78e70757aa5d01951a28ca217c7
+Author: Alexey Melnikov <alexey.melnikov@isode.com>
+Date:   Fri Jul 5 16:37:59 2013 +0100
+
+    Treat SCRAM-SHA-1/DIGEST-MD5 as more secure than PLAIN when selecting the best client side SASL mechanism
+    
+    Both SCRAM-SHA-1 & DIGEST-MD5 are lacking SASL_SEC_PASS_CREDENTIALS security
+    flag, which prevented them from being chosen over PLAIN when PLAIN is selected
+    as the best mechanism first. For example the problem can be observed when
+    the server advertises "PLAIN DIGEST-MD5 SCRAM-SHA-1" (PLAIN just has to be
+    returned before SCRAM/DIGEST.)
+    
+    Cyrus SASL bug # 3793
+
+diff --git a/lib/client.c b/lib/client.c
+index 62dfb0b..31fe346 100644
+--- a/lib/client.c
++++ b/lib/client.c
+@@ -658,6 +658,20 @@ _sasl_cbinding_disp(sasl_client_params_t *cparams,
+     return SASL_OK;
+ }
+ 
++static int
++_sasl_are_current_security_flags_worse_then_best(unsigned best_security_flags,
++						 unsigned current_security_flags)
++{
++    /* We don't qualify SASL_SEC_PASS_CREDENTIALS as "secure" flag */
++    best_security_flags &= ~SASL_SEC_PASS_CREDENTIALS;
++
++    if ((current_security_flags ^ best_security_flags) & best_security_flags) {
++	return 1;
++    } else {
++	return 0;
++    }
++}
++
+ /* select a mechanism for a connection
+  *  mechlist      -- mechanisms server has available (punctuation ignored)
+  *  secret        -- optional secret from previous session
+@@ -823,8 +837,9 @@ int sasl_client_start(sasl_conn_t *conn,
+ 	     */
+ 
+ 	    if (bestm &&
+-		((m->m.plug->security_flags ^ bestm->m.plug->security_flags) &
+-		 bestm->m.plug->security_flags)) {
++		_sasl_are_current_security_flags_worse_then_best(
++		    bestm->m.plug->security_flags,
++		    m->m.plug->security_flags)) {
+ 		break;
+ 	    }
+ 

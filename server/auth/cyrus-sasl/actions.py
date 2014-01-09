@@ -4,10 +4,10 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 def setup():
     def cleanup():
@@ -21,7 +21,7 @@ def setup():
     autotools.autoreconf("-vi --no-recursive -I config -I ../cmulocal -I ../config")
     shelltools.cd("..")
 
-    shelltools.export("CFLAGS", "%s -fPIC" % get.CFLAGS())
+    pisitools.cflags.add("-fPIC")
 
     # Don't disable ldap support to break circular dep. with openldap
     # As workaround, we remove openldap-client runtime dep. in pspec
@@ -46,10 +46,15 @@ def setup():
                          --enable-ntlm \
                          --enable-plain \
                          --enable-ldapdb \
+                         --enable-checkapop \
+                         --enable-alwaystrue \
+                         --disable-java \
                          --disable-krb4 \
                          --disable-otp \
-                         --disable-java \
+                         --disable-srp \
                          --disable-sql \
+                         --disable-passdss \
+                         --disable-macos-framework \
                          --disable-static")
 
 def build():
