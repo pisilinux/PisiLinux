@@ -18,11 +18,11 @@ def setup():
     autotools.configure("--disable-static \
                          --enable-pam-module \
                          --localstatedir=/var \
-                         --with-systemdsystemunitdir=/lib/systemd/system \
                          --with-pid-file=/run/ConsoleKit/pid")
+#                         --with-systemdsystemunitdir=/lib/systemd/system \
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s/" % get.installDIR())
