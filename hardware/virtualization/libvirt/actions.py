@@ -59,7 +59,7 @@ def build():
 def check():
     for v in ["XDG_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"]:
         shelltools.export(v, get.workDIR())
-#    autotools.make("check")
+    autotools.make("check")
 
 
 def install():
