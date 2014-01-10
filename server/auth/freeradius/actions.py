@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "freeradius-server-%s" % get.srcVERSION()
-
 def setup():
     shelltools.export("CFLAGS", "%s -DLDAP_DEPRECATED -fPIC -DPIC" % get.CFLAGS())
     shelltools.export("LDFLAGS", "%s -pie" % get.LDFLAGS())
