@@ -4,13 +4,12 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import autotools
-from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 from pisi.actionsapi import libtools
+from pisi.actionsapi import autotools
+from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
-shelltools.export("HOME", get.workDIR())
 suffix = "32" if get.buildTYPE() == "emul32" else ""
 
 def setup():
