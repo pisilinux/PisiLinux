@@ -18,9 +18,6 @@ emul32_libs = "libpulsecommon-%s.la \
               " % get.srcVERSION()
 
 def setup():
-#    autotools.autoreconf("-fi")
-#    libtools.libtoolize()
-
     options = "--disable-dependency-tracking \
                --disable-static \
                --disable-rpath \
@@ -49,23 +46,22 @@ def setup():
                      --disable-manpages \
                      --disable-samplerate \
                      --disable-default-build-tests"
-        shelltools.export("CC", "%s -m32" % get.CC())
 
+    shelltools.echo(".tarball-version", get.srcVERSION())
+    shelltools.system("NOCONFIGURE=1 ./bootstrap.sh")
     autotools.configure(options)
-    pisitools.dosed("libtool", "CC(\s-shared\s)", r"CC -Wl,-O1,--as-needed\1")
 
+    pisitools.dosed("libtool", "CC(\s-shared\s)", r"CC -Wl,-O1,--as-needed\1")
 
 def build():
     if get.buildTYPE() == "emul32":
         autotools.make("-C src %s" % emul32_libs)
         return
 
-    #autotools.make("LIBTOOL=/usr/bin/libtool")
     autotools.make()
 
     #generate html docs
     autotools.make("doxygen")
-
 
 def install():
     if get.buildTYPE() == "emul32":
@@ -95,4 +91,3 @@ def install():
 
     pisitools.dodoc("README", "LICENSE", "GPL", "LGPL")
     pisitools.dohtml("doxygen/html/*")
-
