@@ -13,23 +13,20 @@ KeepSpecial = ["libtool"]
 
 def setup():
     pisitools.dosed(
-        "%s/%s/include/ldap_defaults.h" % (get.workDIR(), get.srcDIR()),
+        "include/ldap_defaults.h",
         "(#define LDAPI_SOCK).*",
         '\\1 "/run/openldap/slapd.sock"'
     )
+    pisitools.dosed("servers/slapd/Makefile.in", "(\$\(DESTDIR\))\$\(localstatedir\)(\/run)", r"\1\2")
 
-    shelltools.export("CFLAGS","%s  -D_REENTRANT -D_GNU_SOURCE -fPIC" % get.CFLAGS())
-    shelltools.export("CPPFLAGS","%s -D_REENTRANT -D_GNU_SOURCE -fPIC"  % get.CFLAGS())
+    pisitools.cflags.add("-D_REENTRANT -D_GNU_SOURCE -fPIC -Wl,--as-needed -DLDAP_CONNECTIONLESS -fpie")
+    pisitools.ldflags.add("-pie")
 
     options = "--prefix=/usr \
                --enable-bdb \
-               --enable-ldbm-api=berkeley \
                --enable-hdb=mod \
                --enable-slapd \
-               --enable-slurpd \
-               --enable-ldbm \
                --enable-passwd=mod \
-               --enable-phonetic=mod \
                --enable-dnssrv=mod \
                --enable-ldap \
                --enable-wrappers \
@@ -53,12 +50,16 @@ def setup():
                --enable-local \
                --enable-proctitle \
                --enable-overlays=mod \
-               --with-tls \
                --with-pic \
                --with-cyrus-sasl \
+               --with-threads \
+               --without-fetch \
                --enable-crypt \
-               --with-ssl=openssl \
                --enable-ipv6 \
+               --enable-dynacl \
+               --enable-shared \
+               --disable-static \
+               --disable-slp \
                --localstatedir=/var/lib"
 
     if get.buildTYPE() == "emul32":
@@ -70,8 +71,12 @@ def setup():
                      --disable-wrappers \
                      --disable-spasswd \
                      --disable-perl \
+                     --with-tls \
                      --without-cyrus-sasl"
+    else: options += " --with-tls=moznss"
 
+    shelltools.export("AUTOMAKE", "/bin/true")
+    autotools.autoreconf("-fi")
     autotools.configure(options)
 
 def build():
@@ -80,17 +85,12 @@ def build():
 def install():
     if get.buildTYPE() == "emul32":
         autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-        pisitools.remove("/usr/lib32/*.a")
         return
-    else:
-        autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    # No static libs
-    pisitools.remove("/usr/lib/*.a")
 
     pisitools.dodir("/run/openldap")
-    pisitools.dodir("/run/openldap/slapd")
     pisitools.dodir("/etc/openldap/ssl")
 
     pisitools.dodoc("ANNOUNCEMENT", "CHANGES", "COPYRIGHT", "README", "LICENSE")

@@ -4,15 +4,18 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
 def setup():
-    shelltools.export("AUTOPOINT", "true")
-    autotools.autoreconf("-vfi")
-
+    for f in ["src/Makefile.am", "src/Makefile.in", "daemon/Makefile.am", "daemon/Makefile.in"]:
+        pisitools.dosed(f, "\$\(localstatedir\)(\/run\/libvirt)", "\\1")
+    for f in ["daemon/libvirtd.c", "daemon/libvirtd.conf", "daemon/test_libvirtd.aug.in"]:
+        pisitools.dosed(f, "\/var(\/run\/libvirt)", "\\1")
+    for f in ["src/locking/virtlockd.pod.in", "src/virtlockd.8.in", "daemon/libvirtd.8.in", "daemon/libvirtd.pod.in", ]:
+        pisitools.dosed(f, "LOCALSTATEDIR(\/run\/libvirt)", "\\1")
     autotools.configure("--with-init-script=none \
                          --with-remote-pid-file=/run/libvirtd.pid \
                          --with-qemu-user=qemu \
@@ -21,6 +24,7 @@ def setup():
                          --with-udev \
                          --with-qemu \
                          --with-sasl \
+                         --with-audit \
                          --with-numactl \
                          --with-yajl \
                          --with-avahi \
@@ -53,11 +57,8 @@ def build():
     autotools.make()
 
 def check():
-#    # Disable broken tests
-#    for test in ("daemon-conf",):
-#        shelltools.unlink("tests/%s" % test)
-#        shelltools.echo("tests/%s" % test, "#!/bin/sh\nexit 0\n")
-#        shelltools.chmod("tests/%s" % test, 0755)
+    for v in ["XDG_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"]:
+        shelltools.export(v, get.workDIR())
     autotools.make("check")
 
 

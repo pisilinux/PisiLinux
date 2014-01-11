@@ -7,7 +7,7 @@ serviceDesc = _({"en": "libvirt virtualization API daemon",
                  "tr": "libvirt sanallaştırma hizmeti"})
 serviceDefault = "on"
 
-PIDFILE         = "/run/libvirtd.pid"
+PIDFILE         = "/run/libvirt/libvirtd.pid"
 KRB5_KTNAME     = "/etc/libvirt/krb5.tab"
 LIBVIRTD_CONFIG = "/etc/libvirt/libvirtd.conf"
 

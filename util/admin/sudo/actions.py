@@ -4,14 +4,13 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS", "%s -fpie" % get.CFLAGS())
-    shelltools.export("LDFLAGS","%s -pie" % get.LDFLAGS())
+    pisitools.cflags.add("-fpie")
+    pisitools.ldflags.add("-pie -Wl,-z,relro -Wl,-z,now")
 
     autotools.autoreconf("-fi")
 
