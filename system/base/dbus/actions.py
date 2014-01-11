@@ -10,6 +10,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
+    pisitools.dosed("configure.ac", '(AS_AC_EXPAND\(EXPANDED_LOCALSTATEDIR, )"\$localstatedir"\)', r'\1 "")')
+    for f in ["bus/Makefile.am", "bus/Makefile.in"]:
+        pisitools.dosed(f, "\$\(localstatedir\)(\/run\/dbus)", "\\1")
     options = "--with-xml=expat \
                --with-system-pid-file=/run/dbus/pid \
                --with-system-socket=/run/dbus/system_bus_socket \
@@ -39,7 +42,6 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     if get.buildTYPE() == "emul32": return
-    pisitools.removeDir("/var/run")
 
     # needs to exist for the system socket
     pisitools.dodir("/run/dbus")
