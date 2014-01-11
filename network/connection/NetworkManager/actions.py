@@ -16,12 +16,13 @@ def setup():
         pisitools.dosed(f, "\$\(?localstatedir\)?(\/run\/(\$PACKAGE|NetworkManager))", "\\1")
     pisitools.dosed("configure.ac", "\/var(\/run\/ConsoleKit)", "\\1")
     pisitools.dosed("configure.ac", "^initscript", deleteLine=True)
-    autotools.autoreconf("-fi")
-    shelltools.system("intltoolize --force --copy --automake")
+    shelltools.system("./autogen.sh")
 
     autotools.configure("--disable-static \
                          --disable-silent-rules \
                          --disable-wimax \
+                         --enable-ppp=yes \
+                         --enable-bluez4=yes \
                          --enable-more-warnings=yes \
                          --with-crypto=nss \
                          --with-resolvconf=/etc/resolv.conf \
