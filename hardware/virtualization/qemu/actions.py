@@ -22,7 +22,7 @@ cflags = get.CFLAGS().replace("-fpie", "").replace("-fstack-protector", "")
 extraldflags=""
 buildldflags=""
 
-soundDrivers = "pa,sdl,alsa,oss"
+soundDrivers = "pa,sdl,alsa"
 builddirkvmtest = "kvm/test"
 
 #targetKvmList = "i386-softmmu x86_64-softmmu i386-linux-user x86_64-linux-user"
@@ -38,16 +38,18 @@ targetList = "i386-softmmu x86_64-softmmu arm-softmmu cris-softmmu m68k-softmmu 
 
 
 cfgParamsCommon = '--prefix=/usr \
-                  --sysconfdir=/etc \
-                  --mandir=/usr/share/man \
-                  --cc="%s" \
-                  --host-cc="%s" \
-                  --extra-cflags="%s" \
-                  --extra-ldflags="%s" \
-                  --audio-drv-list="%s" \
-                  --disable-xen \
-                  --disable-werror \
-                  --disable-strip' % (get.CC(), get.CC(), cflags, extraldflags, soundDrivers)
+                   --sysconfdir=/etc \
+                   --mandir=/usr/share/man \
+                   --cc="%s" \
+                   --host-cc="%s" \
+                   --extra-cflags="%s" \
+                   --extra-ldflags="%s" \
+                   --audio-drv-list="%s" \
+                   --libexecdir=/usr/lib/qemu \
+                   --disable-xen \
+                   --disable-werror \
+                   --localstatedir=/ \
+                   --disable-strip' % (get.CC(), get.CC(), cflags, extraldflags, soundDrivers)
 
 
 def printfancy(msg):
@@ -113,9 +115,9 @@ def install():
     #pisitools.dobin("kvm/test/kvmtrace_format")
     #pisitools.dobin("kvm/kvm_stat")
     pisitools.dobin("qemu-kvm")
-
+    shelltools.system("chmod u+s %s/usr/lib/qemu/qemu-bridge-helper" % get.installDIR())
     pisitools.insinto("/etc/sasl2/", "qemu.sasl", "qemu.conf")
 
-    for i in ["pc-bios/README", "LICENSE", "TODO", "README", "COPYING*", "qemu-doc.html", "qemu-tech.html"]:
+    for i in ["pc-bios/README", "LICENSE", "README", "COPYING*", "qemu-doc.html", "qemu-tech.html"]:
         pisitools.dodoc(i)
 
