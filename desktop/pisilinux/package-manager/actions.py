@@ -18,5 +18,4 @@ def install():
         pisitools.insinto("%s/html/%s/package-manager/" % (kde4.docdir, lang),
                           "help/%s/main_help.html" % lang, "index.html")
 
-    pisitools.remove('/usr/share/kde4/apps/package-manager/data/package-manager-*.desktop')
 
