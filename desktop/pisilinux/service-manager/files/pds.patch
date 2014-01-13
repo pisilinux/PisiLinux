@@ -1,0 +1,433 @@
+diff -Nuar service-manager-3.0.0.orig//setup.py service-manager-3.0.0/setup.py
+--- service-manager-3.0.0.orig//setup.py	2011-03-21 11:09:29.708000015 +0200
++++ service-manager-3.0.0/setup.py	2011-03-21 11:10:08.152000017 +0200
+@@ -26,6 +26,12 @@
+ from distutils.command.install import install
+ 
+ PROJECT = about.appName
++FOR_KDE_4=False
++
++if 'kde4' in sys.argv:
++    sys.argv.remove('kde4')
++    FOR_KDE_4=True
++    print 'UI files will be created for KDE 4.. '
+ 
+ def makeDirs(directory):
+     if not os.path.exists(directory):
+@@ -47,8 +53,14 @@
+ 
+     # Collect UI files
+     filelist = []
+-    for filename in glob.glob1("ui", "*.ui"):
+-        os.system("pykde4uic -o ui/ui_%s.py ui/%s" % (filename.split(".")[0], filename))
++    # UI files for kde4
++    if FOR_KDE_4:
++        for filename in glob.glob1("ui", "*.ui"):
++            os.system("pykde4uic -o ui/ui_%s.py ui/%s" % (filename.split(".")[0], filename))
++    #UI files for pure-qt
++    else :
++        for filename in glob.glob1("ui", "*.ui"):
++            os.system("pyuic4 -o ui/ui_%s.py ui/%s -g %s" % (filename.split(".")[0], filename, PROJECT))
+ 
+     # Collect headers for desktop files
+     for filename in glob.glob("data/*.desktop.in"):
+@@ -104,8 +116,15 @@
+             os.system("intltool-merge -d po %s %s" % (filename, filename[:-3]))
+ 
+         print "Generating UIs..."
+-        for filename in glob.glob1("ui", "*.ui"):
+-            os.system("pykde4uic -o build/servicemanager/ui_%s.py ui/%s" % (filename.split(".")[0], filename))
++        # Collect UI for kde4
++        if FOR_KDE_4:
++            for filename in glob.glob1("ui", "*.ui"):
++                os.system("pykde4uic -o build/servicemanager/ui_%s.py ui/%s" % (filename.split(".")[0], filename))
++        # Collect UI for pure-qt
++        else:
++            for filename in glob.glob1("ui", "*.ui"):
++                os.system("pyuic4 -o build/servicemanager/ui_%s.py ui/%s -g %s" % (filename.split(".")[0], filename, PROJECT))
++
+ 
+         print "Generating RCs..."
+         for filename in glob.glob1("data", "*.qrc"):
+@@ -128,9 +147,13 @@
+             bin_dir = "/usr/bin"
+ 
+         locale_dir = os.path.join(root_dir, "locale")
+-        apps_dir = os.path.join(root_dir, "applications/kde4")
+-        services_dir = os.path.join(root_dir, "kde4/services")
+-        project_dir = os.path.join(root_dir, "kde4/apps", PROJECT)
++        if FOR_KDE_4:
++            apps_dir = os.path.join(root_dir, "applications/kde4")
++            services_dir = os.path.join(root_dir, "kde4/services")
++            project_dir = os.path.join(root_dir, "kde4/apps", PROJECT)
++        else:
++            apps_dir = os.path.join(root_dir, "applications")
++            project_dir = os.path.join(root_dir, PROJECT)
+ 
+         # Make directories
+         print "Making directories..."
+@@ -138,13 +161,15 @@
+         makeDirs(locale_dir)
+         makeDirs(apps_dir)
+         makeDirs(project_dir)
+-        makeDirs(services_dir)
++        if FOR_KDE_4:
++            makeDirs(services_dir)
+ 
+         # Install desktop files
+         print "Installing desktop files..."
+ 
+         shutil.copy("data/%s.desktop" % PROJECT, apps_dir)
+-        shutil.copy("data/kcm_%s.desktop" % PROJECT, services_dir)
++        if FOR_KDE_4:
++            shutil.copy("data/kcm_%s.desktop" % PROJECT, services_dir)
+         shutil.rmtree('build/data')
+ 
+         # Install codes
+@@ -192,14 +217,19 @@
+         bin_dir = "/usr/bin"
+ 
+         locale_dir = os.path.join(root_dir, "locale")
+-        apps_dir = os.path.join(root_dir, "applications/kde4")
+-        services_dir = os.path.join(root_dir, "kde4/services")
+-        project_dir = os.path.join(root_dir, "kde4/apps", PROJECT)
++        if FOR_KDE_4:
++            apps_dir = os.path.join(root_dir, "applications/kde4")
++            services_dir = os.path.join(root_dir, "kde4/services")
++            project_dir = os.path.join(root_dir, "kde4/apps", PROJECT)
++        else:
++            apps_dir = os.path.join(root_dir, "applications")
++            project_dir = os.path.join(root_dir, PROJECT)
+ 
+         print 'Uninstalling ...'
+         remove(project_dir)
+         remove(apps_dir +"/%s.desktop" % PROJECT)
+-        remove(services_dir +"/kcm_%s.desktop" % PROJECT)
++        if FOR_KDE_4:
++            remove(services_dir +"/kcm_%s.desktop" % PROJECT)
+         for filename in glob.glob1('po', '*.po'):
+             lang = filename.rsplit(".", 1)[0]
+             remove(os.path.join(locale_dir, "%s/LC_MESSAGES" % lang, "%s.mo" % PROJECT))
+diff -Nuar service-manager-3.0.0.orig//src/servicemanager/about.py service-manager-3.0.0/src/servicemanager/about.py
+--- service-manager-3.0.0.orig//src/servicemanager/about.py	2011-03-21 11:09:29.711000015 +0200
++++ service-manager-3.0.0/src/servicemanager/about.py	2011-03-21 11:10:08.152000017 +0200
+@@ -11,29 +11,35 @@
+ # Please read the COPYING file.
+ #
+ 
+-# PyKDE4 Stuff
+-from PyKDE4.kdecore import KAboutData, ki18n, ki18nc
+-
+-PACKAGE = "Service Manager"
++# PDS Stuff
++import context as ctx
+ 
+ # Application Data
++PACKAGE     = "Service Manager"
+ appName     = "service-manager"
+ modName     = "servicemanager"
+-programName = ki18n(PACKAGE)
+ version     = "3.0.0"
+-description = ki18n(PACKAGE)
+-license     = KAboutData.License_GPL
+-copyright   = ki18n("(c) 2009-2010 TUBITAK/UEKAE")
+-text        = ki18n(None)
+ homePage    = "http://developer.pardus.org.tr/projects/service-manager"
+ bugEmail    = "bugs@pardus.org.tr"
++icon        = "flag-yellow"
+ catalog     = appName
+-aboutData   = KAboutData(appName, catalog, programName, version, description, license, copyright, text, homePage, bugEmail)
+ 
+-# Authors
+-aboutData.addAuthor(ki18n("Gökmen Göksel"), ki18n("Current Maintainer"))
+-aboutData.addAuthor(ki18n("Bahadır Kandemir"), ki18n("COMAR Author"))
+-aboutData.setTranslator(ki18nc("NAME OF TRANSLATORS", "Your names"), ki18nc("EMAIL OF TRANSLATORS", "Your emails"))
++if ctx.Pds.session == ctx.pds.Kde4:
++
++    # PyKDE4 Stuff
++    from PyKDE4.kdecore import KAboutData, ki18n, ki18nc
++
++    programName = ki18n(PACKAGE)
++    description = ki18n(PACKAGE)
++    license     = KAboutData.License_GPL
++    copyright   = ki18n("(c) 2009-2010 TUBITAK/UEKAE")
++    text        = ki18n(None)
++    aboutData   = KAboutData(appName, catalog, programName, version, description, license, copyright, text, homePage, bugEmail)
++
++    # Authors
++    aboutData.addAuthor(ki18n("Gökmen Göksel"), ki18n("Current Maintainer"))
++    aboutData.addAuthor(ki18n("Bahadır Kandemir"), ki18n("COMAR Author"))
++    aboutData.setTranslator(ki18nc("NAME OF TRANSLATORS", "Your names"), ki18nc("EMAIL OF TRANSLATORS", "Your emails"))
+ 
+-# Use this if icon name is different than appName
+-aboutData.setProgramIconName("flag-yellow")
++    # Use this if icon name is different than appName
++    aboutData.setProgramIconName(icon)
+diff -Nuar service-manager-3.0.0.orig//src/servicemanager/base.py service-manager-3.0.0/src/servicemanager/base.py
+--- service-manager-3.0.0.orig//src/servicemanager/base.py	2011-03-21 11:09:29.712000015 +0200
++++ service-manager-3.0.0/src/servicemanager/base.py	2011-03-21 11:10:08.157000017 +0200
+@@ -20,16 +20,18 @@
+ from PyQt4.QtGui import QMessageBox
+ from PyQt4.QtCore import *
+ 
+-# PyKDE4 Stuff
+-from PyKDE4.kdeui import *
+-from PyKDE4.kdecore import *
+-
+ # Application Stuff
+ from servicemanager.backend import ServiceIface
+-from servicemanager.about import aboutData
+ from servicemanager.ui_main import Ui_mainManager
+ from servicemanager.widgets import ServiceItemWidget, ServiceItem
+ 
++# Pds vs KDE
++import servicemanager.context as ctx
++if ctx.Pds.session == ctx.pds.Kde4:
++    from PyKDE4.kdecore import i18n
++else:
++    from servicemanager.context import i18n
++
+ class MainManager(QtGui.QWidget):
+     def __init__(self, parent, standAlone=True):
+         QtGui.QWidget.__init__(self, parent)
+diff -Nuar service-manager-3.0.0.orig//src/servicemanager/context.py service-manager-3.0.0/src/servicemanager/context.py
+--- service-manager-3.0.0.orig//src/servicemanager/context.py	1970-01-01 02:00:00.000000000 +0200
++++ service-manager-3.0.0/src/servicemanager/context.py	2011-03-21 11:10:08.161000017 +0200
+@@ -0,0 +1,29 @@
++#!/usr/bin/python
++# -*- coding: utf-8 -*-
++
++import pds
++import traceback
++from time import time
++from pds.qiconloader import QIconLoader
++
++Pds = pds.Pds('service-manager', debug = False)
++# Force to use Default Session for testing
++# Pds.session = pds.DefaultDe
++# print 'Current session is : %s %s' % (Pds.session.Name, Pds.session.Version)
++
++i18n = Pds.i18n
++KIconLoader = QIconLoader(Pds, forceCache=True)
++KIcon = KIconLoader.icon
++
++time_counter = 0
++start_time = time()
++last_time = time()
++
++def _time():
++    global last_time, time_counter
++    trace = list(traceback.extract_stack())
++    diff = time() - start_time
++    print ('%s ::: %s:%s' % (time_counter, trace[-2][0].split('/')[-1], trace[-2][1])), diff, diff - last_time
++    last_time = diff
++    time_counter += 1
++
+diff -Nuar service-manager-3.0.0.orig//src/servicemanager/widgets.py service-manager-3.0.0/src/servicemanager/widgets.py
+--- service-manager-3.0.0.orig//src/servicemanager/widgets.py	2011-03-21 11:09:29.712000015 +0200
++++ service-manager-3.0.0/src/servicemanager/widgets.py	2011-03-21 11:10:08.163000017 +0200
+@@ -15,10 +15,13 @@
+ from PyQt4 import QtGui
+ from PyQt4.QtCore import *
+ 
+-# KDE Stuff
+-from PyKDE4 import kdeui
+-from PyKDE4.kdecore import i18n
+-from PyKDE4.kdecore import KGlobal
++# Pds vs KDE
++import servicemanager.context as ctx
++if ctx.Pds.session == ctx.pds.Kde4:
++    from PyKDE4.kdeui import KIcon
++    from PyKDE4.kdecore import i18n
++else:
++    from servicemanager.context import KIcon, i18n
+ 
+ # Application Stuff
+ from servicemanager.ui_item import Ui_ServiceItemWidget
+@@ -31,6 +34,7 @@
+ # Python Stuff
+ import time
+ import textwrap
++import locale
+ 
+ # Pisi Stuff
+ import pisi
+@@ -60,10 +64,10 @@
+ 
+         self.toggleButtons()
+ 
+-        self.ui.buttonStart.setIcon(kdeui.KIcon("media-playback-start"))
+-        self.ui.buttonStop.setIcon(kdeui.KIcon("media-playback-stop"))
+-        self.ui.buttonReload.setIcon(kdeui.KIcon("view-refresh"))
+-        self.ui.buttonInfo.setIcon(kdeui.KIcon("dialog-information"))
++        self.ui.buttonStart.setIcon(KIcon("media-playback-start"))
++        self.ui.buttonStop.setIcon(KIcon("media-playback-stop"))
++        self.ui.buttonReload.setIcon(KIcon("view-refresh"))
++        self.ui.buttonInfo.setIcon(KIcon("dialog-information"))
+ 
+         self.toggled = False
+         self.root = parent
+@@ -100,7 +104,7 @@
+         self.ui.buttonStop.setEnabled(self.running)
+         self.ui.buttonReload.setEnabled(self.running)
+ 
+-        self.ui.labelStatus.setPixmap(kdeui.KIcon(icon).pixmap(32, 32))
++        self.ui.labelStatus.setPixmap(KIcon(icon).pixmap(32, 32))
+         self.showStatus()
+         self.runningAtStart = False
+         if state in ('on', 'stopped'):
+@@ -161,7 +165,7 @@
+     try:
+         # TODO add a package map for known services
+         service = service.replace('_','-')
+-        lang = str(KGlobal.locale().language())
++        lang = str(locale.getdefaultlocale()[0].split("_")[0])
+         desc = pisi.api.info_name(service)[0].package.description
+         if desc.has_key(lang):
+             return unicode(desc[lang])
+@@ -178,7 +182,7 @@
+         self.ui = Ui_InfoWidget()
+         self.ui.setupUi(self)
+         self.ui.buttonHide.clicked.connect(self.hideDescription)
+-        self.ui.buttonHide.setIcon(kdeui.KIcon("dialog-close"))
++        self.ui.buttonHide.setIcon(KIcon("dialog-close"))
+ 
+         self._animation = 2
+         self._duration = 500
+diff -Nuar service-manager-3.0.0.orig//src/service-manager.py service-manager-3.0.0/src/service-manager.py
+--- service-manager-3.0.0.orig//src/service-manager.py	2011-03-21 11:09:29.712000015 +0200
++++ service-manager-3.0.0/src/service-manager.py	2011-03-21 11:33:38.407000038 +0200
+@@ -13,46 +13,72 @@
+ 
+ # System
+ import sys
+-
+ import dbus
+ 
++# Pds Stuff
++import servicemanager.context as ctx
++
++# Application Stuff
++import servicemanager.about as about
++
+ # Qt Stuff
+ from PyQt4.QtCore import SIGNAL
+ 
+-# PyKDE4 Stuff
+-from PyKDE4.kdeui import *
+-from PyKDE4.kdecore import *
+-
+-def CreatePlugin(widget_parent, parent, component_data):
+-    from servicemanager.kcmodule import ServiceManager
+-    return ServiceManager(component_data, parent)
++# Enable plugin if session is Kde4
++if ctx.Pds.session == ctx.pds.Kde4:
++    def CreatePlugin(widget_parent, parent, component_data):
++        from servicemanager.kcmodule import ServiceManager
++        return ServiceManager(component_data, parent)
+ 
+ if __name__ == '__main__':
+ 
+-    # Service Manager
+-    from servicemanager.standalone import ServiceManager
+-
+-    # Application Stuff
+-    from servicemanager.about import aboutData
+-
+-    # Set Command-line arguments
+-    KCmdLineArgs.init(sys.argv, aboutData)
+-
+-    # Create a Kapplitcation instance
+-    app = KApplication()
+-
+     # DBUS MainLoop
+     if not dbus.get_default_main_loop():
+         from dbus.mainloop.qt import DBusQtMainLoop
+         DBusQtMainLoop(set_as_default = True)
+ 
+-    # Create Main Widget
+-    mainWindow = ServiceManager(None, 'service-manager')
+-    mainWindow.show()
++    # Pds vs KDE
++    if ctx.Pds.session == ctx.pds.Kde4:
++
++        # PyKDE4 Stuff
++        from PyKDE4.kdeui import *
++        from PyKDE4.kdecore import *
++
++        # Application Stuff
++        from servicemanager.standalone import ServiceManager
++        from servicemanager.about import aboutData
++
++        # Set Command-line arguments
++        KCmdLineArgs.init(sys.argv, aboutData)
++
++        # Create a Kapplitcation instance
++        app = KApplication()
++
++        # Create Main Widget
++        mainWindow = ServiceManager(None, aboutData.appName)
++        mainWindow.show()
++
++    else:
++
++        # Application Stuff
++        from servicemanager.base import MainManager
++
++        # Pds Stuff
++        from pds.quniqueapp import QUniqueApplication
++        from servicemanager.context import KIcon, i18n
++
++        # Create a QUniqueApllication instance
++        app = QUniqueApplication(sys.argv, catalog=about.appName)
++
++        # Create Main Widget and make some settings
++        mainWindow = MainManager(None)
++        mainWindow.show()
++        mainWindow.resize(640, 480)
++        mainWindow.setWindowTitle(i18n(about.PACKAGE))
++        mainWindow.setWindowIcon(KIcon(about.icon))
+ 
+     # Create connection for lastWindowClosed signal to quit app
+     app.connect(app, SIGNAL('lastWindowClosed()'), app.quit)
+ 
+-    # Run the application
++    # Run the applications
+     app.exec_()
+-
+diff -Nuar service-manager-3.0.0.orig//ui/main.ui service-manager-3.0.0/ui/main.ui
+--- service-manager-3.0.0.orig//ui/main.ui	2011-03-21 11:09:29.703000015 +0200
++++ service-manager-3.0.0/ui/main.ui	2011-03-21 11:10:08.165000017 +0200
+@@ -17,16 +17,10 @@
+    <item row="0" column="0">
+     <layout class="QHBoxLayout" name="horizontalLayout">
+      <item>
+-      <widget class="KLineEdit" name="lineSearch">
+-       <property name="urlDropsEnabled">
+-        <bool>false</bool>
+-       </property>
+-       <property name="clickMessage">
++      <widget class="QLineEdit" name="lineSearch">
++       <property name="placeholderText">
+         <string>type service name to search...</string>
+        </property>
+-       <property name="showClearButton" stdset="0">
+-        <bool>true</bool>
+-       </property>
+       </widget>
+      </item>
+      <item>
+@@ -106,13 +100,6 @@
+    </item>
+   </layout>
+  </widget>
+- <customwidgets>
+-  <customwidget>
+-   <class>KLineEdit</class>
+-   <extends>QLineEdit</extends>
+-   <header>klineedit.h</header>
+-  </customwidget>
+- </customwidgets>
+  <resources/>
+  <connections/>
+ </ui>

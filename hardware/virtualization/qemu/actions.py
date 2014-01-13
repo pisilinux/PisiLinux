@@ -95,7 +95,6 @@ def setup():
                             #--enable-system \
                             #--enable-linux-user \
 
-
 def build():
     shelltools.export("CFLAGS", cflags)
     shelltools.export("LDFLAGS", extraldflags)
