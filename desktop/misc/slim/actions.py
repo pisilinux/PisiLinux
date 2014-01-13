@@ -23,5 +23,3 @@ def build():
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
     pisitools.dodoc("README","COPYING","TODO")
-    shelltools.cd("..")
-    pisitools.insinto("/usr/share/slim/themes", "fingerprint")
