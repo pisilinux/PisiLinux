@@ -14,8 +14,10 @@ NoStrip=["/usr/share"]
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure("-DKDE_DISTRIBUTION_TEXT=\"Pisi Linux\" \
+    kde4.configure("-DKDE_DISTRIBUTION_TEXT='Pisi Linux' \
+                    -DKDE4_BUILD_TESTS=OFF \
                     -DCMAKE_SKIP_RPATH=ON \
+                    -DWITH_SOLID_UDISKS2=ON \
                     -DWITH_FAM=ON \
                     -DWITH_HUpnp=ON")
 
