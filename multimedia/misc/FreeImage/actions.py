@@ -9,10 +9,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = get.srcNAME()
+#WorkDir = get.srcNAME()
 shelltools.export("HOME", get.workDIR())
 
 def build():
+    shelltools.system('export CFLAGS="$CFLAGS -fPIC -fexceptions -fvisibility=hidden -DNO_LCMS"')
+    shelltools.system('export CXXFLAGS="$CXXFLAGS -fPIC -fexceptions -fvisibility=hidden -DNO_LCMS"')
+    shelltools.system('sed -i "1 i #include <cstring>" Source/OpenEXR/IlmImf/ImfAutoArray.h')
     autotools.make()
 
 def install():
