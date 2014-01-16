@@ -1,0 +1,3356 @@
+From 60b3739ed1ba4957ffc465f2a797248062c9f837 Mon Sep 17 00:00:00 2001
+From: Kamala R <kamala@aristanetworks.com>
+Date: Mon, 2 Dec 2013 19:55:21 +0530
+Subject: [PATCH 01/47] IPv6: Fixed support for blackhole and prohibit routes
+
+[ Upstream commit 7150aede5dd241539686e17d9592f5ebd28a2cda ]
+
+The behaviour of blackhole and prohibit routes has been corrected by setting
+the input and output pointers of the dst variable appropriately. For
+blackhole routes, they are set to dst_discard and to ip6_pkt_discard and
+ip6_pkt_discard_out respectively for prohibit routes.
+
+ipv6: ip6_pkt_prohibit(_out) should not depend on
+CONFIG_IPV6_MULTIPLE_TABLES
+
+We need ip6_pkt_prohibit(_out) available without
+CONFIG_IPV6_MULTIPLE_TABLES
+
+Signed-off-by: Kamala R <kamala@aristanetworks.com>
+Acked-by: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/ipv6/route.c | 22 ++++++++++------------
+ 1 file changed, 10 insertions(+), 12 deletions(-)
+
+diff --git a/net/ipv6/route.c b/net/ipv6/route.c
+index 77308af..0db334a 100644
+--- a/net/ipv6/route.c
++++ b/net/ipv6/route.c
+@@ -84,6 +84,8 @@ static int		 ip6_dst_gc(struct dst_ops *ops);
+ 
+ static int		ip6_pkt_discard(struct sk_buff *skb);
+ static int		ip6_pkt_discard_out(struct sk_buff *skb);
++static int		ip6_pkt_prohibit(struct sk_buff *skb);
++static int		ip6_pkt_prohibit_out(struct sk_buff *skb);
+ static void		ip6_link_failure(struct sk_buff *skb);
+ static void		ip6_rt_update_pmtu(struct dst_entry *dst, struct sock *sk,
+ 					   struct sk_buff *skb, u32 mtu);
+@@ -234,9 +236,6 @@ static const struct rt6_info ip6_null_entry_template = {
+ 
+ #ifdef CONFIG_IPV6_MULTIPLE_TABLES
+ 
+-static int ip6_pkt_prohibit(struct sk_buff *skb);
+-static int ip6_pkt_prohibit_out(struct sk_buff *skb);
+-
+ static const struct rt6_info ip6_prohibit_entry_template = {
+ 	.dst = {
+ 		.__refcnt	= ATOMIC_INIT(1),
+@@ -1570,21 +1569,24 @@ int ip6_route_add(struct fib6_config *cfg)
+ 				goto out;
+ 			}
+ 		}
+-		rt->dst.output = ip6_pkt_discard_out;
+-		rt->dst.input = ip6_pkt_discard;
+ 		rt->rt6i_flags = RTF_REJECT|RTF_NONEXTHOP;
+ 		switch (cfg->fc_type) {
+ 		case RTN_BLACKHOLE:
+ 			rt->dst.error = -EINVAL;
++			rt->dst.output = dst_discard;
++			rt->dst.input = dst_discard;
+ 			break;
+ 		case RTN_PROHIBIT:
+ 			rt->dst.error = -EACCES;
++			rt->dst.output = ip6_pkt_prohibit_out;
++			rt->dst.input = ip6_pkt_prohibit;
+ 			break;
+ 		case RTN_THROW:
+-			rt->dst.error = -EAGAIN;
+-			break;
+ 		default:
+-			rt->dst.error = -ENETUNREACH;
++			rt->dst.error = (cfg->fc_type == RTN_THROW) ? -EAGAIN
++					: -ENETUNREACH;
++			rt->dst.output = ip6_pkt_discard_out;
++			rt->dst.input = ip6_pkt_discard;
+ 			break;
+ 		}
+ 		goto install_route;
+@@ -2149,8 +2151,6 @@ static int ip6_pkt_discard_out(struct sk_buff *skb)
+ 	return ip6_pkt_drop(skb, ICMPV6_NOROUTE, IPSTATS_MIB_OUTNOROUTES);
+ }
+ 
+-#ifdef CONFIG_IPV6_MULTIPLE_TABLES
+-
+ static int ip6_pkt_prohibit(struct sk_buff *skb)
+ {
+ 	return ip6_pkt_drop(skb, ICMPV6_ADM_PROHIBITED, IPSTATS_MIB_INNOROUTES);
+@@ -2162,8 +2162,6 @@ static int ip6_pkt_prohibit_out(struct sk_buff *skb)
+ 	return ip6_pkt_drop(skb, ICMPV6_ADM_PROHIBITED, IPSTATS_MIB_OUTNOROUTES);
+ }
+ 
+-#endif
+-
+ /*
+  *	Allocate a dst for local (unicast / anycast) address.
+  */
+-- 
+1.8.4.2
+
+
+From 3cd49811c8869e89c586e62e2f1ad4cd46176ec0 Mon Sep 17 00:00:00 2001
+From: Eric Dumazet <edumazet@google.com>
+Date: Mon, 2 Dec 2013 08:51:13 -0800
+Subject: [PATCH 02/47] net: do not pretend FRAGLIST support
+
+[ Upstream commit 28e24c62ab3062e965ef1b3bcc244d50aee7fa85 ]
+
+Few network drivers really supports frag_list : virtual drivers.
+
+Some drivers wrongly advertise NETIF_F_FRAGLIST feature.
+
+If skb with a frag_list is given to them, packet on the wire will be
+corrupt.
+
+Remove this flag, as core networking stack will make sure to
+provide packets that can be sent without corruption.
+
+Signed-off-by: Eric Dumazet <edumazet@google.com>
+Cc: Thadeu Lima de Souza Cascardo <cascardo@linux.vnet.ibm.com>
+Cc: Anirudha Sarangi <anirudh@xilinx.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/ibm/ehea/ehea_main.c         | 2 +-
+ drivers/net/ethernet/tehuti/tehuti.c              | 1 -
+ drivers/net/ethernet/xilinx/ll_temac_main.c       | 2 +-
+ drivers/net/ethernet/xilinx/xilinx_axienet_main.c | 2 +-
+ 4 files changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/ethernet/ibm/ehea/ehea_main.c b/drivers/net/ethernet/ibm/ehea/ehea_main.c
+index 2d1c6bd..7628e0f 100644
+--- a/drivers/net/ethernet/ibm/ehea/ehea_main.c
++++ b/drivers/net/ethernet/ibm/ehea/ehea_main.c
+@@ -3033,7 +3033,7 @@ static struct ehea_port *ehea_setup_single_port(struct ehea_adapter *adapter,
+ 
+ 	dev->hw_features = NETIF_F_SG | NETIF_F_TSO |
+ 		      NETIF_F_IP_CSUM | NETIF_F_HW_VLAN_CTAG_TX;
+-	dev->features = NETIF_F_SG | NETIF_F_FRAGLIST | NETIF_F_TSO |
++	dev->features = NETIF_F_SG | NETIF_F_TSO |
+ 		      NETIF_F_HIGHDMA | NETIF_F_IP_CSUM |
+ 		      NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX |
+ 		      NETIF_F_HW_VLAN_CTAG_FILTER | NETIF_F_RXCSUM;
+diff --git a/drivers/net/ethernet/tehuti/tehuti.c b/drivers/net/ethernet/tehuti/tehuti.c
+index 571452e..61a1540 100644
+--- a/drivers/net/ethernet/tehuti/tehuti.c
++++ b/drivers/net/ethernet/tehuti/tehuti.c
+@@ -2019,7 +2019,6 @@ bdx_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 		ndev->features = NETIF_F_IP_CSUM | NETIF_F_SG | NETIF_F_TSO
+ 		    | NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX |
+ 		    NETIF_F_HW_VLAN_CTAG_FILTER | NETIF_F_RXCSUM
+-		    /*| NETIF_F_FRAGLIST */
+ 		    ;
+ 		ndev->hw_features = NETIF_F_IP_CSUM | NETIF_F_SG |
+ 			NETIF_F_TSO | NETIF_F_HW_VLAN_CTAG_TX;
+diff --git a/drivers/net/ethernet/xilinx/ll_temac_main.c b/drivers/net/ethernet/xilinx/ll_temac_main.c
+index 0029148..def50bd 100644
+--- a/drivers/net/ethernet/xilinx/ll_temac_main.c
++++ b/drivers/net/ethernet/xilinx/ll_temac_main.c
+@@ -1016,7 +1016,7 @@ static int temac_of_probe(struct platform_device *op)
+ 	platform_set_drvdata(op, ndev);
+ 	SET_NETDEV_DEV(ndev, &op->dev);
+ 	ndev->flags &= ~IFF_MULTICAST;  /* clear multicast */
+-	ndev->features = NETIF_F_SG | NETIF_F_FRAGLIST;
++	ndev->features = NETIF_F_SG;
+ 	ndev->netdev_ops = &temac_netdev_ops;
+ 	ndev->ethtool_ops = &temac_ethtool_ops;
+ #if 0
+diff --git a/drivers/net/ethernet/xilinx/xilinx_axienet_main.c b/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
+index b2ff038..f9293da 100644
+--- a/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
++++ b/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
+@@ -1486,7 +1486,7 @@ static int axienet_of_probe(struct platform_device *op)
+ 
+ 	SET_NETDEV_DEV(ndev, &op->dev);
+ 	ndev->flags &= ~IFF_MULTICAST;  /* clear multicast */
+-	ndev->features = NETIF_F_SG | NETIF_F_FRAGLIST;
++	ndev->features = NETIF_F_SG;
+ 	ndev->netdev_ops = &axienet_netdev_ops;
+ 	ndev->ethtool_ops = &axienet_ethtool_ops;
+ 
+-- 
+1.8.4.2
+
+
+From 2165b79cc725f7a83896834b96b57143866309b7 Mon Sep 17 00:00:00 2001
+From: Venkat Venkatsubra <venkat.x.venkatsubra@oracle.com>
+Date: Mon, 2 Dec 2013 15:41:39 -0800
+Subject: [PATCH 03/47] rds: prevent BUG_ON triggered on congestion update to
+ loopback
+
+[ Upstream commit 18fc25c94eadc52a42c025125af24657a93638c0 ]
+
+After congestion update on a local connection, when rds_ib_xmit returns
+less bytes than that are there in the message, rds_send_xmit calls
+back rds_ib_xmit with an offset that causes BUG_ON(off & RDS_FRAG_SIZE)
+to trigger.
+
+For a 4Kb PAGE_SIZE rds_ib_xmit returns min(8240,4096)=4096 when actually
+the message contains 8240 bytes. rds_send_xmit thinks there is more to send
+and calls rds_ib_xmit again with a data offset "off" of 4096-48(rds header)
+=4048 bytes thus hitting the BUG_ON(off & RDS_FRAG_SIZE) [RDS_FRAG_SIZE=4k].
+
+The commit 6094628bfd94323fc1cea05ec2c6affd98c18f7f
+"rds: prevent BUG_ON triggering on congestion map updates" introduced
+this regression. That change was addressing the triggering of a different
+BUG_ON in rds_send_xmit() on PowerPC architecture with 64Kbytes PAGE_SIZE:
+ 	BUG_ON(ret != 0 &&
+    		 conn->c_xmit_sg == rm->data.op_nents);
+This was the sequence it was going through:
+(rds_ib_xmit)
+/* Do not send cong updates to IB loopback */
+if (conn->c_loopback
+   && rm->m_inc.i_hdr.h_flags & RDS_FLAG_CONG_BITMAP) {
+  	rds_cong_map_updated(conn->c_fcong, ~(u64) 0);
+    	return sizeof(struct rds_header) + RDS_CONG_MAP_BYTES;
+}
+rds_ib_xmit returns 8240
+rds_send_xmit:
+  c_xmit_data_off = 0 + 8240 - 48 (rds header accounted only the first time)
+   		 = 8192
+  c_xmit_data_off < 65536 (sg->length), so calls rds_ib_xmit again
+rds_ib_xmit returns 8240
+rds_send_xmit:
+  c_xmit_data_off = 8192 + 8240 = 16432, calls rds_ib_xmit again
+  and so on (c_xmit_data_off 24672,32912,41152,49392,57632)
+rds_ib_xmit returns 8240
+On this iteration this sequence causes the BUG_ON in rds_send_xmit:
+    while (ret) {
+    	tmp = min_t(int, ret, sg->length - conn->c_xmit_data_off);
+    	[tmp = 65536 - 57632 = 7904]
+    	conn->c_xmit_data_off += tmp;
+    	[c_xmit_data_off = 57632 + 7904 = 65536]
+    	ret -= tmp;
+    	[ret = 8240 - 7904 = 336]
+    	if (conn->c_xmit_data_off == sg->length) {
+    		conn->c_xmit_data_off = 0;
+    		sg++;
+    		conn->c_xmit_sg++;
+    		BUG_ON(ret != 0 &&
+    			conn->c_xmit_sg == rm->data.op_nents);
+    		[c_xmit_sg = 1, rm->data.op_nents = 1]
+
+What the current fix does:
+Since the congestion update over loopback is not actually transmitted
+as a message, all that rds_ib_xmit needs to do is let the caller think
+the full message has been transmitted and not return partial bytes.
+It will return 8240 (RDS_CONG_MAP_BYTES+48) when PAGE_SIZE is 4Kb.
+And 64Kb+48 when page size is 64Kb.
+
+Reported-by: Josh Hunt <joshhunt00@gmail.com>
+Tested-by: Honggang Li <honli@redhat.com>
+Acked-by: Bang Nguyen <bang.nguyen@oracle.com>
+Signed-off-by: Venkat Venkatsubra <venkat.x.venkatsubra@oracle.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/rds/ib_send.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/net/rds/ib_send.c b/net/rds/ib_send.c
+index e590949..37be6e2 100644
+--- a/net/rds/ib_send.c
++++ b/net/rds/ib_send.c
+@@ -552,9 +552,8 @@ int rds_ib_xmit(struct rds_connection *conn, struct rds_message *rm,
+ 	    && rm->m_inc.i_hdr.h_flags & RDS_FLAG_CONG_BITMAP) {
+ 		rds_cong_map_updated(conn->c_fcong, ~(u64) 0);
+ 		scat = &rm->data.op_sg[sg];
+-		ret = sizeof(struct rds_header) + RDS_CONG_MAP_BYTES;
+-		ret = min_t(int, ret, scat->length - conn->c_xmit_data_off);
+-		return ret;
++		ret = max_t(int, RDS_CONG_MAP_BYTES, scat->length);
++		return sizeof(struct rds_header) + ret;
+ 	}
+ 
+ 	/* FIXME we may overallocate here */
+-- 
+1.8.4.2
+
+
+From 6fc82ec7c75adb34fbf6446d08239ae008687bec Mon Sep 17 00:00:00 2001
+From: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Date: Thu, 5 Dec 2013 23:29:19 +0100
+Subject: [PATCH 04/47] net: clear local_df when passing skb between namespaces
+
+[ Upstream commit 239c78db9c41a8f524cce60507440d72229d73bc ]
+
+We must clear local_df when passing the skb between namespaces as the
+packet is not local to the new namespace any more and thus may not get
+fragmented by local rules. Fred Templin noticed that other namespaces
+do fragment IPv6 packets while forwarding. Instead they should have send
+back a PTB.
+
+The same problem should be present when forwarding DF-IPv4 packets
+between namespaces.
+
+Reported-by: Templin, Fred L <Fred.L.Templin@boeing.com>
+Signed-off-by: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/core/skbuff.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/net/core/skbuff.c b/net/core/skbuff.c
+index c28c7fe..743e6eb 100644
+--- a/net/core/skbuff.c
++++ b/net/core/skbuff.c
+@@ -3541,6 +3541,7 @@ void skb_scrub_packet(struct sk_buff *skb, bool xnet)
+ 	skb->tstamp.tv64 = 0;
+ 	skb->pkt_type = PACKET_HOST;
+ 	skb->skb_iif = 0;
++	skb->local_df = 0;
+ 	skb_dst_drop(skb);
+ 	skb->mark = 0;
+ 	secpath_reset(skb);
+-- 
+1.8.4.2
+
+
+From cd49886ba20feb9f51b04e519963fd4c9947c5a6 Mon Sep 17 00:00:00 2001
+From: Zhi Yong Wu <wuzhy@linux.vnet.ibm.com>
+Date: Fri, 6 Dec 2013 14:16:50 +0800
+Subject: [PATCH 05/47] macvtap: update file current position
+
+[ Upstream commit e6ebc7f16ca1434a334647aa56399c546be4e64b ]
+
+Signed-off-by: Zhi Yong Wu <wuzhy@linux.vnet.ibm.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/macvtap.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/macvtap.c b/drivers/net/macvtap.c
+index dc76670..688d983 100644
+--- a/drivers/net/macvtap.c
++++ b/drivers/net/macvtap.c
+@@ -886,6 +886,8 @@ static ssize_t macvtap_aio_read(struct kiocb *iocb, const struct iovec *iv,
+ 
+ 	ret = macvtap_do_read(q, iocb, iv, len, file->f_flags & O_NONBLOCK);
+ 	ret = min_t(ssize_t, ret, len); /* XXX copied from tun.c. Why? */
++	if (ret > 0)
++		iocb->ki_pos = ret;
+ out:
+ 	return ret;
+ }
+-- 
+1.8.4.2
+
+
+From 1fe25fb8d5e1b5ab73e537dd4edad8fb1ec74768 Mon Sep 17 00:00:00 2001
+From: Zhi Yong Wu <wuzhy@linux.vnet.ibm.com>
+Date: Fri, 6 Dec 2013 14:16:51 +0800
+Subject: [PATCH 06/47] tun: update file current position
+
+[ Upstream commit d0b7da8afa079ffe018ab3e92879b7138977fc8f ]
+
+Signed-off-by: Zhi Yong Wu <wuzhy@linux.vnet.ibm.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/tun.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/tun.c b/drivers/net/tun.c
+index 782e38b..e26cbea 100644
+--- a/drivers/net/tun.c
++++ b/drivers/net/tun.c
+@@ -1356,6 +1356,8 @@ static ssize_t tun_chr_aio_read(struct kiocb *iocb, const struct iovec *iv,
+ 	ret = tun_do_read(tun, tfile, iocb, iv, len,
+ 			  file->f_flags & O_NONBLOCK);
+ 	ret = min_t(ssize_t, ret, len);
++	if (ret > 0)
++		iocb->ki_pos = ret;
+ out:
+ 	tun_put(tun);
+ 	return ret;
+-- 
+1.8.4.2
+
+
+From 220c3b8f3715ddfc27b830f7827c6d419064d7b7 Mon Sep 17 00:00:00 2001
+From: Jason Wang <jasowang@redhat.com>
+Date: Wed, 11 Dec 2013 13:08:33 +0800
+Subject: [PATCH 07/47] tun: unbreak truncated packet signalling
+
+[ Upstream commit e6fd07c899cd719bb5517bc7f32ce03a62220351 ]
+
+Commit 6680ec68eff47d36f67b4351bc9836fd6cba9532
+(tuntap: hardware vlan tx support) breaks the truncated packet signal by nev
+return a length greater than iov length in tun_put_user(). This patch fixes
+by always return the length of packet plus possible vlan header. Caller can
+detect the truncated packet by comparing the return value and the size of io
+length.
+
+Cc: Zhi Yong Wu <wuzhy@linux.vnet.ibm.com>
+Cc: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Vlad Yasevich <vyasevich@gmail.com>
+Signed-off-by: Jason Wang <jasowang@redhat.com>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/tun.c | 16 +++++++++-------
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/net/tun.c b/drivers/net/tun.c
+index e26cbea..7c8343a 100644
+--- a/drivers/net/tun.c
++++ b/drivers/net/tun.c
+@@ -1184,7 +1184,7 @@ static ssize_t tun_put_user(struct tun_struct *tun,
+ {
+ 	struct tun_pi pi = { 0, skb->protocol };
+ 	ssize_t total = 0;
+-	int vlan_offset = 0;
++	int vlan_offset = 0, copied;
+ 
+ 	if (!(tun->flags & TUN_NO_PI)) {
+ 		if ((len -= sizeof(pi)) < 0)
+@@ -1248,6 +1248,8 @@ static ssize_t tun_put_user(struct tun_struct *tun,
+ 		total += tun->vnet_hdr_sz;
+ 	}
+ 
++	copied = total;
++	total += skb->len;
+ 	if (!vlan_tx_tag_present(skb)) {
+ 		len = min_t(int, skb->len, len);
+ 	} else {
+@@ -1262,24 +1264,24 @@ static ssize_t tun_put_user(struct tun_struct *tun,
+ 
+ 		vlan_offset = offsetof(struct vlan_ethhdr, h_vlan_proto);
+ 		len = min_t(int, skb->len + VLAN_HLEN, len);
++		total += VLAN_HLEN;
+ 
+ 		copy = min_t(int, vlan_offset, len);
+-		ret = skb_copy_datagram_const_iovec(skb, 0, iv, total, copy);
++		ret = skb_copy_datagram_const_iovec(skb, 0, iv, copied, copy);
+ 		len -= copy;
+-		total += copy;
++		copied += copy;
+ 		if (ret || !len)
+ 			goto done;
+ 
+ 		copy = min_t(int, sizeof(veth), len);
+-		ret = memcpy_toiovecend(iv, (void *)&veth, total, copy);
++		ret = memcpy_toiovecend(iv, (void *)&veth, copied, copy);
+ 		len -= copy;
+-		total += copy;
++		copied += copy;
+ 		if (ret || !len)
+ 			goto done;
+ 	}
+ 
+-	skb_copy_datagram_const_iovec(skb, vlan_offset, iv, total, len);
+-	total += len;
++	skb_copy_datagram_const_iovec(skb, vlan_offset, iv, copied, len);
+ 
+ done:
+ 	tun->dev->stats.tx_packets++;
+-- 
+1.8.4.2
+
+
+From 43d03acffe48078ae0de8fbe8f9ee8f6a622ee08 Mon Sep 17 00:00:00 2001
+From: Vlad Yasevich <vyasevic@redhat.com>
+Date: Tue, 26 Nov 2013 12:37:12 -0500
+Subject: [PATCH 08/47] macvtap: Do not double-count received packets
+
+[ Upstream commit 006da7b07bc4d3a7ffabad17cf639eec6849c9dc ]
+
+Currently macvlan will count received packets after calling each
+vlans receive handler.   Macvtap attempts to count the packet
+yet again when the user reads the packet from the tap socket.
+This code doesn't do this consistently either.  Remove the
+counting from macvtap and let only macvlan count received
+packets.
+
+Signed-off-by: Vlad Yasevich <vyasevic@redhat.com>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Acked-by: Jason Wang <jasowang@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/macvtap.c | 10 ----------
+ 1 file changed, 10 deletions(-)
+
+diff --git a/drivers/net/macvtap.c b/drivers/net/macvtap.c
+index 688d983..ae7264a 100644
+--- a/drivers/net/macvtap.c
++++ b/drivers/net/macvtap.c
+@@ -767,7 +767,6 @@ static ssize_t macvtap_put_user(struct macvtap_queue *q,
+ 				const struct sk_buff *skb,
+ 				const struct iovec *iv, int len)
+ {
+-	struct macvlan_dev *vlan;
+ 	int ret;
+ 	int vnet_hdr_len = 0;
+ 	int vlan_offset = 0;
+@@ -821,15 +820,6 @@ static ssize_t macvtap_put_user(struct macvtap_queue *q,
+ 	copied += len;
+ 
+ done:
+-	rcu_read_lock();
+-	vlan = rcu_dereference(q->vlan);
+-	if (vlan) {
+-		preempt_disable();
+-		macvlan_count_rx(vlan, copied - vnet_hdr_len, ret == 0, 0);
+-		preempt_enable();
+-	}
+-	rcu_read_unlock();
+-
+ 	return ret ? ret : copied;
+ }
+ 
+-- 
+1.8.4.2
+
+
+From 98cc046a51f9e1be613a97d4c12eb35bbb1348be Mon Sep 17 00:00:00 2001
+From: Jason Wang <jasowang@redhat.com>
+Date: Wed, 11 Dec 2013 13:08:34 +0800
+Subject: [PATCH 09/47] macvtap: signal truncated packets
+
+[ Upstream commit ce232ce01d61b184202bb185103d119820e1260c ]
+
+macvtap_put_user() never return a value grater than iov length, this in fact
+bypasses the truncated checking in macvtap_recvmsg(). Fix this by always
+returning the size of packet plus the possible vlan header to let the trunca
+checking work.
+
+Cc: Vlad Yasevich <vyasevich@gmail.com>
+Cc: Zhi Yong Wu <wuzhy@linux.vnet.ibm.com>
+Cc: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Jason Wang <jasowang@redhat.com>
+Acked-by: Vlad Yasevich <vyasevich@gmail.com>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/macvtap.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/net/macvtap.c b/drivers/net/macvtap.c
+index ae7264a..5895e4d 100644
+--- a/drivers/net/macvtap.c
++++ b/drivers/net/macvtap.c
+@@ -770,7 +770,7 @@ static ssize_t macvtap_put_user(struct macvtap_queue *q,
+ 	int ret;
+ 	int vnet_hdr_len = 0;
+ 	int vlan_offset = 0;
+-	int copied;
++	int copied, total;
+ 
+ 	if (q->flags & IFF_VNET_HDR) {
+ 		struct virtio_net_hdr vnet_hdr;
+@@ -785,7 +785,8 @@ static ssize_t macvtap_put_user(struct macvtap_queue *q,
+ 		if (memcpy_toiovecend(iv, (void *)&vnet_hdr, 0, sizeof(vnet_hdr)))
+ 			return -EFAULT;
+ 	}
+-	copied = vnet_hdr_len;
++	total = copied = vnet_hdr_len;
++	total += skb->len;
+ 
+ 	if (!vlan_tx_tag_present(skb))
+ 		len = min_t(int, skb->len, len);
+@@ -800,6 +801,7 @@ static ssize_t macvtap_put_user(struct macvtap_queue *q,
+ 
+ 		vlan_offset = offsetof(struct vlan_ethhdr, h_vlan_proto);
+ 		len = min_t(int, skb->len + VLAN_HLEN, len);
++		total += VLAN_HLEN;
+ 
+ 		copy = min_t(int, vlan_offset, len);
+ 		ret = skb_copy_datagram_const_iovec(skb, 0, iv, copied, copy);
+@@ -817,10 +819,9 @@ static ssize_t macvtap_put_user(struct macvtap_queue *q,
+ 	}
+ 
+ 	ret = skb_copy_datagram_const_iovec(skb, vlan_offset, iv, copied, len);
+-	copied += len;
+ 
+ done:
+-	return ret ? ret : copied;
++	return ret ? ret : total;
+ }
+ 
+ static ssize_t macvtap_do_read(struct macvtap_queue *q, struct kiocb *iocb,
+@@ -875,7 +876,7 @@ static ssize_t macvtap_aio_read(struct kiocb *iocb, const struct iovec *iv,
+ 	}
+ 
+ 	ret = macvtap_do_read(q, iocb, iv, len, file->f_flags & O_NONBLOCK);
+-	ret = min_t(ssize_t, ret, len); /* XXX copied from tun.c. Why? */
++	ret = min_t(ssize_t, ret, len);
+ 	if (ret > 0)
+ 		iocb->ki_pos = ret;
+ out:
+-- 
+1.8.4.2
+
+
+From 9f53d6c909e2e1d3a320e035dd5e9bd14f54f45e Mon Sep 17 00:00:00 2001
+From: Andrey Vagin <avagin@openvz.org>
+Date: Thu, 5 Dec 2013 18:36:21 +0400
+Subject: [PATCH 10/47] virtio: delete napi structures from netdev before
+ releasing memory
+
+[ Upstream commit d4fb84eefe5164f6a6ea51d0a9e26280c661a0dd ]
+
+free_netdev calls netif_napi_del too, but it's too late, because napi
+structures are placed on vi->rq. netif_napi_add() is called from
+virtnet_alloc_queues.
+
+general protection fault: 0000 [#1] SMP
+Dumping ftrace buffer:
+   (ftrace buffer empty)
+Modules linked in: ip6table_filter ip6_tables iptable_filter ip_tables virtio_balloon pcspkr virtio_net(-) i2c_pii
+CPU: 1 PID: 347 Comm: rmmod Not tainted 3.13.0-rc2+ #171
+Hardware name: Bochs Bochs, BIOS Bochs 01/01/2011
+task: ffff8800b779c420 ti: ffff8800379e0000 task.ti: ffff8800379e0000
+RIP: 0010:[<ffffffff81322e19>]  [<ffffffff81322e19>] __list_del_entry+0x29/0xd0
+RSP: 0018:ffff8800379e1dd0  EFLAGS: 00010a83
+RAX: 6b6b6b6b6b6b6b6b RBX: ffff8800379c2fd0 RCX: dead000000200200
+RDX: 6b6b6b6b6b6b6b6b RSI: 0000000000000001 RDI: ffff8800379c2fd0
+RBP: ffff8800379e1dd0 R08: 0000000000000001 R09: 0000000000000000
+R10: 0000000000000000 R11: 0000000000000001 R12: ffff8800379c2f90
+R13: ffff880037839160 R14: 0000000000000000 R15: 00000000013352f0
+FS:  00007f1400e34740(0000) GS:ffff8800bfb00000(0000) knlGS:0000000000000000
+CS:  0010 DS: 0000 ES: 0000 CR0: 000000008005003b
+CR2: 00007f464124c763 CR3: 00000000b68cf000 CR4: 00000000000006e0
+Stack:
+ ffff8800379e1df0 ffffffff8155beab 6b6b6b6b6b6b6b2b ffff8800378391c0
+ ffff8800379e1e18 ffffffff8156499b ffff880037839be0 ffff880037839d20
+ ffff88003779d3f0 ffff8800379e1e38 ffffffffa003477c ffff88003779d388
+Call Trace:
+ [<ffffffff8155beab>] netif_napi_del+0x1b/0x80
+ [<ffffffff8156499b>] free_netdev+0x8b/0x110
+ [<ffffffffa003477c>] virtnet_remove+0x7c/0x90 [virtio_net]
+ [<ffffffff813ae323>] virtio_dev_remove+0x23/0x80
+ [<ffffffff813f62ef>] __device_release_driver+0x7f/0xf0
+ [<ffffffff813f6ca0>] driver_detach+0xc0/0xd0
+ [<ffffffff813f5f28>] bus_remove_driver+0x58/0xd0
+ [<ffffffff813f72ec>] driver_unregister+0x2c/0x50
+ [<ffffffff813ae65e>] unregister_virtio_driver+0xe/0x10
+ [<ffffffffa0036942>] virtio_net_driver_exit+0x10/0x6ce [virtio_net]
+ [<ffffffff810d7cf2>] SyS_delete_module+0x172/0x220
+ [<ffffffff810a732d>] ? trace_hardirqs_on+0xd/0x10
+ [<ffffffff810f5d4c>] ? __audit_syscall_entry+0x9c/0xf0
+ [<ffffffff81677f69>] system_call_fastpath+0x16/0x1b
+Code: 00 00 55 48 8b 17 48 b9 00 01 10 00 00 00 ad de 48 8b 47 08 48 89 e5 48 39 ca 74 29 48 b9 00 02 20 00 00 00
+RIP  [<ffffffff81322e19>] __list_del_entry+0x29/0xd0
+ RSP <ffff8800379e1dd0>
+---[ end trace d5931cd3f87c9763 ]---
+
+Fixes: 986a4f4d452d (virtio_net: multiqueue support)
+Cc: Rusty Russell <rusty@rustcorp.com.au>
+Cc: "Michael S. Tsirkin" <mst@redhat.com>
+Signed-off-by: Andrey Vagin <avagin@openvz.org>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Acked-by: Jason Wang <jasowang@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/virtio_net.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
+index bbc9cb8..cded00b 100644
+--- a/drivers/net/virtio_net.c
++++ b/drivers/net/virtio_net.c
+@@ -1307,6 +1307,11 @@ static void virtnet_config_changed(struct virtio_device *vdev)
+ 
+ static void virtnet_free_queues(struct virtnet_info *vi)
+ {
++	int i;
++
++	for (i = 0; i < vi->max_queue_pairs; i++)
++		netif_napi_del(&vi->rq[i].napi);
++
+ 	kfree(vi->rq);
+ 	kfree(vi->sq);
+ }
+-- 
+1.8.4.2
+
+
+From 7ae80b9b0537f7f62d206752f9ced068804414c7 Mon Sep 17 00:00:00 2001
+From: Jiri Pirko <jiri@resnulli.us>
+Date: Thu, 5 Dec 2013 16:27:37 +0100
+Subject: [PATCH 11/47] br: fix use of ->rx_handler_data in code executed on
+ non-rx_handler path
+
+[ Upstream commit 859828c0ea476b42f3a93d69d117aaba90994b6f ]
+
+br_stp_rcv() is reached by non-rx_handler path. That means there is no
+guarantee that dev is bridge port and therefore simple NULL check of
+->rx_handler_data is not enough. There is need to check if dev is really
+bridge port and since only rcu read lock is held here, do it by checking
+->rx_handler pointer.
+
+Note that synchronize_net() in netdev_rx_handler_unregister() ensures
+this approach as valid.
+
+Introduced originally by:
+commit f350a0a87374418635689471606454abc7beaa3a
+  "bridge: use rx_handler_data pointer to store net_bridge_port pointer"
+
+Fixed but not in the best way by:
+commit b5ed54e94d324f17c97852296d61a143f01b227a
+  "bridge: fix RCU races with bridge port"
+
+Reintroduced by:
+commit 716ec052d2280d511e10e90ad54a86f5b5d4dcc2
+  "bridge: fix NULL pointer deref of br_port_get_rcu"
+
+Please apply to stable trees as well. Thanks.
+
+RH bugzilla reference: https://bugzilla.redhat.com/show_bug.cgi?id=1025770
+
+Reported-by: Laine Stump <laine@redhat.com>
+Debugged-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: Jiri Pirko <jiri@resnulli.us>
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
+Acked-by: Eric Dumazet <edumazet@google.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/bridge/br_private.h  | 10 ++++++++++
+ net/bridge/br_stp_bpdu.c |  2 +-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/net/bridge/br_private.h b/net/bridge/br_private.h
+index e14c33b..9a63c42 100644
+--- a/net/bridge/br_private.h
++++ b/net/bridge/br_private.h
+@@ -442,6 +442,16 @@ extern netdev_features_t br_features_recompute(struct net_bridge *br,
+ extern int br_handle_frame_finish(struct sk_buff *skb);
+ extern rx_handler_result_t br_handle_frame(struct sk_buff **pskb);
+ 
++static inline bool br_rx_handler_check_rcu(const struct net_device *dev)
++{
++	return rcu_dereference(dev->rx_handler) == br_handle_frame;
++}
++
++static inline struct net_bridge_port *br_port_get_check_rcu(const struct net_device *dev)
++{
++	return br_rx_handler_check_rcu(dev) ? br_port_get_rcu(dev) : NULL;
++}
++
+ /* br_ioctl.c */
+ extern int br_dev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd);
+ extern int br_ioctl_deviceless_stub(struct net *net, unsigned int cmd, void __user *arg);
+diff --git a/net/bridge/br_stp_bpdu.c b/net/bridge/br_stp_bpdu.c
+index 8660ea3..bdb459d 100644
+--- a/net/bridge/br_stp_bpdu.c
++++ b/net/bridge/br_stp_bpdu.c
+@@ -153,7 +153,7 @@ void br_stp_rcv(const struct stp_proto *proto, struct sk_buff *skb,
+ 	if (buf[0] != 0 || buf[1] != 0 || buf[2] != 0)
+ 		goto err;
+ 
+-	p = br_port_get_rcu(dev);
++	p = br_port_get_check_rcu(dev);
+ 	if (!p)
+ 		goto err;
+ 
+-- 
+1.8.4.2
+
+
+From 4e5a5d19911735ff3b988ec3d282a53bcb21c058 Mon Sep 17 00:00:00 2001
+From: Daniel Borkmann <dborkman@redhat.com>
+Date: Fri, 6 Dec 2013 11:36:15 +0100
+Subject: [PATCH 12/47] packet: fix send path when running with proto == 0
+
+[ Upstream commit 66e56cd46b93ef407c60adcac62cf33b06119d50 ]
+
+Commit e40526cb20b5 introduced a cached dev pointer, that gets
+hooked into register_prot_hook(), __unregister_prot_hook() to
+update the device used for the send path.
+
+We need to fix this up, as otherwise this will not work with
+sockets created with protocol = 0, plus with sll_protocol = 0
+passed via sockaddr_ll when doing the bind.
+
+So instead, assign the pointer directly. The compiler can inline
+these helper functions automagically.
+
+While at it, also assume the cached dev fast-path as likely(),
+and document this variant of socket creation as it seems it is
+not widely used (seems not even the author of TX_RING was aware
+of that in his reference example [1]). Tested with reproducer
+from e40526cb20b5.
+
+ [1] http://wiki.ipxwarzone.com/index.php5?title=Linux_packet_mmap#Example
+
+Fixes: e40526cb20b5 ("packet: fix use after free race in send path when dev is released")
+Signed-off-by: Daniel Borkmann <dborkman@redhat.com>
+Tested-by: Salam Noureddine <noureddine@aristanetworks.com>
+Tested-by: Jesper Dangaard Brouer <brouer@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ Documentation/networking/packet_mmap.txt | 10 +++++
+ net/packet/af_packet.c                   | 65 ++++++++++++++++++++------------
+ 2 files changed, 50 insertions(+), 25 deletions(-)
+
+diff --git a/Documentation/networking/packet_mmap.txt b/Documentation/networking/packet_mmap.txt
+index c012236..8e48e3b 100644
+--- a/Documentation/networking/packet_mmap.txt
++++ b/Documentation/networking/packet_mmap.txt
+@@ -123,6 +123,16 @@ Transmission process is similar to capture as shown below.
+ [shutdown]  close() --------> destruction of the transmission socket and
+                               deallocation of all associated resources.
+ 
++Socket creation and destruction is also straight forward, and is done
++the same way as in capturing described in the previous paragraph:
++
++ int fd = socket(PF_PACKET, mode, 0);
++
++The protocol can optionally be 0 in case we only want to transmit
++via this socket, which avoids an expensive call to packet_rcv().
++In this case, you also need to bind(2) the TX_RING with sll_protocol = 0
++set. Otherwise, htons(ETH_P_ALL) or any other protocol, for example.
++
+ Binding the socket to your network interface is mandatory (with zero copy) to
+ know the header size of frames used in the circular buffer.
+ 
+diff --git a/net/packet/af_packet.c b/net/packet/af_packet.c
+index ba2548b..88cfbc1 100644
+--- a/net/packet/af_packet.c
++++ b/net/packet/af_packet.c
+@@ -237,6 +237,30 @@ struct packet_skb_cb {
+ static void __fanout_unlink(struct sock *sk, struct packet_sock *po);
+ static void __fanout_link(struct sock *sk, struct packet_sock *po);
+ 
++static struct net_device *packet_cached_dev_get(struct packet_sock *po)
++{
++	struct net_device *dev;
++
++	rcu_read_lock();
++	dev = rcu_dereference(po->cached_dev);
++	if (likely(dev))
++		dev_hold(dev);
++	rcu_read_unlock();
++
++	return dev;
++}
++
++static void packet_cached_dev_assign(struct packet_sock *po,
++				     struct net_device *dev)
++{
++	rcu_assign_pointer(po->cached_dev, dev);
++}
++
++static void packet_cached_dev_reset(struct packet_sock *po)
++{
++	RCU_INIT_POINTER(po->cached_dev, NULL);
++}
++
+ /* register_prot_hook must be invoked with the po->bind_lock held,
+  * or from a context in which asynchronous accesses to the packet
+  * socket is not possible (packet_create()).
+@@ -246,12 +270,10 @@ static void register_prot_hook(struct sock *sk)
+ 	struct packet_sock *po = pkt_sk(sk);
+ 
+ 	if (!po->running) {
+-		if (po->fanout) {
++		if (po->fanout)
+ 			__fanout_link(sk, po);
+-		} else {
++		else
+ 			dev_add_pack(&po->prot_hook);
+-			rcu_assign_pointer(po->cached_dev, po->prot_hook.dev);
+-		}
+ 
+ 		sock_hold(sk);
+ 		po->running = 1;
+@@ -270,12 +292,11 @@ static void __unregister_prot_hook(struct sock *sk, bool sync)
+ 	struct packet_sock *po = pkt_sk(sk);
+ 
+ 	po->running = 0;
+-	if (po->fanout) {
++
++	if (po->fanout)
+ 		__fanout_unlink(sk, po);
+-	} else {
++	else
+ 		__dev_remove_pack(&po->prot_hook);
+-		RCU_INIT_POINTER(po->cached_dev, NULL);
+-	}
+ 
+ 	__sock_put(sk);
+ 
+@@ -2059,19 +2080,6 @@ static int tpacket_fill_skb(struct packet_sock *po, struct sk_buff *skb,
+ 	return tp_len;
+ }
+ 
+-static struct net_device *packet_cached_dev_get(struct packet_sock *po)
+-{
+-	struct net_device *dev;
+-
+-	rcu_read_lock();
+-	dev = rcu_dereference(po->cached_dev);
+-	if (dev)
+-		dev_hold(dev);
+-	rcu_read_unlock();
+-
+-	return dev;
+-}
+-
+ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
+ {
+ 	struct sk_buff *skb;
+@@ -2088,7 +2096,7 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
+ 
+ 	mutex_lock(&po->pg_vec_lock);
+ 
+-	if (saddr == NULL) {
++	if (likely(saddr == NULL)) {
+ 		dev	= packet_cached_dev_get(po);
+ 		proto	= po->num;
+ 		addr	= NULL;
+@@ -2242,7 +2250,7 @@ static int packet_snd(struct socket *sock,
+ 	 *	Get and verify the address.
+ 	 */
+ 
+-	if (saddr == NULL) {
++	if (likely(saddr == NULL)) {
+ 		dev	= packet_cached_dev_get(po);
+ 		proto	= po->num;
+ 		addr	= NULL;
+@@ -2451,6 +2459,8 @@ static int packet_release(struct socket *sock)
+ 
+ 	spin_lock(&po->bind_lock);
+ 	unregister_prot_hook(sk, false);
++	packet_cached_dev_reset(po);
++
+ 	if (po->prot_hook.dev) {
+ 		dev_put(po->prot_hook.dev);
+ 		po->prot_hook.dev = NULL;
+@@ -2506,14 +2516,17 @@ static int packet_do_bind(struct sock *sk, struct net_device *dev, __be16 protoc
+ 
+ 	spin_lock(&po->bind_lock);
+ 	unregister_prot_hook(sk, true);
++
+ 	po->num = protocol;
+ 	po->prot_hook.type = protocol;
+ 	if (po->prot_hook.dev)
+ 		dev_put(po->prot_hook.dev);
+-	po->prot_hook.dev = dev;
+ 
++	po->prot_hook.dev = dev;
+ 	po->ifindex = dev ? dev->ifindex : 0;
+ 
++	packet_cached_dev_assign(po, dev);
++
+ 	if (protocol == 0)
+ 		goto out_unlock;
+ 
+@@ -2626,7 +2639,8 @@ static int packet_create(struct net *net, struct socket *sock, int protocol,
+ 	po = pkt_sk(sk);
+ 	sk->sk_family = PF_PACKET;
+ 	po->num = proto;
+-	RCU_INIT_POINTER(po->cached_dev, NULL);
++
++	packet_cached_dev_reset(po);
+ 
+ 	sk->sk_destruct = packet_sock_destruct;
+ 	sk_refcnt_debug_inc(sk);
+@@ -3337,6 +3351,7 @@ static int packet_notifier(struct notifier_block *this,
+ 						sk->sk_error_report(sk);
+ 				}
+ 				if (msg == NETDEV_UNREGISTER) {
++					packet_cached_dev_reset(po);
+ 					po->ifindex = -1;
+ 					if (po->prot_hook.dev)
+ 						dev_put(po->prot_hook.dev);
+-- 
+1.8.4.2
+
+
+From 6c79c4ed0eed1a5302181703b98e04ffdc23e441 Mon Sep 17 00:00:00 2001
+From: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Date: Sat, 7 Dec 2013 03:33:45 +0100
+Subject: [PATCH 13/47] ipv6: don't count addrconf generated routes against gc
+ limit
+
+[ Upstream commit a3300ef4bbb1f1e33ff0400e1e6cf7733d988f4f ]
+
+Brett Ciphery reported that new ipv6 addresses failed to get installed
+because the addrconf generated dsts where counted against the dst gc
+limit. We don't need to count those routes like we currently don't count
+administratively added routes.
+
+Because the max_addresses check enforces a limit on unbounded address
+generation first in case someone plays with router advertisments, we
+are still safe here.
+
+Reported-by: Brett Ciphery <brett.ciphery@windriver.com>
+Signed-off-by: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/ipv6/route.c | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/net/ipv6/route.c b/net/ipv6/route.c
+index 0db334a..55f118d 100644
+--- a/net/ipv6/route.c
++++ b/net/ipv6/route.c
+@@ -2171,12 +2171,10 @@ struct rt6_info *addrconf_dst_alloc(struct inet6_dev *idev,
+ 				    bool anycast)
+ {
+ 	struct net *net = dev_net(idev->dev);
+-	struct rt6_info *rt = ip6_dst_alloc(net, net->loopback_dev, 0, NULL);
+-
+-	if (!rt) {
+-		net_warn_ratelimited("Maximum number of routes reached, consider increasing route/max_size\n");
++	struct rt6_info *rt = ip6_dst_alloc(net, net->loopback_dev,
++					    DST_NOCOUNT, NULL);
++	if (!rt)
+ 		return ERR_PTR(-ENOMEM);
+-	}
+ 
+ 	in6_dev_hold(idev);
+ 
+-- 
+1.8.4.2
+
+
+From 0496f2999e1e44d949c165ed5e9539f7ab0b7c28 Mon Sep 17 00:00:00 2001
+From: Changli Gao <xiaosuo@gmail.com>
+Date: Sun, 8 Dec 2013 09:36:56 -0500
+Subject: [PATCH 14/47] net: drop_monitor: fix the value of maxattr
+
+[ Upstream commit d323e92cc3f4edd943610557c9ea1bb4bb5056e8 ]
+
+maxattr in genl_family should be used to save the max attribute
+type, but not the max command type. Drop monitor doesn't support
+any attributes, so we should leave it as zero.
+
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/core/drop_monitor.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/net/core/drop_monitor.c b/net/core/drop_monitor.c
+index 5e78d44..f27d126 100644
+--- a/net/core/drop_monitor.c
++++ b/net/core/drop_monitor.c
+@@ -64,7 +64,6 @@ static struct genl_family net_drop_monitor_family = {
+ 	.hdrsize        = 0,
+ 	.name           = "NET_DM",
+ 	.version        = 2,
+-	.maxattr        = NET_DM_CMD_MAX,
+ };
+ 
+ static DEFINE_PER_CPU(struct per_cpu_dm_data, dm_cpu_data);
+-- 
+1.8.4.2
+
+
+From e3e97524b15afd4c91b49c1de626ff20f9f81b22 Mon Sep 17 00:00:00 2001
+From: Stefan Tomanek <stefan.tomanek@wertarbyte.de>
+Date: Tue, 10 Dec 2013 23:21:25 +0100
+Subject: [PATCH 15/47] inet: fix NULL pointer Oops in fib(6)_rule_suppress
+
+[ Upstream commit 673498b8ed4c4d4b7221c5309d891c5eac2b7528 ]
+
+This changes ensures that the routing entry investigated by the suppress
+function actually does point to a device struct before following that pointer,
+fixing a possible kernel oops situation when verifying the interface group
+associated with a routing table entry.
+
+According to Daniel Golle, this Oops can be triggered by a user process trying
+to establish an outgoing IPv6 connection while having no real IPv6 connectivity
+set up (only autoassigned link-local addresses).
+
+Fixes: 6ef94cfafba15 ("fib_rules: add route suppression based on ifgroup")
+
+Reported-by: Daniel Golle <daniel.golle@gmail.com>
+Tested-by: Daniel Golle <daniel.golle@gmail.com>
+Signed-off-by: Stefan Tomanek <stefan.tomanek@wertarbyte.de>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/ipv4/fib_rules.c  | 5 ++++-
+ net/ipv6/fib6_rules.c | 6 +++++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/net/ipv4/fib_rules.c b/net/ipv4/fib_rules.c
+index 523be38..f2e1573 100644
+--- a/net/ipv4/fib_rules.c
++++ b/net/ipv4/fib_rules.c
+@@ -104,7 +104,10 @@ errout:
+ static bool fib4_rule_suppress(struct fib_rule *rule, struct fib_lookup_arg *arg)
+ {
+ 	struct fib_result *result = (struct fib_result *) arg->result;
+-	struct net_device *dev = result->fi->fib_dev;
++	struct net_device *dev = NULL;
++
++	if (result->fi)
++		dev = result->fi->fib_dev;
+ 
+ 	/* do not accept result if the route does
+ 	 * not meet the required prefix length
+diff --git a/net/ipv6/fib6_rules.c b/net/ipv6/fib6_rules.c
+index e275916..3fd0a57 100644
+--- a/net/ipv6/fib6_rules.c
++++ b/net/ipv6/fib6_rules.c
+@@ -122,7 +122,11 @@ out:
+ static bool fib6_rule_suppress(struct fib_rule *rule, struct fib_lookup_arg *arg)
+ {
+ 	struct rt6_info *rt = (struct rt6_info *) arg->result;
+-	struct net_device *dev = rt->rt6i_idev->dev;
++	struct net_device *dev = NULL;
++
++	if (rt->rt6i_idev)
++		dev = rt->rt6i_idev->dev;
++
+ 	/* do not accept result if the route does
+ 	 * not meet the required prefix length
+ 	 */
+-- 
+1.8.4.2
+
+
+From ce7927d665238f8cc33ea39bb66ef069603372fe Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sasha.levin@oracle.com>
+Date: Sat, 7 Dec 2013 17:26:27 -0500
+Subject: [PATCH 16/47] net: unix: allow set_peek_off to fail
+
+[ Upstream commit 12663bfc97c8b3fdb292428105dd92d563164050 ]
+
+unix_dgram_recvmsg() will hold the readlock of the socket until recv
+is complete.
+
+In the same time, we may try to setsockopt(SO_PEEK_OFF) which will hang until
+unix_dgram_recvmsg() will complete (which can take a while) without allowing
+us to break out of it, triggering a hung task spew.
+
+Instead, allow set_peek_off to fail, this way userspace will not hang.
+
+Signed-off-by: Sasha Levin <sasha.levin@oracle.com>
+Acked-by: Pavel Emelyanov <xemul@parallels.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ include/linux/net.h | 2 +-
+ net/core/sock.c     | 2 +-
+ net/unix/af_unix.c  | 8 ++++++--
+ 3 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/include/linux/net.h b/include/linux/net.h
+index 8bd9d92..41103f8 100644
+--- a/include/linux/net.h
++++ b/include/linux/net.h
+@@ -180,7 +180,7 @@ struct proto_ops {
+ 				      int offset, size_t size, int flags);
+ 	ssize_t 	(*splice_read)(struct socket *sock,  loff_t *ppos,
+ 				       struct pipe_inode_info *pipe, size_t len, unsigned int flags);
+-	void		(*set_peek_off)(struct sock *sk, int val);
++	int		(*set_peek_off)(struct sock *sk, int val);
+ };
+ 
+ #define DECLARE_SOCKADDR(type, dst, src)	\
+diff --git a/net/core/sock.c b/net/core/sock.c
+index 0b39e7a..5cec994 100644
+--- a/net/core/sock.c
++++ b/net/core/sock.c
+@@ -888,7 +888,7 @@ set_rcvbuf:
+ 
+ 	case SO_PEEK_OFF:
+ 		if (sock->ops->set_peek_off)
+-			sock->ops->set_peek_off(sk, val);
++			ret = sock->ops->set_peek_off(sk, val);
+ 		else
+ 			ret = -EOPNOTSUPP;
+ 		break;
+diff --git a/net/unix/af_unix.c b/net/unix/af_unix.c
+index 01625cc..a0ca162 100644
+--- a/net/unix/af_unix.c
++++ b/net/unix/af_unix.c
+@@ -530,13 +530,17 @@ static int unix_seqpacket_sendmsg(struct kiocb *, struct socket *,
+ static int unix_seqpacket_recvmsg(struct kiocb *, struct socket *,
+ 				  struct msghdr *, size_t, int);
+ 
+-static void unix_set_peek_off(struct sock *sk, int val)
++static int unix_set_peek_off(struct sock *sk, int val)
+ {
+ 	struct unix_sock *u = unix_sk(sk);
+ 
+-	mutex_lock(&u->readlock);
++	if (mutex_lock_interruptible(&u->readlock))
++		return -EINTR;
++
+ 	sk->sk_peek_off = val;
+ 	mutex_unlock(&u->readlock);
++
++	return 0;
+ }
+ 
+ 
+-- 
+1.8.4.2
+
+
+From 994fad3d1a1811edf995f00a157b1d2d93c0a766 Mon Sep 17 00:00:00 2001
+From: Fan Du <fan.du@windriver.com>
+Date: Mon, 9 Dec 2013 10:33:53 +0800
+Subject: [PATCH 17/47] vxlan: release rt when found circular route
+
+[ Upstream commit fffc15a5012e9052d3b236efc56840841a125416 ]
+
+Otherwise causing dst memory leakage.
+Have Checked all other type tunnel device transmit implementation,
+no such things happens anymore.
+
+Signed-off-by: Fan Du <fan.du@windriver.com>
+Acked-by: Eric Dumazet <edumazet@google.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/vxlan.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/vxlan.c b/drivers/net/vxlan.c
+index 2ef5b62..1462368 100644
+--- a/drivers/net/vxlan.c
++++ b/drivers/net/vxlan.c
+@@ -1672,7 +1672,7 @@ static void vxlan_xmit_one(struct sk_buff *skb, struct net_device *dev,
+ 			netdev_dbg(dev, "circular route to %pI4\n",
+ 				   &dst->sin.sin_addr.s_addr);
+ 			dev->stats.collisions++;
+-			goto tx_error;
++			goto rt_tx_error;
+ 		}
+ 
+ 		/* Bypass encapsulation if the destination is local */
+-- 
+1.8.4.2
+
+
+From b92001316e5207803f026fb78fff6148bac4dd10 Mon Sep 17 00:00:00 2001
+From: Nat Gurumoorthy <natg@google.com>
+Date: Mon, 9 Dec 2013 10:43:21 -0800
+Subject: [PATCH 18/47] tg3: Initialize REG_BASE_ADDR at PCI config offset 120
+ to 0
+
+[ Upstream commit 388d3335575f4c056dcf7138a30f1454e2145cd8 ]
+
+The new tg3 driver leaves REG_BASE_ADDR (PCI config offset 120)
+uninitialized. From power on reset this register may have garbage in it. The
+Register Base Address register defines the device local address of a
+register. The data pointed to by this location is read or written using
+the Register Data register (PCI config offset 128). When REG_BASE_ADDR has
+garbage any read or write of Register Data Register (PCI 128) will cause the
+PCI bus to lock up. The TCO watchdog will fire and bring down the system.
+
+Signed-off-by: Nat Gurumoorthy <natg@google.com>
+Acked-by: Michael Chan <mchan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/broadcom/tg3.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/net/ethernet/broadcom/tg3.c b/drivers/net/ethernet/broadcom/tg3.c
+index a82229f..3ff1f27 100644
+--- a/drivers/net/ethernet/broadcom/tg3.c
++++ b/drivers/net/ethernet/broadcom/tg3.c
+@@ -16485,6 +16485,9 @@ static int tg3_get_invariants(struct tg3 *tp, const struct pci_device_id *ent)
+ 	/* Clear this out for sanity. */
+ 	tw32(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+ 
++	/* Clear TG3PCI_REG_BASE_ADDR to prevent hangs. */
++	tw32(TG3PCI_REG_BASE_ADDR, 0);
++
+ 	pci_read_config_dword(tp->pdev, TG3PCI_PCISTATE,
+ 			      &pci_state_reg);
+ 	if ((pci_state_reg & PCISTATE_CONV_PCI_MODE) == 0 &&
+-- 
+1.8.4.2
+
+
+From b290c3c09437f2c74ef101cc6fdff46a2c45bfdf Mon Sep 17 00:00:00 2001
+From: Jason Wang <jasowang@redhat.com>
+Date: Fri, 13 Dec 2013 17:21:27 +0800
+Subject: [PATCH 19/47] netvsc: don't flush peers notifying work during setting
+ mtu
+
+[ Upstream commit 50dc875f2e6e2e04aed3b3033eb0ac99192d6d02 ]
+
+There's a possible deadlock if we flush the peers notifying work during setting
+mtu:
+
+[   22.991149] ======================================================
+[   22.991173] [ INFO: possible circular locking dependency detected ]
+[   22.991198] 3.10.0-54.0.1.el7.x86_64.debug #1 Not tainted
+[   22.991219] -------------------------------------------------------
+[   22.991243] ip/974 is trying to acquire lock:
+[   22.991261]  ((&(&net_device_ctx->dwork)->work)){+.+.+.}, at: [<ffffffff8108af95>] flush_work+0x5/0x2e0
+[   22.991307]
+but task is already holding lock:
+[   22.991330]  (rtnl_mutex){+.+.+.}, at: [<ffffffff81539deb>] rtnetlink_rcv+0x1b/0x40
+[   22.991367]
+which lock already depends on the new lock.
+
+[   22.991398]
+the existing dependency chain (in reverse order) is:
+[   22.991426]
+-> #1 (rtnl_mutex){+.+.+.}:
+[   22.991449]        [<ffffffff810dfdd9>] __lock_acquire+0xb19/0x1260
+[   22.991477]        [<ffffffff810e0d12>] lock_acquire+0xa2/0x1f0
+[   22.991501]        [<ffffffff81673659>] mutex_lock_nested+0x89/0x4f0
+[   22.991529]        [<ffffffff815392b7>] rtnl_lock+0x17/0x20
+[   22.991552]        [<ffffffff815230b2>] netdev_notify_peers+0x12/0x30
+[   22.991579]        [<ffffffffa0340212>] netvsc_send_garp+0x22/0x30 [hv_netvsc]
+[   22.991610]        [<ffffffff8108d251>] process_one_work+0x211/0x6e0
+[   22.991637]        [<ffffffff8108d83b>] worker_thread+0x11b/0x3a0
+[   22.991663]        [<ffffffff81095e5d>] kthread+0xed/0x100
+[   22.991686]        [<ffffffff81681c6c>] ret_from_fork+0x7c/0xb0
+[   22.991715]
+-> #0 ((&(&net_device_ctx->dwork)->work)){+.+.+.}:
+[   22.991715]        [<ffffffff810de817>] check_prevs_add+0x967/0x970
+[   22.991715]        [<ffffffff810dfdd9>] __lock_acquire+0xb19/0x1260
+[   22.991715]        [<ffffffff810e0d12>] lock_acquire+0xa2/0x1f0
+[   22.991715]        [<ffffffff8108afde>] flush_work+0x4e/0x2e0
+[   22.991715]        [<ffffffff8108e1b5>] __cancel_work_timer+0x95/0x130
+[   22.991715]        [<ffffffff8108e303>] cancel_delayed_work_sync+0x13/0x20
+[   22.991715]        [<ffffffffa03404e4>] netvsc_change_mtu+0x84/0x200 [hv_netvsc]
+[   22.991715]        [<ffffffff815233d4>] dev_set_mtu+0x34/0x80
+[   22.991715]        [<ffffffff8153bc2a>] do_setlink+0x23a/0xa00
+[   22.991715]        [<ffffffff8153d054>] rtnl_newlink+0x394/0x5e0
+[   22.991715]        [<ffffffff81539eac>] rtnetlink_rcv_msg+0x9c/0x260
+[   22.991715]        [<ffffffff8155cdd9>] netlink_rcv_skb+0xa9/0xc0
+[   22.991715]        [<ffffffff81539dfa>] rtnetlink_rcv+0x2a/0x40
+[   22.991715]        [<ffffffff8155c41d>] netlink_unicast+0xdd/0x190
+[   22.991715]        [<ffffffff8155c807>] netlink_sendmsg+0x337/0x750
+[   22.991715]        [<ffffffff8150d219>] sock_sendmsg+0x99/0xd0
+[   22.991715]        [<ffffffff8150d63e>] ___sys_sendmsg+0x39e/0x3b0
+[   22.991715]        [<ffffffff8150eba2>] __sys_sendmsg+0x42/0x80
+[   22.991715]        [<ffffffff8150ebf2>] SyS_sendmsg+0x12/0x20
+[   22.991715]        [<ffffffff81681d19>] system_call_fastpath+0x16/0x1b
+
+This is because we hold the rtnl_lock() before ndo_change_mtu() and try to flush
+the work in netvsc_change_mtu(), in the mean time, netdev_notify_peers() may be
+called from worker and also trying to hold the rtnl_lock. This will lead the
+flush won't succeed forever. Solve this by not canceling and flushing the work,
+this is safe because the transmission done by NETDEV_NOTIFY_PEERS was
+synchronized with the netif_tx_disable() called by netvsc_change_mtu().
+
+Reported-by: Yaju Cao <yacao@redhat.com>
+Tested-by: Yaju Cao <yacao@redhat.com>
+Cc: K. Y. Srinivasan <kys@microsoft.com>
+Cc: Haiyang Zhang <haiyangz@microsoft.com>
+Signed-off-by: Jason Wang <jasowang@redhat.com>
+Acked-by: Haiyang Zhang <haiyangz@microsoft.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/hyperv/netvsc_drv.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/net/hyperv/netvsc_drv.c b/drivers/net/hyperv/netvsc_drv.c
+index 524f713..f813572 100644
+--- a/drivers/net/hyperv/netvsc_drv.c
++++ b/drivers/net/hyperv/netvsc_drv.c
+@@ -327,7 +327,6 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
+ 		return -EINVAL;
+ 
+ 	nvdev->start_remove = true;
+-	cancel_delayed_work_sync(&ndevctx->dwork);
+ 	cancel_work_sync(&ndevctx->work);
+ 	netif_tx_disable(ndev);
+ 	rndis_filter_device_remove(hdev);
+-- 
+1.8.4.2
+
+
+From d6cd0d2c9ffc319c17a2271f0efc5a93f10982d3 Mon Sep 17 00:00:00 2001
+From: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Date: Fri, 13 Dec 2013 15:12:27 +0100
+Subject: [PATCH 20/47] ipv6: fix illegal mac_header comparison on 32bit
+
+Signed-off-by: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/ipv6/udp_offload.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/net/ipv6/udp_offload.c b/net/ipv6/udp_offload.c
+index 34c6fff..06556d6 100644
+--- a/net/ipv6/udp_offload.c
++++ b/net/ipv6/udp_offload.c
+@@ -88,7 +88,7 @@ static struct sk_buff *udp6_ufo_fragment(struct sk_buff *skb,
+ 
+ 		/* Check if there is enough headroom to insert fragment header. */
+ 		tnl_hlen = skb_tnl_header_len(skb);
+-		if (skb->mac_header < (tnl_hlen + frag_hdr_sz)) {
++		if (skb_mac_header(skb) < skb->head + tnl_hlen + frag_hdr_sz) {
+ 			if (gso_pskb_expand_head(skb, tnl_hlen + frag_hdr_sz))
+ 				goto out;
+ 		}
+-- 
+1.8.4.2
+
+
+From bec5b6354bafa0dcb61ec9fce334920cff33b6bd Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sasha.levin@oracle.com>
+Date: Fri, 13 Dec 2013 10:54:22 -0500
+Subject: [PATCH 21/47] net: unix: allow bind to fail on mutex lock
+
+[ Upstream commit 37ab4fa7844a044dc21fde45e2a0fc2f3c3b6490 ]
+
+This is similar to the set_peek_off patch where calling bind while the
+socket is stuck in unix_dgram_recvmsg() will block and cause a hung task
+spew after a while.
+
+This is also the last place that did a straightforward mutex_lock(), so
+there shouldn't be any more of these patches.
+
+Signed-off-by: Sasha Levin <sasha.levin@oracle.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/unix/af_unix.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/net/unix/af_unix.c b/net/unix/af_unix.c
+index a0ca162..a427623 100644
+--- a/net/unix/af_unix.c
++++ b/net/unix/af_unix.c
+@@ -718,7 +718,9 @@ static int unix_autobind(struct socket *sock)
+ 	int err;
+ 	unsigned int retries = 0;
+ 
+-	mutex_lock(&u->readlock);
++	err = mutex_lock_interruptible(&u->readlock);
++	if (err)
++		return err;
+ 
+ 	err = 0;
+ 	if (u->addr)
+@@ -877,7 +879,9 @@ static int unix_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
+ 		goto out;
+ 	addr_len = err;
+ 
+-	mutex_lock(&u->readlock);
++	err = mutex_lock_interruptible(&u->readlock);
++	if (err)
++		goto out;
+ 
+ 	err = -EINVAL;
+ 	if (u->addr)
+-- 
+1.8.4.2
+
+
+From 61c684992873b24971af5cd26a643abb43b4f361 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Timo=20Ter=C3=A4s?= <timo.teras@iki.fi>
+Date: Mon, 16 Dec 2013 11:02:09 +0200
+Subject: [PATCH 22/47] ip_gre: fix msg_name parsing for recvfrom/recvmsg
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+[ Upstream commit 0e3da5bb8da45890b1dc413404e0f978ab71173e ]
+
+ipgre_header_parse() needs to parse the tunnel's ip header and it
+uses mac_header to locate the iphdr. This got broken when gre tunneling
+was refactored as mac_header is no longer updated to point to iphdr.
+Introduce skb_pop_mac_header() helper to do the mac_header assignment
+and use it in ipgre_rcv() to fix msg_name parsing.
+
+Bug introduced in commit c54419321455 (GRE: Refactor GRE tunneling code.)
+
+Cc: Pravin B Shelar <pshelar@nicira.com>
+Signed-off-by: Timo Teräs <timo.teras@iki.fi>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ include/linux/skbuff.h | 5 +++++
+ net/ipv4/ip_gre.c      | 1 +
+ 2 files changed, 6 insertions(+)
+
+diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
+index f66f346..efa1649 100644
+--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -1638,6 +1638,11 @@ static inline void skb_set_mac_header(struct sk_buff *skb, const int offset)
+ 	skb->mac_header += offset;
+ }
+ 
++static inline void skb_pop_mac_header(struct sk_buff *skb)
++{
++	skb->mac_header = skb->network_header;
++}
++
+ static inline void skb_probe_transport_header(struct sk_buff *skb,
+ 					      const int offset_hint)
+ {
+diff --git a/net/ipv4/ip_gre.c b/net/ipv4/ip_gre.c
+index d7aea4c..e560ef3 100644
+--- a/net/ipv4/ip_gre.c
++++ b/net/ipv4/ip_gre.c
+@@ -217,6 +217,7 @@ static int ipgre_rcv(struct sk_buff *skb, const struct tnl_ptk_info *tpi)
+ 				  iph->saddr, iph->daddr, tpi->key);
+ 
+ 	if (tunnel) {
++		skb_pop_mac_header(skb);
+ 		ip_tunnel_rcv(tunnel, skb, tpi, log_ecn_error);
+ 		return PACKET_RCVD;
+ 	}
+-- 
+1.8.4.2
+
+
+From 3649ed2e79d58729bbc885b2163cf943634df6c2 Mon Sep 17 00:00:00 2001
+From: Daniel Borkmann <dborkman@redhat.com>
+Date: Tue, 17 Dec 2013 00:38:39 +0100
+Subject: [PATCH 23/47] net: inet_diag: zero out uninitialized idiag_{src,dst}
+ fields
+
+[ Upstream commit b1aac815c0891fe4a55a6b0b715910142227700f ]
+
+Jakub reported while working with nlmon netlink sniffer that parts of
+the inet_diag_sockid are not initialized when r->idiag_family != AF_INET6.
+That is, fields of r->id.idiag_src[1 ... 3], r->id.idiag_dst[1 ... 3].
+
+In fact, it seems that we can leak 6 * sizeof(u32) byte of kernel [slab]
+memory through this. At least, in udp_dump_one(), we allocate a skb in ...
+
+  rep = nlmsg_new(sizeof(struct inet_diag_msg) + ..., GFP_KERNEL);
+
+... and then pass that to inet_sk_diag_fill() that puts the whole struct
+inet_diag_msg into the skb, where we only fill out r->id.idiag_src[0],
+r->id.idiag_dst[0] and leave the rest untouched:
+
+  r->id.idiag_src[0] = inet->inet_rcv_saddr;
+  r->id.idiag_dst[0] = inet->inet_daddr;
+
+struct inet_diag_msg embeds struct inet_diag_sockid that is correctly /
+fully filled out in IPv6 case, but for IPv4 not.
+
+So just zero them out by using plain memset (for this little amount of
+bytes it's probably not worth the extra check for idiag_family == AF_INET).
+
+Similarly, fix also other places where we fill that out.
+
+Reported-by: Jakub Zawadzki <darkjames-ws@darkjames.pl>
+Signed-off-by: Daniel Borkmann <dborkman@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/ipv4/inet_diag.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/net/ipv4/inet_diag.c b/net/ipv4/inet_diag.c
+index 5f64875..31cf54d 100644
+--- a/net/ipv4/inet_diag.c
++++ b/net/ipv4/inet_diag.c
+@@ -106,6 +106,10 @@ int inet_sk_diag_fill(struct sock *sk, struct inet_connection_sock *icsk,
+ 
+ 	r->id.idiag_sport = inet->inet_sport;
+ 	r->id.idiag_dport = inet->inet_dport;
++
++	memset(&r->id.idiag_src, 0, sizeof(r->id.idiag_src));
++	memset(&r->id.idiag_dst, 0, sizeof(r->id.idiag_dst));
++
+ 	r->id.idiag_src[0] = inet->inet_rcv_saddr;
+ 	r->id.idiag_dst[0] = inet->inet_daddr;
+ 
+@@ -240,12 +244,19 @@ static int inet_twsk_diag_fill(struct inet_timewait_sock *tw,
+ 
+ 	r->idiag_family	      = tw->tw_family;
+ 	r->idiag_retrans      = 0;
++
+ 	r->id.idiag_if	      = tw->tw_bound_dev_if;
+ 	sock_diag_save_cookie(tw, r->id.idiag_cookie);
++
+ 	r->id.idiag_sport     = tw->tw_sport;
+ 	r->id.idiag_dport     = tw->tw_dport;
++
++	memset(&r->id.idiag_src, 0, sizeof(r->id.idiag_src));
++	memset(&r->id.idiag_dst, 0, sizeof(r->id.idiag_dst));
++
+ 	r->id.idiag_src[0]    = tw->tw_rcv_saddr;
+ 	r->id.idiag_dst[0]    = tw->tw_daddr;
++
+ 	r->idiag_state	      = tw->tw_substate;
+ 	r->idiag_timer	      = 3;
+ 	r->idiag_expires      = DIV_ROUND_UP(tmo * 1000, HZ);
+@@ -732,8 +743,13 @@ static int inet_diag_fill_req(struct sk_buff *skb, struct sock *sk,
+ 
+ 	r->id.idiag_sport = inet->inet_sport;
+ 	r->id.idiag_dport = ireq->rmt_port;
++
++	memset(&r->id.idiag_src, 0, sizeof(r->id.idiag_src));
++	memset(&r->id.idiag_dst, 0, sizeof(r->id.idiag_dst));
++
+ 	r->id.idiag_src[0] = ireq->loc_addr;
+ 	r->id.idiag_dst[0] = ireq->rmt_addr;
++
+ 	r->idiag_expires = jiffies_to_msecs(tmo);
+ 	r->idiag_rqueue = 0;
+ 	r->idiag_wqueue = 0;
+-- 
+1.8.4.2
+
+
+From 595b2bb1a37abbc54b981a68f2b123d052077f8f Mon Sep 17 00:00:00 2001
+From: Wenliang Fan <fanwlexca@gmail.com>
+Date: Tue, 17 Dec 2013 11:25:28 +0800
+Subject: [PATCH 24/47] drivers/net/hamradio: Integer overflow in
+ hdlcdrv_ioctl()
+
+[ Upstream commit e9db5c21d3646a6454fcd04938dd215ac3ab620a ]
+
+The local variable 'bi' comes from userspace. If userspace passed a
+large number to 'bi.data.calibrate', there would be an integer overflow
+in the following line:
+	s->hdlctx.calibrate = bi.data.calibrate * s->par.bitrate / 16;
+
+Signed-off-by: Wenliang Fan <fanwlexca@gmail.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/hamradio/hdlcdrv.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/hamradio/hdlcdrv.c b/drivers/net/hamradio/hdlcdrv.c
+index 3169252..5d78c1d 100644
+--- a/drivers/net/hamradio/hdlcdrv.c
++++ b/drivers/net/hamradio/hdlcdrv.c
+@@ -571,6 +571,8 @@ static int hdlcdrv_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+ 	case HDLCDRVCTL_CALIBRATE:
+ 		if(!capable(CAP_SYS_RAWIO))
+ 			return -EPERM;
++		if (bi.data.calibrate > INT_MAX / s->par.bitrate)
++			return -EINVAL;
+ 		s->hdlctx.calibrate = bi.data.calibrate * s->par.bitrate / 16;
+ 		return 0;
+ 
+-- 
+1.8.4.2
+
+
+From 8db75f30ab4512432bd12366a0e973144c7c1a13 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Salva=20Peir=C3=B3?= <speiro@ai2.upv.es>
+Date: Tue, 17 Dec 2013 10:06:30 +0100
+Subject: [PATCH 25/47] hamradio/yam: fix info leak in ioctl
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+[ Upstream commit 8e3fbf870481eb53b2d3a322d1fc395ad8b367ed ]
+
+The yam_ioctl() code fails to initialise the cmd field
+of the struct yamdrv_ioctl_cfg. Add an explicit memset(0)
+before filling the structure to avoid the 4-byte info leak.
+
+Signed-off-by: Salva Peiró <speiro@ai2.upv.es>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/hamradio/yam.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/net/hamradio/yam.c b/drivers/net/hamradio/yam.c
+index 5af1c3e..b7e9675 100644
+--- a/drivers/net/hamradio/yam.c
++++ b/drivers/net/hamradio/yam.c
+@@ -1057,6 +1057,7 @@ static int yam_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+ 		break;
+ 
+ 	case SIOCYAMGCFG:
++		memset(&yi, 0, sizeof(yi));
+ 		yi.cfg.mask = 0xffffffff;
+ 		yi.cfg.iobase = yp->iobase;
+ 		yi.cfg.irq = yp->irq;
+-- 
+1.8.4.2
+
+
+From 603ef9f00d1ce650be6fe151381a60653796de68 Mon Sep 17 00:00:00 2001
+From: Eric Dumazet <edumazet@google.com>
+Date: Thu, 19 Dec 2013 10:53:02 -0800
+Subject: [PATCH 26/47] net: fec: fix potential use after free
+
+[ Upstream commit 7a2a84518cfb263d2c4171b3d63671f88316adb2 ]
+
+skb_tx_timestamp(skb) should be called _before_ TX completion
+has a chance to trigger, otherwise it is too late and we access
+freed memory.
+
+Signed-off-by: Eric Dumazet <edumazet@google.com>
+Fixes: de5fb0a05348 ("net: fec: put tx to napi poll function to fix dead lock")
+Cc: Frank Li <Frank.Li@freescale.com>
+Cc: Richard Cochran <richardcochran@gmail.com>
+Acked-by: Richard Cochran <richardcochran@gmail.com>
+Acked-by: Frank Li <Frank.Li@freescale.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/freescale/fec_main.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/freescale/fec_main.c b/drivers/net/ethernet/freescale/fec_main.c
+index b2793b9..63090c0 100644
+--- a/drivers/net/ethernet/freescale/fec_main.c
++++ b/drivers/net/ethernet/freescale/fec_main.c
+@@ -425,6 +425,8 @@ fec_enet_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+ 	/* If this was the last BD in the ring, start at the beginning again. */
+ 	bdp = fec_enet_get_nextdesc(bdp, fep);
+ 
++	skb_tx_timestamp(skb);
++
+ 	fep->cur_tx = bdp;
+ 
+ 	if (fep->cur_tx == fep->dirty_tx)
+@@ -433,8 +435,6 @@ fec_enet_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+ 	/* Trigger transmission start */
+ 	writel(0, fep->hwp + FEC_X_DES_ACTIVE);
+ 
+-	skb_tx_timestamp(skb);
+-
+ 	return NETDEV_TX_OK;
+ }
+ 
+-- 
+1.8.4.2
+
+
+From 9a9552241c8d9679f2c4d8006b3c19c0de4835ea Mon Sep 17 00:00:00 2001
+From: Li RongQing <roy.qing.li@gmail.com>
+Date: Thu, 19 Dec 2013 12:40:26 +0800
+Subject: [PATCH 27/47] ipv6: always set the new created dst's from in
+ ip6_rt_copy
+
+[ Upstream commit 24f5b855e17df7e355eacd6c4a12cc4d6a6c9ff0 ]
+
+ip6_rt_copy only sets dst.from if ort has flag RTF_ADDRCONF and RTF_DEFAULT.
+but the prefix routes which did get installed by hand locally can have an
+expiration, and no any flag combination which can ensure a potential from
+does never expire, so we should always set the new created dst's from.
+
+This also fixes the new created dst is always expired since the ort, which
+is created by RA, maybe has RTF_EXPIRES and RTF_ADDRCONF, but no RTF_DEFAULT.
+
+Suggested-by: Hannes Frederic Sowa <hannes@stressinduktion.org>
+CC: Gao feng <gaofeng@cn.fujitsu.com>
+Signed-off-by: Li RongQing <roy.qing.li@gmail.com>
+Acked-by: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/ipv6/route.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/net/ipv6/route.c b/net/ipv6/route.c
+index 55f118d..0accb13 100644
+--- a/net/ipv6/route.c
++++ b/net/ipv6/route.c
+@@ -1910,9 +1910,7 @@ static struct rt6_info *ip6_rt_copy(struct rt6_info *ort,
+ 		else
+ 			rt->rt6i_gateway = *dest;
+ 		rt->rt6i_flags = ort->rt6i_flags;
+-		if ((ort->rt6i_flags & (RTF_DEFAULT | RTF_ADDRCONF)) ==
+-		    (RTF_DEFAULT | RTF_ADDRCONF))
+-			rt6_set_from(rt, ort);
++		rt6_set_from(rt, ort);
+ 		rt->rt6i_metric = 0;
+ 
+ #ifdef CONFIG_IPV6_SUBTREES
+-- 
+1.8.4.2
+
+
+From 67bab59352baff32144c5e5c916dcd380b277425 Mon Sep 17 00:00:00 2001
+From: Sasha Levin <sasha.levin@oracle.com>
+Date: Wed, 18 Dec 2013 23:49:42 -0500
+Subject: [PATCH 28/47] rds: prevent dereference of a NULL device
+
+[ Upstream commit c2349758acf1874e4c2b93fe41d072336f1a31d0 ]
+
+Binding might result in a NULL device, which is dereferenced
+causing this BUG:
+
+[ 1317.260548] BUG: unable to handle kernel NULL pointer dereference at 000000000000097
+4
+[ 1317.261847] IP: [<ffffffff84225f52>] rds_ib_laddr_check+0x82/0x110
+[ 1317.263315] PGD 418bcb067 PUD 3ceb21067 PMD 0
+[ 1317.263502] Oops: 0000 [#1] PREEMPT SMP DEBUG_PAGEALLOC
+[ 1317.264179] Dumping ftrace buffer:
+[ 1317.264774]    (ftrace buffer empty)
+[ 1317.265220] Modules linked in:
+[ 1317.265824] CPU: 4 PID: 836 Comm: trinity-child46 Tainted: G        W    3.13.0-rc4-
+next-20131218-sasha-00013-g2cebb9b-dirty #4159
+[ 1317.267415] task: ffff8803ddf33000 ti: ffff8803cd31a000 task.ti: ffff8803cd31a000
+[ 1317.268399] RIP: 0010:[<ffffffff84225f52>]  [<ffffffff84225f52>] rds_ib_laddr_check+
+0x82/0x110
+[ 1317.269670] RSP: 0000:ffff8803cd31bdf8  EFLAGS: 00010246
+[ 1317.270230] RAX: 0000000000000000 RBX: ffff88020b0dd388 RCX: 0000000000000000
+[ 1317.270230] RDX: ffffffff8439822e RSI: 00000000000c000a RDI: 0000000000000286
+[ 1317.270230] RBP: ffff8803cd31be38 R08: 0000000000000000 R09: 0000000000000000
+[ 1317.270230] R10: 0000000000000000 R11: 0000000000000001 R12: 0000000000000000
+[ 1317.270230] R13: 0000000054086700 R14: 0000000000a25de0 R15: 0000000000000031
+[ 1317.270230] FS:  00007ff40251d700(0000) GS:ffff88022e200000(0000) knlGS:000000000000
+0000
+[ 1317.270230] CS:  0010 DS: 0000 ES: 0000 CR0: 000000008005003b
+[ 1317.270230] CR2: 0000000000000974 CR3: 00000003cd478000 CR4: 00000000000006e0
+[ 1317.270230] DR0: 0000000000000000 DR1: 0000000000000000 DR2: 0000000000000000
+[ 1317.270230] DR3: 0000000000000000 DR6: 00000000ffff0ff0 DR7: 0000000000090602
+[ 1317.270230] Stack:
+[ 1317.270230]  0000000054086700 5408670000a25de0 5408670000000002 0000000000000000
+[ 1317.270230]  ffffffff84223542 00000000ea54c767 0000000000000000 ffffffff86d26160
+[ 1317.270230]  ffff8803cd31be68 ffffffff84223556 ffff8803cd31beb8 ffff8800c6765280
+[ 1317.270230] Call Trace:
+[ 1317.270230]  [<ffffffff84223542>] ? rds_trans_get_preferred+0x42/0xa0
+[ 1317.270230]  [<ffffffff84223556>] rds_trans_get_preferred+0x56/0xa0
+[ 1317.270230]  [<ffffffff8421c9c3>] rds_bind+0x73/0xf0
+[ 1317.270230]  [<ffffffff83e4ce62>] SYSC_bind+0x92/0xf0
+[ 1317.270230]  [<ffffffff812493f8>] ? context_tracking_user_exit+0xb8/0x1d0
+[ 1317.270230]  [<ffffffff8119313d>] ? trace_hardirqs_on+0xd/0x10
+[ 1317.270230]  [<ffffffff8107a852>] ? syscall_trace_enter+0x32/0x290
+[ 1317.270230]  [<ffffffff83e4cece>] SyS_bind+0xe/0x10
+[ 1317.270230]  [<ffffffff843a6ad0>] tracesys+0xdd/0xe2
+[ 1317.270230] Code: 00 8b 45 cc 48 8d 75 d0 48 c7 45 d8 00 00 00 00 66 c7 45 d0 02 00
+89 45 d4 48 89 df e8 78 49 76 ff 41 89 c4 85 c0 75 0c 48 8b 03 <80> b8 74 09 00 00 01 7
+4 06 41 bc 9d ff ff ff f6 05 2a b6 c2 02
+[ 1317.270230] RIP  [<ffffffff84225f52>] rds_ib_laddr_check+0x82/0x110
+[ 1317.270230]  RSP <ffff8803cd31bdf8>
+[ 1317.270230] CR2: 0000000000000974
+
+Signed-off-by: Sasha Levin <sasha.levin@oracle.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/rds/ib.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/net/rds/ib.c b/net/rds/ib.c
+index b4c8b00..ba2dffe 100644
+--- a/net/rds/ib.c
++++ b/net/rds/ib.c
+@@ -338,7 +338,8 @@ static int rds_ib_laddr_check(__be32 addr)
+ 	ret = rdma_bind_addr(cm_id, (struct sockaddr *)&sin);
+ 	/* due to this, we will claim to support iWARP devices unless we
+ 	   check node_type. */
+-	if (ret || cm_id->device->node_type != RDMA_NODE_IB_CA)
++	if (ret || !cm_id->device ||
++	    cm_id->device->node_type != RDMA_NODE_IB_CA)
+ 		ret = -EADDRNOTAVAIL;
+ 
+ 	rdsdebug("addr %pI4 ret %d node type %d\n",
+-- 
+1.8.4.2
+
+
+From f4774a5eb2228328340a89ecf2cdbfb539ebf026 Mon Sep 17 00:00:00 2001
+From: Eric Dumazet <eric.dumazet@gmail.com>
+Date: Thu, 19 Dec 2013 18:10:40 -0800
+Subject: [PATCH 29/47] arc_emac: fix potential use after free
+
+[ Upstream commit 37ec274e9713eafc2ba6c4471420f06cb8f68ecf ]
+
+Signed-off-by: Eric Dumazet <edumazet@google.com>
+
+skb_tx_timestamp(skb) should be called _before_ TX completion
+has a chance to trigger, otherwise it is too late and we access
+freed memory.
+
+Fixes: e4f2379db6c6 ("ethernet/arc/arc_emac - Add new driver")
+From: Eric Dumazet <edumazet@google.com>
+Cc: Alexey Brodkin <Alexey.Brodkin@synopsys.com>
+Cc: Richard Cochran <richardcochran@gmail.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/arc/emac_main.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/arc/emac_main.c b/drivers/net/ethernet/arc/emac_main.c
+index 9e16014..4fc96d6 100644
+--- a/drivers/net/ethernet/arc/emac_main.c
++++ b/drivers/net/ethernet/arc/emac_main.c
+@@ -565,6 +565,8 @@ static int arc_emac_tx(struct sk_buff *skb, struct net_device *ndev)
+ 	/* Make sure pointer to data buffer is set */
+ 	wmb();
+ 
++	skb_tx_timestamp(skb);
++
+ 	*info = cpu_to_le32(FOR_EMAC | FIRST_OR_LAST_MASK | len);
+ 
+ 	/* Increment index to point to the next BD */
+@@ -579,8 +581,6 @@ static int arc_emac_tx(struct sk_buff *skb, struct net_device *ndev)
+ 
+ 	arc_reg_set(priv, R_STATUS, TXPL_MASK);
+ 
+-	skb_tx_timestamp(skb);
+-
+ 	return NETDEV_TX_OK;
+ }
+ 
+-- 
+1.8.4.2
+
+
+From 0effaf8d6ab531d97706c1f81a7d2784be20a469 Mon Sep 17 00:00:00 2001
+From: Florian Westphal <fw@strlen.de>
+Date: Mon, 23 Dec 2013 00:32:31 +0100
+Subject: [PATCH 30/47] net: rose: restore old recvmsg behavior
+
+[ Upstream commit f81152e35001e91997ec74a7b4e040e6ab0acccf ]
+
+recvmsg handler in net/rose/af_rose.c performs size-check ->msg_namelen.
+
+After commit f3d3342602f8bcbf37d7c46641cb9bca7618eb1c
+(net: rework recvmsg handler msg_name and msg_namelen logic), we now
+always take the else branch due to namelen being initialized to 0.
+
+Digging in netdev-vger-cvs git repo shows that msg_namelen was
+initialized with a fixed-size since at least 1995, so the else branch
+was never taken.
+
+Compile tested only.
+
+Signed-off-by: Florian Westphal <fw@strlen.de>
+Acked-by: Hannes Frederic Sowa <hannes@stressinduktion.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/rose/af_rose.c | 16 ++++------------
+ 1 file changed, 4 insertions(+), 12 deletions(-)
+
+diff --git a/net/rose/af_rose.c b/net/rose/af_rose.c
+index 33af772..62ced65 100644
+--- a/net/rose/af_rose.c
++++ b/net/rose/af_rose.c
+@@ -1253,6 +1253,7 @@ static int rose_recvmsg(struct kiocb *iocb, struct socket *sock,
+ 
+ 	if (msg->msg_name) {
+ 		struct sockaddr_rose *srose;
++		struct full_sockaddr_rose *full_srose = msg->msg_name;
+ 
+ 		memset(msg->msg_name, 0, sizeof(struct full_sockaddr_rose));
+ 		srose = msg->msg_name;
+@@ -1260,18 +1261,9 @@ static int rose_recvmsg(struct kiocb *iocb, struct socket *sock,
+ 		srose->srose_addr   = rose->dest_addr;
+ 		srose->srose_call   = rose->dest_call;
+ 		srose->srose_ndigis = rose->dest_ndigis;
+-		if (msg->msg_namelen >= sizeof(struct full_sockaddr_rose)) {
+-			struct full_sockaddr_rose *full_srose = (struct full_sockaddr_rose *)msg->msg_name;
+-			for (n = 0 ; n < rose->dest_ndigis ; n++)
+-				full_srose->srose_digis[n] = rose->dest_digis[n];
+-			msg->msg_namelen = sizeof(struct full_sockaddr_rose);
+-		} else {
+-			if (rose->dest_ndigis >= 1) {
+-				srose->srose_ndigis = 1;
+-				srose->srose_digi = rose->dest_digis[0];
+-			}
+-			msg->msg_namelen = sizeof(struct sockaddr_rose);
+-		}
++		for (n = 0 ; n < rose->dest_ndigis ; n++)
++			full_srose->srose_digis[n] = rose->dest_digis[n];
++		msg->msg_namelen = sizeof(struct full_sockaddr_rose);
+ 	}
+ 
+ 	skb_free_datagram(sk, skb);
+-- 
+1.8.4.2
+
+
+From ff495e25984e797b98238835672d9a016aefdbfd Mon Sep 17 00:00:00 2001
+From: "David S. Miller" <davem@davemloft.net>
+Date: Tue, 31 Dec 2013 16:23:35 -0500
+Subject: [PATCH 31/47] vlan: Fix header ops passthru when doing TX VLAN
+ offload.
+
+[ Upstream commit 2205369a314e12fcec4781cc73ac9c08fc2b47de ]
+
+When the vlan code detects that the real device can do TX VLAN offloads
+in hardware, it tries to arrange for the real device's header_ops to
+be invoked directly.
+
+But it does so illegally, by simply hooking the real device's
+header_ops up to the VLAN device.
+
+This doesn't work because we will end up invoking a set of header_ops
+routines which expect a device type which matches the real device, but
+will see a VLAN device instead.
+
+Fix this by providing a pass-thru set of header_ops which will arrange
+to pass the proper real device instead.
+
+To facilitate this add a dev_rebuild_header().  There are
+implementations which provide a ->cache and ->create but not a
+->rebuild (f.e. PLIP).  So we need a helper function just like
+dev_hard_header() to avoid crashes.
+
+Use this helper in the one existing place where the
+header_ops->rebuild was being invoked, the neighbour code.
+
+With lots of help from Florian Westphal.
+
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ include/linux/netdevice.h |  9 +++++++++
+ net/8021q/vlan_dev.c      | 19 ++++++++++++++++++-
+ net/core/neighbour.c      |  2 +-
+ 3 files changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/include/linux/netdevice.h b/include/linux/netdevice.h
+index 25f5d2d..c8d3375 100644
+--- a/include/linux/netdevice.h
++++ b/include/linux/netdevice.h
+@@ -1872,6 +1872,15 @@ static inline int dev_parse_header(const struct sk_buff *skb,
+ 	return dev->header_ops->parse(skb, haddr);
+ }
+ 
++static inline int dev_rebuild_header(struct sk_buff *skb)
++{
++	const struct net_device *dev = skb->dev;
++
++	if (!dev->header_ops || !dev->header_ops->rebuild)
++		return 0;
++	return dev->header_ops->rebuild(skb);
++}
++
+ typedef int gifconf_func_t(struct net_device * dev, char __user * bufptr, int len);
+ extern int		register_gifconf(unsigned int family, gifconf_func_t * gifconf);
+ static inline int unregister_gifconf(unsigned int family)
+diff --git a/net/8021q/vlan_dev.c b/net/8021q/vlan_dev.c
+index 09bf1c3..edf44d0 100644
+--- a/net/8021q/vlan_dev.c
++++ b/net/8021q/vlan_dev.c
+@@ -549,6 +549,23 @@ static const struct header_ops vlan_header_ops = {
+ 	.parse	 = eth_header_parse,
+ };
+ 
++static int vlan_passthru_hard_header(struct sk_buff *skb, struct net_device *dev,
++				     unsigned short type,
++				     const void *daddr, const void *saddr,
++				     unsigned int len)
++{
++	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
++	struct net_device *real_dev = vlan->real_dev;
++
++	return dev_hard_header(skb, real_dev, type, daddr, saddr, len);
++}
++
++static const struct header_ops vlan_passthru_header_ops = {
++	.create	 = vlan_passthru_hard_header,
++	.rebuild = dev_rebuild_header,
++	.parse	 = eth_header_parse,
++};
++
+ static struct device_type vlan_type = {
+ 	.name	= "vlan",
+ };
+@@ -592,7 +609,7 @@ static int vlan_dev_init(struct net_device *dev)
+ 
+ 	dev->needed_headroom = real_dev->needed_headroom;
+ 	if (real_dev->features & NETIF_F_HW_VLAN_CTAG_TX) {
+-		dev->header_ops      = real_dev->header_ops;
++		dev->header_ops      = &vlan_passthru_header_ops;
+ 		dev->hard_header_len = real_dev->hard_header_len;
+ 	} else {
+ 		dev->header_ops      = &vlan_header_ops;
+diff --git a/net/core/neighbour.c b/net/core/neighbour.c
+index 6072610..11af243 100644
+--- a/net/core/neighbour.c
++++ b/net/core/neighbour.c
+@@ -1274,7 +1274,7 @@ int neigh_compat_output(struct neighbour *neigh, struct sk_buff *skb)
+ 
+ 	if (dev_hard_header(skb, dev, ntohs(skb->protocol), NULL, NULL,
+ 			    skb->len) < 0 &&
+-	    dev->header_ops->rebuild(skb))
++	    dev_rebuild_header(skb))
+ 		return 0;
+ 
+ 	return dev_queue_xmit(skb);
+-- 
+1.8.4.2
+
+
+From 84e684d2f995424d4e1a4f4fa0cb2f7338cf0951 Mon Sep 17 00:00:00 2001
+From: "Michael S. Tsirkin" <mst@redhat.com>
+Date: Thu, 26 Dec 2013 15:32:47 +0200
+Subject: [PATCH 32/47] virtio_net: fix error handling for mergeable buffers
+
+Eric Dumazet noticed that if we encounter an error
+when processing a mergeable buffer, we don't
+dequeue all of the buffers from this packet,
+the result is almost sure to be loss of networking.
+
+Fix this issue.
+
+Cc: Rusty Russell <rusty@rustcorp.com.au>
+Cc: Michael Dalton <mwdalton@google.com>
+Acked-by: Michael Dalton <mwdalton@google.com>
+Cc: Eric Dumazet <edumazet@google.com>
+Cc: Jason Wang <jasowang@redhat.com>
+Cc: David S. Miller <davem@davemloft.net>
+
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+
+(cherry picked from commit 8fc3b9e9a229778e5af3aa453c44f1a3857ba769)
+Acked-by: Jason Wang <jasowang@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/virtio_net.c | 66 +++++++++++++++++++++++++++++++++---------------
+ 1 file changed, 46 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
+index cded00b..52d8936 100644
+--- a/drivers/net/virtio_net.c
++++ b/drivers/net/virtio_net.c
+@@ -297,26 +297,33 @@ static struct sk_buff *page_to_skb(struct receive_queue *rq,
+ 	return skb;
+ }
+ 
+-static int receive_mergeable(struct receive_queue *rq, struct sk_buff *skb)
++static struct sk_buff *receive_mergeable(struct net_device *dev,
++					 struct receive_queue *rq,
++					 void *buf,
++					 unsigned int len)
+ {
+-	struct skb_vnet_hdr *hdr = skb_vnet_hdr(skb);
+-	struct page *page;
+-	int num_buf, i, len;
++	struct skb_vnet_hdr *hdr = page_address(buf);
++	int num_buf = hdr->mhdr.num_buffers;
++	struct page *page = buf;
++	struct sk_buff *skb = page_to_skb(rq, page, len);
++	int i;
++
++	if (unlikely(!skb))
++		goto err_skb;
+ 
+-	num_buf = hdr->mhdr.num_buffers;
+ 	while (--num_buf) {
+ 		i = skb_shinfo(skb)->nr_frags;
+ 		if (i >= MAX_SKB_FRAGS) {
+ 			pr_debug("%s: packet too long\n", skb->dev->name);
+ 			skb->dev->stats.rx_length_errors++;
+-			return -EINVAL;
++			return NULL;
+ 		}
+ 		page = virtqueue_get_buf(rq->vq, &len);
+ 		if (!page) {
+-			pr_debug("%s: rx error: %d buffers missing\n",
+-				 skb->dev->name, hdr->mhdr.num_buffers);
+-			skb->dev->stats.rx_length_errors++;
+-			return -EINVAL;
++			pr_debug("%s: rx error: %d buffers %d missing\n",
++				 dev->name, hdr->mhdr.num_buffers, num_buf);
++			dev->stats.rx_length_errors++;
++			goto err_buf;
+ 		}
+ 
+ 		if (len > PAGE_SIZE)
+@@ -326,7 +333,25 @@ static int receive_mergeable(struct receive_queue *rq, struct sk_buff *skb)
+ 
+ 		--rq->num;
+ 	}
+-	return 0;
++	return skb;
++err_skb:
++	give_pages(rq, page);
++	while (--num_buf) {
++		buf = virtqueue_get_buf(rq->vq, &len);
++		if (unlikely(!buf)) {
++			pr_debug("%s: rx error: %d buffers missing\n",
++				 dev->name, num_buf);
++			dev->stats.rx_length_errors++;
++			break;
++		}
++		page = buf;
++		give_pages(rq, page);
++		--rq->num;
++	}
++err_buf:
++	dev->stats.rx_dropped++;
++	dev_kfree_skb(skb);
++	return NULL;
+ }
+ 
+ static void receive_buf(struct receive_queue *rq, void *buf, unsigned int len)
+@@ -354,17 +379,18 @@ static void receive_buf(struct receive_queue *rq, void *buf, unsigned int len)
+ 		skb_trim(skb, len);
+ 	} else {
+ 		page = buf;
+-		skb = page_to_skb(rq, page, len);
+-		if (unlikely(!skb)) {
+-			dev->stats.rx_dropped++;
+-			give_pages(rq, page);
+-			return;
+-		}
+-		if (vi->mergeable_rx_bufs)
+-			if (receive_mergeable(rq, skb)) {
+-				dev_kfree_skb(skb);
++		if (vi->mergeable_rx_bufs) {
++			skb = receive_mergeable(dev, rq, page, len);
++			if (unlikely(!skb))
++				return;
++		} else {
++			skb = page_to_skb(rq, page, len);
++			if (unlikely(!skb)) {
++				dev->stats.rx_dropped++;
++				give_pages(rq, page);
+ 				return;
+ 			}
++		}
+ 	}
+ 
+ 	hdr = skb_vnet_hdr(skb);
+-- 
+1.8.4.2
+
+
+From 7c12cf96a8f4b906aeac573a858cdcf34af60401 Mon Sep 17 00:00:00 2001
+From: "Michael S. Tsirkin" <mst@redhat.com>
+Date: Thu, 26 Dec 2013 15:32:51 +0200
+Subject: [PATCH 33/47] virtio-net: make all RX paths handle errors
+ consistently
+
+receive mergeable now handles errors internally.
+Do same for big and small packet paths, otherwise
+the logic is too hard to follow.
+
+Cc: Jason Wang <jasowang@redhat.com>
+Cc: David S. Miller <davem@davemloft.net>
+Acked-by: Michael Dalton <mwdalton@google.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+
+(cherry picked from commit f121159d72091f25afb22007c833e60a6845e912)
+Acked-by: Jason Wang <jasowang@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/virtio_net.c | 56 +++++++++++++++++++++++++++++++-----------------
+ 1 file changed, 36 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
+index 52d8936..21f2b4a 100644
+--- a/drivers/net/virtio_net.c
++++ b/drivers/net/virtio_net.c
+@@ -297,6 +297,34 @@ static struct sk_buff *page_to_skb(struct receive_queue *rq,
+ 	return skb;
+ }
+ 
++static struct sk_buff *receive_small(void *buf, unsigned int len)
++{
++	struct sk_buff * skb = buf;
++
++	len -= sizeof(struct virtio_net_hdr);
++	skb_trim(skb, len);
++
++	return skb;
++}
++
++static struct sk_buff *receive_big(struct net_device *dev,
++				   struct receive_queue *rq,
++				   void *buf)
++{
++	struct page *page = buf;
++	struct sk_buff *skb = page_to_skb(rq, page, 0);
++
++	if (unlikely(!skb))
++		goto err;
++
++	return skb;
++
++err:
++	dev->stats.rx_dropped++;
++	give_pages(rq, page);
++	return NULL;
++}
++
+ static struct sk_buff *receive_mergeable(struct net_device *dev,
+ 					 struct receive_queue *rq,
+ 					 void *buf,
+@@ -360,7 +388,6 @@ static void receive_buf(struct receive_queue *rq, void *buf, unsigned int len)
+ 	struct net_device *dev = vi->dev;
+ 	struct virtnet_stats *stats = this_cpu_ptr(vi->stats);
+ 	struct sk_buff *skb;
+-	struct page *page;
+ 	struct skb_vnet_hdr *hdr;
+ 
+ 	if (unlikely(len < sizeof(struct virtio_net_hdr) + ETH_HLEN)) {
+@@ -372,26 +399,15 @@ static void receive_buf(struct receive_queue *rq, void *buf, unsigned int len)
+ 			dev_kfree_skb(buf);
+ 		return;
+ 	}
++	if (vi->mergeable_rx_bufs)
++		skb = receive_mergeable(dev, rq, buf, len);
++	else if (vi->big_packets)
++		skb = receive_big(dev, rq, buf);
++	else
++		skb = receive_small(buf, len);
+ 
+-	if (!vi->mergeable_rx_bufs && !vi->big_packets) {
+-		skb = buf;
+-		len -= sizeof(struct virtio_net_hdr);
+-		skb_trim(skb, len);
+-	} else {
+-		page = buf;
+-		if (vi->mergeable_rx_bufs) {
+-			skb = receive_mergeable(dev, rq, page, len);
+-			if (unlikely(!skb))
+-				return;
+-		} else {
+-			skb = page_to_skb(rq, page, len);
+-			if (unlikely(!skb)) {
+-				dev->stats.rx_dropped++;
+-				give_pages(rq, page);
+-				return;
+-			}
+-		}
+-	}
++	if (unlikely(!skb))
++		return;
+ 
+ 	hdr = skb_vnet_hdr(skb);
+ 
+-- 
+1.8.4.2
+
+
+From a4091efeb5f593327be440e29b6784589a6078e7 Mon Sep 17 00:00:00 2001
+From: "Michael S. Tsirkin" <mst@redhat.com>
+Date: Thu, 26 Dec 2013 15:32:55 +0200
+Subject: [PATCH 34/47] virtio_net: don't leak memory or block when too many
+ frags
+
+We leak an skb when there are too many frags,
+we also stop processing the packet in the middle,
+the result is almost sure to be loss of networking.
+
+Reported-by: Michael Dalton <mwdalton@google.com>
+Acked-by: Michael Dalton <mwdalton@google.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/virtio_net.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
+index 21f2b4a..a2d1922 100644
+--- a/drivers/net/virtio_net.c
++++ b/drivers/net/virtio_net.c
+@@ -344,7 +344,7 @@ static struct sk_buff *receive_mergeable(struct net_device *dev,
+ 		if (i >= MAX_SKB_FRAGS) {
+ 			pr_debug("%s: packet too long\n", skb->dev->name);
+ 			skb->dev->stats.rx_length_errors++;
+-			return NULL;
++			goto err_frags;
+ 		}
+ 		page = virtqueue_get_buf(rq->vq, &len);
+ 		if (!page) {
+@@ -365,6 +365,7 @@ static struct sk_buff *receive_mergeable(struct net_device *dev,
+ err_skb:
+ 	give_pages(rq, page);
+ 	while (--num_buf) {
++err_frags:
+ 		buf = virtqueue_get_buf(rq->vq, &len);
+ 		if (unlikely(!buf)) {
+ 			pr_debug("%s: rx error: %d buffers missing\n",
+-- 
+1.8.4.2
+
+
+From 0938e836287f584c0d05716e8483c76ffc91e174 Mon Sep 17 00:00:00 2001
+From: Wei-Chun Chao <weichunc@plumgrid.com>
+Date: Thu, 26 Dec 2013 13:10:22 -0800
+Subject: [PATCH 35/47] ipv4: fix tunneled VM traffic over hw VXLAN/GRE GSO NIC
+
+[ Upstream commit 7a7ffbabf99445704be01bff5d7e360da908cf8e ]
+
+VM to VM GSO traffic is broken if it goes through VXLAN or GRE
+tunnel and the physical NIC on the host supports hardware VXLAN/GRE
+GSO offload (e.g. bnx2x and next-gen mlx4).
+
+Two issues -
+(VXLAN) VM traffic has SKB_GSO_DODGY and SKB_GSO_UDP_TUNNEL with
+SKB_GSO_TCP/UDP set depending on the inner protocol. GSO header
+integrity check fails in udp4_ufo_fragment if inner protocol is
+TCP. Also gso_segs is calculated incorrectly using skb->len that
+includes tunnel header. Fix: robust check should only be applied
+to the inner packet.
+
+(VXLAN & GRE) Once GSO header integrity check passes, NULL segs
+is returned and the original skb is sent to hardware. However the
+tunnel header is already pulled. Fix: tunnel header needs to be
+restored so that hardware can perform GSO properly on the original
+packet.
+
+Signed-off-by: Wei-Chun Chao <weichunc@plumgrid.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ include/linux/netdevice.h | 13 +++++++++++++
+ net/ipv4/gre_offload.c    | 11 +++++++----
+ net/ipv4/udp.c            |  6 +++++-
+ net/ipv4/udp_offload.c    | 37 +++++++++++++++++++------------------
+ 4 files changed, 44 insertions(+), 23 deletions(-)
+
+diff --git a/include/linux/netdevice.h b/include/linux/netdevice.h
+index c8d3375..21eae43 100644
+--- a/include/linux/netdevice.h
++++ b/include/linux/netdevice.h
+@@ -2954,6 +2954,19 @@ static inline void netif_set_gso_max_size(struct net_device *dev,
+ 	dev->gso_max_size = size;
+ }
+ 
++static inline void skb_gso_error_unwind(struct sk_buff *skb, __be16 protocol,
++					int pulled_hlen, u16 mac_offset,
++					int mac_len)
++{
++	skb->protocol = protocol;
++	skb->encapsulation = 1;
++	skb_push(skb, pulled_hlen);
++	skb_reset_transport_header(skb);
++	skb->mac_header = mac_offset;
++	skb->network_header = skb->mac_header + mac_len;
++	skb->mac_len = mac_len;
++}
++
+ static inline bool netif_is_bond_master(struct net_device *dev)
+ {
+ 	return dev->flags & IFF_MASTER && dev->priv_flags & IFF_BONDING;
+diff --git a/net/ipv4/gre_offload.c b/net/ipv4/gre_offload.c
+index 55e6bfb..db98705 100644
+--- a/net/ipv4/gre_offload.c
++++ b/net/ipv4/gre_offload.c
+@@ -28,6 +28,7 @@ static struct sk_buff *gre_gso_segment(struct sk_buff *skb,
+ 	netdev_features_t enc_features;
+ 	int ghl = GRE_HEADER_SECTION;
+ 	struct gre_base_hdr *greh;
++	u16 mac_offset = skb->mac_header;
+ 	int mac_len = skb->mac_len;
+ 	__be16 protocol = skb->protocol;
+ 	int tnl_hlen;
+@@ -57,13 +58,13 @@ static struct sk_buff *gre_gso_segment(struct sk_buff *skb,
+ 	} else
+ 		csum = false;
+ 
++	if (unlikely(!pskb_may_pull(skb, ghl)))
++		goto out;
++
+ 	/* setup inner skb. */
+ 	skb->protocol = greh->protocol;
+ 	skb->encapsulation = 0;
+ 
+-	if (unlikely(!pskb_may_pull(skb, ghl)))
+-		goto out;
+-
+ 	__skb_pull(skb, ghl);
+ 	skb_reset_mac_header(skb);
+ 	skb_set_network_header(skb, skb_inner_network_offset(skb));
+@@ -72,8 +73,10 @@ static struct sk_buff *gre_gso_segment(struct sk_buff *skb,
+ 	/* segment inner packet. */
+ 	enc_features = skb->dev->hw_enc_features & netif_skb_features(skb);
+ 	segs = skb_mac_gso_segment(skb, enc_features);
+-	if (!segs || IS_ERR(segs))
++	if (!segs || IS_ERR(segs)) {
++		skb_gso_error_unwind(skb, protocol, ghl, mac_offset, mac_len);
+ 		goto out;
++	}
+ 
+ 	skb = segs;
+ 	tnl_hlen = skb_tnl_header_len(skb);
+diff --git a/net/ipv4/udp.c b/net/ipv4/udp.c
+index 5e2c2f1..6ca9907 100644
+--- a/net/ipv4/udp.c
++++ b/net/ipv4/udp.c
+@@ -2294,6 +2294,7 @@ struct sk_buff *skb_udp_tunnel_segment(struct sk_buff *skb,
+ 				       netdev_features_t features)
+ {
+ 	struct sk_buff *segs = ERR_PTR(-EINVAL);
++	u16 mac_offset = skb->mac_header;
+ 	int mac_len = skb->mac_len;
+ 	int tnl_hlen = skb_inner_mac_header(skb) - skb_transport_header(skb);
+ 	__be16 protocol = skb->protocol;
+@@ -2313,8 +2314,11 @@ struct sk_buff *skb_udp_tunnel_segment(struct sk_buff *skb,
+ 	/* segment inner packet. */
+ 	enc_features = skb->dev->hw_enc_features & netif_skb_features(skb);
+ 	segs = skb_mac_gso_segment(skb, enc_features);
+-	if (!segs || IS_ERR(segs))
++	if (!segs || IS_ERR(segs)) {
++		skb_gso_error_unwind(skb, protocol, tnl_hlen, mac_offset,
++				     mac_len);
+ 		goto out;
++	}
+ 
+ 	outer_hlen = skb_tnl_header_len(skb);
+ 	skb = segs;
+diff --git a/net/ipv4/udp_offload.c b/net/ipv4/udp_offload.c
+index f35ecca..6b809e4 100644
+--- a/net/ipv4/udp_offload.c
++++ b/net/ipv4/udp_offload.c
+@@ -41,6 +41,14 @@ static struct sk_buff *udp4_ufo_fragment(struct sk_buff *skb,
+ {
+ 	struct sk_buff *segs = ERR_PTR(-EINVAL);
+ 	unsigned int mss;
++	int offset;
++	__wsum csum;
++
++	if (skb->encapsulation &&
++	    skb_shinfo(skb)->gso_type & SKB_GSO_UDP_TUNNEL) {
++		segs = skb_udp_tunnel_segment(skb, features);
++		goto out;
++	}
+ 
+ 	mss = skb_shinfo(skb)->gso_size;
+ 	if (unlikely(skb->len <= mss))
+@@ -62,27 +70,20 @@ static struct sk_buff *udp4_ufo_fragment(struct sk_buff *skb,
+ 		goto out;
+ 	}
+ 
++	/* Do software UFO. Complete and fill in the UDP checksum as
++	 * HW cannot do checksum of UDP packets sent as multiple
++	 * IP fragments.
++	 */
++	offset = skb_checksum_start_offset(skb);
++	csum = skb_checksum(skb, offset, skb->len - offset, 0);
++	offset += skb->csum_offset;
++	*(__sum16 *)(skb->data + offset) = csum_fold(csum);
++	skb->ip_summed = CHECKSUM_NONE;
++
+ 	/* Fragment the skb. IP headers of the fragments are updated in
+ 	 * inet_gso_segment()
+ 	 */
+-	if (skb->encapsulation && skb_shinfo(skb)->gso_type & SKB_GSO_UDP_TUNNEL)
+-		segs = skb_udp_tunnel_segment(skb, features);
+-	else {
+-		int offset;
+-		__wsum csum;
+-
+-		/* Do software UFO. Complete and fill in the UDP checksum as
+-		 * HW cannot do checksum of UDP packets sent as multiple
+-		 * IP fragments.
+-		 */
+-		offset = skb_checksum_start_offset(skb);
+-		csum = skb_checksum(skb, offset, skb->len - offset, 0);
+-		offset += skb->csum_offset;
+-		*(__sum16 *)(skb->data + offset) = csum_fold(csum);
+-		skb->ip_summed = CHECKSUM_NONE;
+-
+-		segs = skb_segment(skb, features);
+-	}
++	segs = skb_segment(skb, features);
+ out:
+ 	return segs;
+ }
+-- 
+1.8.4.2
+
+
+From 4e9694c617699b1cbf240237c6199956ed387a3d Mon Sep 17 00:00:00 2001
+From: Jason Wang <jasowang@redhat.com>
+Date: Mon, 30 Dec 2013 11:34:40 +0800
+Subject: [PATCH 36/47] virtio-net: fix refill races during restore
+
+[ Upstream commit 6cd4ce0099da7702f885b6fa9ebb49e3831d90b4 ]
+
+During restoring, try_fill_recv() was called with neither napi lock nor napi
+disabled. This can lead two try_fill_recv() was called in the same time. Fix
+this by refilling before trying to enable napi.
+
+Fixes 0741bcb5584f9e2390ae6261573c4de8314999f2
+(virtio: net: Add freeze, restore handlers to support S4).
+
+Cc: Amit Shah <amit.shah@redhat.com>
+Cc: Rusty Russell <rusty@rustcorp.com.au>
+Cc: Michael S. Tsirkin <mst@redhat.com>
+Cc: Eric Dumazet <eric.dumazet@gmail.com>
+Signed-off-by: Jason Wang <jasowang@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/virtio_net.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/net/virtio_net.c b/drivers/net/virtio_net.c
+index a2d1922..8065066 100644
+--- a/drivers/net/virtio_net.c
++++ b/drivers/net/virtio_net.c
+@@ -1772,16 +1772,17 @@ static int virtnet_restore(struct virtio_device *vdev)
+ 	if (err)
+ 		return err;
+ 
+-	if (netif_running(vi->dev))
++	if (netif_running(vi->dev)) {
++		for (i = 0; i < vi->curr_queue_pairs; i++)
++			if (!try_fill_recv(&vi->rq[i], GFP_KERNEL))
++				schedule_delayed_work(&vi->refill, 0);
++
+ 		for (i = 0; i < vi->max_queue_pairs; i++)
+ 			virtnet_napi_enable(&vi->rq[i]);
++	}
+ 
+ 	netif_device_attach(vi->dev);
+ 
+-	for (i = 0; i < vi->curr_queue_pairs; i++)
+-		if (!try_fill_recv(&vi->rq[i], GFP_KERNEL))
+-			schedule_delayed_work(&vi->refill, 0);
+-
+ 	mutex_lock(&vi->config_lock);
+ 	vi->config_enable = true;
+ 	mutex_unlock(&vi->config_lock);
+-- 
+1.8.4.2
+
+
+From 786d92ad6f3fe684c3e6e2f393423c618a0c5c21 Mon Sep 17 00:00:00 2001
+From: Daniel Borkmann <dborkman@redhat.com>
+Date: Mon, 30 Dec 2013 23:40:50 +0100
+Subject: [PATCH 37/47] net: llc: fix use after free in llc_ui_recvmsg
+
+[ Upstream commit 4d231b76eef6c4a6bd9c96769e191517765942cb ]
+
+While commit 30a584d944fb fixes datagram interface in LLC, a use
+after free bug has been introduced for SOCK_STREAM sockets that do
+not make use of MSG_PEEK.
+
+The flow is as follow ...
+
+  if (!(flags & MSG_PEEK)) {
+    ...
+    sk_eat_skb(sk, skb, false);
+    ...
+  }
+  ...
+  if (used + offset < skb->len)
+    continue;
+
+... where sk_eat_skb() calls __kfree_skb(). Therefore, cache
+original length and work on skb_len to check partial reads.
+
+Fixes: 30a584d944fb ("[LLX]: SOCK_DGRAM interface fixes")
+Signed-off-by: Daniel Borkmann <dborkman@redhat.com>
+Cc: Stephen Hemminger <stephen@networkplumber.org>
+Cc: Arnaldo Carvalho de Melo <acme@ghostprotocols.net>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/llc/af_llc.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/net/llc/af_llc.c b/net/llc/af_llc.c
+index 7b01b9f..c71b699 100644
+--- a/net/llc/af_llc.c
++++ b/net/llc/af_llc.c
+@@ -715,7 +715,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
+ 	unsigned long cpu_flags;
+ 	size_t copied = 0;
+ 	u32 peek_seq = 0;
+-	u32 *seq;
++	u32 *seq, skb_len;
+ 	unsigned long used;
+ 	int target;	/* Read at least this many bytes */
+ 	long timeo;
+@@ -812,6 +812,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
+ 		}
+ 		continue;
+ 	found_ok_skb:
++		skb_len = skb->len;
+ 		/* Ok so how much can we use? */
+ 		used = skb->len - offset;
+ 		if (len < used)
+@@ -844,7 +845,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
+ 		}
+ 
+ 		/* Partial read */
+-		if (used + offset < skb->len)
++		if (used + offset < skb_len)
+ 			continue;
+ 	} while (len > 0);
+ 
+-- 
+1.8.4.2
+
+
+From 1208f2a7079423f5d7dada48a3e8c70af3271c1c Mon Sep 17 00:00:00 2001
+From: "David S. Miller" <davem@davemloft.net>
+Date: Thu, 2 Jan 2014 19:50:52 -0500
+Subject: [PATCH 38/47] netpoll: Fix missing TXQ unlock and and OOPS.
+
+[ Upstream commit aca5f58f9ba803ec8c2e6bcf890db17589e8dfcc ]
+
+The VLAN tag handling code in netpoll_send_skb_on_dev() has two problems.
+
+1) It exits without unlocking the TXQ.
+
+2) It then tries to queue a NULL skb to npinfo->txq.
+
+Reported-by: Ahmed Tamrawi <atamrawi@iastate.edu>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/core/netpoll.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/net/core/netpoll.c b/net/core/netpoll.c
+index fc75c9e..0c1482c 100644
+--- a/net/core/netpoll.c
++++ b/net/core/netpoll.c
+@@ -386,8 +386,14 @@ void netpoll_send_skb_on_dev(struct netpoll *np, struct sk_buff *skb,
+ 					    !vlan_hw_offload_capable(netif_skb_features(skb),
+ 								     skb->vlan_proto)) {
+ 						skb = __vlan_put_tag(skb, skb->vlan_proto, vlan_tx_tag_get(skb));
+-						if (unlikely(!skb))
+-							break;
++						if (unlikely(!skb)) {
++							/* This is actually a packet drop, but we
++							 * don't want the code at the end of this
++							 * function to try and re-queue a NULL skb.
++							 */
++							status = NETDEV_TX_OK;
++							goto unlock_txq;
++						}
+ 						skb->vlan_tci = 0;
+ 					}
+ 
+@@ -395,6 +401,7 @@ void netpoll_send_skb_on_dev(struct netpoll *np, struct sk_buff *skb,
+ 					if (status == NETDEV_TX_OK)
+ 						txq_trans_update(txq);
+ 				}
++			unlock_txq:
+ 				__netif_tx_unlock(txq);
+ 
+ 				if (status == NETDEV_TX_OK)
+-- 
+1.8.4.2
+
+
+From 2fb310049f9a15bec6e20ffc281181acf7f9d7e7 Mon Sep 17 00:00:00 2001
+From: Curt Brune <curt@cumulusnetworks.com>
+Date: Mon, 6 Jan 2014 11:00:32 -0800
+Subject: [PATCH 39/47] bridge: use spin_lock_bh() in br_multicast_set_hash_max
+
+[ Upstream commit fe0d692bbc645786bce1a98439e548ae619269f5 ]
+
+br_multicast_set_hash_max() is called from process context in
+net/bridge/br_sysfs_br.c by the sysfs store_hash_max() function.
+
+br_multicast_set_hash_max() calls spin_lock(&br->multicast_lock),
+which can deadlock the CPU if a softirq that also tries to take the
+same lock interrupts br_multicast_set_hash_max() while the lock is
+held .  This can happen quite easily when any of the bridge multicast
+timers expire, which try to take the same lock.
+
+The fix here is to use spin_lock_bh(), preventing other softirqs from
+executing on this CPU.
+
+Steps to reproduce:
+
+1. Create a bridge with several interfaces (I used 4).
+2. Set the "multicast query interval" to a low number, like 2.
+3. Enable the bridge as a multicast querier.
+4. Repeatedly set the bridge hash_max parameter via sysfs.
+
+  # brctl addbr br0
+  # brctl addif br0 eth1 eth2 eth3 eth4
+  # brctl setmcqi br0 2
+  # brctl setmcquerier br0 1
+
+  # while true ; do echo 4096 > /sys/class/net/br0/bridge/hash_max; done
+
+Signed-off-by: Curt Brune <curt@cumulusnetworks.com>
+Signed-off-by: Scott Feldman <sfeldma@cumulusnetworks.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ net/bridge/br_multicast.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/net/bridge/br_multicast.c b/net/bridge/br_multicast.c
+index 8b0b610..1b148a3 100644
+--- a/net/bridge/br_multicast.c
++++ b/net/bridge/br_multicast.c
+@@ -2004,7 +2004,7 @@ int br_multicast_set_hash_max(struct net_bridge *br, unsigned long val)
+ 	u32 old;
+ 	struct net_bridge_mdb_htable *mdb;
+ 
+-	spin_lock(&br->multicast_lock);
++	spin_lock_bh(&br->multicast_lock);
+ 	if (!netif_running(br->dev))
+ 		goto unlock;
+ 
+@@ -2036,7 +2036,7 @@ rollback:
+ 	}
+ 
+ unlock:
+-	spin_unlock(&br->multicast_lock);
++	spin_unlock_bh(&br->multicast_lock);
+ 
+ 	return err;
+ }
+-- 
+1.8.4.2
+
+
+From ca8ba10057f817a8af2377c2ac58c63169862437 Mon Sep 17 00:00:00 2001
+From: Ben Hutchings <bhutchings@solarflare.com>
+Date: Fri, 6 Dec 2013 19:26:40 +0000
+Subject: [PATCH 40/47] sfc: Add length checks to efx_xmit_with_hwtstamp() and
+ efx_ptp_is_ptp_tx()
+
+[ Upstream commit e5a498e943fbc497f236ab8cf31366c75f337ce6 ]
+
+efx_ptp_is_ptp_tx() must be robust against skbs from raw sockets that
+have invalid IPv4 and UDP headers.
+
+Add checks that:
+- the transport header has been found
+- there is enough space between network and transport header offset
+  for an IPv4 header
+- there is enough space after the transport header offset for a
+  UDP header
+
+Fixes: 7c236c43b838 ('sfc: Add support for IEEE-1588 PTP')
+Signed-off-by: Ben Hutchings <bhutchings@solarflare.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/sfc/ptp.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/net/ethernet/sfc/ptp.c b/drivers/net/ethernet/sfc/ptp.c
+index 03acf57..93a61a1 100644
+--- a/drivers/net/ethernet/sfc/ptp.c
++++ b/drivers/net/ethernet/sfc/ptp.c
+@@ -989,7 +989,11 @@ bool efx_ptp_is_ptp_tx(struct efx_nic *efx, struct sk_buff *skb)
+ 		skb->len >= PTP_MIN_LENGTH &&
+ 		skb->len <= MC_CMD_PTP_IN_TRANSMIT_PACKET_MAXNUM &&
+ 		likely(skb->protocol == htons(ETH_P_IP)) &&
++		skb_transport_header_was_set(skb) &&
++		skb_network_header_len(skb) >= sizeof(struct iphdr) &&
+ 		ip_hdr(skb)->protocol == IPPROTO_UDP &&
++		skb_headlen(skb) >=
++		skb_transport_offset(skb) + sizeof(struct udphdr) &&
+ 		udp_hdr(skb)->dest == htons(PTP_EVENT_PORT);
+ }
+ 
+-- 
+1.8.4.2
+
+
+From 966d606c00dfeb2c90dd07497ae961c9e55e4e25 Mon Sep 17 00:00:00 2001
+From: Laurence Evans <levans@solarflare.com>
+Date: Mon, 28 Jan 2013 14:51:17 +0000
+Subject: [PATCH 41/47] sfc: PTP: Moderate log message on event queue overflow
+
+[ Upstream commit f32116003c39f3a6815215a7512e1ea8d1e4bbc7 ]
+
+Limit syslog flood if a PTP packet storm occurs.
+
+Fixes: 7c236c43b838 ('sfc: Add support for IEEE-1588 PTP')
+Signed-off-by: Ben Hutchings <bhutchings@solarflare.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/sfc/ptp.c | 23 +++++++++++++++++++++--
+ 1 file changed, 21 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/sfc/ptp.c b/drivers/net/ethernet/sfc/ptp.c
+index 93a61a1..8b2cf78 100644
+--- a/drivers/net/ethernet/sfc/ptp.c
++++ b/drivers/net/ethernet/sfc/ptp.c
+@@ -220,6 +220,7 @@ struct efx_ptp_timeset {
+  * @evt_list: List of MC receive events awaiting packets
+  * @evt_free_list: List of free events
+  * @evt_lock: Lock for manipulating evt_list and evt_free_list
++ * @evt_overflow: Boolean indicating that event list has overflowed
+  * @rx_evts: Instantiated events (on evt_list and evt_free_list)
+  * @workwq: Work queue for processing pending PTP operations
+  * @work: Work task
+@@ -270,6 +271,7 @@ struct efx_ptp_data {
+ 	struct list_head evt_list;
+ 	struct list_head evt_free_list;
+ 	spinlock_t evt_lock;
++	bool evt_overflow;
+ 	struct efx_ptp_event_rx rx_evts[MAX_RECEIVE_EVENTS];
+ 	struct workqueue_struct *workwq;
+ 	struct work_struct work;
+@@ -635,6 +637,11 @@ static void efx_ptp_drop_time_expired_events(struct efx_nic *efx)
+ 			}
+ 		}
+ 	}
++	/* If the event overflow flag is set and the event list is now empty
++	 * clear the flag to re-enable the overflow warning message.
++	 */
++	if (ptp->evt_overflow && list_empty(&ptp->evt_list))
++		ptp->evt_overflow = false;
+ 	spin_unlock_bh(&ptp->evt_lock);
+ }
+ 
+@@ -676,6 +683,11 @@ static enum ptp_packet_state efx_ptp_match_rx(struct efx_nic *efx,
+ 			break;
+ 		}
+ 	}
++	/* If the event overflow flag is set and the event list is now empty
++	 * clear the flag to re-enable the overflow warning message.
++	 */
++	if (ptp->evt_overflow && list_empty(&ptp->evt_list))
++		ptp->evt_overflow = false;
+ 	spin_unlock_bh(&ptp->evt_lock);
+ 
+ 	return rc;
+@@ -809,6 +821,7 @@ static int efx_ptp_stop(struct efx_nic *efx)
+ 	list_for_each_safe(cursor, next, &efx->ptp_data->evt_list) {
+ 		list_move(cursor, &efx->ptp_data->evt_free_list);
+ 	}
++	ptp->evt_overflow = false;
+ 	spin_unlock_bh(&efx->ptp_data->evt_lock);
+ 
+ 	return rc;
+@@ -901,6 +914,7 @@ static int efx_ptp_probe_channel(struct efx_channel *channel)
+ 	spin_lock_init(&ptp->evt_lock);
+ 	for (pos = 0; pos < MAX_RECEIVE_EVENTS; pos++)
+ 		list_add(&ptp->rx_evts[pos].link, &ptp->evt_free_list);
++	ptp->evt_overflow = false;
+ 
+ 	ptp->phc_clock_info.owner = THIS_MODULE;
+ 	snprintf(ptp->phc_clock_info.name,
+@@ -1299,8 +1313,13 @@ static void ptp_event_rx(struct efx_nic *efx, struct efx_ptp_data *ptp)
+ 		list_add_tail(&evt->link, &ptp->evt_list);
+ 
+ 		queue_work(ptp->workwq, &ptp->work);
+-	} else {
+-		netif_err(efx, rx_err, efx->net_dev, "No free PTP event");
++	} else if (!ptp->evt_overflow) {
++		/* Log a warning message and set the event overflow flag.
++		 * The message won't be logged again until the event queue
++		 * becomes empty.
++		 */
++		netif_err(efx, rx_err, efx->net_dev, "PTP event queue overflow\n");
++		ptp->evt_overflow = true;
+ 	}
+ 	spin_unlock_bh(&ptp->evt_lock);
+ }
+-- 
+1.8.4.2
+
+
+From 231e0954f111d55725886fa81029de797c61fce8 Mon Sep 17 00:00:00 2001
+From: Ben Hutchings <bhutchings@solarflare.com>
+Date: Fri, 6 Dec 2013 22:10:46 +0000
+Subject: [PATCH 42/47] sfc: Rate-limit log message for PTP packets without a
+ matching timestamp event
+
+[ Upstream commit 35f9a7a380728a94d417e5824a866f969423ac83 ]
+
+In case of a flood of PTP packets, the timestamp peripheral and MC
+firmware on the SFN[56]322F boards may not be able to provide
+timestamp events for all packets.  Don't complain too much about this.
+
+Fixes: 7c236c43b838 ('sfc: Add support for IEEE-1588 PTP')
+Signed-off-by: Ben Hutchings <bhutchings@solarflare.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/sfc/ptp.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/sfc/ptp.c b/drivers/net/ethernet/sfc/ptp.c
+index 8b2cf78..8c665f1 100644
+--- a/drivers/net/ethernet/sfc/ptp.c
++++ b/drivers/net/ethernet/sfc/ptp.c
+@@ -717,8 +717,9 @@ static bool efx_ptp_process_events(struct efx_nic *efx, struct sk_buff_head *q)
+ 			__skb_queue_tail(q, skb);
+ 		} else if (time_after(jiffies, match->expiry)) {
+ 			match->state = PTP_PACKET_STATE_TIMED_OUT;
+-			netif_warn(efx, rx_err, efx->net_dev,
+-				   "PTP packet - no timestamp seen\n");
++			if (net_ratelimit())
++				netif_warn(efx, rx_err, efx->net_dev,
++					   "PTP packet - no timestamp seen\n");
+ 			__skb_queue_tail(q, skb);
+ 		} else {
+ 			/* Replace unprocessed entry and stop */
+-- 
+1.8.4.2
+
+
+From 074aa2e7c8431cb75b5ae4805e2a3f7dd0f6deab Mon Sep 17 00:00:00 2001
+From: Alexandre Rames <arames@solarflare.com>
+Date: Fri, 8 Nov 2013 10:20:31 +0000
+Subject: [PATCH 43/47] sfc: Stop/re-start PTP when stopping/starting the
+ datapath.
+
+[ Upstream commit 2ea4dc28a5bcec408e01a8772763871638a5ec79 ]
+
+This disables PTP when we bring the interface down to avoid getting
+unmatched RX timestamp events, and tries to re-enable it when bringing
+the interface up.
+
+[bwh: Make efx_ptp_stop() safe on Falcon. Introduce
+ efx_ptp_{start,stop}_datapath() functions; we'll expand them later.]
+
+Fixes: 7c236c43b838 ('sfc: Add support for IEEE-1588 PTP')
+Signed-off-by: Ben Hutchings <bhutchings@solarflare.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/sfc/efx.c |  4 ++++
+ drivers/net/ethernet/sfc/nic.h |  2 ++
+ drivers/net/ethernet/sfc/ptp.c | 30 +++++++++++++++++++++++++++---
+ 3 files changed, 33 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/ethernet/sfc/efx.c b/drivers/net/ethernet/sfc/efx.c
+index 07c9bc4..7c83305 100644
+--- a/drivers/net/ethernet/sfc/efx.c
++++ b/drivers/net/ethernet/sfc/efx.c
+@@ -645,6 +645,8 @@ static void efx_start_datapath(struct efx_nic *efx)
+ 		WARN_ON(channel->rx_pkt_n_frags);
+ 	}
+ 
++	efx_ptp_start_datapath(efx);
++
+ 	if (netif_device_present(efx->net_dev))
+ 		netif_tx_wake_all_queues(efx->net_dev);
+ }
+@@ -659,6 +661,8 @@ static void efx_stop_datapath(struct efx_nic *efx)
+ 	EFX_ASSERT_RESET_SERIALISED(efx);
+ 	BUG_ON(efx->port_enabled);
+ 
++	efx_ptp_stop_datapath(efx);
++
+ 	/* Stop RX refill */
+ 	efx_for_each_channel(channel, efx) {
+ 		efx_for_each_channel_rx_queue(rx_queue, channel)
+diff --git a/drivers/net/ethernet/sfc/nic.h b/drivers/net/ethernet/sfc/nic.h
+index 890bbbe..3d713b5 100644
+--- a/drivers/net/ethernet/sfc/nic.h
++++ b/drivers/net/ethernet/sfc/nic.h
+@@ -528,6 +528,8 @@ extern void efx_ptp_get_ts_info(struct efx_nic *efx,
+ extern bool efx_ptp_is_ptp_tx(struct efx_nic *efx, struct sk_buff *skb);
+ extern int efx_ptp_tx(struct efx_nic *efx, struct sk_buff *skb);
+ extern void efx_ptp_event(struct efx_nic *efx, efx_qword_t *ev);
++void efx_ptp_start_datapath(struct efx_nic *efx);
++void efx_ptp_stop_datapath(struct efx_nic *efx);
+ 
+ extern const struct efx_nic_type falcon_a1_nic_type;
+ extern const struct efx_nic_type falcon_b0_nic_type;
+diff --git a/drivers/net/ethernet/sfc/ptp.c b/drivers/net/ethernet/sfc/ptp.c
+index 8c665f1..9bd99ed 100644
+--- a/drivers/net/ethernet/sfc/ptp.c
++++ b/drivers/net/ethernet/sfc/ptp.c
+@@ -801,9 +801,14 @@ fail:
+ static int efx_ptp_stop(struct efx_nic *efx)
+ {
+ 	struct efx_ptp_data *ptp = efx->ptp_data;
+-	int rc = efx_ptp_disable(efx);
+ 	struct list_head *cursor;
+ 	struct list_head *next;
++	int rc;
++
++	if (ptp == NULL)
++		return 0;
++
++	rc = efx_ptp_disable(efx);
+ 
+ 	if (ptp->rxfilter_installed) {
+ 		efx_filter_remove_id_safe(efx, EFX_FILTER_PRI_REQUIRED,
+@@ -828,6 +833,13 @@ static int efx_ptp_stop(struct efx_nic *efx)
+ 	return rc;
+ }
+ 
++static int efx_ptp_restart(struct efx_nic *efx)
++{
++	if (efx->ptp_data && efx->ptp_data->enabled)
++		return efx_ptp_start(efx);
++	return 0;
++}
++
+ static void efx_ptp_pps_worker(struct work_struct *work)
+ {
+ 	struct efx_ptp_data *ptp =
+@@ -1125,7 +1137,7 @@ static int efx_ptp_change_mode(struct efx_nic *efx, bool enable_wanted,
+ {
+ 	if ((enable_wanted != efx->ptp_data->enabled) ||
+ 	    (enable_wanted && (efx->ptp_data->mode != new_mode))) {
+-		int rc;
++		int rc = 0;
+ 
+ 		if (enable_wanted) {
+ 			/* Change of mode requires disable */
+@@ -1142,7 +1154,8 @@ static int efx_ptp_change_mode(struct efx_nic *efx, bool enable_wanted,
+ 			 * succeed.
+ 			 */
+ 			efx->ptp_data->mode = new_mode;
+-			rc = efx_ptp_start(efx);
++			if (netif_running(efx->net_dev))
++				rc = efx_ptp_start(efx);
+ 			if (rc == 0) {
+ 				rc = efx_ptp_synchronize(efx,
+ 							 PTP_SYNC_ATTEMPTS * 2);
+@@ -1515,3 +1528,14 @@ void efx_ptp_probe(struct efx_nic *efx)
+ 		efx->extra_channel_type[EFX_EXTRA_CHANNEL_PTP] =
+ 			&efx_ptp_channel_type;
+ }
++
++void efx_ptp_start_datapath(struct efx_nic *efx)
++{
++	if (efx_ptp_restart(efx))
++		netif_err(efx, drv, efx->net_dev, "Failed to restart PTP.\n");
++}
++
++void efx_ptp_stop_datapath(struct efx_nic *efx)
++{
++	efx_ptp_stop(efx);
++}
+-- 
+1.8.4.2
+
+
+From e967a34ef86ca8b7d9081b67de443c839e2db180 Mon Sep 17 00:00:00 2001
+From: Ben Hutchings <bhutchings@solarflare.com>
+Date: Thu, 5 Dec 2013 17:24:06 +0000
+Subject: [PATCH 44/47] sfc: Maintain current frequency adjustment when
+ applying a time offset
+
+[ Upstream commit cd6fe65e923175e4f2e9fb585b1d78c6bf580fc6 ]
+
+There is a single MCDI PTP operation for setting the frequency
+adjustment and applying a time offset to the hardware clock.  When
+applying a time offset we should not change the frequency adjustment.
+
+These two operations can now be requested separately but this requires
+a flash firmware update.  Keep using the single operation, but
+remember and repeat the previous frequency adjustment.
+
+Fixes: 7c236c43b838 ('sfc: Add support for IEEE-1588 PTP')
+Signed-off-by: Ben Hutchings <bhutchings@solarflare.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/sfc/ptp.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/sfc/ptp.c b/drivers/net/ethernet/sfc/ptp.c
+index 9bd99ed..3dd39dc 100644
+--- a/drivers/net/ethernet/sfc/ptp.c
++++ b/drivers/net/ethernet/sfc/ptp.c
+@@ -1426,7 +1426,7 @@ static int efx_phc_adjfreq(struct ptp_clock_info *ptp, s32 delta)
+ 	if (rc != 0)
+ 		return rc;
+ 
+-	ptp_data->current_adjfreq = delta;
++	ptp_data->current_adjfreq = adjustment_ns;
+ 	return 0;
+ }
+ 
+@@ -1441,7 +1441,7 @@ static int efx_phc_adjtime(struct ptp_clock_info *ptp, s64 delta)
+ 
+ 	MCDI_SET_DWORD(inbuf, PTP_IN_OP, MC_CMD_PTP_OP_ADJUST);
+ 	MCDI_SET_DWORD(inbuf, PTP_IN_PERIPH_ID, 0);
+-	MCDI_SET_QWORD(inbuf, PTP_IN_ADJUST_FREQ, 0);
++	MCDI_SET_QWORD(inbuf, PTP_IN_ADJUST_FREQ, ptp_data->current_adjfreq);
+ 	MCDI_SET_DWORD(inbuf, PTP_IN_ADJUST_SECONDS, (u32)delta_ts.tv_sec);
+ 	MCDI_SET_DWORD(inbuf, PTP_IN_ADJUST_NANOSECONDS, (u32)delta_ts.tv_nsec);
+ 	return efx_mcdi_rpc(efx, MC_CMD_PTP, inbuf, sizeof(inbuf),
+-- 
+1.8.4.2
+
+
+From 291a999bf11ba90bae4d65b98d27f59a634d0b11 Mon Sep 17 00:00:00 2001
+From: Andrew Rybchenko <Andrew.Rybchenko@oktetlabs.ru>
+Date: Sat, 16 Nov 2013 11:02:27 +0400
+Subject: [PATCH 45/47] sfc: RX buffer allocation takes prefix size into
+ account in IP header alignment
+
+[ Upstream commit 2ec030144f648a6dd208f95f55ece212f1b72771 ]
+
+rx_prefix_size is 4-bytes aligned on Falcon/Siena (16 bytes), but it is equal
+to 14 on EF10. So, it should be taken into account if arch requires IP header
+to be 4-bytes aligned (via NET_IP_ALIGN).
+
+Fixes: 8127d661e77f ('sfc: Add support for Solarflare SFC9100 family')
+Signed-off-by: Ben Hutchings <bhutchings@solarflare.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/sfc/efx.c        | 4 +++-
+ drivers/net/ethernet/sfc/net_driver.h | 3 +++
+ drivers/net/ethernet/sfc/rx.c         | 6 +++---
+ 3 files changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/ethernet/sfc/efx.c b/drivers/net/ethernet/sfc/efx.c
+index 7c83305..f59a0b6 100644
+--- a/drivers/net/ethernet/sfc/efx.c
++++ b/drivers/net/ethernet/sfc/efx.c
+@@ -585,7 +585,7 @@ static void efx_start_datapath(struct efx_nic *efx)
+ 			   EFX_MAX_FRAME_LEN(efx->net_dev->mtu) +
+ 			   efx->type->rx_buffer_padding);
+ 	rx_buf_len = (sizeof(struct efx_rx_page_state) +
+-		      NET_IP_ALIGN + efx->rx_dma_len);
++		      efx->rx_ip_align + efx->rx_dma_len);
+ 	if (rx_buf_len <= PAGE_SIZE) {
+ 		efx->rx_scatter = efx->type->always_rx_scatter;
+ 		efx->rx_buffer_order = 0;
+@@ -2554,6 +2554,8 @@ static int efx_init_struct(struct efx_nic *efx,
+ 
+ 	efx->net_dev = net_dev;
+ 	efx->rx_prefix_size = efx->type->rx_prefix_size;
++	efx->rx_ip_align =
++		NET_IP_ALIGN ? (efx->rx_prefix_size + NET_IP_ALIGN) % 4 : 0;
+ 	efx->rx_packet_hash_offset =
+ 		efx->type->rx_hash_offset - efx->type->rx_prefix_size;
+ 	spin_lock_init(&efx->stats_lock);
+diff --git a/drivers/net/ethernet/sfc/net_driver.h b/drivers/net/ethernet/sfc/net_driver.h
+index b172ed1..2aeb451 100644
+--- a/drivers/net/ethernet/sfc/net_driver.h
++++ b/drivers/net/ethernet/sfc/net_driver.h
+@@ -673,6 +673,8 @@ struct vfdi_status;
+  * @n_channels: Number of channels in use
+  * @n_rx_channels: Number of channels used for RX (= number of RX queues)
+  * @n_tx_channels: Number of channels used for TX
++ * @rx_ip_align: RX DMA address offset to have IP header aligned in
++ *	in accordance with NET_IP_ALIGN
+  * @rx_dma_len: Current maximum RX DMA length
+  * @rx_buffer_order: Order (log2) of number of pages for each RX buffer
+  * @rx_buffer_truesize: Amortised allocation size of an RX buffer,
+@@ -806,6 +808,7 @@ struct efx_nic {
+ 	unsigned rss_spread;
+ 	unsigned tx_channel_offset;
+ 	unsigned n_tx_channels;
++	unsigned int rx_ip_align;
+ 	unsigned int rx_dma_len;
+ 	unsigned int rx_buffer_order;
+ 	unsigned int rx_buffer_truesize;
+diff --git a/drivers/net/ethernet/sfc/rx.c b/drivers/net/ethernet/sfc/rx.c
+index 4a59672..f18d586 100644
+--- a/drivers/net/ethernet/sfc/rx.c
++++ b/drivers/net/ethernet/sfc/rx.c
+@@ -93,7 +93,7 @@ static inline void efx_sync_rx_buffer(struct efx_nic *efx,
+ 
+ void efx_rx_config_page_split(struct efx_nic *efx)
+ {
+-	efx->rx_page_buf_step = ALIGN(efx->rx_dma_len + NET_IP_ALIGN,
++	efx->rx_page_buf_step = ALIGN(efx->rx_dma_len + efx->rx_ip_align,
+ 				      EFX_RX_BUF_ALIGNMENT);
+ 	efx->rx_bufs_per_page = efx->rx_buffer_order ? 1 :
+ 		((PAGE_SIZE - sizeof(struct efx_rx_page_state)) /
+@@ -188,9 +188,9 @@ static int efx_init_rx_buffers(struct efx_rx_queue *rx_queue)
+ 		do {
+ 			index = rx_queue->added_count & rx_queue->ptr_mask;
+ 			rx_buf = efx_rx_buffer(rx_queue, index);
+-			rx_buf->dma_addr = dma_addr + NET_IP_ALIGN;
++			rx_buf->dma_addr = dma_addr + efx->rx_ip_align;
+ 			rx_buf->page = page;
+-			rx_buf->page_offset = page_offset + NET_IP_ALIGN;
++			rx_buf->page_offset = page_offset + efx->rx_ip_align;
+ 			rx_buf->len = efx->rx_dma_len;
+ 			rx_buf->flags = 0;
+ 			++rx_queue->added_count;
+-- 
+1.8.4.2
+
+
+From 42fa3a29c5827f237e6d9baca81683ec13b7759f Mon Sep 17 00:00:00 2001
+From: Robert Stonehouse <rstonehouse@solarflare.com>
+Date: Wed, 9 Oct 2013 11:52:43 +0100
+Subject: [PATCH 46/47] sfc: Refactor efx_mcdi_poll() by introducing
+ efx_mcdi_poll_once()
+
+[ Upstream commit 5731d7b35e5b87157a9b9973cc2eff70c50aec58 ]
+
+Signed-off-by: Ben Hutchings <bhutchings@solarflare.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/sfc/mcdi.c | 23 +++++++++++++++++------
+ 1 file changed, 17 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/ethernet/sfc/mcdi.c b/drivers/net/ethernet/sfc/mcdi.c
+index 366c8e3..9f26e46 100644
+--- a/drivers/net/ethernet/sfc/mcdi.c
++++ b/drivers/net/ethernet/sfc/mcdi.c
+@@ -50,6 +50,7 @@ struct efx_mcdi_async_param {
+ static void efx_mcdi_timeout_async(unsigned long context);
+ static int efx_mcdi_drv_attach(struct efx_nic *efx, bool driver_operating,
+ 			       bool *was_attached_out);
++static bool efx_mcdi_poll_once(struct efx_nic *efx);
+ 
+ static inline struct efx_mcdi_iface *efx_mcdi(struct efx_nic *efx)
+ {
+@@ -237,6 +238,21 @@ static void efx_mcdi_read_response_header(struct efx_nic *efx)
+ 	}
+ }
+ 
++static bool efx_mcdi_poll_once(struct efx_nic *efx)
++{
++	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
++
++	rmb();
++	if (!efx->type->mcdi_poll_response(efx))
++		return false;
++
++	spin_lock_bh(&mcdi->iface_lock);
++	efx_mcdi_read_response_header(efx);
++	spin_unlock_bh(&mcdi->iface_lock);
++
++	return true;
++}
++
+ static int efx_mcdi_poll(struct efx_nic *efx)
+ {
+ 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
+@@ -272,18 +288,13 @@ static int efx_mcdi_poll(struct efx_nic *efx)
+ 
+ 		time = jiffies;
+ 
+-		rmb();
+-		if (efx->type->mcdi_poll_response(efx))
++		if (efx_mcdi_poll_once(efx))
+ 			break;
+ 
+ 		if (time_after(time, finish))
+ 			return -ETIMEDOUT;
+ 	}
+ 
+-	spin_lock_bh(&mcdi->iface_lock);
+-	efx_mcdi_read_response_header(efx);
+-	spin_unlock_bh(&mcdi->iface_lock);
+-
+ 	/* Return rc=0 like wait_event_timeout() */
+ 	return 0;
+ }
+-- 
+1.8.4.2
+
+
+From 438526df6ec90f57131e8774aafa52521240059b Mon Sep 17 00:00:00 2001
+From: Robert Stonehouse <rstonehouse@solarflare.com>
+Date: Wed, 9 Oct 2013 11:52:48 +0100
+Subject: [PATCH 47/47] sfc: Poll for MCDI completion once before timeout
+ occurs
+
+[ Upstream commit 6b294b8efedaa7cf7507154148e2c79766ad6f96 ]
+
+There is an as-yet unexplained bug that sometimes prevents (or delays)
+the driver seeing the completion event for a completed MCDI request on
+the SFC9120.  The requested configuration change will have happened
+but the driver assumes it to have failed, and this can result in
+further failures.  We can mitigate this by polling for completion
+after unsuccessfully waiting for an event.
+
+Fixes: 8127d661e77f ('sfc: Add support for Solarflare SFC9100 family')
+Signed-off-by: Ben Hutchings <bhutchings@solarflare.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/sfc/mcdi.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/ethernet/sfc/mcdi.c b/drivers/net/ethernet/sfc/mcdi.c
+index 9f26e46..4b0bd8a 100644
+--- a/drivers/net/ethernet/sfc/mcdi.c
++++ b/drivers/net/ethernet/sfc/mcdi.c
+@@ -630,6 +630,16 @@ int efx_mcdi_rpc_finish(struct efx_nic *efx, unsigned cmd, size_t inlen,
+ 		rc = efx_mcdi_await_completion(efx);
+ 
+ 	if (rc != 0) {
++		netif_err(efx, hw, efx->net_dev,
++			  "MC command 0x%x inlen %d mode %d timed out\n",
++			  cmd, (int)inlen, mcdi->mode);
++
++		if (mcdi->mode == MCDI_MODE_EVENTS && efx_mcdi_poll_once(efx)) {
++			netif_err(efx, hw, efx->net_dev,
++				  "MCDI request was completed without an event\n");
++			rc = 0;
++		}
++
+ 		/* Close the race with efx_mcdi_ev_cpl() executing just too late
+ 		 * and completing a request we've just cancelled, by ensuring
+ 		 * that the seqno check therein fails.
+@@ -638,11 +648,9 @@ int efx_mcdi_rpc_finish(struct efx_nic *efx, unsigned cmd, size_t inlen,
+ 		++mcdi->seqno;
+ 		++mcdi->credits;
+ 		spin_unlock_bh(&mcdi->iface_lock);
++	}
+ 
+-		netif_err(efx, hw, efx->net_dev,
+-			  "MC command 0x%x inlen %d mode %d timed out\n",
+-			  cmd, (int)inlen, mcdi->mode);
+-	} else {
++	if (rc == 0) {
+ 		size_t hdr_len, data_len;
+ 
+ 		/* At the very least we need a memory barrier here to ensure
+-- 
+1.8.4.2
+
