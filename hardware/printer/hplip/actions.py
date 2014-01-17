@@ -77,7 +77,6 @@ def install():
     # Remove unpackaged stuff (Fedora)
     pisitools.remove("/usr/share/hplip/fax/pstotiff*")
     pisitools.remove("/usr/share/cups/mime/pstotiff.types")
-    pisitools.remove("/usr/lib/cups/filter/hpcac")
     pisitools.remove("/usr/share/hplip/pkservice.py")
     pisitools.remove("/usr/bin/hp-pkservice")
 
