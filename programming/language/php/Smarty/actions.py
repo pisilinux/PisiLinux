@@ -9,4 +9,4 @@ from pisi.actionsapi import pisitools
 def install():
     pisitools.insinto("/usr/share/php5/smarty/", "libs/*")
 
-    pisitools.dodoc("COPYING.lib", "SMARTY2_BC_NOTES",  "README")
+    pisitools.dodoc("COPYING.lib", "README")
