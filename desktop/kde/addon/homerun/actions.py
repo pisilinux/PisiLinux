@@ -4,15 +4,12 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
-from pisi.actionsapi import kde4
 from pisi.actionsapi import pisitools
-
-
-#shelltools.export("HOME", "%s" % get.workDIR())
+from pisi.actionsapi import shelltools
+from pisi.actionsapi import kde4
 
 def setup():
+    shelltools.system("git pull origin master")
     kde4.configure()
 
 def build():
