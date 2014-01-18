@@ -19,5 +19,4 @@ def build():
 def install():
     autotools.install()
 
-    pisitools.removeDir("/usr/lib")
-    pisitools.dodoc("ChangeLog", "README", "TODO", "doc/barcode.pdf")
+    pisitools.dodoc("ChangeLog", "README", "TODO",)
