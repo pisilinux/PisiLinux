@@ -13,6 +13,8 @@ def setup():
     shelltools.export("LDFLAGS", "%s -lgtk-x11-2.0 -lthunarx-2" % get.LDFLAGS())
     autotools.configure("--disable-static \
                         --disable-dependency-tracking")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
