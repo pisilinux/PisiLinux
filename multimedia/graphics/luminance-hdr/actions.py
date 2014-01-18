@@ -7,7 +7,6 @@
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 
-WorkDir = "."
 
 def setup():
     # Fix doc dir

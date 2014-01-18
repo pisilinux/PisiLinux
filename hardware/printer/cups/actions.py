@@ -4,10 +4,10 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
 def setup():
     pisitools.flags.add("-fstack-protector-all", "-DLDAP_DEPRECATED=1")
@@ -21,14 +21,14 @@ def setup():
                --with-system-groups=lpadmin \
                --with-docdir=/usr/share/cups/html \
                --with-dbusdir=/etc/dbus-1 \
-               --with-optim="%s -fstack-protector-all -DLDAP_DEPRECATED=1" \
+               --with-optim="%s" \
                --with-php=/usr/bin/php-cgi \
                --with-cupsd-file-perm=0755 \
                --with-log-file-perm=0600 \
                --without-java \
                --enable-acl \
                --enable-ssl=yes \
-               --enable-gnutls \
+               --enable-openssl \
                --enable-libpaper \
                --enable-libusb=yes \
                --enable-debug \
@@ -40,7 +40,8 @@ def setup():
                --enable-dnssd \
                --enable-browsing \
                --enable-threads \
-               --enable-gnutls \
+               --enable-raw-printing \
+               --disable-gnutls \
                --disable-launchd \
                --without-rcdir \
                --libdir=/usr/lib \
@@ -54,9 +55,6 @@ def setup():
                      --disable-dnssd \
                      --disable-gssapi \
                      --disable-dbus \
-                     --disable-gnutls \
-                     --enable-ssl=no \
-                     --enable-raw-printing \
                      --bindir=/usr/bin32 \
                      --sbindir=/usr/sbin32 \
                      --libdir=/usr/lib32'
@@ -64,7 +62,7 @@ def setup():
     autotools.configure(options)
 
 def build():
-    autotools.make("V=1")
+    autotools.make()
 
 #def check():
     #autotools.make("check")
@@ -83,8 +81,9 @@ def install():
         pisitools.removeDir("/usr/share/cups/banners")
         pisitools.dodir("/usr/share/cups/banners")
         return
-    else:
-        autotools.rawInstall("BUILDROOT=%s install-headers install-libs install-data install-exec" % get.installDIR())
+
+    autotools.rawInstall("BUILDROOT=%s install-headers install-libs install-data install-exec" % get.installDIR())
+    shelltools.chmod("%s/run/cups/certs" % get.installDIR(), 0755)
 
     pisitools.dodir("/usr/share/cups/profiles")
 

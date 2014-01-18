@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 def setup():
     autotools.configure("--disable-static \
                          --disable-dependency-tracking \
+                         --with-browseremoteprotocols=DNSSD,CUPS \
                          --enable-avahi \
                          --with-rcdir=no")
 
