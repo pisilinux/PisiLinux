@@ -7,6 +7,7 @@
 from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
     pisitools.flags.add("-fstack-protector-all", "-DLDAP_DEPRECATED=1")
