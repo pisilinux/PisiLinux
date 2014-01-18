@@ -4,15 +4,12 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+import os
+
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
-
-import os
-
-WorkDir = "AssaultCube_v%s" % get.srcVERSION()
-WorkDir = "%s" % get.srcVERSION()
 
 datasources = ["config", "packages"]
 src = "source/src"
@@ -35,7 +32,7 @@ def setup():
         fixperms(d)
 
     fixperms("docs")
-    shelltools.export("LDFLAGS", "%s -lX11" % get.LDFLAGS())
+    pisitools.ldflags.add("-lX11")
     # for nowin32 patch
     shelltools.cd("source/enet")
     autotools.autoreconf("-vfi")
