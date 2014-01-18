@@ -9,9 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--disable-static\
-                         --enable-nautilus-actions \
-                         --libexecdir=/usr/lib/file-roller")
+    autotools.configure("--prefix=/usr \
+                        --disable-static \
+                        --disable-schemas-compile")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
