@@ -4,28 +4,34 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
-docdir = "%s/%s" % (get.docDIR(), get.srcNAME())
+# Disable automagic curl dep used for online update checking
+shelltools.export("CURL_CFLAGS", "")
+shelltools.export("CURL_LIBS", "")
+
+# Sets number of threads for a parallel build
+shelltools.export("DRAKETHREADS", get.makeJOBS().replace("-j", ""))
+
+pisitools.flags.add("-DBOOST_FILESYSTEM_VERSION=3")
 
 def setup():
+    pisitools.dosed("configure.in", "curl", deleteLine=True)
+
+    autotools.autoreconf("-fiv")
     autotools.configure("--enable-gui \
                          --enable-wxwidgets \
-                         --enable-lzo \
-                         --enable-bz2 \
-                         --with-flac")
+                         --with-flac \
+                         --with-boost-libdir=/usr/lib \
+                         ")
 
 def build():
-	shelltools.system("rake")
+    shelltools.system("rake")
 
 def install():
-	shelltools.system('rake install DESTDIR="%s"' % get.installDIR())
-	
-	for f in ["examples", "doc/mkvmerge-gui.html", "doc/images"]:
-		if shelltools.isFile(f) or shelltools.isDirectory(f):
-			pisitools.insinto(docdir, f)
-			
-	pisitools.dodoc("AUTHORS", "ChangeLog", "README", "TODO")
+    shelltools.system('rake install DESTDIR="%s"' % get.installDIR())
+
+    pisitools.dodoc("AUTHORS", "ChangeLog", "README", "TODO")
