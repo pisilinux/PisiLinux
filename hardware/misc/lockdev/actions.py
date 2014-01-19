@@ -36,7 +36,7 @@ def install():
     shelltools.chmod("%s/usr/lib/liblockdev.so.1.0.3" % get.installDIR(), 0755)
 
     pisitools.dodir("/run/lock/lockdev")
-    shelltools.chmod("%s/run/lock/lockdev" % get.installDIR(), 0755)
+    shelltools.chmod("%s/run/lock/lockdev" % get.installDIR(), 0775)
     shelltools.chown("%s/run/lock/lockdev" % get.installDIR(), "root", "lock")
 
     pisitools.dodoc("ChangeLog", "AUTHORS", "LICENSE")
