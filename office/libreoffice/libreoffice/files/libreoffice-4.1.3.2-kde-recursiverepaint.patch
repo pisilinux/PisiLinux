@@ -1,0 +1,141 @@
+Minor modification for libreoffice-4.1: in line 137, reset Q_EMIT to 
+emit... dilfridge@gentoo.org
+
+From 13a34f4c6307d1bd2443cbf3fbd83bfdd8cdbafb Mon Sep 17 00:00:00 2001
+From: Jan-Marek Glogowski <glogow@fbihome.de>
+Date: Fri, 15 Nov 2013 13:42:15 +0000
+Subject: Rewrite Qt4 based nested yield mutex locking.
+
+The Qt event loop may start a nested event loop, when checking for
+clipboard and Drag'n'Drop events.
+
+Previously this was handled by running this nested yield loop
+inside the main glib loop using
+  qApp->clipboard()->property( "useEventLoopWhenWaiting" );
+
+But this results in nested paint events which crash LO:
+  QWidget::repaint: Recursive repaint detected
+
+To prevend yield mutex deadlocks, check for nested event loops
+and always release the yield lock before starting the nested Yield
+event loop.
+
+This fixes fdo#69002.
+
+Change-Id: I7e827abd3489783053ec7123372742a32555875d
+Reviewed-on: https://gerrit.libreoffice.org/6685
+Reviewed-by: Michael Meeks <michael.meeks@collabora.com>
+Reviewed-by: Thorsten Behrens <thb@documentfoundation.org>
+Tested-by: Thorsten Behrens <thb@documentfoundation.org>
+---
+diff --git a/vcl/unx/kde4/KDE4FilePicker.cxx b/vcl/unx/kde4/KDE4FilePicker.cxx
+index ee4a6e3..cb20be4 100644
+--- a/vcl/unx/kde4/KDE4FilePicker.cxx
++++ b/vcl/unx/kde4/KDE4FilePicker.cxx
+@@ -58,6 +58,8 @@
+ 
+ #undef Region
+ 
++#include "generic/geninst.h"
++
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::ui::dialogs;
+ using namespace ::com::sun::star::ui::dialogs::TemplateDescription;
+@@ -253,28 +255,16 @@ sal_Int16 SAL_CALL KDE4FilePicker::execute()
+     _dialog->setFilter(_filter);
+     _dialog->filterWidget()->setEditable(false);
+ 
+-    // At this point, SolarMutex is held. Opening the KDE file dialog here
+-    // can lead to QClipboard asking for clipboard contents. If LO core
+-    // is the owner of the clipboard content, this will block for 5 seconds
+-    // and timeout, since the clipboard thread will not be able to acquire
+-    // SolarMutex and thus won't be able to respond. If the event loops
+-    // are properly integrated and QClipboard can use a nested event loop
+-    // (see the KDE VCL plug), then this won't happen, but otherwise
+-    // simply release the SolarMutex here. The KDE file dialog does not
+-    // call back to the core, so this should be safe (and if it does,
+-    // SolarMutex will need to be re-acquired).
+-    long mutexrelease = 0;
+-    if( !qApp->clipboard()->property( "useEventLoopWhenWaiting" ).toBool())
+-        mutexrelease = Application::ReleaseSolarMutex();
+-    //block and wait for user input
++    // We're entering a nested loop.
++    // Release the yield mutex to prevent deadlocks.
+     int result = _dialog->exec();
++
+     // HACK: KFileDialog uses KConfig("kdeglobals") for saving some settings
+     // (such as the auto-extension flag), but that doesn't update KGlobal::config()
+     // (which is probably a KDE bug), so force reading the new configuration,
+     // otherwise the next opening of the dialog would use the old settings.
+     KGlobal::config()->reparseConfiguration();
+-    if( !qApp->clipboard()->property( "useEventLoopWhenWaiting" ).toBool())
+-        Application::AcquireSolarMutex( mutexrelease );
++
+     if( result == KFileDialog::Accepted)
+         return ExecutableDialogResults::OK;
+ 
+diff --git a/vcl/unx/kde4/KDEXLib.cxx b/vcl/unx/kde4/KDEXLib.cxx
+index 8e0eb67..67d7a4d 100644
+--- a/vcl/unx/kde4/KDEXLib.cxx
++++ b/vcl/unx/kde4/KDEXLib.cxx
+@@ -225,9 +225,6 @@ void KDEXLib::setupEventLoop()
+         eventLoopType = GlibEventLoop;
+         old_gpoll = g_main_context_get_poll_func( NULL );
+         g_main_context_set_poll_func( NULL, gpoll_wrapper );
+-        // set QClipboard to use event loop, otherwise the main thread will hold
+-        // SolarMutex locked, which will prevent the clipboard thread from answering
+-        m_pApplication->clipboard()->setProperty( "useEventLoopWhenWaiting", true );
+         return;
+     }
+ #endif
+@@ -244,9 +241,6 @@ void KDEXLib::setupEventLoop()
+         eventLoopType = QtUnixEventLoop;
+         QInternal::callFunction( QInternal::GetUnixSelectFunction, reinterpret_cast< void** >( &qt_select ));
+         QInternal::callFunction( QInternal::SetUnixSelectFunction, reinterpret_cast< void** >( lo_select ));
+-        // set QClipboard to use event loop, otherwise the main thread will hold
+-        // SolarMutex locked, which will prevent the clipboard thread from answering
+-        m_pApplication->clipboard()->setProperty( "useEventLoopWhenWaiting", true );
+         return;
+     }
+ #endif
+@@ -300,6 +294,9 @@ void KDEXLib::socketNotifierActivated( int fd )
+ 
+ void KDEXLib::Yield( bool bWait, bool bHandleAllCurrentEvents )
+ {
++    // Nested yield loop counter.
++    static int loop_depth = 0;
++
+     if( eventLoopType == LibreOfficeEventLoop )
+     {
+         if( qApp->thread() == QThread::currentThread())
+@@ -310,13 +307,24 @@ void KDEXLib::Yield( bool bWait, bool bHandleAllCurrentEvents )
+         }
+         return SalXLib::Yield( bWait, bHandleAllCurrentEvents );
+     }
++
+     // if we are the main thread (which is where the event processing is done),
+     // good, just do it
+-    if( qApp->thread() == QThread::currentThread())
++    if( qApp->thread() == QThread::currentThread()) {
++        // Release the yield lock before entering a nested loop.
++        if (loop_depth > 0)
++            SalYieldMutexReleaser aReleaser;
++        loop_depth++;
+         processYield( bWait, bHandleAllCurrentEvents );
+-    else
+-    { // if this deadlocks, event processing needs to go into a separate thread
+-      // or some other solution needs to be found
++        loop_depth--;
++    }
++    else {
++        // we were called from another thread;
++        // release the yield lock to prevent deadlock.
++        SalYieldMutexReleaser aReleaser;
++
++        // if this deadlocks, event processing needs to go into a separate
++        // thread or some other solution needs to be found
+         emit processYieldSignal( bWait, bHandleAllCurrentEvents );
+     }
+ }
+--
+cgit v0.9.0.2-2-gbebe
