@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
+    pisitools.dosed("Makefile", "^(DOCDIR\s\?=\s\/usr\/share\/doc)s(.*)", r"\1\2")
     autotools.make("CFLAGS='%s'" % get.CFLAGS())
 
 def install():
