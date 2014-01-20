@@ -17,6 +17,7 @@ def setup():
                          --enable-exp-attack \
                          --enable-semaphore \
                          --enable-sem-open \
+                         --disable-version-check \
                          --enable-memory-barrier")
 
 def build():
