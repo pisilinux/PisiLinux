@@ -11,21 +11,45 @@ from pisi.actionsapi import get
 
 import os
 
+monoristol = "/usr/share/doc/monobristol/"
+WorkDir = "."
+
 def setup():
-    
+    shelltools.cd("bristol-0.60.11")
     autotools.configure("--prefix=/usr \
-                         --enable-exp-attack \
-                         --enable-semaphore \
-                         --enable-sem-open \
                          --disable-version-check \
-                         --enable-memory-barrier")
+                         --enable-jack-default-audio \
+                         --enable-jack-default-midi ")
+    
+    shelltools.cd("..")    
+    shelltools.cd("monobristol-0.60.3")
+    autotools.configure()
+    shelltools.cd("..")
 
 def build():
+    shelltools.cd("bristol-0.60.11")
     autotools.make()
+    shelltools.cd("..")
+    shelltools.cd("monobristol-0.60.3")
+    autotools.make()
+    shelltools.cd("..")
 
-def install():
-   
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR()) 
-
+def install():    
+    shelltools.cd("bristol-0.60.11")
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "README")
+    shelltools.cd("..")
+    shelltools.cd("monobristol-0.60.3")
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    pisitools.insinto("/usr/share/applications/", "monoBristol.desktop")
+    pisitools.insinto("/usr/share/pixmaps/", "monobristol.png")
+    
+    for files in ["AUTHORS", "COPYING", "README"]:
+        pisitools.insinto(monoristol, files)
+    
+    pisitools.insinto("/usr/share/icons/hicolor/48x48/apps/", "monobristol.png")
+   
+    
+
+    
 
