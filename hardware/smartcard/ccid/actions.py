@@ -12,6 +12,8 @@ def setup():
     # FIXME: GROUP conversion here (pcscd -> pnp)
     pisitools.dosed("src/92_pcscd_ccid.rules", 'GROUP="pcscd"', 'GROUP="pnp"')
     autotools.configure("--enable-twinserial \
+                         --enable-serialconfdir=/etc/reader.conf.d \
+                         --sysconfdir=/etc \
                          --disable-static \
                          --disable-dependency-tracking")
 
@@ -20,7 +22,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    
     pisitools.insinto("/lib/udev/rules.d/", "src/92_pcscd_ccid.rules", "92-pcscd_ccid.rules")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")
