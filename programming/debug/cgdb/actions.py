@@ -10,16 +10,12 @@ from pisi.actionsapi import get
 
 
 def setup():
-    pisitools.dosed("various/rline/src/rline.c", "cgdb_malloc", "malloc")
     autotools.configure()
 
 def build():
     autotools.make()
-    autotools.make("html")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "README*", "NEWS", "TODO")
-    pisitools.dohtml("doc/cgdb.html/*")
-

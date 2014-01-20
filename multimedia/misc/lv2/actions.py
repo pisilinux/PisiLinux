@@ -20,3 +20,6 @@ def install():
     shelltools.system("DESTDIR=%s python waf install" % get.installDIR())
 
     pisitools.dodoc("NEWS", "COPYING", "README")
+    pisitools.remove("/usr/bin/lv2specgen.py")
+    pisitools.removeDir("/usr/bin/")
+    pisitools.removeDir("/usr/share/lv2specgen/")
