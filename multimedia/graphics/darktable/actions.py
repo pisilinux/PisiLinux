@@ -13,13 +13,13 @@ def setup():
     pisitools.ldflags.add("-lgs")
     shelltools.makedirs("build")
     shelltools.cd("build")
-    cmaketools.configure("-DDONT_INSTALL_GCONF_SCHEMAS=1 \
+    pisitools.cxxflags.add("-fpermissive")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
                           -DCMAKE_BUILD_TYPE=Release \
+                          -DDONT_INSTALL_GCONF_SCHEMAS=True \
                           -DBINARY_PACKAGE_BUILD=1 \
-                          -DCUSTOM_CFLAGS=ON \
-                          -DINSTALL_IOP_EXPERIMENTAL=ON \
-                          -DINSTALL_IOP_LEGACY=ON \
-                          -DBUILD_USERMANUAL=0", sourceDir="..")
+                          -DUSE_GCONF_BACKEND=Off \
+                          -DBUILD_USERMANUAL=False", sourceDir="..")
 
 def build():
     shelltools.cd("build")
