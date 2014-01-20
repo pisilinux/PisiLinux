@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    # FIXME: GROUP conversion here (pcscd -> pnp)
-    pisitools.dosed("src/92_pcscd_ccid.rules", 'GROUP="pcscd"', 'GROUP="pnp"')
     autotools.configure("--enable-twinserial \
                          --enable-serialconfdir=/etc/reader.conf.d \
                          --sysconfdir=/etc \
@@ -23,6 +21,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     
-    pisitools.insinto("/lib/udev/rules.d/", "src/92_pcscd_ccid.rules", "92-pcscd_ccid.rules")
+    pisitools.insinto("/etc/", "src/Info.plist", "libccid_Info.plist")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")
