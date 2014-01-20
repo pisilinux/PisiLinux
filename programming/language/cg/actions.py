@@ -18,6 +18,3 @@ def install():
     pisitools.insinto("/usr/include", "usr/include/*")
 
     pisitools.insinto("/usr/share/doc/%s" % get.srcNAME(), "usr/local/Cg/docs/*")
-
-    for man in ("man1", "man3", "manCg", "manCgFX"):
-        pisitools.doman("usr/share/man/%s/*" % man)
