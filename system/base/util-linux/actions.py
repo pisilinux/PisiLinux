@@ -9,8 +9,9 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
+pisitools.cflags.add("-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64")
+
 def setup():
-    shelltools.export("CFLAGS", "%s -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64" % get.CFLAGS())
     shelltools.export("SUID_CFLAGS", "-fpie")
     shelltools.export("SUID_LDFLAGS", "-pie -Wl,-z,relro -Wl,-z,now")
     shelltools.export("AUTOPOINT", "/bin/true")
