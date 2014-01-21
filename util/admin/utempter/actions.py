@@ -4,16 +4,15 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 def build():
-    shelltools.export("LDFLAGS", "%s -Wl,-z,now" % get.LDFLAGS())
-
-    autotools.make('RPM_OPT_FLAGS="%s"' % get.CFLAGS())
+    pisitools.dosed("Makefile", "INSTALL.*?STATICLIB", deleteLine=True)
+    autotools.make('libdir="/usr/lib" libexecdir="/usr/libexec"')
 
 def install():
-    autotools.rawInstall('RPM_BUILD_ROOT="%s" LIBDIR=/usr/lib' % get.installDIR())
-    pisitools.dobin("utmp")
+    autotools.rawInstall('DESTDIR="%s" libdir="/usr/lib" libexecdir="/usr/libexec"' % get.installDIR())
+
+    pisitools.dodoc("COPYING", "README")
