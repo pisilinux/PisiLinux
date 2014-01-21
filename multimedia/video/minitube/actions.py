@@ -5,9 +5,11 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import qt4
 
 def setup():
+    shelltools.system("git pull origin master")
     qt4.configure()
 
 def build():
