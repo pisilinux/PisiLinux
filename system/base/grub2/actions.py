@@ -10,21 +10,19 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    # fix freetype headers
-    pisitools.dosed("util", "^(#include <freetyp)e\/", "\\1e2/", filePattern=".*\.c")
-
-    shelltools.copy("../unifont*.pcf.gz", "./unifont.pcf.gz")
+    shelltools.copy("../unifont*.bdf", "./unifont.bdf")
     shelltools.export("GRUB_CONTRIB", "%s/grub-%s/grub-extras" % (get.workDIR(), get.srcVERSION()))
 
     pisitools.cflags.remove("-fstack-protector", "-fasynchronous-unwind-tables", "-fexceptions")
     pisitools.cflags.sub("\s?(-O[\ds]|-D_FORTIFY_SOURCE=\d)\s?", " ")
 
+    #shelltools.system("./linguas.sh")
     shelltools.system("./autogen.sh")
     autotools.configure("--disable-werror \
                          --with-grubdir=grub2 \
                          --program-transform-name='s,grub,grub2,'\
                          --program-prefix= \
-                         --htmldir='/usr/share/doc/${PF}/html' ")
+                         --htmldir='/usr/share/doc/grub2/html' ")
 
 def build():
     #make-dist for creating all updated translation files
@@ -33,7 +31,7 @@ def build():
 
 def install():
     # Install unicode.pf2 using downloaded font source. 
-    shelltools.system("./grub-mkfont -o unicode.pf2 unifont.pcf.gz")
+    shelltools.system("./grub-mkfont -o unicode.pf2 unifont.bdf")
 
     # Create directory for grub.cfg file
     pisitools.dodir("/boot/grub2")
