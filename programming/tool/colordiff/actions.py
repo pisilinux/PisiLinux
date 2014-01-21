@@ -19,4 +19,4 @@ def install():
     pisitools.dodir("/usr/share/man/man1")
     autotools.rawInstall("DESTDIR=%s INSTALL_DIR=/usr/bin MAN_DIR=/usr/share/man/man1" % get.installDIR())
 
-    pisitools.dodoc("BUGS", "CHANGES", "README", "TODO")
+    pisitools.dodoc("BUGS", "CHANGES", "README")
