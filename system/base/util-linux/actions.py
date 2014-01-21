@@ -4,34 +4,43 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
-#WorkDir="util-linux-%s" % get.srcVERSION().replace("_","-")
+pisitools.cflags.add("-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64")
 
 def setup():
-    shelltools.export("CFLAGS", "%s -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64" % get.CFLAGS())
     shelltools.export("SUID_CFLAGS", "-fpie")
-    shelltools.export("SUID_LDFLAGS", "-pie")
+    shelltools.export("SUID_LDFLAGS", "-pie -Wl,-z,relro -Wl,-z,now")
     shelltools.export("AUTOPOINT", "/bin/true")
 
-    options = "--bindir=/bin \
-               --sbindir=/sbin \
-               --disable-use-tty-group \
-               --disable-makeinstall-chown \
+    options = "\
                --disable-rpath \
-               --disable-sulogin \
-               --disable-su  \
-               --disable-utmpdump \
-               --disable-mountpoint \
-               --disable-login \
                --disable-static \
-               --disable-wall"
+               --disable-silent-rules \
+               --disable-use-tty-group \
+               --disable-su  \
+               --disable-last \
+               --disable-mesg \
+               --disable-vipw \
+               --disable-wall \
+               --disable-login \
+               --disable-newgrp \
+               --disable-nologin \
+               --disable-runuser \
+               --disable-sulogin \
+               --disable-utmpdump \
+               --disable-chfn-chsh \
+               --disable-mountpoint \
+               --disable-makeinstall-chown \
+               --disable-socket-activation \
+              "
 
     if get.buildTYPE() == "emul32":
-        options += " --prefix=/emul32 \
+        options += "\
+                     --prefix=/emul32 \
                      --bindir=/emul32/bin \
                      --sbindir=/emul32/sbin \
                      --libdir=/usr/lib32 \
@@ -42,19 +51,24 @@ def setup():
                      --disable-mount \
                      --disable-fsck \
                      --disable-libmount \
-                     --with-audit=no"
-
-        shelltools.export("CFLAGS", "%s -m32" % get.CFLAGS())
-
+                     --with-audit=no \
+                   "
     else:
-        options += " --enable-partx \
+        options += "\
+                     --bindir=/bin \
+                     --sbindir=/sbin \
+                     --enable-partx \
                      --enable-raw \
                      --enable-write \
-                     --with-audit"
-
+                     --enable-tunelp \
+                     --with-audit \
+                     --with-udev \
+                     --with-utempter \
+                   "
 
     autotools.autoreconf("-fi")
     autotools.configure(options)
+    pisitools.dosed("libtool", "( -shared )", r" -Wl,--as-needed\1")
 
     # Extra fedora switches:
     # --enable-login-utils will enable some utilities we ship in shadow
@@ -69,12 +83,7 @@ def install():
     #pisitools.doman("sys-utils/klogconsole.man")
     pisitools.remove("/usr/share/man/man1/kill.1")
 
-    if get.buildTYPE() == "emul32":
-#        pisitools.domove("/emul32/lib32/libuuid.so", "/usr/lib32")
-#        pisitools.domove("/emul32/lib32/pkgconfig/uuid.pc", "/usr/lib32/pkgconfig")
-#        pisitools.domove("/emul32/lib32/libblkid.so", "/usr/lib32")
-#        pisitools.domove("/emul32/lib32/pkgconfig/blkid.pc", "/usr/lib32/pkgconfig")
-        return
+    if get.buildTYPE() == "emul32": return
 
     pisitools.dodoc("ABOUT-NLS", "AUTHORS", "ChangeLog", "COPYING", "README*")
     pisitools.insinto("/%s/%s" % (get.docDIR(), get.srcNAME()), "Documentation")
