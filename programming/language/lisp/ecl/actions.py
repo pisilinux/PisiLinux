@@ -27,7 +27,4 @@ def build():
 def install():
     autotools.install()
 
-    # If these are needed just remove the line below
-    pisitools.remove("/usr/lib/ecl-11.1.1/*.a")
-
     pisitools.dodoc("src/CHANGELOG")
