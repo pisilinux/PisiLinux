@@ -9,8 +9,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
     shelltools.export("AUTOPOINT", "true")
     autotools.autoreconf("-vfi")
@@ -29,7 +27,7 @@ def setup():
                          --enable-valgrind \
                          --enable-introspection\
                          --enable-gtk-doc\
-	                 --enable-docbook")
+	                     --enable-docbook")
 
 def build():
     autotools.make()
