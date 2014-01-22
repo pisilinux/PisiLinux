@@ -17,6 +17,7 @@ def setup():
      cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
                            -DPYLIB_INSTALL_DIR=lib/python2.7/site-packages \
                            -DUSE_EXTERNAL_TBB=ON \
+                           -DUSE_OCIO= OFF \
                            -DOIIO_BUILD_TESTS=OFF", sourceDir="..")
      
 def build():
