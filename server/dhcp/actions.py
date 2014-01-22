@@ -47,8 +47,8 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # Remove files we don't want
-    pisitools.remove("/etc/dhcpd.conf")
-    pisitools.remove("/etc/dhclient.conf")
+    pisitools.remove("/etc/dhcpd.conf.example")
+    pisitools.remove("/etc/dhclient.conf.example")
 
     # Install dhcp.schema for LDAP configuration
     pisitools.insinto("/etc/openldap/schema", "contrib/ldap/dhcp.schema")
@@ -62,9 +62,9 @@ def install():
     pisitools.dodir("/var/lib/dhclient")
 
     # Sample configuration files
-    pisitools.insinto("/usr/share/doc/dhcp", "client/dhclient.conf", "dhclient.conf.sample")
-    pisitools.insinto("/usr/share/doc/dhcp", "server/dhcpd.conf", "dhcpd.conf.sample")
-    pisitools.insinto("/usr/share/doc/dhcp", "doc/examples/dhclient-dhcpv6.conf", "dhclient6.conf.sample")
-    pisitools.insinto("/usr/share/doc/dhcp", "doc/examples/dhcpd-dhcpv6.conf", "dhcpd6.conf.sample")
+    pisitools.insinto("/usr/share/doc/dhcp", "client/dhclient.conf.5", "dhclient.conf.exsample")
+    pisitools.insinto("/usr/share/doc/dhcp", "server/dhcpd.conf.5", "dhcpd.conf.example")
+    pisitools.insinto("/usr/share/doc/dhcp", "doc/examples/dhclient-dhcpv6.conf")
+    pisitools.insinto("/usr/share/doc/dhcp", "doc/examples/dhcpd-dhcpv6.conf")
 
     pisitools.dodoc("LICENSE", "README", "RELNOTES")
