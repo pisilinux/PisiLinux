@@ -15,4 +15,4 @@ def install():
     pisitools.insinto("/usr/share/sgml/docbook/sgml-dtd-%s" % get.srcVERSION(), "*.mod")
     pisitools.insinto("/usr/share/sgml/docbook/sgml-dtd-%s" % get.srcVERSION(), "docbook.cat", "catalog")
 
-    pisitools.dodoc("README")
+    pisitools.dodoc("readme.txt", "ChangeLog")
