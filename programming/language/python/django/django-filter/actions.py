@@ -13,4 +13,4 @@ def build():
 def install():
     pythonmodules.install()
 
-    pisitools.dodoc("AUTHORS.txt", "COPYRIGHT", "PKG-INFO", "README.txt")
+    pisitools.dodoc("AUTHORS", "CHANGES.rst", "LICENSE", "PKG-INFO", "README.rst")
