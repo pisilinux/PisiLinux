@@ -6,7 +6,7 @@
 
 from pisi.actionsapi import pythonmodules
 
-WorkDir = "south"
+WorkDir = "South-0.8"
 
 def build():
     pythonmodules.compile()
