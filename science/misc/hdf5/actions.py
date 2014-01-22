@@ -10,26 +10,24 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    # do not install examples
-    pisitools.dosed("Makefile.am", "^(install:\s.*?)install-examples", r"\1")
-    autotools.autoreconf("-vif")
-
-    autotools.configure("--enable-cxx \
+    autotools.configure("--prefix=/usr \
+                         --enable-cxx \
+                         --enable-hl \
+                         --enable-threadsafe \
                          --enable-fortran \
                          --enable-production \
                          --enable-linux-lfs \
+                         --enable-unsupported \
                          --disable-static \
                          --disable-parallel \
                          --disable-sharedlib-rpath \
                          --disable-dependency-tracking \
-                         --with-pthread \
+                         --docdir=/usr/share/doc/hdf5/ \
+                         --with-pthread=/usr/lib/ \
                          --with-pic")
 
 def build():
     autotools.make()
-
-def check():
-    autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
