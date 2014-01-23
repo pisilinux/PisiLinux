@@ -32,4 +32,4 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("README", "RELEASE_NOTES")
+    pisitools.dodoc("README")
