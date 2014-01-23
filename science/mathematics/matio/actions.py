@@ -13,6 +13,8 @@ def setup():
                          --enable-static=no \
                          --enable-test \
                          --enable-fortran")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make("-j1")
