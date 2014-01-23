@@ -27,7 +27,9 @@ def setup():
                          --enable-valgrind \
                          --enable-introspection\
                          --enable-gtk-doc\
-	                     --enable-docbook")
+                         --enable-docbook")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
