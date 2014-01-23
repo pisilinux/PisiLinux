@@ -22,6 +22,8 @@ def setup():
                          --enable-freetype \
                          --enable-gpc \
                          --enable-static=no")
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
+    
 def build():
     autotools.make()
 

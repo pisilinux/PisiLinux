@@ -22,6 +22,8 @@ def setup():
                          --enable-dap-netcdf \
                          --disable-static \
                         ")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
@@ -32,4 +34,4 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("README", "RELEASE_NOTES")
+    pisitools.dodoc("README")

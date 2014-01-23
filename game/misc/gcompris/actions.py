@@ -12,6 +12,8 @@ from pisi.actionsapi import get
 def setup():
     shelltools.system("sed -i -e 's/$GNUCHESS/gcompris-gnuchess/' configure")
     autotools.configure("--prefix=/usr")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()

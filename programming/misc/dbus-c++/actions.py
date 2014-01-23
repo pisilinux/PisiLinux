@@ -16,6 +16,8 @@ def setup():
     shelltools.system("./autogen.sh")
     autotools.configure("--disable-static \
                          --enable-glib")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
