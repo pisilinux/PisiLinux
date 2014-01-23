@@ -10,16 +10,16 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--enable-unicode \
-	                 --disable-nls \
-		         --with-termlib=ncurses \
-		         --host=x86_64-pc-linux-gnu \
-			 --enable-image=x11 \
-			 --enable-keymap=w3m \
-			 --disable-dict \
+                         --disable-nls \
+                         --with-termlib=ncurses \
+                         --host=x86_64-pc-linux-gnu \
+                         --enable-image=x11 \
+                         --enable-keymap=w3m \
+                         --disable-dict \
                          --without-mailer \
-		         --with-imagelib=imlib2 \
-			 --with-editor=/usr/bin/nano \
-			 --with-browser=/usr/bin/firefox")
+                         --with-imagelib=imlib2 \
+                         --with-editor=/usr/bin/nano \
+                         --with-browser=/usr/bin/firefox")
 
 def build():
     autotools.make()

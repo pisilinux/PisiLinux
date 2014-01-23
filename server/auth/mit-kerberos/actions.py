@@ -4,12 +4,13 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
-WorkDir="krb5-%s" % get.srcVERSION()
+pisitools.flags.add("-fPIC -fno-strict-aliasing -fno-strict-overflow -fstack-protector-all")
+pisitools.cxxflags.add("-I/usr/include/et")
 
 def rename_man_pages():
     manpages = ["appl/bsd/klogind.M",
@@ -28,20 +29,13 @@ def rename_man_pages():
 def setup():
     shelltools.cd("src")
     shelltools.system("sed -i -e 's/^YYSTYPE yylval/&={0}/' lib/krb5/krb/deltat.c")
-
-    # Rebuild configure scripts
-    #shelltools.chmod("rebuild-configure-scripts.sh")
-    #shelltools.system("./rebuild-configure-scripts.sh")
-
-    # Rename man pages to regenerate them
-    #rename_man_pages()
-    shelltools.export("CFLAGS", "-I/usr/include/et -fPIC -fno-strict-aliasing -fno-strict-overflow -fstack-protector-all %s" % get.CFLAGS())
+    pisitools.dosed("util/ac_check_krb5.m4", "(KRB5ROOT=\/usr)\/local", r"\1")
 
     autotools.autoreconf("-fi")
 
     # Fix pthread linking
-    pisitools.dosed("configure", "-lthread", "-lpthread")
-    pisitools.dosed("configure", "-pthread", "-lpthread")
+    #pisitools.dosed("configure", "-lthread", "-lpthread")
+    #pisitools.dosed("configure", "-pthread", "-lpthread")
 
     autotools.configure("--localstatedir=/var/lib \
                          --without-tcl \
@@ -56,11 +50,14 @@ def setup():
 
     # Fix krb5-config script to remove rpaths and CFLAGS
     pisitools.dosed("krb5-config", "^CC_LINK=.*", "CC_LINK='$(CC) $(PROG_LIBPATH)'")
+    # Fix unused dependency
+    pisitools.dosed("config/shlib.conf"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make("-C src/")
 
-#def check():
+def check():
+    autotools.make("-C src/ -j1 check")
    # import tempfile
    # import shutil
    # tmpdir = tempfile.mkdtemp(prefix='pisitest')
