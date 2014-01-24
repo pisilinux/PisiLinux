@@ -38,6 +38,8 @@ def setup():
                          --with-avahi-priv-access-group=avahi \
                          --with-dbus-system-address=unix:path=/run/dbus/system_bus_socket \
                         ")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
