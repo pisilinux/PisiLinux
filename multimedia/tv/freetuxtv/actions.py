@@ -13,11 +13,11 @@ def setup():
     autotools.configure("--disable-static \
                          --enable-shared \
                          --with-gtk=2.0")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-# By PiSiDo 2.0.0
