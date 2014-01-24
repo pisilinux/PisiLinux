@@ -6,7 +6,7 @@
 
 from pisi.actionsapi import pisitools
 
-WorkDir="fop-1.0"
+WorkDir="fop-1.1"
 
 def install():
     pisitools.dodir("/opt/fop-1.0")
