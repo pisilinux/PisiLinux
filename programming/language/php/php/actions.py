@@ -122,13 +122,13 @@ def setup():
 def build():
     shelltools.cd("fcgi")
     shelltools.export("LC_ALL", "en_US.UTF-8")
-    autotools.make()
+    autotools.make("LIBS= -lssl -lcrypto %s" % get.LDFLAGS())
 
     shelltools.cd("../apache")
-    autotools.make()
+    autotools.make("LIBS= -lssl -lcrypto %s" % get.LDFLAGS())
 
     shelltools.cd("../fpm")
-    autotools.make()
+    autotools.make("LIBS= -lssl -lcrypto %s" % get.LDFLAGS())
 
 
 def check():
