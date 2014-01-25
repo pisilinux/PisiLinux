@@ -20,6 +20,8 @@ def setup():
                          --without-glX \
                          --disable-gtk-doc \
                          --with-gtk=2.0")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
