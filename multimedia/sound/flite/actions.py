@@ -13,8 +13,6 @@ WorkDir = "flite-%s-release" % get.srcVERSION()
 def setup():
     autotools.configure("--enable-shared \
                          --with-audio=alsa")
-    
-    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make("-j1")
