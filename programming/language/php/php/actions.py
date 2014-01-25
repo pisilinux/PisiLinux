@@ -4,26 +4,26 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
 def extensions():
     configure_disabled = []
 
     configure_enabled = [
-        'exif', 'ftp', 'soap', 'sockets', 'sqlite-utf8', 'bcmath',
+        'exif', 'ftp', 'soap', 'sockets', 'bcmath',
         'dom', 'wddx', 'tokenizer', 'simplexml', 'mbstring', 'calendar',
         'gd-native-ttf'
     ]
     configure_shared = [
-        'dba', 'dbase', 'embedded-mysqli', 'zip'
+        'dba', 'embedded-mysqli', 'zip'
     ]
     configure_with = [
-        'bz2', 'curl', 'iconv', 'mysql', 'mysqli', 'kerberos', 'sqlite', 'mime-magic',
-        'xsl', 'curlwrappers', 'gdbm', 'db4', 'ldap', 'gd', 'ttf', 'gettext',
-        'ncurses', 'regex=php', 'pic', 'pcre-regex', 'pgsql', 'pdo-mysql', 'pdo-pgsql',
+        'bz2', 'curl', 'iconv', 'mysql', 'mysqli', 'kerberos', 'sqlite3',
+        'xsl', 'gdbm', 'db4', 'ldap', 'gd', 'gettext',
+        'regex=php', 'pic', 'pcre-regex', 'pgsql', 'pdo-mysql', 'pdo-pgsql',
         'openssl'
     ]
     configure_without = []
@@ -43,6 +43,8 @@ def extensions():
     return ' '.join(conf)
 
 def setup():
+    shelltools.unlinkDir("ext/openssl")
+
     # create directories for apache, fcgi and fpm's Makefiles
     shelltools.makedirs("fcgi")
     shelltools.makedirs("apache")
@@ -88,7 +90,9 @@ def setup():
                       --with-imap=shared \
                       --with-openssl=shared \
                       --with-imap-ssl \
-                      --with-mysql-sock=/run/mysqld/mysqld.sock"
+                      --with-mysql-sock=/run/mysqld/mysqld.sock \
+                      --disable-rpath \
+                     "
 
     # Enable FastCGI and CGI
     shelltools.cd("fcgi")
