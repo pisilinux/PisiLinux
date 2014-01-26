@@ -6,27 +6,22 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
-
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.autoreconf("-vfi")
-    autotools.configure("--includedir=/usr/include/gpgme \
-                         --with-gpg=/usr/bin/gpg2 \
-                         --with-pth=yes \
-                         --with-gpgsm=/usr/bin/gpgsm")
+    
+    autotools.configure("--disable-fd-passing \
+                         --disable-static \
+                         --disable-gpgsm-test")
 
 def build():
     autotools.make()
 
-#def check():
-#    autotools.make("check")
+def check():
+    autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    #pisitools.removeDir("/usr/libexec")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "README", "THANKS", "TODO")
