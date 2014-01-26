@@ -10,7 +10,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    shelltools.system("./configure --prefix=/usr LDFLAGS=-lm")
+    autotools.autoreconf("-i")
+    autotools.configure("--prefix=/usr")
 
 def build():
     autotools.make()
