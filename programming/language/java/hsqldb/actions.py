@@ -8,18 +8,16 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "hsqldb"
-
-def setup():
-    shelltools.unlink("lib/hsqldb.jar")
+WorkDir = "hsqldb-2.3.1"
 
 def build():
+    shelltools.cd("hsqldb")
     shelltools.export("JAVA_HOME", "/opt/sun-jdk")
     shelltools.cd("build")
-    shelltools.system("ant jar")
+    shelltools.system("ant hsqldb")
 
 def install():
-    pisitools.insinto("/usr/share/java", "lib/hsqldb.jar")
-
-    pisitools.dohtml("doc/*.html", "doc/guide/*", "docsrc/*")
+    shelltools.cd("hsqldb")
+    pisitools.insinto("/usr/share/java", "lib/hsqldb.jar")      
+    pisitools.dohtml("doc/*.html", "doc/guide/*", "doc-src/*")
     pisitools.dodoc("readme.txt", "doc/*.txt")
