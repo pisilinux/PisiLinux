@@ -27,6 +27,7 @@ def setup():
                          --with-iodbc=/%s \
                          --without-unixodbc \
                          " % get.defaultprefixDIR())
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
