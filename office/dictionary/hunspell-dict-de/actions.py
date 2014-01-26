@@ -8,10 +8,10 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-WorkDir = "igerman98-20090107"
+WorkDir = "igerman98-20131206"
 
 def build():
-    autotools.make("hunspell/de_AT.dic hunspell/de_AT.aff hunspell/de_CH.dic hunspell/de_CH.aff hunspell/de_DE.dic hunspell/de_DE.aff ")
+    autotools.make("hunspell/de_AT_small.dic hunspell/de_AT.aff hunspell/de_CH_small.dic hunspell/de_CH.aff hunspell/de_DE.aff")
 
     shelltools.cd("hunspell")
     for f in ("README_de_AT.txt", "README_de_CH.txt", "README_de_DE.txt"):
@@ -19,8 +19,8 @@ def build():
 
 def install():
     shelltools.cd("hunspell")
-    pisitools.insinto("/usr/share/hunspell", "de_??.dic")
-    pisitools.insinto("/usr/share/hunspell", "de_??.aff")
+    pisitools.insinto("/usr/share/hunspell", "*.dic")
+    pisitools.insinto("/usr/share/hunspell", "*.aff")
 
     pisitools.dosym("de_DE.dic", "/usr/share/hunspell/de_BE.dic")
     pisitools.dosym("de_DE.aff", "/usr/share/hunspell/de_BE.aff")
