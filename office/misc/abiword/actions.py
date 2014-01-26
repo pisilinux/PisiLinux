@@ -14,12 +14,13 @@ def setup():
                          --enable-clipart \
                          --enable-templates \
                          --enable-plugins \
+                         --enable-statusbar \
                          --with-pic \
                          --with-gnomevfs")
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
-    autotools.make()
+    autotools.make("-j1")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
