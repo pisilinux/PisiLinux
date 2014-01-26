@@ -8,15 +8,23 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--disable-static \
-                         --disable-dependency-tracking \
-                         --with-browseremoteprotocols=DNSSD,CUPS \
+    pisitools.dosed("configure", "localstatedir/run/cups", "localstatedir/cups")
+    autotools.configure("--prefix=/usr  \
+                         --sysconfdir=/etc \
+                         --sbindir=/usr/bin \
+                         --with-rcdir=no \
+                         --localstatedir=/run \
                          --enable-avahi \
-                         --with-rcdir=no")
+                         --with-browseremoteprotocols=DNSSD,CUPS \
+                         --with-test-font-path=/usr/share/fonts/TTF/DejaVuSans.ttf")
 
 def build():
     autotools.make()
+    
+#def check():
+    #autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
+    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
