@@ -27,6 +27,7 @@ def setup():
                          --with-apache=/usr/sbin/apache2 \
                          --with-zlib=/usr \
                          --with-ssl")
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
