@@ -23,6 +23,7 @@ def setup():
                          --disable-warnings-as-errors \
                          --with-python \
                          --with-plugins=/usr/lib/wireshark/plugins")
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
