@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 def setup():
     shelltools.export("CFLAGS","%s -fstack-protector-all" % get.CFLAGS())
 
-    autotools.autoreconf("-vfi")
+    #autotools.autoreconf("-vfi")
     autotools.configure("--enable-ipv6 \
                          --with-libsmi \
                          --with-gnu-ld \
@@ -23,6 +23,7 @@ def setup():
                          --disable-warnings-as-errors \
                          --with-python \
                          --with-plugins=/usr/lib/wireshark/plugins")
+    
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
