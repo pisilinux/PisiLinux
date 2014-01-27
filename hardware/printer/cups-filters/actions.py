@@ -18,6 +18,8 @@ def setup():
                          --with-browseremoteprotocols=DNSSD,CUPS \
                          --with-test-font-path=/usr/share/fonts/TTF/DejaVuSans.ttf")
 
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+
 def build():
     autotools.make()
     
