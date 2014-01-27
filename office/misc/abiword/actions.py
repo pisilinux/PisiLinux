@@ -19,7 +19,7 @@ def setup():
                          --enable-statusbar \
                          --with-pic \
                          --disable-collab-backend-service \
-                         --disable-collab-backend-tc")
+                         --disable-collab-backend-tcp")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
