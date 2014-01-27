@@ -23,5 +23,5 @@ def install():
 
     pisitools.dodir(jabrefDir)
 
-    pisitools.insinto( "%s" % jabrefDir, "lib/JabRef-2.7.jar")
+    pisitools.insinto( "%s" % jabrefDir, "lib/JabRef-2.9.2.jar")
 
