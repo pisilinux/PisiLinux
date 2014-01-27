@@ -15,6 +15,8 @@ Libdir = "/usr/lib32" if get.buildTYPE() == "emul32" else "/usr/lib"
 def setup():
     autotools.autoreconf("-vif")
     autotools.configure("--disable-documentation --disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
