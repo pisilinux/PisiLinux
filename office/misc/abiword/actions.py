@@ -12,12 +12,14 @@ def setup():
     autotools.autoreconf("-vif")
     
     autotools.configure("--disable-static \
+                         --enable-shared \
                          --enable-clipart \
                          --enable-templates \
                          --enable-plugins \
                          --enable-statusbar \
                          --with-pic \
-                         --with-gnomevfs")
+                         --disable-collab-backend-service \
+                         --disable-collab-backend-tc")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
