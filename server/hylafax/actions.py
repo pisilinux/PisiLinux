@@ -39,7 +39,7 @@ def setup():
                             --with-PAGESIZE=A4" % (get.srcNAME(), get.curDIR(), get.CFLAGS()))
 
 def build():
-    autotools.make()
+    autotools.make("-j1")
 
 def install():
     pisitools.dodir("/usr/bin")
