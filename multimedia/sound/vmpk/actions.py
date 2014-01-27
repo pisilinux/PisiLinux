@@ -10,7 +10,8 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
 def setup():
-    cmaketools.configure()
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DCMAKE_BUILD_TYPE=release")
     shelltools.cd("translations")
     shelltools.system("lrelease *.ts")
 
