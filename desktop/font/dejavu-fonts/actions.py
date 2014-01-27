@@ -9,10 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 
 def build():
-    autotools.make("full-ttf")
+    autotools.make('FC-LANG="" BLOCKS="/usr/share/unicode/ucd/Blocks.txt" UNICODEDATA="/usr/share/unicode/ucd/UnicodeData.txt"')
 
 def check():
     autotools.make("check")
