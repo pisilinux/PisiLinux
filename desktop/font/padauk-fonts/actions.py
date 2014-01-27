@@ -8,6 +8,6 @@ from pisi.actionsapi import pisitools
 WorkDir="."
 
 def install():
-    pisitools.insinto("/usr/share/fonts/padauk/", "*.ttf");
-    pisitools.dodoc("README","padauk.cfg");
+    pisitools.insinto("/usr/share/fonts/padauk/", "*.ttf")
+    pisitools.dodoc("README","padauk.cfg")
 
