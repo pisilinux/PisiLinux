@@ -1,8 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
-# Licensed under the GNU General Public License, version 3.
-# See the file http://www.gnu.org/licenses/gpl.txt
+# Licensed under the GNU General Public License, version 2.
+# See the file http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
 
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import cmaketools
@@ -10,28 +10,21 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    #Remove pre-created compilation stuff.
-    pisitools.unlink("CMakeCache.txt")
-    pisitools.unlink("libs/lib*/*.moc.*")     
-    pisitools.unlink("src/*.moc.*")
-    cmaketools.configure('-DFFI_INCLUDE_DIR:PATH=/usr/lib/libffi-3.0.12/include \
-                        -DCMAKE_BUILD_TYPE:STRING=Release \
-                        -DBoost_DIR:PATH=/usr/lib \
-                        -DFORCE_SYSTEM_LIBS:BOOL=ON \
-                        -DCMAKE_INSTALL_PREFIX:PATH=/usr -L \
-                        -DBUILD_SHARED_LIBS:BOOL=OFF \
-                        -DUSE_LLVM=OFF \
-                        -DUSE_ITK=OFF \
-                        -DFORCE_BUNDLED_PCRE=OFF \
-                        -DFORCE_BUNDLED_UMFPACK=OFF \
-                        -DFORCE_BUNDLED_PORTAUDIO=OFF \
-                        -DFORCE_BUNDLED_ZLIB=OFF \
-                        -DFORCE_BUNDLED_AMD=OFF')
+    pisitools.cxxflags.add("-fpermissive")
+    shelltools.system("find -type f -name '*.moc.cpp' -exec rm -rf {} \;")
+    shelltools.system("find -type f -name 'add.so' -exec rm -rf {} \;")
+    shelltools.system("echo -e libs/libMatC/CJitFuncClang.hpp")
+    shelltools.system("echo -e libs/libMatC/CJitFuncClang.cpp")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DUSE_LLVM=OFF \
+                          -DFORCE_BUNDLED_UMFPACK=ON \
+                          -DFFI_INCLUDE_DIR=/usr/lib/libffi-'pacman -Q libffi | cut -f2 -d\ |cut -f1 -d-'/include/ \
+                          -DPYTHON_EXECUTABLE=/usr/bin/python2.7")
 
 def build():
     cmaketools.make()
 
 def install():
     cmaketools.install("DESTDIR=%s" % get.installDIR())
-    pisitools.insinto("/usr/share/pixmaps/", "images/freemat-2.xpm", "FreeMat.xpm")
+    
     pisitools.remove("/usr/bin/blas.ini")
