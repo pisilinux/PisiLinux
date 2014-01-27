@@ -24,6 +24,8 @@ def setup():
                          --disable-hslookup \
                          --enable-openssl \
                          --enable-xml")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     #tests fail with parallel build
