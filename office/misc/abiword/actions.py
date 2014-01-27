@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 
 def setup():
     autotools.autoreconf("-vif")
+    
     autotools.configure("--disable-static \
                          --enable-clipart \
                          --enable-templates \
@@ -17,10 +18,11 @@ def setup():
                          --enable-statusbar \
                          --with-pic \
                          --with-gnomevfs")
+    
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
