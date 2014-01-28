@@ -30,6 +30,8 @@ def setup():
                          --with-inputdrivers="all" \
                          --with-gfxdrivers="all" \
                          --disable-vnc')
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
