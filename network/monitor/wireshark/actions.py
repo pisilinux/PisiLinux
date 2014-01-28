@@ -63,6 +63,7 @@ def install():
     pisitools.insinto("/usr/share/icons/hicolor/256x256/mimetypes/application-vnd.tcpdump.pcap.png", "image/WiresharkDoc-256.png")
 
     pisitools.insinto("/usr/share/applications/", "wireshark.desktop")
-    pisitools.insinto("/usr/share/pixmaps/", "image/hi48-app-wireshark.png", "wireshark.png")
+    pisitools.insinto("/usr/share/pixmaps/", "image/hi48-app-wireshark.png")
+    pisitools.rename("/usr/share/pixmaps/hi48-app-wireshark.png", "wireshark.png")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README*")
