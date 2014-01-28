@@ -9,11 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    # Disable SSE on x86, but leave it intact for x86_64
-    sse_conf = "" if get.ARCH() == "x86_64" else "--disable-sse"
-
-    autotools.configure("--disable-static \
-                         --with-pic %s" % sse_conf)
+    autotools.configure("--prefix=/usr")
 
 def build():
     autotools.make()
