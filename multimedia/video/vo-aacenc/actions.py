@@ -11,16 +11,11 @@ from pisi.actionsapi import get
 
 
 def setup():
-    autotools.autoreconf("-vif")
-    autotools.configure("--disable-silent-rules \
-                         --disable-dependency-tracking \
-                         --disable-static \
-                         --enable-example")
+    autotools.configure("--prefix=/usr")
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.remove("/usr/lib/*.la")
-    pisitools.dodoc("AUTHORS", "ChangeLog", "README*", "NEWS")
+    pisitools.dodoc("ChangeLog", "README", "COPYING")
