@@ -10,5 +10,5 @@ from pisi.actionsapi import get
 WorkDir = "."
 
 def install():
-    shelltools.copytree("/var/pisi/kelimeleme-1.1-1/work/Kelimeleme-1.1/Kelimeleme","%s/usr/share/Kelimeleme" % get.installDIR())
+    shelltools.copytree("/var/pisi/kelimeleme-1.1-2/work/Kelimeleme-1.1/Kelimeleme","%s/usr/share/Kelimeleme" % get.installDIR())
     
