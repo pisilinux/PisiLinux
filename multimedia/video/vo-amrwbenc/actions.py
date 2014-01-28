@@ -6,15 +6,10 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-
 def setup():
-    autotools.autoreconf("-vif")
-    autotools.configure("--disable-dependency-tracking \
-                         --disable-static \
-                         --enable-example")
+    autotools.configure("--prefix=/usr")
 
 def build():
     autotools.make()
@@ -22,4 +17,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     pisitools.remove("/usr/lib/*.la")
-    pisitools.dodoc("AUTHORS", "ChangeLog", "README*", "NEWS")
+    pisitools.dodoc("ChangeLog", "README", "COPYING")
