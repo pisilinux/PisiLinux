@@ -15,6 +15,8 @@ def setup():
     autotools.autoheader()
     libtools.libtoolize("--force --copy --automake")
     autotools.configure("--libdir=/usr/lib")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
