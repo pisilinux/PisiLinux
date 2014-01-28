@@ -6,17 +6,17 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
-    #we've patches changing configure.ac
     autotools.autoreconf('-vfi')
-
-    autotools.configure("--with-gnome-vfs \
+    autotools.configure("--prefix=/usr \
                          --enable-lcms \
                          --enable-poppler-cairo \
                          --disable-dependency-tracking \
                          --with-python \
                          --with-perl")
+    pisitools.dosed("src/widgets/desktop-widget.h", "commands_toolbox,", "commands_toolbox")
 
 def build():
     autotools.make()
