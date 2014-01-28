@@ -9,7 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--prefix=/usr")
+    autotools.autoreconf("-vif")
+    autotools.configure("--disable-dependency-tracking \
+                         --disable-static \
+                         --enable-example")
+
 
 def build():
     autotools.make()
