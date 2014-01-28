@@ -11,6 +11,8 @@ from pisi.actionsapi import pisitools
 def setup():
     pisitools.cxxflags.add("-fpermissive")
     autotools.configure()
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
