@@ -21,6 +21,8 @@ def setup():
                          --enable-threads \
                          --with-optim='%s' \
                          " % get.CFLAGS())
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
