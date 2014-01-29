@@ -13,7 +13,6 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure()
     
-    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
