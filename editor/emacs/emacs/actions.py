@@ -21,7 +21,8 @@ def removeCruft():
 def setup():
     #autotools.autoreconf("-fvi")
     autotools.configure("--with-x-toolkit=gtk \
-                         --with-xft")
+                         --with-xft \
+                         ac_cv_lib_gif_EGifPutExtensionLast=yes")
 
 def build():
     autotools.make()
