@@ -6,9 +6,13 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.system("sed -i -e '/^LIBS/s/-lpset/& -ltirpc/' xinetd/Makefile.in")
+    shelltools.system("sed -i -e '/register unsigned count/s/register//' xinetd/itox.c")
+    
     autotools.configure("--with-libwrap \
                          --with-loadavg \
                          --with-inet6 \
