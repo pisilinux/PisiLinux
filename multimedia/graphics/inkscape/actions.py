@@ -9,6 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
+    pisitools.dosed("src/widgets/desktop-widget.h", "commands_toolbox,", "commands_toolbox")
     autotools.autoreconf('-vfi')
     autotools.configure("--prefix=/usr \
                          --enable-lcms \
@@ -16,7 +17,6 @@ def setup():
                          --disable-dependency-tracking \
                          --with-python \
                          --with-perl")
-    pisitools.dosed("src/widgets/desktop-widget.h", "commands_toolbox,", "commands_toolbox")
 
 def build():
     autotools.make()
