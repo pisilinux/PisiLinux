@@ -32,7 +32,7 @@ def install():
                           MANDIR=%(install)s/usr/share/man" \
                           % { "install": get.installDIR()})
 
-    pisitools.dodoc("Changes", "LICENSE", "README", "Upgrading")
+    pisitools.dodoc("Changes", "LICENSE", "README")
 
     pisitools.insinto("/usr/share/doc/ocaml/otherlibs/labltk","otherlibs/labltk/examples_*")
 
