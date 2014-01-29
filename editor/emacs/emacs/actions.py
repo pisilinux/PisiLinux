@@ -10,8 +10,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 import os
 
-shelltools.export("HOME", get.workDIR())
-
 def removeCruft():
     for root, dirs, files in os.walk(get.installDIR()):
         for name in files:
@@ -31,7 +29,7 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # Remove versioned copy
-    pisitools.remove("/usr/bin/emacs-*")
-    removeCruft()
+    #pisitools.remove("/usr/bin/emacs-*")
+    #removeCruft()
 
     pisitools.dodoc("ChangeLog", "BUGS", "README", "COPYING")
