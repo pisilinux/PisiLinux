@@ -29,6 +29,8 @@ def setup():
                          --with-pic \
                          --disable-rpath \
                          --with-included-libcroco")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make("GMSGFMT=../src/msgfmt")
