@@ -42,6 +42,8 @@ def setup():
                          --enable-gtk-doc-html=no \
                          --disable-docs \
                          --disable-workshop")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
