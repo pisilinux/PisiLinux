@@ -8,6 +8,8 @@ from pisi.actionsapi import pisitools
 
 def setup():
 	autotools.rawConfigure("--prefix=/usr")
+	
+	pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
 	autotools.make()
