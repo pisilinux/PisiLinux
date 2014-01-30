@@ -7,26 +7,24 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import get
 
-WorkDir = "ettercap"
-KeepSpecial = ["libtool"]
-
 def setup():
-    shelltools.export("CFLAGS", "%s -DLTDL_SHLIB_EXT='\".so\"'" % get.CFLAGS())
-    autotools.configure("--with-openssl=/usr \
-                         --with-ncurses \
-                         --enable-gtk \
-                         --without-included-ltdl \
-                         --disable-ltdl-install \
-                         --enable-plugins")
+    shelltools.makedirs("build")
+    shelltools.cd("build")
+    cmaketools.configure("-DENABLE_GTK=ON -DCMAKE_INSTALL_PREFIX=/usr -DINSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release", sourceDir="..")
 
 def build():
-    autotools.make()
+    shelltools.cd("build")
+    cmaketools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    pisitools.dodir("/usr/share/pixmaps")
-    pisitools.dosym("/usr/share/ettercap/ettercap.png", "/usr/share/pixmaps/ettercap.png")
-    pisitools.dodoc("AUTHORS", "CHANGELOG", "README*", "LICENSE")
+    shelltools.cd("build")
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    
+    shelltools.cd("..")
+    pisitools.insinto("/usr/share/pixmaps", "share/ettercap.png")
+    pisitools.insinto("/usr/share/applications", "desktop/ettercap.desktop")
+    pisitools.dodoc("AUTHORS", "CHANGELOG", "README*", "TODO*")
