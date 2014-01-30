@@ -7,7 +7,7 @@ serviceDesc = _({"en": "CUPS Printer Server",
                  "tr": "CUPS Yazıcı Sunucusu"})
 serviceConf = "cups"
 
-PIDFILE = "/run/cupsd.pid"
+PIDFILE = "/run/cups/cupsd.pid"
 
 @synchronized
 def start():
@@ -21,6 +21,7 @@ def start():
 
     startService(command="/usr/sbin/cupsd",
                  donotify=True)
+    os.system("pidof -o %PPID /usr/sbin/cupsd > " + PIDFILE)
 
     # Tell udevd to replay printer events
     # One for low-level usb
@@ -33,6 +34,7 @@ def start():
                                --property-match=DEVNAME=\"/dev/usb/lp*\" \
                                --action=add")
 
+
 @synchronized
 def reload():
     if os.path.exists(PIDFILE):
@@ -42,6 +44,7 @@ def reload():
 @synchronized
 def stop():
     stopService(pidfile=PIDFILE, donotify=True)
+    if os.path.isfile(PIDFILE): os.unlink(PIDFILE)
 
 def status():
     return isServiceRunning(pidfile=PIDFILE)
