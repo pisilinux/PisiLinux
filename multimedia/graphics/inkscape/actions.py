@@ -23,5 +23,7 @@ def build():
 
 def install():
     autotools.install()
+    #/usr/share/icons/hicolor/icon-theme.cache from dia package 
+    pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
 
     pisitools.dodoc("AUTHORS", "COPYING", "COPYING.LIB", "ChangeLog", "NEWS", "README")
