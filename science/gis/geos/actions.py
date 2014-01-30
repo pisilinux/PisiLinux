@@ -14,6 +14,8 @@ def setup():
 			 --disable-dependency-tracking \
                          --enable-python \
                          --enable-php ")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
