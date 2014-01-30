@@ -10,6 +10,8 @@ from pisi.actionsapi import pisitools
 
 def setup():
     pisitools.cxxflags.add("-fpermissive")
+    pisitools.dosed("plug-ins/postscript/diapsft2renderer.c", "freetype/ftglyph.h", "freetype2/ftglyph.h")
+    pisitools.dosed("plug-ins/postscript/diapsft2renderer.c", "freetype/ftoutln.h", "freetype2/ftoutln.h")
     autotools.configure()
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
