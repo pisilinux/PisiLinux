@@ -16,5 +16,7 @@ def build():
 
 def install():
     autotools.install()
+    
+    pisitools.dosym("xapian-config-1.3", "/usr/bin/xapian-config")
 
     pisitools.dodoc("AUTHORS", "ChangeLog*", "COPYING", "HACKING", "README", "NEWS")
