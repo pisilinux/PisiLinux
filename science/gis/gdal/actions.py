@@ -75,6 +75,9 @@ def setup():
                          --without-idb \
                          --without-sde \
                          --without-ruby")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+    
     shelltools.cd("swig/perl")
     perlmodules.configure()
     pisitools.dosed("Makefile_*"," -shared ", " -Wl,--as-needed -shared ")
