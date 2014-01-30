@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "nightingale-%s" % get.srcVERSION()
-
 def build(): 
     shelltools.system("./build.sh \
                        -with-pthreads \
