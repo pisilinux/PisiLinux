@@ -18,4 +18,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("README", "nbd-tester-client.c", "cliserv.h", "simple_test")
+    pisitools.dodoc("README.md", "COPYING", "cliserv.h",)
