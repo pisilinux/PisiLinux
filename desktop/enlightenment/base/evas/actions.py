@@ -13,6 +13,7 @@ shelltools.export("CFLAGS", "%s -fvisibility=hidden" % get.CFLAGS())
 shelltools.export("LDFLAGS", "%s -fvisibility=hidden" % get.LDFLAGS())
 
 def setup():
+    pisitools.dosed("src/lib/engines/common/evas_font_load.c", "freetype/tttables.h", "freetype2/tttables.h")
     autotools.configure("--enable-strict \
                          --disable-static \
                          --enable-fontconfig \
