@@ -38,6 +38,9 @@ def build():
                          --enable-shared \
                          --enable-static=no \
                          --enable-client=gtk-2.0")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+    
     #compile gtk gui
     autotools.make()
 

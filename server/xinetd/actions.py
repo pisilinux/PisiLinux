@@ -24,3 +24,5 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     autotools.rawInstall("DESTDIR=%s" % get.installDIR(), "install-contrib")
+    
+    pisitools.dodoc("CHANGELOG", "COPYRIGHT", "README", "TODO")
