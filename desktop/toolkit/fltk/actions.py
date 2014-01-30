@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-#WorkDir = get.srcDIR().replace("_", "")
-
 def setup():
     pisitools.flags.add("-fPIC")
     pisitools.dosed("makeinclude.in", "^(docdir.*)$", r"\1/html")
@@ -21,8 +19,6 @@ def setup():
                          --enable-threads \
                          --with-optim='%s' \
                          " % get.CFLAGS())
-    
-    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
