@@ -35,3 +35,5 @@ def install():
     pisitools.dodir("/etc/gcrypt")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "NEWS", "README", "THANKS", "TODO")
+
+    pisitools.removeDir("/usr/sbin")
