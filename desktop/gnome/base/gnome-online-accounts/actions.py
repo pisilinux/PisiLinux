@@ -22,6 +22,8 @@ def setup():
                          --enable-telepathy \
                          --enable-windows-live \
                          --libexec=/usr/lib/gnome-online-accounts")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
