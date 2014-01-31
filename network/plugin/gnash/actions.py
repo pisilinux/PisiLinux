@@ -36,6 +36,8 @@ def setup():
                          ")
 #                         --enable-media=ffmpeg,gst \
 
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+
 def build():
     autotools.make()
 
