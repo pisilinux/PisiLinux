@@ -12,6 +12,8 @@ def setup():
     autotools.configure("--disable-warn \
                          --disable-debug \
                          --disable-profile")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
