@@ -8,13 +8,14 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure()
+    autotools.configure("--prefix=/usr \
+                         --sysconfdir=/etc")
 
 def build():
     autotools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s install-vim" % get.installDIR())
+    autotools.rawInstall("DESTDIR=%s install-sh" % get.installDIR())
 
     # Move data files and create symlinks for asciidoc to work
     for d in ("dblatex", "docbook-xsl", "images", "javascripts", "stylesheets"):
@@ -25,7 +26,6 @@ def install():
     pisitools.insinto("/usr/lib/%s/site-packages" % get.curPYTHON(), "asciidocapi.py")
 
     # Vim syntax and filetype plugins
-    pisitools.insinto("/usr/share/vim/vimfiles/ftdetect/" , "vim/ftdetect/asciidoc_filetype.vim", "asciidoc.vim")
     pisitools.insinto("/usr/share/vim/vimfiles/syntax/" , "vim/syntax/asciidoc.vim")
 
     pisitools.dodoc("BUGS", "CHANGELOG", "COPYING", "README")
