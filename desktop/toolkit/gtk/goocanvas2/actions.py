@@ -15,6 +15,9 @@ def setup():
     autotools.autoreconf("-vif")
     autotools.configure("--disable-rebuilds \
 			 --disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+    
 def build():
     autotools.make()
 
