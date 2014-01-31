@@ -20,6 +20,8 @@ def setup():
                          --enable-libical \
                          --with-x \
                          --with-bluetooth=/usr/lib")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make("-j1")
