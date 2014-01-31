@@ -13,6 +13,8 @@ WorkDir = "glade3-%s" % get.srcVERSION()
 def setup():
     autotools.configure("--disable-static \
                          --enable-gtk-doc")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
