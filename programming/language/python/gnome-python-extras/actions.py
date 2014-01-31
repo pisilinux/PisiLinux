@@ -10,6 +10,8 @@ from pisi.actionsapi import pisitools
 def setup():
     autotools.autoreconf("-fiv")
     autotools.configure("--with-gtkmozembed=mozilla")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
