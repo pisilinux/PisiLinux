@@ -15,6 +15,8 @@ def setup():
     shelltools.export("PLUGIN_CFLAGS" , "%s/plugin/include" % get.srcDIR())
 
     autotools.configure("--disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
