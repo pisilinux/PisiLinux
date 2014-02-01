@@ -6,13 +6,15 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
+from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
 def setup():
     # Do not rebuild docs
     shelltools.export("HASDOCBOOK", "no")
-
-    autotools.autoreconf("-vif")
+    
+    libtools.libtoolize("-f")
+    autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
                          --disable-docs \
                          --with-cache-dir=/var/cache/fontconfig \
