@@ -8,11 +8,15 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-cpuparameter = "" if get.ARCH() == "x86_64" else "--enable-mmx"
+#cpuparameter = "" if get.ARCH() == "x86_64" else "--enable-mmx"
+
+#def setup():
+#    autotools.configure("--disable-static \
+#                           %s" % cpuparameter)
 
 def setup():
     autotools.configure("--disable-static \
-                         %s" % cpuparameter)
+                         --enable-mmx")
 
 def build():
     autotools.make()
