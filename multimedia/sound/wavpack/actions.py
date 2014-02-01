@@ -15,7 +15,9 @@ from pisi.actionsapi import get
 #                           %s" % cpuparameter)
 
 def setup():
-    autotools.configure("--disable-static \
+    autotools.configure("--prefix=/usr \
+                         --libdir=/usr/lib \
+                         --disable-static \
                          --enable-mmx")
 
 def build():

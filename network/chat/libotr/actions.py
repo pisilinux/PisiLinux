@@ -17,5 +17,4 @@ def build():
 def install():
     autotools.install()
 
-    pisitools.dohtml("Protocol-v2.html")
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")
