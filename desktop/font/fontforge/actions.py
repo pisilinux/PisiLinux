@@ -11,33 +11,18 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-WorkDir = "fontforge-%s-b" % get.srcVERSION().split('_')[-1]
+#WorkDir = "fontforge-%s-b" % get.srcVERSION().split('_')[-1]
 
 def setup():
-    libtools.libtoolize()
-    autotools.aclocal()
-    autotools.autoconf()
+    pisitools.dosed("configure.ac", "fontforge_package_name", "fontforge")
+    shelltools.system("./autogen.sh")
 
-    autotools.configure("--with-freetype-bytecode=no \
-                         --with-regular-link \
-                         --enable-pyextension")
-
-    pisitools.dosed('libtool', '^hardcode_libdir_flag_spec=.*', 'hardcode_libdir_flag_spec=""')
-    pisitools.dosed('libtool', '^runpath_var=LD_RUN_PATH', 'runpath_var=DIE_RPATH_DIE')
+    autotools.configure()
 
 def build():
     autotools.make()
 
 def install():
-    autotools.install()
-
-    pisitools.insinto("/usr/share/applications", "Packaging/fontforge.desktop")
-    #pisitools.insinto("/usr/share/pixmaps", "Packaging/fontforge.png")
-    pisitools.insinto("/usr/share/mime/packages", "Packaging/fontforge.xml")
-
-    shelltools.cd("pyhook")
-    pythonmodules.install()
-
-    shelltools.cd("..")
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     pisitools.dodoc("AUTHORS", "LICENSE", "README*")
 
