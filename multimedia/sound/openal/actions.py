@@ -6,8 +6,8 @@
 
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 
 WorkDir = "openal-soft-%s" % get.srcVERSION()
 
