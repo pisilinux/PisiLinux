@@ -6,9 +6,12 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.system("./autogen.sh")
+    
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --enable-ipv6 \
@@ -20,6 +23,8 @@ def setup():
                          --enable-external-mediastreamer \
                          --enable-external-ortp \
                          --enable-zrtp")
+    
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
