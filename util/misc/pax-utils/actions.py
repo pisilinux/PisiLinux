@@ -10,6 +10,9 @@ from pisi.actionsapi import get
 
 def build():
     autotools.make("CC=%s USE_CAP=yes" % get.CC())
+    
+def check():
+    autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
