@@ -24,7 +24,7 @@ def install():
 
 # You can use these as variables, they will replace GUI values before build.
 # Package Name : Meld
-# Version : 1.8.2
+# Version : 1.8.4
 # Summary : Meld is a visual diff and merge tool.
 
 # For more information, you can look at the Actions API

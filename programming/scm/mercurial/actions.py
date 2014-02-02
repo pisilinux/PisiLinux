@@ -20,4 +20,4 @@ def install():
     pisitools.doman("doc/*.5")
 
     pisitools.dohtml("doc/*.html")
-    pisitools.dodoc("doc/*.txt")
+    #pisitools.dodoc("doc/*.txt")

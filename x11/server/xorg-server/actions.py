@@ -52,6 +52,8 @@ def setup():
                          --localstatedir=/var \
                          PCI_TXT_IDS_DIR=/usr/share/X11/pci \
                          " % get.srcTAG())
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
