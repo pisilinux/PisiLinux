@@ -11,6 +11,8 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    #disk aracını mate kontrol merkezine adapte eden satır.
+    pisitools.dosed("data/matepalimpsest.desktop.in", "Categories=GTK;System;", "Categories=GTK;Settings;HardwareSettings;")
     shelltools.system("./autogen.sh")
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
