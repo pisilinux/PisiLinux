@@ -28,6 +28,8 @@ def setup():
 
     autotools.autoreconf("-fi")
     autotools.configure(options)
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
