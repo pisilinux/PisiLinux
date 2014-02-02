@@ -13,7 +13,7 @@ NoStrip = ["/usr/sbin/bitlbee"]
 
 def setup():
     autotools.configure("--ssl=gnutls \
-                         --otr=1 \
+                         --otr=0 \
                          --jabber=1 \
                          --yahoo=1 \
                          --oscar=1 \
