@@ -1,0 +1,93 @@
+--- Thunar-1.6.3.orig/thunar/thunar-window.c	2013-05-05 19:37:23.000000000 +0300
++++ Thunar-1.6.3/thunar/thunar-window.c	2014-02-03 00:01:12.216902722 +0200
+@@ -64,7 +64,8 @@
+ 
+ #include <glib.h>
+ 
+-
++#include <stdio.h>
++#include <stdlib.h>
+ 
+ /* Property identifiers */
+ enum
+@@ -79,6 +80,7 @@
+ /* Signal identifiers */
+ enum
+ {
++  OPEN_TERMHERE,
+   BACK,
+   RELOAD,
+   TOGGLE_SIDEPANE,
+@@ -102,6 +104,7 @@
+                                                            guint                   prop_id,
+                                                            const GValue           *value,
+                                                            GParamSpec             *pspec);
++static gboolean thunar_window_open_term                   (ThunarWindow           *window);
+ static gboolean thunar_window_back                        (ThunarWindow           *window);
+ static gboolean thunar_window_reload                      (ThunarWindow           *window);
+ static gboolean thunar_window_toggle_sidepane             (ThunarWindow           *window);
+@@ -255,6 +258,7 @@
+   GtkWindowClass __parent__;
+ 
+   /* internal action signals */
++  gboolean (*open_term)       (ThunarWindow *window);
+   gboolean (*back)            (ThunarWindow *window);
+   gboolean (*reload)          (ThunarWindow *window);
+   gboolean (*toggle_sidepane) (ThunarWindow *window);
+@@ -395,6 +399,21 @@
+ G_DEFINE_TYPE_WITH_CODE (ThunarWindow, thunar_window, GTK_TYPE_WINDOW,
+                          G_IMPLEMENT_INTERFACE (THUNAR_TYPE_BROWSER, NULL))
+ 
++static gboolean thunar_window_open_term(ThunarWindow *window) {
++
++  char *argv[6] = {
++    "exo-open",
++    "--launch",
++    "TerminalEmulator",
++    "--working-directory"
++  };
++
++  GFile *file = thunar_file_get_file (window->current_directory);
++  argv[4] = g_file_get_path(file);
++  argv[5] = NULL;
++
++  return g_spawn_async (NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
++}
+ 
+ 
+ static void
+@@ -416,6 +435,8 @@
+   gtkwidget_class->unrealize = thunar_window_unrealize;
+   gtkwidget_class->configure_event = thunar_window_configure_event;
+ 
++  
++  klass->open_term = thunar_window_open_term;
+   klass->back = thunar_window_back;
+   klass->reload = thunar_window_reload;
+   klass->toggle_sidepane = thunar_window_toggle_sidepane;
+@@ -481,6 +502,17 @@
+                                                       THUNAR_TYPE_ZOOM_LEVEL,
+                                                       THUNAR_ZOOM_LEVEL_NORMAL,
+                                                       EXO_PARAM_READWRITE));
++  
++  window_signals[OPEN_TERMHERE] =
++    g_signal_new (I_("open_term"),
++                  G_TYPE_FROM_CLASS (klass),
++                  G_SIGNAL_RUN_LAST | G_SIGNAL_ACTION,
++                  G_STRUCT_OFFSET (ThunarWindowClass, open_term),
++                  g_signal_accumulator_true_handled, NULL,
++                  _thunar_marshal_BOOLEAN__VOID,
++                  G_TYPE_BOOLEAN, 0);
++
++
+ 
+   /**
+    * ThunarWindow::back:
+@@ -618,6 +650,7 @@
+ 
+   /* setup the key bindings for the windows */
+   binding_set = gtk_binding_set_by_class (klass);
++  gtk_binding_entry_add_signal (binding_set, GDK_F4, 0, "open_term", 0);
+   gtk_binding_entry_add_signal (binding_set, GDK_BackSpace, 0, "back", 0);
+   gtk_binding_entry_add_signal (binding_set, GDK_F5, 0, "reload", 0);
+   gtk_binding_entry_add_signal (binding_set, GDK_F9, 0, "toggle-sidepane", 0);
