@@ -16,6 +16,7 @@ def setup():
                          --disable-static \
                          --without-readline \
                          --enable-Werror=no")
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make('CFLAGS="%s" CXXFLAGS="%s" CC="%s" CXX="%s"' %
