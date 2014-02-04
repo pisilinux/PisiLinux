@@ -9,6 +9,8 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--enable-libsensors=no")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
