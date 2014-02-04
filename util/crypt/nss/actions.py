@@ -16,6 +16,7 @@ def setup():
     shelltools.system("./generate-pc-config.sh")
 
 def build():
+    pisitools.dosed("nss/coreconf/Linux.mk", " -shared ", " -Wl,-O1,--as-needed -shared ")
     if get.ARCH() == "x86_64":
         shelltools.export("USE_64", "1")
 
