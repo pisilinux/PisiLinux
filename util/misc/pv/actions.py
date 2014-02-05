@@ -9,13 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure()
+    autotools.configure("--prefix=/usr \
+                         --mandir=/usr/share/man")
 
 def build():
     autotools.make("CC=%s" % get.CC())
-
-def check():
-    autotools.make("test")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
