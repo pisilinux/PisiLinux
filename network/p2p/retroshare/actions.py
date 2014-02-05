@@ -7,7 +7,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import qt4
 from pisi.actionsapi import get
 
-WorkDir = "retroshare-0.5.4/src"
+WorkDir = "retroshare-0.5.5/src"
 
 make_dirs = ["libbitdht","openpgpsdk","libretroshare","retroshare-gui","retroshare-nogui"]
 binaries = ["retroshare-gui/src/RetroShare","retroshare-nogui/src/retroshare-nogui"]
