@@ -9,6 +9,8 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
+def setup():
+    autotools.configure("--sysconfdir=/etc")
 
 def build():
     shelltools.export("CFLAGS", "-DNDEBUG %s" % get.CFLAGS())
@@ -16,9 +18,9 @@ def build():
     autotools.make('-C ppa_protocol CC="%s" CFLAGS="%s"' % (get.CC(), get.CFLAGS()))
 
 def install():
-    autotools.rawInstall("BINDIR=%(install)s/usr/bin \
-                          CONFDIR=%(install)s/etc    \
-                          MANDIR=%(install)s/usr/share/man/man1" % { "install": get.installDIR()})
+    autotools.install("BINDIR=%(install)s/usr/bin \
+                       CONFDIR=%(install)s/etc    \
+                       MANDIR=%(install)s/usr/share/man/man1" % { "install": get.installDIR()})
 
     pisitools.dobin("utils/Linux/detect_ppa")
     pisitools.dobin("utils/Linux/test_ppa")
