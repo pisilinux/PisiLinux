@@ -4,10 +4,10 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 KeepSpecial = ["libtool"]
 
@@ -78,6 +78,7 @@ def setup():
     shelltools.export("AUTOMAKE", "/bin/true")
     autotools.autoreconf("-fi")
     autotools.configure(options)
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make("-j1")
@@ -94,3 +95,6 @@ def install():
     pisitools.dodir("/etc/openldap/ssl")
 
     pisitools.dodoc("ANNOUNCEMENT", "CHANGES", "COPYRIGHT", "README", "LICENSE")
+
+    pisitools.remove("/usr/lib/*.la")
+    pisitools.remove("/usr/libexec/openldap/*.la")
