@@ -12,3 +12,8 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
             os.chown(d, 250, 18)
             os.chmod(d, 0750)
 
+        run_dir="/run/mpd"
+        if not os.path.exists(run_dir):
+            os.mkdir(rundir)
+            os.chown(run_dir, mpd, mpd)
+            os.chmod(run_dir, 0755)
