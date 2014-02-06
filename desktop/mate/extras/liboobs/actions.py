@@ -10,10 +10,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    autotools.configure("--prefix=/usr")
+    autotools.configure("--prefix=/usr \
+                         --disable-static")
 
 def build():
     autotools.make()
