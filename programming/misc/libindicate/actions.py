@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vfi")
-    autotools.configure("-with-gtk=2 \
+    autotools.configure("--with-gtk=2 \
                          --disable-scrollkeeper \
                          --enable-gtk-doc \
                          --enable-introspection=yes \
