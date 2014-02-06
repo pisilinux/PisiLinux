@@ -11,12 +11,12 @@ from pisi.actionsapi import get
 docdir = "/%s/%s" % (get.docDIR(), get.srcNAME())
 
 def setup():
-    # autotools.autoreconf("-fi")
-
     autotools.configure("--with-xml-parser=libxml\
                          --with-www=curl \
                          --disable-gtk-doc \
+                         --with-yajl=no \
                          --with-html-dir=%s/html\
+                         --with-icu-config=/usr/bin/icu-config \
                          --disable-static" % docdir)
     
     # for fix unused dependency
