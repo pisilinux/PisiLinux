@@ -27,6 +27,8 @@ def setup():
                          --with-xft \
                          --with-pixmapdir=/usr/share/X11/xdm/pixmaps \
                          --with-systemdsystemunitdir=/lib/systemd/system")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()

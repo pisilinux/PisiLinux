@@ -11,7 +11,9 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure()
+    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+                    -DCMAKE_SKIP_RPATH=ON \
+                    -DCMAKE_INSTALL_PREFIX=/usr")
 
 def build():
     kde4.make()

@@ -8,9 +8,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
-WorkDir="phoebe-gui-%s" % get.srcVERSION()
+#WorkDir="phoebe-gui-%s" % get.srcVERSION()
 
 def setup():
+    pisitools.ldflags.add("-lm")
     autotools.configure()
 
 def build():
