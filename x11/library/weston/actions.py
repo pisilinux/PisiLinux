@@ -12,6 +12,8 @@ def setup():
     autotools.configure ("--disable-libunwind    \
                           --enable-weston-launch \
                           --enable-demo-clients")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
                                                 
 def build():
         autotools.make ()
