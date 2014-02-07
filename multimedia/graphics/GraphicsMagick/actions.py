@@ -42,6 +42,8 @@ def setup():
                          --with-zlib \
                          --with-x \
                          --with-quantum-depth=16")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
