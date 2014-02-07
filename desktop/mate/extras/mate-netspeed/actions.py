@@ -12,7 +12,6 @@ from pisi.actionsapi import get
 
 def setup():
     shelltools.export("LDFLAGS", "%s -lm"  % get.LDFLAGS())
-    shelltools.system("NOCONFIGURE=1 ./autogen.sh")
     autotools.configure("--disable-static           \
                          --disable-scrollkeeper     \
                          --disable-schemas-compile  \

@@ -11,7 +11,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("NOCONFIGURE=1 ./autogen.sh")
     autotools.configure("--prefix=/usr \
                          --disable-static  \
                          --disable-schemas-compile")
@@ -29,3 +28,5 @@ def install():
     pisitools.removeDir("/usr/share/MateConf")
 
     pisitools.dodoc("README", "NEWS", "ChangeLog", "AUTHORS", "COPYING")
+
+    pisitools.dosed("%s/usr/share/glib-2.0/schemas/org.mate.caja-open-terminal.gschema.xml" % get.installDIR(), "<default>false</default>", "<default>true</default>")

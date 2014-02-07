@@ -11,7 +11,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-if")
+    pisitools.dosed("schemas/org.mate.background.gschema.xml.in.in", "backgrounds/mate/desktop/Stripes.png", "backgrounds/mate/nature/pisi.png")
     autotools.configure("--disable-scrollkeeper                                \
                          --disable-schemas-compile                             \
                          --with-gtk=2.0                                        \
@@ -20,8 +20,7 @@ def setup():
                          --enable-unique                                       \
                          --enable-gtk-doc                                      \
                          --with-pnp-ids-path=/usr/share/hwdata/pnp.ids         \
-                         --with-omf-dir=/usr/share/omf/mate-desktop            \
-                         --enable-gnucat")
+                         --with-omf-dir=/usr/share/omf/mate-desktop            ")
 
 def build():
     autotools.make()

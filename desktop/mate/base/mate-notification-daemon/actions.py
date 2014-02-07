@@ -26,6 +26,6 @@ def install():
     
     # remove needless gsettings convert file to avoid slow session start
     pisitools.removeDir("/usr/share/MateConf")
-    
-    #pisitools.remove("/usr/share/man/man1/mate-notification-properties.1")
-    pisitools.removeDir("/usr/share/man/")
+
+    #uyarı üstten alta alıyor.
+    pisitools.dosed("%s/usr/share/glib-2.0/schemas/org.mate.NotificationDaemon.gschema.xml" % get.installDIR(), "top_right'", "bottom_right'")

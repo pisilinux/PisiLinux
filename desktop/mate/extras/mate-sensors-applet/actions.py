@@ -11,7 +11,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 def setup():
     shelltools.export("LDFLAGS", "%s -ldl"  % get.LDFLAGS())
-    shelltools.system("NOCONFIGURE=1 ./autogen.sh")
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --libexecdir=/usr/lib/mate-sensors \

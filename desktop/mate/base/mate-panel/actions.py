@@ -10,11 +10,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    #çalışma alanını 2 satırda gösterir.
+    pisitools.dosed("applets/wncklet/org.mate.panel.applet.workspace-switcher.gschema.xml.in.in", "1", "2")
     autotools.configure("--disable-scrollkeeper                 \
                          --disable-static                       \
                          --disable-schemas-compile              \
                          --with-x                               \
-                         --enable-network-manager               \
                          --libexecdir=/usr/lib/mate-panel       \
                          --enable-introspection")
 

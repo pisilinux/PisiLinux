@@ -7,21 +7,17 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("./autogen.sh --disable-schemas-compile                \
-                                    --disable-scrollkeeper                   \
-                                    --disable-static                         \
-                                    --prefix=/usr                            \
-                                    --sysconfdir=/etc                        \
-                                    --with-x                                 \
-                                    --enable-polkit                          \
-                                    --enable-networkmanager                  \
-                                    --enable-ipv6                            \
-                                    --disable-timer-applet                   \
-                                    --libexecdir=/usr/lib/mate-applets ")
+    autotools.configure("--prefix=/usr \
+                         --sysconfdir=/etc \
+                         --libexecdir=/usr/lib/mate-applets \
+                         --enable-polkit \
+                         --enable-networkmanager \
+                         --enable-ipv6 \
+                         --disable-static \
+                         --disable-scrollkeeper")
 
 def build():
     autotools.make()

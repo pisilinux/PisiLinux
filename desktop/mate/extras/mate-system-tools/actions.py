@@ -11,10 +11,12 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("NOCONFIGURE=1 ./autogen.sh")
-    autotools.configure("--disable-static \
-                         --disable-scrollkeeper \
-                         LIBS='-lm'")
+    shelltools.system("./autogen.sh \
+                        --disable-static \
+                        --prefix=/usr \
+                        --sysconfdir=/etc \
+                        --disable-scrollkeeper \
+                        LIBS='-lm'")
     
     # for fix unused dependency
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
