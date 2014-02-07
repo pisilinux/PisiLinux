@@ -21,6 +21,7 @@ def build():
     autotools.make()
 
 def install():
+    pisitools.dosed("data/libfm.conf", "xarchiver", "file-roller")
     autotools.install()
     pisitools.dodoc("AUTHORS", "COPYING", "TODO")
 
