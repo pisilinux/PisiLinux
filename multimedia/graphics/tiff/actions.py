@@ -18,6 +18,8 @@ def setup():
                          --without-x \
                          --enable-cxx \
                          --with-pic")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
