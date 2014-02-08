@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    pisitools.dosed("src/input/cdio_paranoia_input_plugin.c", "cdio/paranoia.h", "cdio/paranoia/paranoia.h")
     autotools.configure("--enable-pulse \
                          --enable-ao \
                          --enable-alsa \
