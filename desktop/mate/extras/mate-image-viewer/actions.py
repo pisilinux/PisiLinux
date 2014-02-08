@@ -10,10 +10,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.ldflags.add("-ldl")
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
                          --localstatedir=/var \
-                         --enable-introspection=yes \
+                         --disable-silent-rules \
                          --disable-schemas-compile \
                          --disable-scrollkeeper")
     
