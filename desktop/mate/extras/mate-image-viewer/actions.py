@@ -10,9 +10,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.ldflags.add("-ldl")
+    pisitools.ldflags.add("-ldl -lutil")
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
+                         --disable-static \
+                         --enable-shared \
                          --localstatedir=/var \
                          --disable-silent-rules \
                          --disable-schemas-compile \
