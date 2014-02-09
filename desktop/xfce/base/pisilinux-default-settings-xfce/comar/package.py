@@ -8,7 +8,7 @@ import os
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
 
     fileassociations = open("/usr/share/applications/mimeapps.list","a")
-    fileassociations.write("application/pdf=epdfview.desktop;\n")
+    fileassociations.write("application/pdf=evince.desktop;\n")
     fileassociations.write("application/zip=file-roller.desktop;\n")
     fileassociations.write("application/x-rar=file-roller.desktop;\n")
     fileassociations.write("application/x-compressed-tar=file-roller.desktop;\n")
