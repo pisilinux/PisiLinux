@@ -13,8 +13,6 @@ def setup():
     pisitools.ldflags.add("-ldl -lutil")
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
-                         --disable-static \
-                         --enable-shared \
                          --localstatedir=/var \
                          --disable-silent-rules \
                          --disable-schemas-compile \
