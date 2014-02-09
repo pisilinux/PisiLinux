@@ -9,7 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 import os
-WorkDir = "miniupnpc-1.7.20120830"
+WorkDir = "miniupnpc-1.9"
 
 def setup():
     shelltools.system('cmake -L -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr .')
