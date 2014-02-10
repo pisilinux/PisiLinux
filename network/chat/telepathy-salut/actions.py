@@ -16,6 +16,8 @@ def setup():
 						 --enable-call \
 						 --disable-static \
 						 --disable-scrollkeeper ")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make("-j1")

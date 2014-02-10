@@ -13,7 +13,9 @@ NoStrip = ["/usr/kde/4/share/", "/usr/share"]
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure("-DDEBUG_PACKAGE_INSTALLER_NAME=\"installdbgsymbols.py\"")
+    kde4.configure("-DWITH_PulseAudio=ON \
+                    -DCMAKE_SKIP_RPATH=ON \
+                    -DDEBUG_PACKAGE_INSTALLER_NAME=\"installdbgsymbols.py\"")
 
 def build():
     kde4.make()
