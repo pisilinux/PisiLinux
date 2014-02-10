@@ -9,11 +9,14 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fi")
-    autotools.configure("--disable-static\
-                         --disable-skdb-update\
-                         --enable-scrollkeeper-compat\
+    autotools.configure("--sysconfdir=/etc \
+                         --localstatedir=/var \
+                         --disable-static \
+                         --disable-skdb-update \
+                         --enable-scrollkeeper-compat \
                          --enable-omf-read")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
