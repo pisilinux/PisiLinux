@@ -29,4 +29,4 @@ def install():
                           man5dir=%s/%s/man5" %
                           (InstDir,InstDir,manDir,InstDir,
                           manDir,InstDir,manDir))
-    pisitools.dodoc("ChangeLog", "CREDITS", "NEWS", "README", "REFS")
+    pisitools.dodoc("ChangeLog", "NEWS", "README", "AUTHORS", "COPYING", "THANKS")
