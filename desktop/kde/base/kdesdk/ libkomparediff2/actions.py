@@ -13,13 +13,10 @@ shelltools.export("HOME", get.workDIR())
 NoStrip=["/usr/share/icons"]
 
 def setup():
-    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
-                    -DKDE4_BUILD_TESTS=OFF")
+    kde4.configure()
 
 def build():
     kde4.make()
 
 def install():
     kde4.install()
-
-    pisitools.dodoc("COPYING*", "README*")
