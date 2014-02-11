@@ -14,6 +14,8 @@ def setup():
                         --disable-update-databases \
                         --disable-xml-catalog-update")
 
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+
 def build():
     autotools.make()
 
