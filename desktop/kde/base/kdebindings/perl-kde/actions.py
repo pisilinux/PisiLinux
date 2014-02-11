@@ -12,7 +12,9 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure()
+    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+		            -DKDE4_BUILD_TESTS=OFF \
+		            -DCMAKE_SKIP_RPATH=ON")
 
 def build():
     kde4.make()
