@@ -13,6 +13,8 @@ def setup():
                          --disable-static \
                          --enable-gl \
                          --enable-ccache")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
