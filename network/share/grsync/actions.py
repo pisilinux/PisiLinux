@@ -10,7 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("./configure prefix=/usr LDFLAGS=-lm")
+    shelltools.system("LDFLAGS=-lm ./configure --prefix=/usr --disable-unity")
 
 def build():
     autotools.make()
