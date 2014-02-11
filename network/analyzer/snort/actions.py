@@ -39,6 +39,8 @@ def setup():
                          --enable-linux-smp-stats \
                          --enable-side-channel \
                          --enable-control-socket")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
