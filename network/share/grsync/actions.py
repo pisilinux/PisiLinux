@@ -10,17 +10,12 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("LDFLAGS=-lm ./configure --prefix=/usr --disable-unity")
+    autotools.configure("--prefix=/usr --disable-unity")
 
 def build():
     autotools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%(DESTINATION)s \
-                          INSTALLDIR=%(DESTINATION)s/usr/bin \
-                          MANDIR=%(DESTINATION)s/usr/share/man/man1 \
-                          INCLUDEDIR=%(DESTINATION)s/usr/include \
-                          LOCALEDIR=%(DESTINATION)s/usr/share/locale \
-                          PKGCONFIGDIR=%(DESTINATION)s/usr/lib/pkgconfig" % {'DESTINATION': get.installDIR()})
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "COPYING", "README", "ChangeLog", "NEWS")
