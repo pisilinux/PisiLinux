@@ -16,6 +16,8 @@ def setup():
     autotools.configure("--disable-static \
                          --with-gsm \
                          --with-dyn-default")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
