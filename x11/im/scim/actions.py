@@ -23,6 +23,8 @@ def setup():
                         ") 
                          #--disable-panel-gtk \
                          #--disable-setup-ui")
+                       
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
