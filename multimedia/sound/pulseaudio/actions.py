@@ -18,6 +18,7 @@ emul32_libs = "libpulsecommon-%s.la \
               " % get.srcVERSION()
 
 def setup():
+    shelltools.system("git pull origin master")
     options = "--disable-dependency-tracking \
                --disable-static \
                --disable-rpath \
