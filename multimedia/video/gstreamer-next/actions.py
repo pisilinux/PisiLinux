@@ -16,20 +16,10 @@ def setup():
 
     autotools.configure("--with-package-name='GStreamer package for PisiLinux' \
                          --with-package-origin='http://www.pisilinux.org' \
-                         --enable-nls \
-                         --enable-debug \
-                         --disable-dependency-tracking \
-                         --disable-examples \
-                         --disable-tests \
-                         --disable-failing-tests \
                          --disable-static \
-                         --disable-rpath \
-                         --enable-valgrind \
-                         --enable-introspection\
-                         --enable-gtk-doc\
-                         --enable-docbook")
+                         --enable-gtk-doc")
     
-    #pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
 def build():
     autotools.make()
