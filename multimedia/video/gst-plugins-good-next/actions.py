@@ -9,11 +9,11 @@ from pisi.actionsapi import pisitools
 
 def setup():
     autotools.configure("--disable-static \
-                         --disable-esd \
-                         --disable-rpath \
+                         --enable-experimental \
                          --with-package-name='PisiLinux gstreamer-plugins-good package' \
-                         --with-package-origin='http://www.pisilinux.org' \
-                         --disable-schemas-install")
+                         --with-package-origin='http://www.pisilinux.org'")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
