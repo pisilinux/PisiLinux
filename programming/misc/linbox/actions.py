@@ -17,6 +17,8 @@ def setup():
 			 --enable-doc \
 			 --with-docdir=/usr/share/doc \
 			 --with-ntl")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
