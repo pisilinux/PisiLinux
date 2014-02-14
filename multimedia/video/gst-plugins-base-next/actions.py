@@ -14,14 +14,11 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-static \
-                         --disable-nls \
-                         --disable-rpath \
-                         --disable-examples \
-                         --disable-gnome-vfs \
-                         --enable-libvisual \
                          --enable-experimental \
                          --with-package-name='PisiLinux gstreamer-plugins-base package' \
                          --with-package-origin='http://www.pisilinux.org'")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
@@ -32,7 +29,5 @@ def build():
 
 def install():
     autotools.install()
-
-    pisitools.removeDir("/usr/share/gtk-doc")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
