@@ -15,10 +15,11 @@ def setup():
 
     # sidplay is in contrib.
     autotools.configure("--disable-static \
-                         --disable-rpath \
-                         --disable-sidplay \
+                         --enable-experimental \
                          --with-package-name=\"PisiLinux gstreamer-plugins-ugly package\" \
                          --with-package-origin=\"http://www.pisilinux.org/eng\"")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
