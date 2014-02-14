@@ -11,7 +11,7 @@ from pisi.actionsapi import pisitools
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-static \
-                         --with-libav-extra-configure='--enable-runtime-cpudetect'
+                         --with-libav-extra-configure='--enable-runtime-cpudetect' \
                          --with-package-name='PisiLinux gst-libav package' \
                          --with-package-origin='http://www.pisilinux.org'")
 

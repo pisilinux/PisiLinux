@@ -23,7 +23,7 @@ def setup():
     """
 
     autotools.configure("--disable-static \
-                         --disable-experimental \                         
+                         --disable-experimental \
                          --with-package-name='PisiLinux gstreamer-plugins-bad package' \
                          --with-package-origin='http://www.pisilinux.org' \
                          --with-gtk=3.0")
