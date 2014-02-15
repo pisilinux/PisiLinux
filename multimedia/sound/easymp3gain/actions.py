@@ -15,3 +15,5 @@ def build():
 def install():
     autotools.rawInstall('DESTDIR=%s WIDGET=qt4' % get.installDIR())
     pisitools.dodoc('AUTHORS', 'COPYING', '*.txt')
+    
+    pisitools.insinto("/usr/share/pixmaps/", "icons/easymp3gain-48.png", "easymp3gain.png")
