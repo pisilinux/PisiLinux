@@ -10,9 +10,10 @@ from pisi.actionsapi import get
 
 def setup():
     cmaketools.configure("-DENABLE_THREADGL=FALSE \
-                            -DENABLE_RPATH=OFF \
-                            -DENABLE_UPDATE_CHECKER=OFF \
-                            -DPYTHON_LIBRARY:PATH='/usr/lib/lib%s.so'" % get.curPYTHON() )
+                          -DENABLE_RPATH=OFF \
+                          -DENABLE_UPDATE_CHECKER=OFF \
+                          -DEIGEN2_INCLUDE_DIR=/usr/include/eigen2 \
+                          -DPYTHON_LIBRARY:PATH='/usr/lib/lib%s.so'" % get.curPYTHON() )
 
 def build():
     cmaketools.make()
