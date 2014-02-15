@@ -11,12 +11,10 @@ from pisi.actionsapi import qt4
 WorkDir = "."
 
 def setup():
-    qt4.configure()
+    qt4.configure("ffDiaporama.pro")
 
 def build():
     qt4.make()
 
 def install():
     qt4.install()
-
-# By PiSiDo 2.0.0
