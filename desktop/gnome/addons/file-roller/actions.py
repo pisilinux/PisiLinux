@@ -22,3 +22,5 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "NEWS", "README")
+    
+    pisitools.insinto("/usr/share/pixmaps/", "data/icons/48x48/apps/file-roller.png", "file-roller.png")
