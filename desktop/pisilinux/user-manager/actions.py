@@ -12,3 +12,4 @@ def install():
     pythonmodules.install()
     
     pisitools.dosed("%s/usr/share/applications/user-manager.desktop" % get.installDIR(), "Categories=Qt;KDE;System;", "Categories=Qt;KDE;X-KDE-settings-system;")
+    pisitools.dosed("%s/usr/share/applications/user-manager.desktop" % get.installDIR(), "Categories=Qt;KDE;X-KDE-settings-system;", "Categories=Qt;KDE;X-KDE-settings-system;\nX-KDE-System-Settings-Parent-Category=system-administration")
