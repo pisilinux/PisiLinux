@@ -5,11 +5,10 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import pythonmodules
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
-
-
-shelltools.export("HOME", get.workDIR())
 
 def install():
     pythonmodules.install()
+    
+    pisitools.dosed("%s/usr/share/applications/service-manager.desktop" % get.installDIR(), "Categories=Qt;KDE;System;", "Categories=Qt;KDE;X-KDE-settings-system;")
