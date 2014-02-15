@@ -11,10 +11,16 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    cmaketools.configure()
+    shelltools.makedirs("build")
+    shelltools.cd("build") 
+    cmaketools.configure("-DKSANE_INCLUDE_DIR=/usr/include/kde4/libksane \
+                          -DCMAKE_BUILD_TYPE=Release \
+                          -DCMAKE_INSTALL_PREFIX=/usr", sourceDir="..")
 
 def build():
+    shelltools.cd("build")
     cmaketools.make()
 
 def install():
+    shelltools.cd("build")
     cmaketools.install()
