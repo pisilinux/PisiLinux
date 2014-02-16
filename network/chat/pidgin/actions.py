@@ -29,6 +29,9 @@ def setup():
                          --x-includes=/usr/include/X11 \
                          --with-gnutls-includes=/usr/include/gnutls \
                          --with-gnutls-libs=/usr/lib")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+    
 def build():
     autotools.make()
 
