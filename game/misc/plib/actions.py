@@ -14,6 +14,8 @@ def setup():
     shelltools.export("CXXFLAGS", "%s -fPIC" % get.CFLAGS())
     autotools.autoreconf("-vif")
     autotools.configure("--disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
