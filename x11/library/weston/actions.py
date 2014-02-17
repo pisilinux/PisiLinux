@@ -9,9 +9,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure ("--disable-libunwind    \
-                          --enable-weston-launch \
-                          --enable-demo-clients")
+    autotools.configure ("--prefix=/usr \
+                          --libexecdir=/usr/lib/weston \
+                          --with-internal-xdg=1 \
+                          --enable-demo-clients-install")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
                                                 
