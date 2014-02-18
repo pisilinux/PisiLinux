@@ -43,6 +43,8 @@ def setup():
                          --enable-mfd-rewrites \
                          --with-temp-file-pattern="/run/net-snmp/snmp-tmp-XXXXXX" \
                          --enable-local-smux' % MIBS)
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make("-j1")
