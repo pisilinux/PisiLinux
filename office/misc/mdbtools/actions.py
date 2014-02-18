@@ -18,6 +18,8 @@ def setup():
                          --disable-static \
                          --enable-sql \
                          --with-unixodbc=/usr")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 
 def check():
