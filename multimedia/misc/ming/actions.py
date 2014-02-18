@@ -12,6 +12,8 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --exec-prefix=/usr \
                          --enable-freetype")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
