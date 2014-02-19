@@ -12,6 +12,8 @@ WorkDir = "apache-%s-0.10.0" % get.srcNAME()
 
 def setup():
     autotools.configure()
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
