@@ -17,8 +17,8 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-dependency-tracking \
                          --disable-ruby \
-                         --enable-rpath \
-                         --enable-rcl \
+                         --disable-rpath \
+                         --enable-tcl \
                          --enable-perl")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
