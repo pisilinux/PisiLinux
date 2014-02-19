@@ -11,7 +11,8 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--prefix=/usr \
                          --exec-prefix=/usr \
-                         --enable-freetype")
+                         --enable-freetype \
+                         --enable-python")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
