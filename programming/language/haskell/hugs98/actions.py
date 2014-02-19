@@ -18,8 +18,8 @@ WorkDir = "hugs98-plus-%s%s" % (date(1, int(month), 1).ctime()[4:7], year)
 hugsdir = "/usr/lib/hugs"
 
 def setup():
-    pisitools.dosed("packages/GLUT/GLUT.buildinfo.in", "@GLUT_LIBS@", "-lglut  -lSM -lICE -lXmu -lXi  -lGLU -lGL -lm")
-    pisitools.dosed("packages/OpenGL/OpenGL.buildinfo.in", "@GLU_LIBS@", "-lGLU -lGL -lm")
+    #pisitools.dosed("packages/GLUT/GLUT.buildinfo.in", "@GLUT_LIBS@", "-lglut  -lSM -lICE -lXmu -lXi  -lGLU -lGL -lm")
+    #pisitools.dosed("packages/OpenGL/OpenGL.buildinfo.in", "@GLU_LIBS@", "-lGLU -lGL -lm")
 
     shelltools.export("hugsdir", hugsdir)
     autotools.configure("--enable-ffi \
