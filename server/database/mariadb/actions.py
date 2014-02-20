@@ -14,7 +14,7 @@ pisitools.cxxflags.add("-felide-constructors -fno-rtti")
 
 def setup():
     pisitools.dosed("storage/tokudb/ft-index/ft/ft-ops.cc", "LEAFENTRY leaf_entry;", "LEAFENTRY leaf_entry = 0;")
-    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
+    cmaketools.configure("-DBUILD_CONFIG=mysql_release \
                           -DCMAKE_INSTALL_PREFIX=/usr \
                           -DSYSCONFDIR=/etc/mysql \
                           -DMYSQL_DATADIR=/var/lib/mysql \
