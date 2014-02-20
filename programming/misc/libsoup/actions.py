@@ -16,6 +16,8 @@ def setup():
     autotools.configure("--disable-static \
                          --without-apache-httpd \
                          --without-apache-module-dir")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
