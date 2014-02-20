@@ -70,17 +70,15 @@ def install():
     # Create a compatibility symlink for foomatic-rip-hplip
     pisitools.dosym("/usr/lib/cups/filter/foomatic-rip", "/usr/lib/cups/filter/foomatic-rip-hplip")
     
-    pisitools.remove("/lib/udev/rules.d/56-hpmud.rules")
-
     # Remove the hal preprobe rules as they were causing breakage (bug #479648).
     # Remove hal directory as well.
     pisitools.removeDir("/usr/share/hal/")
 
     # Remove unpackaged stuff (Fedora)
-    pisitools.remove("/usr/share/hplip/fax/pstotiff*")
-    pisitools.remove("/usr/share/cups/mime/pstotiff.types")
-    pisitools.remove("/usr/share/hplip/pkservice.py")
-    pisitools.remove("/usr/bin/hp-pkservice")
+    #pisitools.remove("/usr/share/hplip/fax/pstotiff*")
+    #pisitools.remove("/usr/share/cups/mime/pstotiff.types")
+    #pisitools.remove("/usr/share/hplip/pkservice.py")
+    #pisitools.remove("/usr/bin/hp-pkservice")
     
 
     # Do not mess with sane, init, foomatic etc.
@@ -88,6 +86,10 @@ def install():
 
     # Create empty plugins directory
     pisitools.dodir("/usr/share/hplip/prnt/plugins")
+    
+    # This notifies user through libnotify when the printer requires a firmware
+    # Should port it to KNotify if possible, argh.
+    pisitools.remove("/lib/udev/rules.d/56-hpmud.rules")
 
     # --disable-doc-build used. It doesn't go to the true directory.
     pisitools.dohtml("doc/*")
