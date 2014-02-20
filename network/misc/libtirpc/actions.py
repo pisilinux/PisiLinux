@@ -16,6 +16,8 @@ def setup():
     autotools.configure("--disable-static \
                          --enable-gss \
                          --with-pic")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
