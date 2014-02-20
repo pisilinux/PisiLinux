@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 
 def setup():
     #autotools.configure("--disable-static")
-    cmaketools.configure()
+    cmaketools.configure("--prefix=/usr")
 
 def build():
     cmaketools.make("-j1")
