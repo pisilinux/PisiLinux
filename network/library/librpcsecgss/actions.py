@@ -12,6 +12,8 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.configure("--prefix=/usr")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
