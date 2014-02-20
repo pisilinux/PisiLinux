@@ -12,6 +12,8 @@ def setup():
     autotools.configure("--enable-glx \
                          --enable-wayland \
                          --disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
