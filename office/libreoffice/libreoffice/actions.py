@@ -20,7 +20,7 @@ shelltools.export("LC_ALL", "C")
 
 langpackdir = "%s-langpack-%s" % (get.srcNAME(), get.srcVERSION())
 langpackpath = os.path.normpath("%s/../%s" % (get.installDIR(), langpackdir))
-langs = "en-US af ar as bg bn br ca cs cy da de dz el es et eu fa fi fr ga gl gu he hr hu it ja ko kn lt lv mai ml mr nb nl nn nr nso or pa-IN pl pt pt-BR ro ru sh si sk sl sr ss st sv ta te th tn tr ts uk ve xh zh-CN zh-TW zu"
+langs = "en-US af ar as bg bn br ca cs cy da de dz el es et eu fa fi fr ga gl gu he hr hu it ja ko kn lt lv mai ml mr nb nl nn nr nso or pa-IN pl pt pt-BR ro ru si sk sl sr ss st sv ta te th tn tr ts uk ve xh zh-CN zh-TW zu"
 ldirs = ("/usr/lib/libreoffice/help/%s",
          "/usr/lib/libreoffice/share/autotext/%s",
          "/usr/lib/libreoffice/share/config/soffice.cfg/cui/ui/res/%s",
@@ -43,13 +43,12 @@ def setup():
     vars = {"lang": langs,
             "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
-
-    pisitools.dosed("sysui/desktop/menus/startcenter.desktop", "NoDisplay=true", "NoDisplay=false")
+    
+    shelltools.system("ulimit -c unlimited")
     autotools.aclocal("-I m4")
     autotools.autoconf()
     # avoid running autogen.sh on make
     shelltools.touch("autogen.lastrun")
-
     autotools.rawConfigure('--with-vendor="PisiLinux" \
                        --with-ant-home="/usr/share/ant" \
                        --with-jdk-home="/opt/sun-jdk" \
@@ -66,7 +65,6 @@ def setup():
                        --disable-pch \
                        --with-system-jars \
                        --with-system-libs \
-                       --with-system-mythes \
                        --with-system-headers \
                        --with-lang="%(lang)s" \
                        --enable-graphite \
@@ -83,7 +81,6 @@ def setup():
                        --enable-odk \
                        --enable-randr \
                        --enable-randr-link \
-                       --enable-mergelibs \
                        --enable-extension-integration \
                        --enable-scripting-beanshell \
                        --enable-scripting-javascript \
@@ -92,42 +89,23 @@ def setup():
                        --disable-python \
                        --enable-cairo-canvas \
                        --with-system-cairo \
-                       --without-fonts \
-                       --without-afms \
-                       --without-ppds \
-                       --with-system-libexttextcat \
-                       --without-system-jfreereport \
-                       --without-system-apache-commons \
+                       --without-ppds --without-sun-templates --without-afms --without-fonts --without-system-apache-commons --without-system-mythes --without-system-libcmis \
+                       --without-system-libexttextcat --without-system-jfreereport  --without-system-libcdr --without-system-libwpg --without-system-libwpd --without-system-libwps \
+                       --without-system-redland --without-system-clucene --without-system-libvisio \
                        --with-helppack-integration \
                        --with-system-beanshell \
-                       --with-system-clucene \
-                       --with-system-cppunit \
                        --with-system-graphite \
-                       --with-system-libcmis \
-                       --with-system-libwpg \
-                       --with-system-libwps \
-                       --with-system-libvisio \
-                       --with-system-redland \
-                       --with-system-ucpp \
                        --with-system-dicts \
-                       --with-system-libexttextcat \
                        --with-system-nss \
-                       --without-system-orcus \
-                       --without-system-mdds \
-                       --without-system-libmwaw \
-                       --without-system-libodfgen \
-                       --without-system-hsqldb \
-                       --without-myspell-dicts \
-                       --without-system-npapi-headers \
+                       --without-system-lcms2 \
+                       --without-system-libmspub --without-system-liblangtag --without-system-boost --without-system-harfbuzz --without-system-cppunit --without-system-orcus \
+                       --without-system-mdds --without-system-ucpp --without-system-hsqldb --without-system-libodfgen --without-system-libmwaw --without-system-libetonyek \
+                       --without-system-libfreehand --without-system-libebook --without-system-firebird --without-system-libabw --without-system-libatomic_ops --without-system-libeot \
+                       --without-system-libodfgen --without-myspell-dicts --without-system-npapi-headers --without-system-sane --without-system-servlet-api --without-system-vigra \
                        --with-external-dict-dir=/usr/share/hunspell \
                        --with-external-hyph-dir=/usr/share/hyphen \
                        --with-external-thes-dir=/usr/share/mythes \
                        --with-alloc=system \
-                       --without-system-sane \
-                       --without-system-boost\
-                       --without-system-servlet-api \
-                       --without-system-vigra \
-                       --without-sun-templates \
                        --disable-fetch-external \
                        --with-parallelism=%(jobs)s \
                        --with-external-tar="%(etar)s"' % vars)
@@ -189,4 +167,6 @@ def install():
     print("creating: %s.tar.xz" % langpackdir)
     shelltools.cd("%s/../" % get.installDIR())
     shelltools.system("tar c %s | xz -9 > %s.tar.xz" % ((langpackdir, )*2))
+    
+    pisitools.dosed("/usr/lib/libreoffice/share/xdg/startcenter.desktop" % get.installDIR(), "GenericName[tr]=Ofis", "GenericName[tr]=Ofis Uygulamaları")
 
