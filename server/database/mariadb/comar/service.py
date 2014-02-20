@@ -3,14 +3,14 @@ from comar.service import *
 import os
 
 serviceType="server"
-serviceDesc = _({"en": "MySQL Database Server",
-                 "tr": "MySQL Veritabanı Sunucusu"})
+serviceDesc = _({"en": "MariaDB Database Server",
+                 "tr": "MariaDB Veritabanı Sunucusu"})
 
 PIDFILE = "/run/mysqld/mysqld.pid"
 
 @synchronized
 def start():
-    startService(command="/usr/sbin/mysqld",
+    startService(command="/usr/bin/mysqld",
                  pidfile=PIDFILE,
                  detach=True,
                  donotify=True)
