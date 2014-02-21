@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure("--prefix=/usr --libdir=/usr/lib")
+    cmaketools.configure("-DLIBRARY_INSTALL_DIR=/usr/lib")
 
 def build():
     cmaketools.make()
