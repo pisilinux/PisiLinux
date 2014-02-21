@@ -17,7 +17,7 @@ def setup():
     pisitools.dosed("configure.ac", "\/var(\/run\/ConsoleKit)", "\\1")
     pisitools.dosed("configure.ac", "^initscript", deleteLine=True)
     shelltools.system("./autogen.sh")
-
+    autotools.autoreconf("-f")
     autotools.configure("--disable-static \
                          --disable-silent-rules \
                          --disable-wimax \
