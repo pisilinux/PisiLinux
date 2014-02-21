@@ -12,6 +12,7 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --libexecdir=/usr/lib/xfce4 \
                          --disable-static \
+                         --disable-systemd \
                          --disable-debug")
 
     pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
