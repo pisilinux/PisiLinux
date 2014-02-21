@@ -60,8 +60,10 @@ def setup():
                    -system-libmng \
                    -plugin-sql-sqlite \
                    -plugin-sql-odbc \
+                   -plugin-sql-mysql \
                    -plugin-sql-psql \
                    -plugin-sql-ibase \
+                   -I/usr/include/mysql/ \
                    -I/usr/include/firebird/ \
                    -I/usr/include/postgresql/server/ \
                    -release \
