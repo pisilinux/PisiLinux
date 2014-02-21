@@ -69,7 +69,7 @@ def build():
     targets = " systemd-udevd \
                 udevadm \
                 libudev.la \
-                libsystemd-daemon.la \
+                libsystemd.la \
                 ata_id \
                 cdrom_id \
                 collect \
@@ -119,9 +119,9 @@ def install():
                 install-dist_bashcompletionDATA \
                 rootlibexec_PROGRAMS='systemd-udevd' \
                 bin_PROGRAMS='udevadm' \
-                lib_LTLIBRARIES='libsystemd-daemon.la libudev.la \
+                lib_LTLIBRARIES='libsystemd.la libudev.la \
                                  libgudev-1.0.la' \
-                pkgconfiglib_DATA='src/libsystemd-daemon/libsystemd-daemon.pc src/libudev/libudev.pc \
+                pkgconfiglib_DATA='src/libsystemd/libsystemd.pc src/libudev/libudev.pc \
                                    src/gudev/gudev-1.0.pc' \
                 dist_systemunit_DATA='units/systemd-udevd-control.socket \
                                       units/systemd-udevd-kernel.socket' \
