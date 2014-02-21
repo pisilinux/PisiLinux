@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 
-iscan_data = "iscan-data-1.22.0"
+iscan_data = "iscan-data-1.26.0"
 
 def setup():
     # Setup iscan-data
