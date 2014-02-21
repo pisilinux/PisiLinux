@@ -48,7 +48,9 @@ def setup():
                           -DWITH_TOKUDB_STORAGE_ENGINE=1 \
                           -DWITHOUT_EXAMPLE_STORAGE_ENGINE=1 \
                           -DWITHOUT_FEDERATED_STORAGE_ENGINE=1 \
-                          -DWITHOUT_PBXT_STORAGE_ENGINE=1")
+                          -DWITHOUT_PBXT_STORAGE_ENGINE=1 \
+                          -DENABLE_DTRACE=ON \
+                         ")
 
 def build():
     cmaketools.make()
@@ -70,3 +72,6 @@ def install():
     # Remove not needed files
     pisitools.removeDir("/usr/data")
     pisitools.remove("/usr/share/man/man1/mysql-test-run.pl.1")
+
+    # Remove -lprobes_mysql
+    pisitools.dosed("%s/usr/bin/mysql_config" % get.installDIR(), "-lprobes_mysql")

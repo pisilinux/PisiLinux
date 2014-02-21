@@ -7,7 +7,7 @@ DATADIR = "/var/lib/mysql"
 DATADIRMODE = 0700
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
-    if toRelease == "2":
+    if toRelease == "3":
         os.system("rm -rf %s" % DATADIR)
         if os.path.isfile("/etc/mysql/my.cnf.newconfig"):
             if os.path.isfile("/etc/mysql/my.cnf"): os.remove("/etc/mysql/my.cnf")
