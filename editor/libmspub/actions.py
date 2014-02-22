@@ -14,6 +14,8 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.configure("--disable-static \
                          --without-docs")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
