@@ -7,15 +7,16 @@
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
+from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
     pythonmodules.compile()
 
     shelltools.cd("docs")
-    autotools.make("html")
+    autotools.make()
 
 def install():
     pythonmodules.install()
-
-    shelltools.copytree("docs/_build/html", "%s/%s/%s" % (get.installDIR(), get.docDIR(), get.srcNAME()))
+    
+    pisitools.dodoc("AUTHORS", "LICENSE", "README.rst", "PKG-INFO")
