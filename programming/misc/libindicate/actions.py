@@ -16,6 +16,8 @@ def setup():
                          --enable-gtk-doc \
                          --enable-introspection=yes \
                          --disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
