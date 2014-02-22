@@ -9,6 +9,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def build():
+    pisitools.dosed("gfx/src/gtk/nsFontMetricsXft.cpp", "freetype/freetype.h", "freetype2/freetype.h")
+    pisitools.dosed("gfx/src/gtk/nsFontMetricsXft.cpp", "freetype/tttables.h", "freetype2/tttables.h")
+    pisitools.dosed("gfx/src/gtk/nsFontMetricsPango.cpp", "freetype/tttables.h", "freetype2/tttables.h")
     shelltools.system("make -f client.mk build")
 
 def install():
