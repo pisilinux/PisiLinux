@@ -14,6 +14,8 @@ def setup():
                          --enable-python \
                          --with-html-dir=/%s/%s/html"
                          % (get.docDIR(), get.srcNAME()))
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make("-j1")
