@@ -11,6 +11,9 @@ from pisi.actionsapi import get
 def build():
     autotools.make()
 
+def check():
+    autotools.make("check")
+
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     pisitools.dodoc("CHANGES", "FAQ", "figfont.txt", "LICENSE", "README")
