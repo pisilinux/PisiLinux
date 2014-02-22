@@ -12,6 +12,8 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--disable-static \
                          --enable-locations-compression")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
