@@ -8,11 +8,11 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 
 def setup():
-    #autotools.configure("--disable-static")
-    cmaketools.configure("--prefix=/usr")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr")
+    pisitools.dosed("CMakeCache.txt", "LIBRARY_INSTALL_DIR:PATH=lib64", "LIBRARY_INSTALL_DIR:PATH=lib")
 
 def build():
-    cmaketools.make("-j1")
+    cmaketools.make()
 
 def install():
     cmaketools.install()
