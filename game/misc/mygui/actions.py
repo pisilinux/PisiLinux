@@ -30,7 +30,8 @@ def install():
     # non-bin files in bin: plugins.cfg, resources.xml? opt?
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
     
-    shelltools.chmod("%s/usr/bin/" % get.installDIR(), 0755)
+    for files in ["Demo_Colour", "Demo_Console", "Demo_Controllers", "Demo_Gui", "Demo_ItemBox", "Demo_PanelView", "Demo_Picking", "Demo_PluginStrangeButton", "Demo_Pointers", "Demo_RenderBox", "Demo_ScrollView", "Demo_Themes", "FontViewer", "ImageSetViewer", "LayoutEditor", "SkinEditor", "plugins.cfg", "resources.xml"]:
+        shelltools.chmod("%s/usr/bin/%s" % (get.installDIR(), files), 0755)
     
     pisitools.dohtml("Docs/html")
 
