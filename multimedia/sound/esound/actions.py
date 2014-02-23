@@ -20,6 +20,8 @@ def setup():
                          --disable-arts \
                          --disable-dependency-tracking \
                          --sysconfdir=/etc/esd")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
