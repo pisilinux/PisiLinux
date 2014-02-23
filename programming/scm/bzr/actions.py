@@ -15,7 +15,7 @@ shelltools.export("HOME", get.workDIR())
 
 def build():
     pythonmodules.compile()
-    autotools.make("docs")
+    autotools.make()
 
 def install():
     pythonmodules.install()
