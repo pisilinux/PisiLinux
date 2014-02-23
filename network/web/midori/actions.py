@@ -13,14 +13,8 @@ shelltools.export("LC_ALL", "C")
 
 def setup():
     autotools.rawConfigure("--prefix=/usr")
-    cmaketools.configure("\
-                          -DUSE_GTK3=OFF \
-                          -DUSE_APIDOCS=ON \
-                          -DUSE_GRANITE=ON \
-                          -DUSE_ZEITGEIST=ON \
-                          -DCMAKE_SKIP_RPATH=ON \
-                          -DCMAKE_SKIP_INSTALL_RPATH=ON \
-                         ")
+    cmaketools.configure("-DUSE_GTK2=OFF -DUSE_GTK3=1 -DCMAKE_SKIP_RPATH=ON -DCMAKE_SKIP_INSTALL_RPATH=ON")
+    
     pisitools.dosed("CMakeCache.txt", "lib64", "lib")
     pisitools.dosed(".", "lib64", "lib", filePattern="cmake_install.cmake")
 
