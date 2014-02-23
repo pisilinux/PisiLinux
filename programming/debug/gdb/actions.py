@@ -9,11 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "gdb-%s" % get.srcVERSION().replace("_", ".")
-
 def setup():
-    #pisitools.dosed("configure", "^ppl_minor_version=10", "ppl_minor_version=11")
-    #pisitools.dosed("configure.ac", "^ppl_minor_version=10", "ppl_minor_version=11")
     pisitools.dosed("config/override.m4", "2.64", "2.69")
 
     autotools.autoreconf("-vfi")
@@ -36,16 +32,15 @@ def build():
 
 def install():
     autotools.rawInstall('DESTDIR="%s"' % get.installDIR())
-
-    # These come from binutils
-    pisitools.removeDir("/usr/include")
-
-    for f in shelltools.ls("%s/usr/lib/" % get.installDIR()):
-        if shelltools.isFile("%s/usr/lib/%s" % (get.installDIR(), f)):
-            pisitools.remove("/usr/lib/%s" % f)
+    
+    for libdel in ["libbfd.a","libopcodes.a"]:
+        pisitools.remove("/usr/lib/%s" % libdel)
 
     # these are not necessary
     for info in ["bfd","configure","standards"]:
         pisitools.remove("/usr/share/info/%s.info" % info)
-
+        
+    for hea in ["ansidecl","symcat","dis-asm", "bfd", "bfdlink"]:
+        pisitools.remove("/usr/include/%s.h" % hea)
+    
     pisitools.dodoc("README*", "MAINTAINERS", "COPYING*", "ChangeLog*")
