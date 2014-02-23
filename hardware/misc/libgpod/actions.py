@@ -18,6 +18,8 @@ def setup():
                          --with-temp-mount-dir=/run/libgpod \
                          --enable-udev \
                          --with-html-dir=/usr/share/doc/%s/html" % get.srcNAME())
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
