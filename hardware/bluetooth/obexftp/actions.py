@@ -8,6 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
@@ -28,5 +29,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    shelltools.system("chrpath --delete %s/usr/lib/perl5/vendor_perl/5.18.1/x86_64-linux-thread-multi/auto/OBEXFTP/OBEXFTP.so" % get.installDIR())
     
     pisitools.remove("/usr/lib/perl5/5.18.1/x86_64-linux-thread-multi/perllocal.pod")
