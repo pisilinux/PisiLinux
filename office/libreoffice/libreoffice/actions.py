@@ -112,7 +112,8 @@ def setup():
     
 def build():
     autotools.make()
-
+    pisitools.dosed("instdir/share/xdg/startcenter.desktop", "GenericName[tr]=Ofis", "GenericName[tr]=Ofis Uygulamaları")
+    
 def check():
     autotools.make("unitcheck")
     autotools.make("slowcheck")
@@ -167,6 +168,5 @@ def install():
     print("creating: %s.tar.xz" % langpackdir)
     shelltools.cd("%s/../" % get.installDIR())
     shelltools.system("tar c %s | xz -9 > %s.tar.xz" % ((langpackdir, )*2))
-    
-    pisitools.dosed("/usr/lib/libreoffice/share/xdg/startcenter.desktop" % get.installDIR(), "GenericName[tr]=Ofis", "GenericName[tr]=Ofis Uygulamaları")
+
 
