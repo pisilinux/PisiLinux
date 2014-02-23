@@ -10,7 +10,7 @@ WorkDir="."
 
 def install():
 
-    pisitools.insinto("/usr/share/fonts/stix","Fonts/STIX-General/*.otf")
+    pisitools.insinto("/usr/share/fonts/stix","STIX-MathJax/otf/*.otf")
 
     pisitools.dosym("../conf.avail/stix-fonts-fontconfig.conf", "/etc/fonts/conf.d/stix-fonts-fontconfig.conf")
     pisitools.dosym("../conf.avail/stix-fonts-integrals-fontconfig.conf", "/etc/fonts/conf.d/stix-fonts-integrals-fontconfig.conf")
@@ -18,4 +18,4 @@ def install():
     pisitools.dosym("../conf.avail/stix-fonts-sizes-fontconfig.conf", "/etc/fonts/conf.d/stix-fonts-sizes-fontconfig.conf")
     pisitools.dosym("../conf.avail/stix-fonts-variants-fontconfig.conf", "/etc/fonts/conf.d/stix-fonts-variants-fontconfig.conf")
     
-    pisitools.dodoc("*.doc","License/*.pdf")
+    pisitools.dodoc("*.pdf","License/*.pdf")
