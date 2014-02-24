@@ -112,7 +112,7 @@ def setup():
     
 def build():
     autotools.make()
-    pisitools.dosed("instdir/share/xdg/startcenter.desktop", "GenericName[tr]=Ofis", "GenericName[tr]=Ofis Uygulamaları")
+    pisitools.dosed("workdir/CustomTarget/sysui/share/oxygenoffice/startcenter.desktop", "GenericName[tr]=Ofis", "GenericName[tr]=Ofis Uygulamaları")
     
 def check():
     autotools.make("unitcheck")
