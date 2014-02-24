@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     # fix for glibc 2.16
-    pisitools.dosed("src/base/linuxthreads.cc", "siginfo_t", "siginfo")
+    #pisitools.dosed("src/base/linuxthreads.cc", "siginfo_t", "siginfo")
     autotools.configure("--disable-static \
                          --disable-dependency-tracking \
                          --enable-fast-install \
