@@ -121,9 +121,9 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s distro-pack-install -o build -o check" % get.installDIR())
     
-    #kill rpath bombs, is it good idea to strip these so files, any idea?
-    shelltools.system("chrpath --delete %s/usr/lib/libreoffice/program/librdf-lo.so.0" % get.installDIR())
-    shelltools.system("chrpath --delete %s/usr/lib/libreoffice/program/librasqal-lo.so.3" % get.installDIR())   
+    #kill rpath bombs, strip unstripped shared libararies
+    shelltools.system("strip --strip-unneeded %s/usr/lib/libreoffice/program/librdf-lo.so.0" % get.installDIR())
+    shelltools.system("strip --strip-unneeded %s/usr/lib/libreoffice/program/librasqal-lo.so.3" % get.installDIR())   
 
     if not shelltools.isDirectory(langpackpath): shelltools.makedirs(langpackpath)
     else: shelltools.unlinkDir(langpackpath)
