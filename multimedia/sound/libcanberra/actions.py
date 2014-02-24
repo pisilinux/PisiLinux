@@ -22,6 +22,8 @@ def setup():
                          --enable-tdb \
                          --with-builtin=dso \
                          --disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
