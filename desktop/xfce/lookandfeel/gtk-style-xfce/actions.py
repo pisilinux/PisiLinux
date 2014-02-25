@@ -11,6 +11,8 @@ from pisi.actionsapi import shelltools
 def setup():
     shelltools.system('xdt-autogen')
     autotools.configure('--disable-static')
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
