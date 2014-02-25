@@ -19,6 +19,9 @@ def setup():
                          --disable-dependency-tracking \
                          --enable-quicktime \
                          --disable-local-ffmpeg')
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+    
 def build():
     autotools.make("CXX=%s" % get.CXX())
 
