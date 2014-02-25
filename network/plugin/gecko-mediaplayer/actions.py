@@ -16,22 +16,19 @@ if "_" in get.srcVERSION():
 plugindir = "/usr/lib/browser-plugins"
 
 def setup():
-    shelltools.export("AT_M4DIR", "m4")
-    autotools.autoreconf("-vfi")
+    pisitools.flags.add("-std=c++11")
+    autotools.autoreconf()
 
     autotools.configure("--disable-schemas-install \
+                         --enable-new-libxul \
                          --with-plugin-dir=%s" % plugindir)
-                         #--with-xulrunner-sdk \
-                         #--enable-new-libxul \
+
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    # installing schemas by hand since make install causes sandboxviolations
-    # enable only if you are using gconf
-    # pisitools.insinto("/etc/gconf/schemas/", "gecko-mediaplayer.schemas")
 
     pisitools.remove("/%s/%s/INSTALL" % (get.docDIR(), get.srcNAME()))
 
