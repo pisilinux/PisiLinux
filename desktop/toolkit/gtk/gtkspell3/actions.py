@@ -15,6 +15,8 @@ def setup():
     autotools.autoreconf('-fi')
     autotools.configure("--disable-static \
                          --enable-gtk3")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 
 def build():
