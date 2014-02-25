@@ -18,6 +18,8 @@ def setup():
                          --disable-introspection \
                          --disable-plugin \
                          --disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
