@@ -14,6 +14,8 @@ def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
                          --with-guis=\"qt4 gtk2\"")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
