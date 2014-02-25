@@ -20,6 +20,8 @@ def setup():
                          --disable-rpath \
                          --with-threads \
                          --with-modules")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
     # Put flags in front of the libs. Needed for --as-needed.
     replace = (r"(\\\$deplibs) (\\\$compiler_flags)", r"\2 \1")
