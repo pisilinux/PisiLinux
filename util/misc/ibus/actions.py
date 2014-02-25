@@ -26,6 +26,8 @@ def setup():
                          --enable-python-library \
                          --enable-gtk3 \
                          --enable-gtk2")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
