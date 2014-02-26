@@ -5,17 +5,20 @@
 
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import kde4
+from pisi.actionsapi import cmaketools
 
 def setup():
-    shelltools.system("svn up")
-    kde4.configure("-DENABLE_KDE=OFF")
+    #shelltools.system("svn up")
+    cmaketools.configure("-DENABLE_KDE=OFF \
+                          -DENABLE_CDPARANOIA=OFF \
+                          -DCMAKE_INSTALL_PREFIX=/usr \
+                          -DCMAKE_BUILD_TYPE=Release")
 
 def build():
-    kde4.make()
+    cmaketools.make()
 
 def install():
-    kde4.install()
+    cmaketools.install()
     
     pisitools.dodoc("AUTHORS", "LICENSE", "ChangeLog", "TODO", "INSTALL", "README")
     
