@@ -14,7 +14,8 @@ from pisi.actionsapi import get
 htmltxt = "%s/%s/html" % (get.docDIR(), get.srcNAME())
 
 def build():
-    pythonmodules.compile("import_cldr")
+    shelltools.system("python setup.py import_cldr")
+    #pythonmodules.compile()
 
 def install():
     pythonmodules.install()
