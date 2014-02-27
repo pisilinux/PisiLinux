@@ -14,6 +14,8 @@ def setup():
                          --with-package-name='PisiLinux gstreamer-plugins-good package' \
                          --with-package-origin='http://www.pisilinux.org' \
                          --disable-schemas-install")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
