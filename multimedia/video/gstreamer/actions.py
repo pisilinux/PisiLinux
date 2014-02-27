@@ -37,6 +37,8 @@ def setup():
         shelltools.export("PKG_CONFIG_PATH", "/usr/lib32/pkgconfig")
 
     autotools.configure(options)
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
