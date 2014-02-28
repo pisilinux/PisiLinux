@@ -15,7 +15,6 @@ def install():
         pisitools.dobin(binary)
 
     pisitools.dodoc("NEWS.txt", "README.txt" ,"TODO.txt", "ChangeLog.txt", "COPYING.txt")
-    pisitools.dohtml("dos2unix.htm")
     pisitools.doman("man/man1/dos2unix.1")
 
 
