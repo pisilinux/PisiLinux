@@ -4,23 +4,15 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import cmaketools
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import kde4
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
 
 def setup():
-    shelltools.makedirs("build")
-    shelltools.cd("build")
-
-    cmaketools.configure("-DCONFIG_INSTALL_DIR=/etc INSTALL_QSQLITE_IN_QT_PREFIX=1", sourceDir="..")
+     kde4.configure()
 
 def build():
-    shelltools.cd("build")
-    cmaketools.make()
+    kde4.make()
 
 def install():
+    kde4.install()
     pisitools.dodoc("AUTHORS", "NEWS", "README")
-
-    shelltools.cd("build")
-    cmaketools.rawInstall("DESTDIR='%s'" % get.installDIR())

@@ -17,6 +17,8 @@ def setup():
                          --enable-cpp-progs \
                          --disable-rpath \
                          --with-cd-paranoia-name=libcdio-paranoia")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()

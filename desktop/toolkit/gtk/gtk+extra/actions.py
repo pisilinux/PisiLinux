@@ -11,6 +11,8 @@ def setup():
     autotools.autoreconf("-vif")
     autotools.configure("--enable-static=no \
 			 --enable-introspection=yes")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()

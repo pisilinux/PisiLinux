@@ -112,13 +112,18 @@ def setup():
     
 def build():
     autotools.make()
-
+    pisitools.dosed("workdir/CustomTarget/sysui/share/oxygenoffice/startcenter.desktop", "GenericName\[tr\]=Ofis", "GenericName[tr]=Ofis Uygulamaları")
+    
 def check():
     autotools.make("unitcheck")
     autotools.make("slowcheck")
 
 def install():
     autotools.rawInstall("DESTDIR=%s distro-pack-install -o build -o check" % get.installDIR())
+    
+    #kill rpath bombs, strip unstripped shared libararies
+    shelltools.system("strip --strip-unneeded %s/usr/lib/libreoffice/program/librdf-lo.so.0" % get.installDIR())
+    shelltools.system("strip --strip-unneeded %s/usr/lib/libreoffice/program/librasqal-lo.so.3" % get.installDIR())   
 
     if not shelltools.isDirectory(langpackpath): shelltools.makedirs(langpackpath)
     else: shelltools.unlinkDir(langpackpath)
@@ -167,6 +172,5 @@ def install():
     print("creating: %s.tar.xz" % langpackdir)
     shelltools.cd("%s/../" % get.installDIR())
     shelltools.system("tar c %s | xz -9 > %s.tar.xz" % ((langpackdir, )*2))
-    
-    pisitools.dosed("/usr/lib/libreoffice/share/xdg/startcenter.desktop" % get.installDIR(), "GenericName[tr]=Ofis", "GenericName[tr]=Ofis Uygulamaları")
+
 

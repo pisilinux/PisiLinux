@@ -35,6 +35,8 @@ def setup():
                          #Disable doc for now
                          # config.status: error: cannot find input file: `doc/commands/Makefile.in'
                          #--enable-build-doc \
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()

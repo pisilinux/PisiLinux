@@ -11,6 +11,8 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--enable-static=no \
                          --disable-gtkglext-test")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()

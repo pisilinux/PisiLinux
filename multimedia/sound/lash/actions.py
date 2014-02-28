@@ -18,6 +18,8 @@ def setup():
     autotools.autoreconf("-fi")
 
     autotools.configure("--disable-static --disable-serv-inst")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     pisitools.dosed("libtool", "^hardcode_libdir_flag_spec=.*", "")

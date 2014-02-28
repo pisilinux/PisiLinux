@@ -6,16 +6,16 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 
 def setup():
     pisitools.dosed("Makefile", "^CC.*", "CC = %s" % get.CC())
     #pisitools.dosed("doc/Makefile", "xmlto", "xmlto --skip-validation")
+    pisitools.dosed("gfxboot-font.c", "#include <freetype/ftsynth.h>", "#include <freetype2/ftsynth.h>")
+
 
 def build():
-    shelltools.export("HOME", get.workDIR())
     autotools.make()
     autotools.make("-j1 doc")
 

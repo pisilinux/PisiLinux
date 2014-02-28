@@ -15,6 +15,8 @@ def setup():
     shelltools.export("MONO_SHARED_DIR", get.workDIR())
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     shelltools.export("MONO_SHARED_DIR", get.workDIR())

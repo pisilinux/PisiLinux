@@ -35,6 +35,8 @@ def setup():
                          --with-dbus \
                          --with-aa \
                          --with-x")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
     # Add illustrator and other mime types
     pisitools.dosed("desktop/gimp.desktop.in", "^MimeType=application/postscript;application/pdf;(.*)$",

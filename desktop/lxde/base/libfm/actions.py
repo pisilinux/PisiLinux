@@ -16,6 +16,8 @@ def setup():
                          --enable-debug \
                          --enable-udisks \
                          --enable-demo")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()

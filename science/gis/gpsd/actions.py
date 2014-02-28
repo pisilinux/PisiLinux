@@ -16,6 +16,8 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-libQgpsmm \
                          --enable-dbus")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 
 def build():

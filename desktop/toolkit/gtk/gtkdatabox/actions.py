@@ -14,6 +14,8 @@ def setup():
                          --enable-libglade \
                          --enable-glade \
                          --disable-gtktest")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()

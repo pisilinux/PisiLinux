@@ -16,6 +16,8 @@ def setup():
                          --enable-gda-gi\
                          --enable-system-sqlite \
                         ")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
