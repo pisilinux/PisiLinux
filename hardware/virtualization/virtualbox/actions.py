@@ -18,12 +18,15 @@ def setup():
     #pisitools.dosed("LocalConfig.kmk", "__VBOXDATADIR__", VBoxDataDir)
 
     shelltools.echo("vbox.cfg", "INSTALL_DIR=%s" % VBoxLibDir)
-
+    pisitools.ldflags.add("-lz")
     # TODO: Enable web service when we have soapcpp2
     autotools.rawConfigure("--disable-java \
                             --disable-kmods \
                             --disable-docs \
+                            --enable-vnc \
+                            --enable-vde \
                             --enable-hardening \
+                            --enable-webservice \
                             --ose \
                             --with-gcc=%s \
                             --with-g++=%s" % (get.CC(), get.CXX()))
