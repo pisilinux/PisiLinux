@@ -16,6 +16,8 @@ def setup():
     autotools.autoreconf("-vfi")
     autotools.rawConfigure("--libdir=/usr/lib \
                             --prefix=/usr")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 
 def install():
