@@ -1,0 +1,60 @@
+From: Mike Galbraith <bitbucket@online.de>
+Subject: Re: [PATCH REGRESSION FIX] x86 idle: restore mwait_idle()
+Date: Sat, 18 Jan 2014 17:14:44 +0100
+
+On Sat, 2014-01-18 at 10:33 +0100, Mike Galbraith wrote: 
+> On Fri, 2014-01-17 at 05:20 +0100, Mike Galbraith wrote:
+> 
+> > taskset 0xc pipe-test 1
+> > 
+> > 3.8.13     3.397977 usecs/loop -- avg 3.400336 588.2 KHz
+> > master+    4.798547 usecs/loop -- avg 4.791692 417.4 KHz
+> 
+> Bah, those are apple/grape, these are apple/apple.
+
+Or, to make it more correct for 3.10..13, add the clflush barriers as
+well for afflicted CPUs.
+
+idle: kill unnecessary mwait_idle() resched IPIs
+
+Set/clear polling instead.
+
+Q6600, pipe-test scheduling cross core:
+3.8.13                   487.2 KHz    1.000
+3.13.0-master            415.5 KHz     .852
+3.13.0-master+           415.2 KHz     .852     + restore mwait_idle
+3.13.0-master++          488.5 KHz    1.002     + restore mwait_idle + IPI fix
+
+Signed-off-by: Mike Galbraith <bitbucket@online.de>
+Cc: <stable@vger.kernel.org> # 3.10+
+---
+ arch/x86/kernel/process.c |    9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+--- a/arch/x86/kernel/process.c
++++ b/arch/x86/kernel/process.c
+@@ -427,18 +427,21 @@ static int prefer_mwait_c1_over_halt(con
+ 
+ static void mwait_idle(void)
+ {
+-	if (!need_resched()) {
+-		if (this_cpu_has(X86_FEATURE_CLFLUSH_MONITOR))
++	if (!current_set_polling_and_test()) {
++		if (this_cpu_has(X86_FEATURE_CLFLUSH_MONITOR)) {
++			mb();
+ 			clflush((void *)&current_thread_info()->flags);
++			mb();
++		}
+ 
+ 		__monitor((void *)&current_thread_info()->flags, 0, 0);
+-		smp_mb();
+ 		if (!need_resched())
+ 			__sti_mwait(0, 0);
+ 		else
+ 			local_irq_enable();
+ 	} else
+ 		local_irq_enable();
++	__current_clr_polling();
+ }
+ 
+ void select_idle_routine(const struct cpuinfo_x86 *c)
