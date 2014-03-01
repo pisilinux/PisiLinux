@@ -6,6 +6,7 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
 
@@ -13,8 +14,13 @@ def setup():
     pisitools.cflags.add("-fPIC")
     pisitools.cxxflags.add("-fPIC")
     pisitools.ldflags.add("-fPIC")
-    autotools.autoreconf("-f")
-    autotools.configure("--prefix=/usr")
+    autotools.autoreconf("-if")
+    #libtools.libtoolize("--force --copy --automake")
+    autotools.configure("\
+                         --prefix=/usr \
+                         --enable-samples \
+                         --enable-ipv6 \
+                         ")
 
 def build():
     autotools.make("-j1")
