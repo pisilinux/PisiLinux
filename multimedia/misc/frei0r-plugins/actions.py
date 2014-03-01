@@ -11,6 +11,8 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--enable-static=no")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
