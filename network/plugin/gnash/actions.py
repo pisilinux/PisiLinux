@@ -15,6 +15,7 @@ shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.autoreconf("-vfi")
+    pisitools.flags.add("-std=c++11")
     autotools.configure("--disable-dependency-tracking \
                          --disable-static \
                          --disable-rpath \
