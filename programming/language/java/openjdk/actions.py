@@ -12,10 +12,13 @@ from pisi.actionsapi import shelltools
 shelltools.export("ALT_PARALLEL_COMPILE_JOBS", get.makeJOBS())
 shelltools.export("HOTSPOT_BUILD_JOBS", get.makeJOBS())
 shelltools.export("LC_ALL", "C")
-shelltools.system('export DISTRIBUTION_PATCHES="patches/openjdk7_nonreparenting-wm.diff"')
+
 
 
 def setup():
+    shelltools.system('export DISTRIBUTION_PATCHES="patches/fontconfig-paths.diff \
+                               patches/openjdk7_nonreparenting-wm.diff"')
+                             
     autotools.rawConfigure("\
                             --disable-tests \
                             --disable-Werror \
@@ -25,7 +28,7 @@ def setup():
                             --enable-nss \
                             --with-rhino \
                             --enable-bootstrap \
-                            --with-jdk-home=${JAVA_HOME} \
+                            --with-jdk-home=/usr/lib/jvm/java-7-openjdk \
                             --with-openjdk-src-zip=410eb7fef869.tar.gz \
                             --with-hotspot-src-zip=2cb58882dac3.tar.gz \
                             --with-corba-src-zip=3594dbde270d.tar.gz \
@@ -125,7 +128,9 @@ def install():
 
     for license in ["LICENSE", "THIRD_PARTY_README", "ASSEMBLY_EXCEPTION"]:
         pisitools.insinto("/usr/share/doc/jre7-openjdk-headless", "j2re-image/%s" % license)
-
-    # TODO Link JKS keystore from ca-certificates-java
-    #rm -f ${pkgdir}${_jvmdir}/jre/lib/security/cacerts
-    #ln -sf /etc/ssl/certs/java/cacerts "${pkgdir}${_jvmdir}/jre/lib/security/cacerts"
+      
+    #pisitools.remove("%s/jre/lib/security/cacerts" % jvmdir)
+    
+    #seems we need to add this symlink into ca-certificates-java package ?
+    #pisitools.dosym("/etc/ssl/certs/java/cacerts", "%s/jre/lib/security/cacerts" % jvmdir)
+    
