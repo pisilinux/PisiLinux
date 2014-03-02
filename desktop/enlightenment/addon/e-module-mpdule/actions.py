@@ -15,6 +15,8 @@ def setup():
     shelltools.touch("README")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
