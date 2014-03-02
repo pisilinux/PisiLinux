@@ -17,6 +17,8 @@ def setup():
                          --enable-pluggable-dialogs \
                          --enable-sound-settings \
                          --disable-debug")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
