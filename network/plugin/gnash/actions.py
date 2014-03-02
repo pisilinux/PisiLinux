@@ -9,12 +9,11 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 # to avoid sandbox violations - disabled temporary due to pisi ix error
 #shelltools.system("gst-inspect")
 
 def setup():
-    autotools.autoreconf("-vfi")
+    #autotools.autoreconf("-vfi")
     pisitools.flags.add("-std=c++11")
     autotools.configure("--disable-dependency-tracking \
                          --disable-static \
