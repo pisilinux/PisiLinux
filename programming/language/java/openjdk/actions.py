@@ -13,8 +13,6 @@ shelltools.export("ALT_PARALLEL_COMPILE_JOBS", get.makeJOBS())
 shelltools.export("HOTSPOT_BUILD_JOBS", get.makeJOBS())
 shelltools.export("LC_ALL", "C")
 
-
-
 def setup():
     shelltools.system('export DISTRIBUTION_PATCHES="patches/fontconfig-paths.diff \
                                patches/openjdk7_nonreparenting-wm.diff"')
@@ -28,6 +26,7 @@ def setup():
                             --enable-nss \
                             --with-rhino \
                             --enable-bootstrap \
+                            --with-ecj-jar=/usr/share/java/ecj.jar \
                             --with-jdk-home=/usr/lib/jvm/java-7-openjdk \
                             --with-openjdk-src-zip=410eb7fef869.tar.gz \
                             --with-hotspot-src-zip=2cb58882dac3.tar.gz \
