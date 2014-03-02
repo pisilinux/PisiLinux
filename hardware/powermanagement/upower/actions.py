@@ -13,7 +13,6 @@ def setup():
                          --disable-gtk-doc \
                          --enable-deprecated \
                          --enable-introspection")
-    
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
