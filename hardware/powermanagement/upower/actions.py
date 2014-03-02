@@ -9,7 +9,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    pisitools.dosed("configure", "DISABLE_DEPRECATED", deleteLine=True)
     autotools.configure("--disable-static \
                          --disable-gtk-doc \
                          --enable-deprecated \
