@@ -22,6 +22,7 @@ def check():
                     #UpdateCertificatesTest")
 
 def install():
-    pisitools.insinto("/etc/default/cacerts/", "debian/default")
+    pisitools.dodir("/etc/ssl/certs/java")
+    pisitools.insinto("/etc/default/", "debian/default", "cacerts")
     pisitools.insinto("/usr/share/ca-certificates-java/", "ca-certificates-java.jar")
 
