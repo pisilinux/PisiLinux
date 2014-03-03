@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 NoStrip="/"
 
-shelltools.export("JAVA_HOME", "/opt/sun-jdk")
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 jabrefDir = "/usr/share/java/"
 
