@@ -9,9 +9,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 
-shelltools.export("JAVAC","/opt/sun-jdk/bin/javac")
-shelltools.export("JAVA_HOME","/opt/sun-jdk")
-
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 def setup():
     shelltools.system('find . -name "*.jar" -exec rm -f {} \;')
 
