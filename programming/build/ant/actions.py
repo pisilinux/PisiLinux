@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 import os
 import glob
 
-shelltools.export("JAVA_HOME","/opt/sun-jdk")
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 WorkDir = "apache-ant-%s" % get.srcVERSION()
 anthome = "/usr/share/ant"
