@@ -13,9 +13,9 @@ import os
 
 WorkDir = "db-%s/build_unix" % get.srcVERSION()
 
-def setup():
-    shelltools.export("PATH", "%s:/opt/sun-jdk/bin" % os.environ.get("PATH"))
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
+def setup():
     shelltools.system("../dist/configure \
                        --prefix=/usr \
                        --mandir=/usr/share/man \
@@ -32,7 +32,6 @@ def setup():
                        --disable-static")
 
 def build():
-    shelltools.export("PATH", "%s:/opt/sun-jdk/bin" % os.environ.get("PATH"))
     autotools.make()
 
 def install():
