@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("JAVAC","/opt/sun-jdk/bin/javac")
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 def setup():
     pisitools.dosed("Makefile", "\/usr\/local", "/usr")
