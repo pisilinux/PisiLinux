@@ -23,9 +23,9 @@ def setup():
                          --disable-csharp \
                          --enable-cxx \
                          --disable-examples \
-                         --with-jar=/opt/sun-jdk/bin/jar \
-                         --with-java=/opt/sun-jdk/bin/java \
                          --enable-verbose")
+                         #--with-jar=/usr/lib/jvm/java-7-openjdk/bin/jar 
+                         #--with-java=/usr/lib/jvm/java-7-openjdk/bin/java 
 def build():
     autotools.make('CXXFLAGS="%s -fPIC"' % get.CXXFLAGS())
     shelltools.unlink("antlr.jar")
