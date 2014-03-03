@@ -12,8 +12,7 @@ from pisi.actionsapi import get
 WorkDir = "%s/%s" % (get.ARCH(), get.srcNAME())
 BASEDIR = "/usr/share/java/zekr"
 
-shelltools.export("JAVAC","/opt/sun-jdk/bin/javac")
-shelltools.export("JAVA_HOME","/opt/sun-jdk")
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 def setup():
     shelltools.system("ant clean")
