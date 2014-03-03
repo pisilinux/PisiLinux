@@ -13,7 +13,7 @@ WorkDir="areca"
 
 
 def install():
-    pisitools.dosed("bin/areca_run.sh","JAVADIR=/usr/java","JAVADIR=/opt/sun-jdk/")
+    pisitools.dosed("bin/areca_run.sh","JAVADIR=/usr/lib/jvm/java-7-openjdk")
     shelltools.chmod("bin/areca*.sh",0755)
     shelltools.chmod("bin/run_tui.sh",0755)
     shelltools.chmod("areca*.sh",0755)
