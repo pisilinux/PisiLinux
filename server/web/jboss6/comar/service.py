@@ -15,7 +15,7 @@ PIDFILE = "/var/run/jboss6.pid"
 
 os.environ["LC_ALL"] = "C"
 os.environ["LANG"] = "C"
-os.environ["JAVA_HOME"] = "/opt/sun-jdk"
+os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-7-openjdk"
 os.environ["JBOSS_HOME"] = BASEDIR
 
 @synchronized
