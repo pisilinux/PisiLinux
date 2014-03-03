@@ -14,7 +14,7 @@ def setup():
     shelltools.system("unzip junit-%s-src.jar -d src/main/java" % get.srcVERSION())
 
 def build():
-    shelltools.export("JAVA_HOME", "/opt/sun-jdk")
+    shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
     shelltools.system("ant build jars")
 
 def install():
