@@ -14,7 +14,7 @@ import os
 WorkDir="otp_src_R%sB0%s" % (get.srcVERSION().split(".")[0], get.srcVERSION().split(".")[1])
 
 # For finding javac, javadoc
-shelltools.export("PATH", "%s:/opt/sun-jdk/bin" % (os.environ.get("PATH")))
+shelltools.export("PATH", "%s:/usr/lib/jvm/java-7-openjdk/bin" % (os.environ.get("PATH")))
 
 def setup():
     # Remove bundled zlib
