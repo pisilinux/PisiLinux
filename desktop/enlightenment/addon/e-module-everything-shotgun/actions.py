@@ -13,6 +13,8 @@ WorkDir="everything-shotgun"
 
 def setup():
         shelltools.system("./autogen.sh")
+
+	pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
         
 
 def install():
