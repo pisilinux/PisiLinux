@@ -51,7 +51,7 @@ def setup():
     shelltools.touch("autogen.lastrun")
     autotools.rawConfigure('--with-vendor="PisiLinux" \
                        --with-ant-home="/usr/share/ant" \
-                       --with-jdk-home="/opt/sun-jdk" \
+                       --with-jdk-home="/usr/lib/jvm/java-7-openjdk" \
                        --prefix=/usr --exec-prefix=/usr --sysconfdir=/etc \
                        --libdir=/usr/lib --mandir=/usr/share/man \
                        --enable-release-build \
