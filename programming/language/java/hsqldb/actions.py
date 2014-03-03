@@ -8,11 +8,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "hsqldb-2.3.1"
+#WorkDir = "hsqldb-2.3.1"
 
 def build():
     shelltools.cd("hsqldb")
-    shelltools.export("JAVA_HOME", "/opt/sun-jdk")
+    shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
     shelltools.cd("build")
     shelltools.system("ant hsqldb")
 
