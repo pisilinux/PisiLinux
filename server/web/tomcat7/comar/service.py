@@ -15,7 +15,7 @@ PIDFILE = "/var/run/tomcat7.pid"
 
 os.environ["LC_ALL"] = "C"
 os.environ["CATALINA_PID"] = PIDFILE
-os.environ["JAVA_HOME"] = "/opt/sun-jdk"
+os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-7-openjdk"
 
 @synchronized
 def start():
