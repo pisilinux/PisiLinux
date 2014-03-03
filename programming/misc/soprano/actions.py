@@ -9,10 +9,7 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-# FIXME: use javamodules when it is ready.
-# Somehow, JAVA_HOME is exported as /opt/sun-jre thanks to sun-jre package
-# Thus, we export again to create sesame2 package.
-shelltools.export("JAVA_HOME", "/opt/sun-jdk")
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 def setup():
     cmaketools.configure("-DCMAKE_SKIP_RPATH=OFF")
