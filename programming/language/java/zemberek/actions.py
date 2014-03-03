@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 WorkDir = "%s-%s-nolibs-src" % (get.srcNAME(), get.srcVERSION())
 
-shelltools.export("JAVA_HOME","/opt/sun-jdk")
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 def build():
     shelltools.system("ant")
