@@ -10,7 +10,7 @@ from pisi.actionsapi import shelltools
 
 WorkDir = "rhino1_7R4"
 
-shelltools.export("JAVA_HOME", "/opt/sun-jdk")
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 def build():    
     shelltools.system("ant -Dxbean.jar=xmlbeans-2.5.0/lib/xbean.jar -Djsr173.jar=xmlbeans-2.5.0/lib/jsr173_1.0_api.jar jar javadoc")
