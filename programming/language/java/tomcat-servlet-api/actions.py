@@ -10,8 +10,7 @@ from pisi.actionsapi import get
 
 WorkDir="apache-tomcat-%s-src/servletapi" % get.srcVERSION()
 
-shelltools.export("JAVAC","/opt/sun-jdk/bin/javac")
-shelltools.export("JAVA_HOME","/opt/sun-jdk")
+shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 def setup():
     shelltools.export("LC_ALL", "C")
