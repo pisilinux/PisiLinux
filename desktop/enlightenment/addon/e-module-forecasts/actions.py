@@ -14,6 +14,8 @@ WorkDir="forecasts"
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
