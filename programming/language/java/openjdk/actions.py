@@ -38,8 +38,6 @@ def setup():
                             --with-abs-install-dir=/usr/lib/jvm/java-7-openjdk \
                             --with-pkgversion='PisiLinux build 7.u51_2.4.5' \
                            " % get.makeJOBS().replace("-j", ""))
-                            # bootstrap --with-ecj-jar=/usr/share/java/ecj.jar \ \
-                            #--with-jdk-home=/usr/lib/jvm/java-7-openjdk \
 
 def build():
     autotools.make()
