@@ -14,6 +14,7 @@ WorkDir="everything-aspell"
 def setup():
         shelltools.system("./autogen.sh")
         
+        pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")        
 
 def install():
         autotools.rawInstall("DESTDIR=%s" % get.installDIR())
