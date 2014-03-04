@@ -8,7 +8,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-srcversion = get.srcVERSION()
 
 def build():
     autotools.make()
@@ -24,4 +23,5 @@ def install():
     
     pisitools.insinto("/etc/", "ca-certificates.conf")
     
-    pisitools.dodir("/etc/ca-certificates/update.d/")
+    pisitools.dodir("/etc/ca-certificates/update.d")
+    pisitools.dodir("etc/ssl/certs")
