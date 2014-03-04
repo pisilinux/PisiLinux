@@ -15,3 +15,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    #remove conflicting which and man pages
+    pisitools.remove("/usr/share/man/*/man1/which.1")
+    pisitools.remove("/usr/share/man/man1/which.1")
+    pisitools.remove("/usr/bin/which")
