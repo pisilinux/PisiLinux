@@ -14,6 +14,8 @@ WorkDir="comp-scale"
 def setup():
     shelltools.system("./autogen.sh")
     autotools.configure("--disable-static")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
