@@ -20,8 +20,7 @@ def setup():
     shelltools.echo("vbox.cfg", "INSTALL_DIR=%s" % VBoxLibDir)
 
     # TODO: Enable web service when we have soapcpp2
-    autotools.rawConfigure("--disable-java \
-                            --disable-kmods \
+    autotools.rawConfigure("--disable-kmods \
                             --disable-docs \
                             --enable-hardening \
                             --ose \
