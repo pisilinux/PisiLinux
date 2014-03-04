@@ -9,6 +9,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
     shelltools.system("javac -target 1.6 -source 1.6 UpdateCertificates.java")
     shelltools.system("jar cfe ca-certificates-java.jar UpdateCertificates *.class")
 
