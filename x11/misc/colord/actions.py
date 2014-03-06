@@ -20,6 +20,8 @@ def setup():
                          --enable-introspection \
                          --enable-vala \
                          --enable-sane")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
