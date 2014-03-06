@@ -14,6 +14,8 @@ def setup():
                          --libdir=/lib \
                          --disable-rpath\
                          --enable-python")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
