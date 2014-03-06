@@ -17,6 +17,8 @@ def setup():
                          --with-tcpwrappers \
                          --disable-experimental \
                          --with-dbdir=/var/lib/clamav")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
