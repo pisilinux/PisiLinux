@@ -10,6 +10,8 @@ from pisi.actionsapi import shelltools
 
 def setup():
     shelltools.system("./configure --prefix=/usr --enable-python LDFLAGS=-lm")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
