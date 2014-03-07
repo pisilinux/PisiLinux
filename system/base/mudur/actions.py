@@ -8,7 +8,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "mudur"
+#WorkDir = "mudur"
 
 def install():
     pisitools.dosed("bin/adduser.py", "plugdev", "removable")
