@@ -12,6 +12,8 @@ from pisi.actionsapi import get
 WorkDir="Imaging-%s" % get.srcVERSION()
 
 def install():
+    pisitools.dosed("_imagingft.c", "<freetype/freetype.h>", "<freetype2/freetype.h>")
+    pisitools.dosed("_imagingft.c", "<freetype/fterrors.h>", "<freetype2/fterrors.h>")
     pythonmodules.install()
 
     shelltools.cd("Sane")
