@@ -14,7 +14,7 @@ KDIR = kerneltools.getKernelVersion()
 NoStrip = ["/lib/modules"]
 
 version = get.srcVERSION()
-driver = "nvidia-current"
+driver = "nvidia"
 datadir = "/usr/share/%s" % driver
 
 if get.buildTYPE() == 'emul32':
