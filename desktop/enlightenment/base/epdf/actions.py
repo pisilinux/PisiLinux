@@ -13,6 +13,8 @@ def setup():
                         --enable-xpdf-headers \
                         --disable-static \
                         --prefix=/usr")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     cmaketools.make()
