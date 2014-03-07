@@ -7,9 +7,7 @@
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
 
-WorkDir="SOAPpy-0.12.0"
-
 def install():
     pythonmodules.install()
 
-    pisitools.dodoc("ChangeLog", "PKG-INFO", "LICENSE","README", "TODO")
+    pisitools.dodoc("ChangeLog", "PKG-INFO", "LICENSE", "TODO")
