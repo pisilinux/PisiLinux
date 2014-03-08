@@ -9,9 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get   
 
-def build():
-    shelltools.system("sed -ie 's|^HEADER=.*|HEADER=/usr/share/makeself/makeself-header.sh|' makeself.sh")
-
 def install():
     pisitools.dobin("makeself.sh")
     pisitools.dodir("/usr/share/man")
