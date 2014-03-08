@@ -13,8 +13,8 @@ WorkDir= "maltese"
 def build():
     for srcfile in shelltools.ls("."):
         if srcfile.endswith(("tex", "dtx")):
-            shelltools.system("texi2dvi -q -c --language=latex %s" % srcfile)
-    shelltools.system("texi2dvi -q -c --language=latex ./maltese.dtx")
+            shelltools.system("texi2dvi -v -c --language=latex %s" % srcfile)
+    shelltools.system("texi2dvi -v -c --language=latex ./maltese.dtx")
 
 def install():
     for srcfile in shelltools.ls("."):
