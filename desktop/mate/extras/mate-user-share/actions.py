@@ -12,7 +12,8 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--prefix=/usr \
-                        --disable-scrollkeeper")
+                        --disable-scrollkeeper \
+                        --disable-bluetooth")
     
     # for fix unused dependency
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
