@@ -64,12 +64,14 @@ def setup():
 
 def build():
     shelltools.echo("Makefile.extra", "BUILT_SOURCES: $(BUILT_SOURCES)")
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
     autotools.make("-f Makefile -f Makefile.extra")
 
-    targets = " systemd-udevd \
-                udevadm \
+    targets = " \
                 libudev.la \
-                libsystemd.la \
+                libgudev-1.0.la \
+                systemd-udevd \
+                udevadm \
                 ata_id \
                 cdrom_id \
                 collect \
@@ -77,7 +79,8 @@ def build():
                 v4l_id \
                 accelerometer \
                 mtd_probe \
-                libgudev-1.0.la"
+               "
+#                libsystemd.la \
 
     targets += "\
                 man/sd_is_fifo.3 \
@@ -86,7 +89,7 @@ def build():
                 man/sd-daemon.3 \
                 man/udev.7 \
                 man/udevadm.8 \
-                man/systemd-udevd.8 \
+                man/systemd-udevd.service.8 \
                " if not get.buildTYPE() == "emul32" else ""
 
     autotools.make(targets)
@@ -102,14 +105,12 @@ def install():
     targets = " install-libLTLIBRARIES \
                 install-includeHEADERS \
                 install-libgudev_includeHEADERS \
-                install-binPROGRAMS \
+                install-rootbinPROGRAMS \
                 install-rootlibexecPROGRAMS \
                 install-udevlibexecPROGRAMS \
-                install-dist_systemunitDATA \
                 install-dist_udevconfDATA \
                 install-dist_udevrulesDATA \
                 install-girDATA \
-                install-nodist_systemunitDATA \
                 install-pkgconfiglibDATA \
                 install-sharepkgconfigDATA \
                 install-typelibsDATA \
@@ -117,32 +118,23 @@ def install():
                 libudev-install-hook \
                 install-directories-hook \
                 install-dist_bashcompletionDATA \
+                install-dist_networkDATA \
                 rootlibexec_PROGRAMS='systemd-udevd' \
-                bin_PROGRAMS='udevadm' \
-                lib_LTLIBRARIES='libsystemd.la libudev.la \
+                rootbin_PROGRAMS='udevadm' \
+                lib_LTLIBRARIES='libudev.la \
                                  libgudev-1.0.la' \
-                pkgconfiglib_DATA='src/libsystemd/libsystemd.pc src/libudev/libudev.pc \
+                pkgconfiglib_DATA='src/libudev/libudev.pc \
                                    src/gudev/gudev-1.0.pc' \
-                dist_systemunit_DATA='units/systemd-udevd-control.socket \
-                                      units/systemd-udevd-kernel.socket' \
-                nodist_systemunit_DATA='units/systemd-udevd.service \
-                                        units/systemd-udev-trigger.service \
-                                        units/systemd-udev-settle.service' \
-                pkginclude_HEADERS='src/systemd/sd-daemon.h' \
+                dist_bashcompletion_DATA='shell-completion/bash/udevadm' \
+                dist_network_DATA='network/99-default.link' \
+                pkginclude_HEADERS='src/libudev/libudev.h' \
               "
 
     targets += "\
-                install-man3 \
                 install-man7 \
                 install-man8 \
-                MANPAGES='man/sd-daemon.3 man/sd_notify.3 man/sd_listen_fds.3 \
-                          man/sd_is_fifo.3 man/sd_booted.3 man/udev.7 man/udevadm.8 \
+                MANPAGES='man/udev.7 man/udevadm.8 \
                           man/systemd-udevd.service.8' \
-                MANPAGES_ALIAS='man/sd_is_socket.3 man/sd_is_socket_unix.3 \
-                                man/sd_is_socket_inet.3 man/sd_is_mq.3 man/sd_notifyf.3 \
-                                man/SD_LISTEN_FDS_START.3 man/SD_EMERG.3 man/SD_ALERT.3 \
-                                man/SD_CRIT.3 man/SD_ERR.3 man/SD_WARNING.3 man/SD_NOTICE.3 \
-                                man/SD_INFO.3 man/SD_DEBUG.3 man/systemd-udevd.8' \
                " if not get.buildTYPE() == "emul32" else ""
 
     autotools.make("-j1 DESTDIR=%s%s %s" % (get.installDIR(), suffix, targets))
@@ -157,15 +149,24 @@ def install():
     #for d in ("", "net", "pts", "shm", "hugepages"):
          #pisitools.dodir("/lib/udev/devices/%s" % d)
 
-    #Create vol_id and scsi_id symlinks in /sbin probably needed by multipath-tools
+    # Create vol_id and scsi_id symlinks in /sbin probably needed by multipath-tools
     pisitools.dosym("/lib/udev/scsi_id", "/sbin/scsi_id")
 
-    #Create /sbin/systemd-udevd -> /sbin/udevd sysmlink, we need it for MUDUR, do not touch this sysmlink.
+    # Create /sbin/systemd-udevd -> /sbin/udevd sysmlink, we need it for MUDUR, do not touch this sysmlink.
     pisitools.dosym("/sbin/systemd-udevd", "/sbin/udevd")
     pisitools.dosym("/lib/systemd/systemd-udevd", "/sbin/systemd-udevd")
+    # Mudur needs this symlink as well
+    pisitools.dosym("/bin/udevadm", "/sbin/udevadm")
 
-    #Create /etc/udev/rules.d for backward compatibility
+    # Create /etc/udev/rules.d for backward compatibility
     pisitools.dodir("/etc/udev/rules.d")
 
     pisitools.dodir("/run/udev")
     pisitools.dodoc("README", "TODO")
+
+    # Remove conflicted files with sysvinit
+    pisitools.remove("/usr/share/man/man8/reboot.8")
+    pisitools.remove("/usr/share/man/man8/poweroff.8")
+
+    # Remove unneeded files
+    pisitools.remove("/lib/udev/rules.d/99-systemd.rules")
