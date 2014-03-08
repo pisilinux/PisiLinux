@@ -12,7 +12,8 @@ from pisi.actionsapi import get
 def setup():
     pisitools.dosed("build/tibs/compiler/gcc.mak", "^GCC.CFLAGS.release.*$", "GCC.CFLAGS.release = ")
     pisitools.dosed("build/tibs/compiler/gcc.mak", "^GCC.CXXFLAGS = \$.*$", "GCC.CXXFLAGS = $(GCC.CFLAGS)")
-
+    
+    pisitools.dosed("configure", "3.81", "4.0")
     autotools.rawConfigure("--prefix=/%s --mode=release --staticlibs=NO --libdir=/usr/lib --target=..generic --vectorization=" % get.defaultprefixDIR())
     pisitools.dosed("config.mak", "CONF_DOCDIR=.*", "CONF_DOCDIR=/usr/share/doc/lensfun/")
     
