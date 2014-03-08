@@ -8,8 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--enable-printing \
-                         --enable-unicode-glyphs")
+    autotools.configure("--prefix=/usr")
 
 def build():
     autotools.make()
