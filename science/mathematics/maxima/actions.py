@@ -10,11 +10,6 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--enable-clisp \
-                         --mandir=/usr/share/man \
-                         --infodir=/usr/share/info \
-                         --libexecdir=/usr/lib \
-                         --enable-sbcl \
-                         --with-default-lisp=sbcl \
                          --with-default-lisp=clisp")
 
 def build():
