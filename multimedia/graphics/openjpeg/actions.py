@@ -10,7 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    options = "--disable-static --disable-silent-rules"
+    options = "--enable-shared --disable-static --disable-silent-rules"
 
     if get.buildTYPE() == "emul32":
         shelltools.export("PKG_CONFIG_LIBDIR", "/usr/lib32/pkgconfig")
