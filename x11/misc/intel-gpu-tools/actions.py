@@ -5,6 +5,9 @@
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
 from pisi.actionsapi import autotools
+from pisi.actionsapi import shelltools
+
+shelltools.export("LC_ALL", "C")
 
 def setup():
     autotools.configure()
