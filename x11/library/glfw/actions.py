@@ -4,16 +4,17 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import autotools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
-    pisitools.dosed("compile.sh", '(GLFW_LFLAGS="\$LFLAGS\s-lGL)"', r'\1 -lrt"')
-    autotools.make("x11")
+    cmaketools.configure("-DBUILD_SHARED_LIBS=ON")
 
 def install():
-    autotools.make("DESTDIR=%s x11-install" % get.installDIR())
-
-    pisitools.dohtml("readme.html")
-    pisitools.dodoc("docs/*")
+    cmaketools.make()
+    
+def install():
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    pisitools.dodoc("COPYING.txt", "README.md")
