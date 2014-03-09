@@ -11,13 +11,13 @@ from pisi.actionsapi import get
 
 def setup():
     #Remove MacOS plugin
-    shelltools.unlinkDir("plugins/address_book")
-    shelltools.unlinkDir("plugins/growl")
+    #shelltools.unlinkDir("plugins/address_book")
+    #shelltools.unlinkDir("plugins/growl")
     #Remove Win stuff
-    shelltools.unlink("plugins/music/MusicWin*")
-    shelltools.unlinkDir("skins/default/winicons")
+    #shelltools.unlink("plugins/music/MusicWin*")
+    #shelltools.unlinkDir("skins/default/winicons")
 
-    autotools.autoreconf("-vfi")
+    #aut#otools.autoreconf("-vfi")
     autotools.configure()
 
 def build():
