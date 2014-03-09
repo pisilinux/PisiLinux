@@ -8,11 +8,9 @@ from pisi.actionsapi import pisitools
 
 
 def setup():
-    autotools.configure("\
-                         --disable-static \
-                         --enable-glamor \
-                         --enable-dri \
-                         ")
+    autotools.configure("--enable-sna \
+                         --with-default-accel=sna \
+                         --enable-glamor")
 
 def build():
     autotools.make()
