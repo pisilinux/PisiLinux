@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 def setup():
     autotools.configure("\
                          --disable-static \
+                         --enable-glamor \
                          --enable-dri \
                          ")
 
