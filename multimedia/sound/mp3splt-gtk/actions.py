@@ -11,8 +11,9 @@ def setup():
     pisitools.dosed("mp3splt-gtk.desktop.in", "PREFIX/", "")
     autotools.configure("--disable-rpath \
                          --disable-doxygen_doc \
-                         --enable-audacious \
+                         --disable-audacious \
                          --disable-gnome \
+                         --disable-gtk3\
                          --enable-gtk2")
 
 def build():
