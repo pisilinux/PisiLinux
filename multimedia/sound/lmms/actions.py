@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.dosed("plugins/zynaddsubfx/LocalZynAddSubFx.cpp", "unlink", "remove")
-
+    shelltools.export("CFLAGS", "%s -I/usr/include/freetype" % get.CFLAGS())
     shelltools.makedirs("build")
     shelltools.cd("build")
 
