@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    #autotools.autoreconf("-vfi")
+    #autotools.autoreconf("-vif")
     autotools.configure()
 
 def build():
