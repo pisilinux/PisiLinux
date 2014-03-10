@@ -12,10 +12,12 @@ from pisi.actionsapi import pisitools
 WorkDir = "mscore-%s/mscore" % get.srcVERSION()
 
 def setup():
+    pisitools.dosed("mscore/genft.cpp", "freetype/tttables.h", "freetype2/tttables.h")
     shelltools.makedirs("build")
     shelltools.cd("build")
 
     cmaketools.configure("-DCMAKE_SKIP_RPATH=TRUE", sourceDir="..")
+    #shelltools.export("CFLAGS", "%s -I/usr/include/freetype2" % get.CFLAGS())
 
 def build():
     shelltools.cd("build")
