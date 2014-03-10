@@ -2,9 +2,9 @@
 
 import os
 
-driver = "nvidia"
-libdir = "/usr/lib/%s" % driver
-datadir = "/usr/share/%s" % driver
+driver_dir_name = "nvidia-current"
+libdir = "/usr/lib/%s" % driver_dir_name
+datadir = "/usr/share/%s" % driver_dir_name
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     os.system(" /usr/sbin/alternatives \

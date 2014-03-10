@@ -14,16 +14,16 @@ KDIR = kerneltools.getKernelVersion()
 NoStrip = ["/lib/modules"]
 
 version = get.srcVERSION()
-driver = "nvidia"
-datadir = "/usr/share/%s" % driver
+driver_dir_name = "nvidia"
+datadir = "/usr/share/%s" % driver_dir_name
 
 if get.buildTYPE() == 'emul32':
     arch = "x86"
-    nvlibdir = "/usr/lib32/%s" % driver
+    nvlibdir = "/usr/lib32/%s" % driver_dir_name
     libdir = "/usr/lib32"
 else:
     arch = get.ARCH().replace("i686", "x86")
-    nvlibdir = "/usr/lib/%s" % driver
+    nvlibdir = "/usr/lib/%s" % driver_dir_name
     libdir = "/usr/lib"
 
 def setup():
@@ -56,7 +56,7 @@ def install():
     if not get.buildTYPE() == 'emul32':
     # Kernel driver
         pisitools.insinto("/lib/modules/%s/extra/nvidia" % KDIR,
-                          "kernel/nvidia.ko", "%s.ko" % driver)
+                          "kernel/nvidia.ko")
 
         # Command line tools and their man pages
         pisitools.dobin("nvidia-smi")
@@ -100,7 +100,7 @@ def install():
 
     # VDPAU driver
     pisitools.dolib("libvdpau_nvidia.so.%s" % version, "%s/vdpau" % nvlibdir)
-    pisitools.dosym("../nvidia-current/vdpau/libvdpau_nvidia.so.%s" % version, "%s/vdpau/libvdpau_nvidia.so.1" % nvlibdir.strip(driver))
+    pisitools.dosym("../nvidia-current/vdpau/libvdpau_nvidia.so.%s" % version, "%s/vdpau/libvdpau_nvidia.so.1" % nvlibdir.strip(driver_dir_name))
 
     # X modules
     pisitools.dolib("nvidia_drv.so", "%s/modules/drivers" % nvlibdir)
@@ -118,7 +118,7 @@ def install():
     pisitools.insinto(datadir, "XvMCConfig")
 
     # Documentation
-    docdir = "xorg-video-%s" % driver
+    docdir = "xorg-video-%s" % driver_dir_name
     pisitools.dodoc("LICENSE", "NVIDIA_Changelog", "README.txt", destDir=docdir)
     pisitools.dohtml("html/*", destDir=docdir)
 
