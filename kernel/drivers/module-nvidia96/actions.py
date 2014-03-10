@@ -15,9 +15,9 @@ NoStrip = ["/lib/modules"]
 
 arch = get.ARCH().replace("i686", "x86")
 version = get.srcVERSION()
-driver = "nvidia96"
-libdir = "/usr/lib/%s" % driver
-datadir = "/usr/share/%s" % driver
+driver_dir_name = "nvidia96"
+libdir = "/usr/lib/%s" % driver_dir_name
+datadir = "/usr/share/%s" % driver_dir_name
 
 def setup():
     shelltools.system("sh NVIDIA-Linux-%s-%s-pkg0.run -x --target tmp" % (arch, version))
@@ -46,7 +46,7 @@ def build():
 def install():
     # Kernel driver
     pisitools.insinto("/lib/modules/%s/extra/nvidia" % KDIR,
-                      "usr/src/nv/nvidia.ko", "%s.ko" % driver)
+                      "usr/src/nv/nvidia.ko")
 
     # Libraries and X modules
     pisitools.insinto(libdir, "usr/X11R6/lib/*")
@@ -71,7 +71,7 @@ def install():
     pisitools.insinto(datadir, "XvMCConfig")
 
     # Documentation
-    docdir = "xorg-video-%s" % driver
+    docdir = "xorg-video-%s" % driver_dir_name
     pisitools.dodoc("LICENSE", destDir=docdir)
     pisitools.dodoc("usr/share/doc/[!h]*", destDir=docdir)
     pisitools.dohtml("usr/share/doc/html/*", destDir=docdir)
