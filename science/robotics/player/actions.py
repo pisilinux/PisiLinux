@@ -11,15 +11,17 @@ from pisi.actionsapi import get
 
 def setup():
     cmaketools.configure("-DBUILD_RUBYCPP_BINDINGS=ON \
-			  -DBoost_USE_MULTITHREAD=ON \
-			  -DUNICAP_DIR=/usr \
-			  -DBUILD_PLAYERCC_BOOST=ON \
-			  -DBUILD_PYTHONC_BINDINGS=ON \
-			  -DBUILD_PYTHONCPP_BINDINGS=ON \
-			  -DBUILD_EXAMPLES=ON \
-			  -DBUILD_DOCUMENTATION=ON \
-			  -DBUILD_PLAYERCC=ON \
-			  -DSWIG_EXECUTABLE=/usr/bin/swig")
+                          -DBoost_USE_MULTITHREAD=ON \
+                          -DUNICAP_DIR=/usr \
+                          -DBUILD_PLAYERCC_BOOST=ON \
+                          -DBUILD_PYTHONC_BINDINGS=ON \
+                          -DBUILD_PYTHONCPP_BINDINGS=ON \
+                          -DBUILD_EXAMPLES=ON \
+                          -DBUILD_DOCUMENTATION=ON \
+                          -DBUILD_PLAYERCC=ON \
+                          -DCMAKE_SKIP_RPATH=ON \
+                          -DBUILD_SHARED_LIBS=ON \
+                          --DSWIG_EXECUTABLE=/usr/bin/swig")
 
 def build():
     cmaketools.make()
