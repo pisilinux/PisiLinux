@@ -6,6 +6,8 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-fi")
@@ -17,4 +19,5 @@ def configure():
 def install():
     autotools.install()
 
+    shelltools.system("chrpath --delete %s/usr/lib/python2.7/site-packages/ieee1284module.so" % get.installDIR())
     pisitools.dodoc("AUTHORS", "NEWS", "TODO", "README", "doc/interface*")
