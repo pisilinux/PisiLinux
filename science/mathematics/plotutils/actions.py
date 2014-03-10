@@ -11,14 +11,19 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-vfi")
+    #autotools.autoreconf("-vfi")
     #libtools.libtoolize("--force --copy")
 
     # May have trouble with cpu flags
     autotools.configure("--with-x \
                          --enable-libxmi \
                          --enable-libplotter \
+                         --enable-ps-fonts-in-pcl \
                          --enable-static=no")
+    
+    # fix rpath handling
+    shelltools.system("sed -i 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' libtool")
+    shelltools.system("sed -i 's|^runpath_var=LD_RUN_PATH|runpath_var=DIE_RPATH_DIE|g' libtool")
 
 def build():
     autotools.make()
