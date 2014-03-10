@@ -10,7 +10,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "transfig.3.2.5d"
 
 def setup():
     pisitools.dosed("fig2dev/Imakefile", "\/usr\/local\/lib\/", "/usr/lib/")
