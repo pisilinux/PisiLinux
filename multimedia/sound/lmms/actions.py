@@ -10,29 +10,17 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.dosed("plugins/zynaddsubfx/LocalZynAddSubFx.cpp", "unlink", "remove")
-    shelltools.export("CFLAGS", "%s -I/usr/include/freetype" % get.CFLAGS())
-    shelltools.makedirs("build")
-    shelltools.cd("build")
-
     cmaketools.configure("-DWANT_SYSTEM_SR=TRUE \
                           -DWANT_CAPS=TRUE \
                           -DWANT_TAP=TRUE \
                           -DWANT_PORTAUDIO=FALSE \
                           -DWANT_SYSTEM_SR=TRUE \
                           -DWANT_STK=FALSE \
-                          -DWANT_VST_NOWINE=FALSE", sourceDir="..")
+                          -DWANT_VST_NOWINE=FALSE")
 
 def build():
-    shelltools.cd("build")
-
     cmaketools.make()
 
 def install():
-    shelltools.cd("build")
-
     cmaketools.rawInstall('DESTDIR="%s"' % get.installDIR())
-
-    # pisitools.dosym("/usr/share/lmms/themes/default/icon.png", "/usr/share/pixmaps/lmms.png")
-
-    pisitools.dodoc("../AUTHORS", "../COPYING", "../TODO", "../README")
+    pisitools.dodoc("AUTHORS","COPYING","TODO","README")
