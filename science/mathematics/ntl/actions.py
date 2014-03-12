@@ -9,11 +9,13 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
+
 def setup():
     # Filter out -nostdlib from libtool
     #shelltools.copy("/usr/bin/libtool", "src")
     #pisitools.dosed("src/libtool", "-nostdlib ", "")
 
+<<<<<<< HEAD
     shelltools.system("sed -i.mode \
                        -e 's| --mode=compile| --tag=CC --mode=compile|' \
                        -e 's| --mode=link| --tag=LD --mode=link|' \
@@ -21,14 +23,26 @@ def setup():
                        src/makefile \
                        src/mfile")
     
+=======
+    for i in ["src/def_makefile", "src/makefile", "src/mfile"]:
+             pisitools.dosed(i, "--mode=compile", "--tag=CC --mode=compile")
+             
+    for i in ["src/def_makefile", "src/makefile", "src/mfile"]:
+             pisitools.dosed(i, "--mode=link", "--tag=LD --mode=link")        
+             
+>>>>>>> 73cc8290a054f119d936d98c27f000215338b669
     shelltools.cd("src")
     autotools.rawConfigure("DEF_PREFIX=/usr SHARED=on NTL_GF2X_LIB=on NTL_GMP_LIP=on")
 
 def build():
+<<<<<<< HEAD
     autotools.make("-C src -j1")
 
 def check():
     autotools.make("-C src -k check -j1")
+=======
+    autotools.make("-C src V=1")
+>>>>>>> 73cc8290a054f119d936d98c27f000215338b669
 
 def install():
     shelltools.cd("src")

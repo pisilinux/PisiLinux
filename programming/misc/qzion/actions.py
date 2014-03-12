@@ -13,7 +13,7 @@ def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
 
-    cmaketools.configure("-DPYTHON_SITE_PACKAGES_DIR=%s" % get.curPYTHON(), sourceDir="..")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=RelWithDebInfo ", sourceDir="..")
 
 def build():
     shelltools.cd("build")
