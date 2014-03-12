@@ -167,6 +167,3 @@ def install():
     # Remove conflicted files with sysvinit
     pisitools.remove("/usr/share/man/man8/reboot.8")
     pisitools.remove("/usr/share/man/man8/poweroff.8")
-
-    # Remove unneeded files
-    pisitools.remove("/lib/udev/rules.d/99-systemd.rules")
