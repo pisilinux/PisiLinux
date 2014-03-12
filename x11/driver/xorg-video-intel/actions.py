@@ -10,8 +10,6 @@ from pisi.actionsapi import pisitools
 def setup():
     autotools.configure("--enable-sna \
                          --with-default-accel=sna \
-                         --disable-static \
-                         --enable-dri \
                          --enable-glamor")
 
 def build():
