@@ -9,11 +9,18 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
+
 def setup():
     # Filter out -nostdlib from libtool
     shelltools.copy("/usr/bin/libtool", "src")
     pisitools.dosed("src/libtool", "-nostdlib ", "")
 
+    for i in ["src/def_makefile", "src/makefile", "src/mfile"]:
+             pisitools.dosed(i, "--mode=compile", "--tag=CC --mode=compile")
+             
+    for i in ["src/def_makefile", "src/makefile", "src/mfile"]:
+             pisitools.dosed(i, "--mode=link", "--tag=LD --mode=link")        
+             
     shelltools.cd("src")
     autotools.rawConfigure("PREFIX=/usr \
                             INCLUDEDIR=/usr/include \
@@ -31,10 +38,7 @@ def setup():
                                           get.LDFLAGS().replace("-Wl,--hash-style=gnu ", "")))
 
 def build():
-    autotools.make("-C src")
-
-#def check():
-    #autotools.make("check")
+    autotools.make("-C src V=1")
 
 def install():
     shelltools.cd("src")
