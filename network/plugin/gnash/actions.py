@@ -9,12 +9,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
-# to avoid sandbox violations - disabled temporary due to pisi ix error
-#shelltools.system("gst-inspect")
-
 def setup():
-    #autotools.autoreconf("-vfi")
-    pisitools.flags.add("-std=c++11")
+    
+    shelltools.export("LDFLAGS","-lboost_system")
     autotools.configure("--disable-dependency-tracking \
                          --disable-static \
                          --disable-rpath \
@@ -32,9 +29,10 @@ def setup():
                          --enable-media=gst \
                          --enable-gui=gtk,kde4,sdl,fb \
                          --with-plugins-install=system \
+                         --without-gconf \
+                         --with-npapi-incl=/usr/include/npapi-sdk \
                          --with-npapi-plugindir=/usr/lib/browser-plugins \
                          ")
-#                         --enable-media=ffmpeg,gst \
 
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
