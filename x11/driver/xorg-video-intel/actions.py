@@ -5,9 +5,11 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 
 def setup():
+    shelltools.system('sed -e "s/DRI_CFLAGS/DRI1_CFLAGS/g" -i configure')
     autotools.configure("--enable-sna \
                          --with-default-accel=sna \
                          --disable-static \
