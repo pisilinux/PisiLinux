@@ -15,6 +15,7 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     kde4.configure("-DWITH_PulseAudio=ON \
                     -DCMAKE_SKIP_RPATH=ON \
+                    -DWITH_QNtrack=OFF \
                     -DDEBUG_PACKAGE_INSTALLER_NAME=\"installdbgsymbols.py\"")
 
 def build():

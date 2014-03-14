@@ -25,5 +25,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.dosym("/usr/lib/jvm/java-7-openjdk/jre/lib/amd64/IcedTeaPlugin.so","/usr/lib/browser-plugins/IcedTeaPlugin.so")
+    pisitools.dosym("/usr/lib/jvm/java-7-openjdk/lib/IcedTeaPlugin.so", "/usr/lib/browser-plugins/IcedTeaPlugin.so")
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")

@@ -10,6 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("doc/fdl.texi", "@appendixsubsec", "@appendixsec")
     autotools.autoreconf("-vfi")
     shelltools.export("LDFLAGS", "%s -lm" % get.LDFLAGS())
     autotools.configure("--disable-static \
