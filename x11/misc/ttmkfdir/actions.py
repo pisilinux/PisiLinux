@@ -12,6 +12,7 @@ from pisi.actionsapi import get
 flags = get.CXXFLAGS().replace("-fstack-protector", "").replace("-O2", "")
 
 def setup():
+    pisitools.dosed("ttf.cpp", "freetype/", "freetype2/")
     #FIXME: find who is to blame...
     shelltools.sym(".", ".libs")
 
