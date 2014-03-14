@@ -3,14 +3,12 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
 
 def setup():
-    pisitools.dosed("xdm.service.in", "^Alias=.*$", "Alias=display-manager.service")
-
-   # autotools.autoreconf("-vif")
+    autotools.autoreconf("-vif")
 
     autotools.configure("--disable-static \
                          --enable-unix-transport \
@@ -18,7 +16,6 @@ def setup():
                          --enable-local-transport \
                          --enable-secure-rpc \
                          --enable-xpm-logos \
-                         --enable-dynamic-greeter \
                          --enable-xdm-auth \
                          --with-pam \
                          --with-xdmconfigdir=/etc/X11/xdm \
@@ -26,8 +23,8 @@ def setup():
                          --with-config-type=ws \
                          --with-xft \
                          --with-pixmapdir=/usr/share/X11/xdm/pixmaps \
-                         --with-systemdsystemunitdir=/lib/systemd/system")
-    
+                        ")
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
