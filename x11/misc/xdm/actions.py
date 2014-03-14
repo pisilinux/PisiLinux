@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 def setup():
     pisitools.dosed("xdm.service.in", "^Alias=.*$", "Alias=display-manager.service")
 
-    autotools.autoreconf("-vif")
+   # autotools.autoreconf("-vif")
 
     autotools.configure("--disable-static \
                          --enable-unix-transport \
