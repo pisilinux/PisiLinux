@@ -11,10 +11,11 @@ from pisi.actionsapi import get
 shelltools.export("JOBS", get.makeJOBS().replace("-j", ""))
 
 def setup():
-    shelltools.system("python waf configure --prefix=/usr --docs --libdir=/usr/lib/ --configdir=/etc")
+    shelltools.system("python waf configure --program-name=Ardour3 --prefix=/usr --docs --libdir=/usr/lib/ --configdir=/etc")
 
 def build():
     shelltools.system("python waf build -v")
+    shelltools.system("python waf i18n -v")
 
 def install():
     shelltools.system("DESTDIR=%s python waf install" % get.installDIR())
