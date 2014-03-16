@@ -11,7 +11,22 @@ from pisi.actionsapi import get
 shelltools.export("JOBS", get.makeJOBS().replace("-j", ""))
 
 def setup():
-    shelltools.system("python waf configure --program-name=Ardour3 --prefix=/usr --docs --libdir=/usr/lib/ --configdir=/etc")
+    shelltools.system("python waf configure --program-name=Ardour3 --prefix=/usr \
+                                  --freedesktop \
+                                  --lv2 \
+                                  --lv2-system \
+                                  --lxvst \
+                                  --nls \
+                                  --noconfirm \
+                                  --no-phone-home \
+                                  --optimize \
+                                  --docs \
+                                  --libdir=/usr/lib/ \
+                                  --configdir=/etc \
+                                  --datadir=/usr/share \
+                                  --docdir=/usr/share/doc \
+                                  --mandir=/usr/share/man \
+                                  --includedir=/usr/include")
 
 def build():
     shelltools.system("python waf build -v")
