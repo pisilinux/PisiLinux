@@ -9,11 +9,13 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-#WorkDir = "projectM-%s-Source" % get.srcVERSION()
 shelltools.export("CXXFLAGS", "%s -lGL" % get.CXXFLAGS())
 
 def setup():
-    cmaketools.configure()
+    cmaketools.configure("-Wno-dev \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DINCLUDE-PROJECTM-JACK=ON ")
 
 def build():
     cmaketools.make()
@@ -21,8 +23,4 @@ def build():
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    #pisitools.dosym("libprojectM.so.2.0.1", "/usr/lib/libprojectM.so.2")
-
-    pisitools.remove("/usr/share/projectM/presets/Geiss & Sperl - Feedback (projectM idle HDR mix).prjm")
-
-    #pisitools.dodoc("ChangeLog")
+    pisitools.dodoc("COPYING.txt")
