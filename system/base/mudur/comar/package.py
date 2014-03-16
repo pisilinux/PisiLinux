@@ -5,7 +5,7 @@ import re
 import shutil
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
-    if fromRelease and int(fromRelease) < 12:
+    if not fromRelease or (fromRelease and int(fromRelease) < 12):
         shutil.copyfile("/etc/fstab", "/etc/fstab.bak")
         new = []
         for line in [line.strip() for line in open("/etc/fstab.bak")]:
