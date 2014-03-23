@@ -8,8 +8,6 @@
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import qt4
 
-WorkDir = "."
-
 def setup():
     qt4.configure("ffDiaporama.pro")
 
