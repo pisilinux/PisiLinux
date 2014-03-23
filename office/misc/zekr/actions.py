@@ -31,7 +31,8 @@ def install():
     pisitools.remove("%s/build.xml" % BASEDIR)
     pisitools.remove("%s/readme.txt" % BASEDIR)
 
+    pisitools.remove("/usr/share/java/zekr/lib/swt.jar")
+
     # Javadoc generation
-    #shelltools.system("ant javadoc")
-    #shelltools.copytree("build/docs/javadocs", "%s/%s/%s" %(get.installDIR(), get.docDIR(), get.srcNAME()))
-    #shelltools.unlinkDir("%s%s/build" % (get.installDIR(), BASEDIR))
+    shelltools.system("ant javadoc")
+    shelltools.copytree("build/docs/javadocs", "%s/%s/%s" %(get.installDIR(), get.docDIR(), get.srcNAME()))
