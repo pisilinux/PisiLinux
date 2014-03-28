@@ -12,7 +12,10 @@ from pisi.actionsapi import get
 shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
 
 def setup():
-    #autotools.autoreconf("-fiv")
+    #fix running autogen.sh  
+    shelltools.system('sed -i "/AM_INIT_AUTOMAKE/ s/-Werror//" configure.ac')
+    shelltools.system("./autogen.sh")
+    
     autotools.configure("--disable-static --disable-schemas-install")
 
 def build():
