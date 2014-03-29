@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 import os
 
-WorkDir = "glibc-2.18"
+WorkDir = "glibc-2.19"
 
 defaultflags = "-O3 -g -U_FORTIFY_SOURCE -fno-strict-aliasing -fomit-frame-pointer -mno-tls-direct-seg-refs"
 # this is getting ridiculous, also gdb3 breaks resulting binary
@@ -109,7 +109,7 @@ def libcInstall(cfg):
     autotools.rawInstall("install_root=%s" % get.installDIR())
 
     # Some things want this, notably ash
-    pisitools.dosym("libbsd-compat.a", "/usr/%s/libbsd.a" % cfg["libdir"])
+    #pisitools.dosym("libbsd-compat.a", "/usr/%s/libbsd.a" % cfg["libdir"])
 
     # Remove our options section from crt stuff
     removePisiLinuxSection("%s/usr/%s/" % (get.installDIR(), cfg["libdir"]))
@@ -181,9 +181,9 @@ def install():
         pisitools.removeDir("/usr/share/zoneinfo")
 
     #while bootstrapping whole system zic should not be removed. timezone package does not build without it. # 2013
-    for i in ["zdump","zic"]:
-        if shelltools.isFile("%s/usr/sbin/%s" % (get.installDIR(), i)):
-            pisitools.remove("/usr/sbin/%s" % i)
+    #for i in ["zdump","zic"]:
+        #if shelltools.isFile("%s/usr/sbin/%s" % (get.installDIR(), i)):
+            #pisitools.remove("/usr/sbin/%s" % i)
 
 
     pisitools.dodoc("BUGS", "ChangeLog*", "CONFORMANCE", "NAMESPACE", "NEWS", "PROJECTS", "README*", "LICENSES")
