@@ -12,7 +12,7 @@ shelltools.export("JOBS", get.makeJOBS().replace("-j", ""))
 shelltools.export("LINKFLAGS", get.LDFLAGS())
 
 def setup():
-    shelltools.system("python waf configure --prefix=/usr --enable-fftw3f --disable-avcodec")
+    shelltools.system("python waf configure --prefix=/usr --enable-fftw3f")
 
 def build():
     shelltools.system("python waf build -v")
