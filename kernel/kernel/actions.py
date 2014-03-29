@@ -26,7 +26,8 @@ def build():
     kerneltools.build(debugSymbols=False)
 
     # When bumping major version build man files and put them into files/man
-    autotools.make("WERROR=0 -C tools/perf perf HAVE_CPLUS_DEMANGLE=1")
+
+    autotools.make("JOBS=5 WERROR=0 -C tools/perf perf HAVE_CPLUS_DEMANGLE=1")
 
     # Build cpupowertools
     autotools.make("-C tools/power/cpupower CPUFREQ_BENCH=false")
@@ -52,4 +53,3 @@ def install():
     # Build and install the new 'perf' tool
     pisitools.insinto("/usr/bin", "tools/perf/perf", "perf.%s-%s" % (get.srcNAME(), get.srcVERSION()))
 
-    #pisitools.dosym("videodev2.h", "/usr/include/linux/videodev.h")
