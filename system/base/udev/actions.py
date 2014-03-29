@@ -28,36 +28,43 @@ def setup():
                 --with-rootlibdir=/lib%s \
                 --with-rootprefix= \
                 --without-python \
-                --disable-audit \
-                --disable-coredump \
-                --disable-hostnamed \
-                --disable-ima \
-                --disable-libcryptsetup \
-                --disable-localed \
-                --disable-logind \
-                --disable-myhostname \
+                --disable-xz \
                 --disable-nls \
                 --disable-pam \
-                --disable-quotacheck \
-                --disable-readahead \
-                --enable-split-usr \
-                --disable-tcpwrap \
-                --disable-timedated \
-                --disable-xz \
-                --enable-gudev \
+                --disable-dbus \
+                --disable-audit \
+                --disable-xattr \
+                --disable-gcrypt \
+                --disable-gnutls \
+                --disable-logind \
+                --disable-polkit \
+                --disable-seccomp \
                 --disable-selinux \
-                --enable-acl \
-                --enable-kmod \
-                --enable-introspection \
-                --enable-static \
+                --disable-qrencode \
+                --disable-readahead \
+                --disable-microhttpd \
+                --disable-myhostname \
+                --disable-quotacheck \
+                --disable-python-devel \
+                --disable-libcryptsetup \
+                --enable-gudev \
+                --enable-split-usr \
                " % ((suffix, )*7)
 
-    options += "--disable-acl \
+    options += "\
+                --disable-acl \
                 --disable-kmod \
-                --disable-qrencode \
                 --disable-static \
-                --disable-microhttpd \
-               " if get.buildTYPE() == "emul32" else ""
+                --disable-manpages \
+                --disable-gtk-doc \
+                --disable-introspection \
+               " if get.buildTYPE() == "emul32" else \
+               "\
+                --enable-acl \
+                --enable-kmod \
+                --enable-static \
+                --enable-introspection \
+               "
 
     shelltools.system("sed -i -e '/--enable-static is not supported by systemd/s:as_fn_error:echo:' configure")
     autotools.configure(options)
@@ -80,17 +87,6 @@ def build():
                 accelerometer \
                 mtd_probe \
                "
-#                libsystemd.la \
-
-    targets += "\
-                man/sd_is_fifo.3 \
-                man/sd_notify.3 \
-                man/sd_listen_fds.3 \
-                man/sd-daemon.3 \
-                man/udev.7 \
-                man/udevadm.8 \
-                man/systemd-udevd.service.8 \
-               " if not get.buildTYPE() == "emul32" else ""
 
     autotools.make(targets)
 
@@ -130,13 +126,6 @@ def install():
                 pkginclude_HEADERS='src/libudev/libudev.h' \
               "
 
-    targets += "\
-                install-man7 \
-                install-man8 \
-                MANPAGES='man/udev.7 man/udevadm.8 \
-                          man/systemd-udevd.service.8' \
-               " if not get.buildTYPE() == "emul32" else ""
-
     autotools.make("-j1 DESTDIR=%s%s %s" % (get.installDIR(), suffix, targets))
     if get.buildTYPE() == "emul32":
         shelltools.move("%s%s/lib%s" % (get.installDIR(), suffix, suffix), "%s/lib%s" % (get.installDIR(), suffix))
@@ -164,6 +153,5 @@ def install():
     pisitools.dodir("/run/udev")
     pisitools.dodoc("README", "TODO")
 
-    # Remove conflicted files with sysvinit
-    pisitools.remove("/usr/share/man/man8/reboot.8")
-    pisitools.remove("/usr/share/man/man8/poweroff.8")
+    # Add man files
+    pisitools.doman("man/systemd.link.5", "man/udev.7", "man/udevadm.8", "man/systemd-udevd.service.8")
