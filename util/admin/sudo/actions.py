@@ -15,6 +15,7 @@ def setup():
     autotools.autoreconf("-fi")
 
     autotools.configure("--libexecdir=/usr/libexec/sudo \
+                         --with-rundir=/run/sudo \
                          --with-noexec=/usr/libexec/sudo/sudo_noexec.so \
                          --with-logging=syslog \
                          --with-logfac=authpriv \
