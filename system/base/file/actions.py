@@ -17,9 +17,6 @@ def setup():
                          --disable-static \
                          --enable-fsect-man5")
 
-    pisitools.dosed("libtool", "^hardcode_libdir_flag_spec=.*", 'hardcode_libdir_flag_spec=""')
-    pisitools.dosed("libtool", "^runpath_var=LD_RUN_PATH", "runpath_var=DIE_RPATH_DIE")
-
 def build():
     autotools.make()
 
