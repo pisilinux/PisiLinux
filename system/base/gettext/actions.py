@@ -14,14 +14,8 @@ docdir = "/%s/%s" % (get.docDIR(), get.srcNAME())
 shelltools.export("LC_ALL", "C")
 
 def setup():
-    # shelltools.export("CFLAGS","%s -Dgcc_is_lint" % get.CFLAGS())
-    # shelltools.export("CXXFLAGS","%s -Dgcc_is_lint" % get.CXXFLAGS())
-
-    # Build with --without-included-gettext (will use that of glibc), as we
-    # need preloadable_libintl.so for new help2man
-
     # autoreconf breaks linker, graaaaaaaaggggghhhhhhh
-    #autotools.autoreconf("-vfi")
+    autotools.autoreconf("-vfi")
     autotools.configure("--without-emacs \
                          --enable-nls \
                          --disable-static \
