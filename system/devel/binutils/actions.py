@@ -17,26 +17,26 @@ multilib = "--enable-multilib" if get.ARCH() == "x86_64" else ""
 
 def setup():
     # Build binutils with LD_SYMBOLIC_FUNCTIONS=1 and reduce PLT relocations in libfd.so by 84%.
-    shelltools.export("LD_SYMBOLIC_FUNCTIONS", "1")
+    #shelltools.export("LD_SYMBOLIC_FUNCTIONS", "1")
+    shelltools.system('sed -i "/ac_cpp=/s/\$CPPFLAGS/\$CPPFLAGS -O2/" libiberty/configure')
 
     autotools.configure('--enable-shared \
                          --build=%s \
+                         --enable-threads \
+                         --enable-ld=default \
                          --enable-gold \
                          --enable-plugins \
-                         --enable-threads \
-                         --with-default-linker=%s \
                          --with-pkgversion="Pisi Linux" \
                          --with-bugurl=http://bugs.pisilinux.org/ \
-                         --with-separate-debug-dir=/usr/lib/debug \
                          %s \
                          --with-pic \
                          --disable-nls \
-                         --disable-werror' % (get.HOST(), linker, multilib))
+                         --disable-werror' % (get.HOST(), multilib))
                          #--enable-targets="i386-linux" \
 
 def build():
-    autotools.make("all")
-    autotools.make("info")
+    autotools.make("configure-host")
+    autotools.make()
 
 # check fails because of LD_LIBRARY_PATH
 #def check():
@@ -46,8 +46,8 @@ def install():
     autotools.rawInstall("DESTDIR=%s tooldir=/usr" % get.installDIR())
 
     # Rebuild libbfd.a and libiberty.a with -fPIC
-    pisitools.remove("/usr/lib/libbfd.a")
-    pisitools.remove("/usr/lib/libiberty.a")
+    #pisitools.remove("/usr/lib/libbfd.a")
+    #pisitools.remove("/usr/lib/libiberty.a")
     # pisitools.remove("/usr/include/libiberty.h")
 
     autotools.make("-C libiberty clean")
@@ -72,4 +72,12 @@ def install():
     # Remove libtool files, which reference the .so libs
     pisitools.remove("/usr/lib/libopcodes.la")
     pisitools.remove("/usr/lib/libbfd.la")
+    
+    # Remove unneded man , info
+    unneeded_man={"dlltool.1","nlmconv.1","windres.1","windmc.1"}
+    for i in unneeded_man:
+        pisitools.remove("/usr/share/man/man1/%s" %i)
+        
+    pisitools.remove("/usr/share/info/configure.info")
+    pisitools.remove("/usr/share/info/standards.info")
 
