@@ -9,58 +9,36 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "tzdata"
-tzcode  = "tzcode2012f"
-tzdata  = "tzdata2012f"
+WorkDir = "."
+ZoneDir = "/usr/share/zoneinfo"
+TargetDir = "%s/%s" % (get.installDIR(), ZoneDir)
 
-configTemplate = """
-objpfx = %(pwd)s/obj/
-sbindir = %(sbindir)s
-datadir = %(datadir)s
-install_root = %(buildroot)s
-sysdep-CFLAGS = %(cflags)s
-"""
-
-configVars = {"pwd": "%s/%s" % (get.workDIR(), WorkDir),
-              "sbindir": "/%s" % get.sbinDIR(),
-              "datadir": "/%s" % get.dataDIR(),
-              "buildroot": get.installDIR(),
-              "cflags": get.CFLAGS()
-}
+RightDir = "%s/right" % TargetDir
+PosixDir = "%s/posix" % TargetDir
 
 
-def disableLocale():
-    for i in ["LANG", "LANGUAGE", "LC_ALL"]:
-        shelltools.export(i, "POSIX")
+timezones = ["etcetera", "southamerica", "northamerica", "europe", "africa", "antarctica", \
+              "asia", "australasia", "factory", "backward", "pacificnew", \
+              "systemv" ]
 
 def setup():
-    shelltools.sym("Makeconfig.in", "Makeconfig")
-    shelltools.echo("config.mk", configTemplate % configVars)
-    shelltools.cd("tzcode2012f")
-    autotools.make("version.h")
+    pisitools.dodir (ZoneDir)
+    pisitools.dodir (RightDir)
+    pisitools.dodir (PosixDir)
 
-def build():
-    disableLocale()
-    autotools.make("-j1")
-
-# unfortunately check depends on files which are generated during install, that are never put in
-# workdir. We will check after installation not to mess up the already complicated build system
-def mycheck():
-    print "------------------- Start of tests ------------------------"
-    disableLocale()
-    autotools.make("check")
-    print "------------------- End of tests ------------------------"
 
 def install():
-    disableLocale()
-    autotools.rawInstall()
+    pisitools.insinto ("/usr/share/zoneinfo", "iso3166.tab")
+    pisitools.insinto ("/usr/share/zoneinfo", "zone.tab")
+   
+    for tzdata in timezones:
+        cmd = "zic -L /dev/null -d %s -y \"%s/yearistype.sh\" %s" % (TargetDir, get.workDIR(), tzdata)
+        shelltools.system (cmd)
+        part2 = "zic -L /dev/null -d %s -y \"%s/yearistype.sh\" %s" % (PosixDir, get.workDIR(), tzdata)
+        shelltools.system (part2)
+        part3 = "zic -L leapseconds -d %s -y \"%s/yearistype.sh\" %s" % (RightDir, get.workDIR(), tzdata)
+        shelltools.system (part3)
 
-    for i in ["README", "Theory", "tz-link.htm"]:
-        pisitools.dodoc("%s/%s" % (tzcode, i))
+    shelltools.system ("zic -d %s -p Europe/Istanbul" % TargetDir)
 
-    mycheck()
-
-    # Create Timezone db in /usr/share/zoneinfo
-    shelltools.chmod("dump-tz-db", 0755)
-    shelltools.system("./dump-tz-db %s" % get.installDIR())
 
