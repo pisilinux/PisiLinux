@@ -9,12 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    #shelltools.system("./autogen.sh")
     autotools.configure()
 
 def build():
     autotools.make()
-
+    
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
