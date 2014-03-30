@@ -11,15 +11,17 @@ from pisi.actionsapi import get
 import os
 
 def setup():
-    shelltools.system('./configure --prefix=/usr --localstatedir=/var --enable-shared')
+    autotools.configure("--prefix=/usr \
+                       --localstatedir=/var \
+                       --libdir=/usr/lib \
+                       --enable-shared")
+                      
 
 def build():
     autotools.make()
 
 def install():
-    pisitools.dodir("usr/lib")
-    shelltools.copy("%s/%s/include" % (get.workDIR(),get.srcDIR()),"%s/usr/include" % get.installDIR())
-    shelltools.copy("%s/%s/doc" % (get.workDIR(),get.srcDIR()),"%s/usr/share/libircclient" % get.installDIR())
-    shelltools.copy("%s/%s/src/libircclient.so" % (get.workDIR(),get.srcDIR()),"%s/usr/lib/libircclient.so" % get.installDIR())
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    pisitools.dodoc("LICENSE","README")
     
 
