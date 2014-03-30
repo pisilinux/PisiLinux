@@ -6,11 +6,11 @@ serviceDesc = _({"en": "System Message Logger",
                  "tr": "Sistem Günlükleme Hizmeti"})
 serviceDefault = "on"
 
-PIDFILE = "/var/run/syslogd.pid"
+PIDFILE = "/run/syslogd.pid"
 
 @synchronized
 def start():
-    startService(command="/sbin/rsyslogd",
+    startService(command="/usr/bin/rsyslogd",
                  args=config.get("SYSLOGD_OPTIONS", "-c 4"),
                  pidfile=PIDFILE,
                  detach=True)
