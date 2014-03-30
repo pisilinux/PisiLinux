@@ -34,7 +34,7 @@ def setup():
                          --enable-threaded-resolver \
                          --enable-hidden-symbols \
                          --disable-versioned-symbols \
-                         --with-ca-bundle=/etc/pki/tls/certs/ca-bundle.crt")
+                         --with-ca-bundle=/etc/ssl/certs/ca-certificates.crt")
 
 def build():
     autotools.make()
