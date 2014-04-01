@@ -16,4 +16,4 @@ def install():
 
     pisitools.removeDir("/usr/share/doc")
 
-    pisitools.dodoc("ChangeLog", "COPYING*", "TODO")
+    pisitools.dodoc("ChangeLog", "COPYING*")
