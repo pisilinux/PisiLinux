@@ -10,17 +10,18 @@ from pisi.actionsapi import get
 
 
 def build():
-    autotools.make()
+    autotools.make("SUBDIRS=mozilla")
     
-    shelltools.system("find . -name '*.crt' | sort | cut -b3- > ca-certificates.conf")
+    shelltools.cd("mozilla")
+    shelltools.system("find . -name '*.crt' | sort | cut -b3- > ../ca-certificates.conf")
 
 def install():
-    pisitools.insinto("/usr/bin/", "sbin/update-ca-certificates")
-    pisitools.doman("sbin/update-ca-certificates.8")
-    pisitools.insinto("/usr/share/ca-certificates/cacert.org/", "cacert.org/*.crt")
-    pisitools.insinto("/usr/share/ca-certificates/mozilla/", "mozilla/*.crt")
-    pisitools.insinto("/usr/share/ca-certificates/spi-inc.org/", "spi-inc.org/*.crt")
+    pisitools.dodir("usr/share/ca-certificates/mozilla")
+    pisitools.dodir("usr/sbin")
     
+    autotools.install("SUBDIRS=mozilla DESTDIR=%s" % get.installDIR())
+    pisitools.doman("sbin/update-ca-certificates.8")
+      
     pisitools.insinto("/etc/", "ca-certificates.conf")
     
     pisitools.dodir("/etc/ca-certificates/update.d")

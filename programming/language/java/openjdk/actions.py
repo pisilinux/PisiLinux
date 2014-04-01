@@ -28,15 +28,15 @@ def setup():
                             --enable-bootstrap \
                             --with-ecj-jar=/usr/share/java/ecj.jar \
                             --with-jdk-home=/usr/lib/jvm/java-7-openjdk \
-                            --with-openjdk-src-zip=410eb7fef869.tar.gz \
-                            --with-hotspot-src-zip=2cb58882dac3.tar.gz \
-                            --with-corba-src-zip=3594dbde270d.tar.gz \
-                            --with-jaxp-src-zip=8fe156ad49e2.tar.gz \
-                            --with-jaxws-src-zip=32ea8b1ed91a.tar.gz \
-                            --with-jdk-src-zip=9db88c18e114.tar.gz \
-                            --with-langtools-src-zip=dabd37b7e295.tar.gz \
+                            --with-openjdk-src-zip=b028e58c1b77.tar.gz \
+                            --with-hotspot-src-zip=172674e0ab65.tar.gz \
+                            --with-corba-src-zip=48ef1bb6d120.tar.gz \
+                            --with-jaxp-src-zip=e0ba4b9a8b91.tar.gz \
+                            --with-jaxws-src-zip=4bd947cd146b.tar.gz \
+                            --with-jdk-src-zip=b5282042aae0.tar.gz \
+                            --with-langtools-src-zip=06eeb77dac24.tar.gz \
                             --with-abs-install-dir=/usr/lib/jvm/java-7-openjdk \
-                            --with-pkgversion='PisiLinux build 7.u51_2.4.5' \
+                            --with-pkgversion='PisiLinux build 7.u51_2.4.6' \
                            " % get.makeJOBS().replace("-j", ""))
 
 def build():
@@ -126,8 +126,8 @@ def install():
     for license in ["LICENSE", "THIRD_PARTY_README", "ASSEMBLY_EXCEPTION"]:
         pisitools.insinto("/usr/share/doc/jre7-openjdk-headless", "j2re-image/%s" % license)
       
-    #pisitools.remove("%s/jre/lib/security/cacerts" % jvmdir)
+    pisitools.remove("%s/jre/lib/security/cacerts" % jvmdir)
     
     #seems we need to add this symlink into ca-certificates-java package ?
-    #pisitools.dosym("/etc/ssl/certs/java/cacerts", "%s/jre/lib/security/cacerts" % jvmdir)
+    pisitools.dosym("/etc/ssl/certs/java/cacerts", "%s/jre/lib/security/cacerts" % jvmdir)
     
