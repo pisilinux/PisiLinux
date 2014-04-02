@@ -4,10 +4,10 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 
 movetobin = ["arch", "basename", "cat", "chgrp", "chmod", "chown", "cp", "cut", "date", "dd", "df",
@@ -18,11 +18,11 @@ movetobin = ["arch", "basename", "cat", "chgrp", "chmod", "chown", "cp", "cut", 
 symtousrbin = ["env", "cut", "readlink"]
 
 def setup():
+    pisitools.cflags.add("-fno-strict-aliasing -fPIC -D_GNU_SOURCE=1")
     #shelltools.export("gl_cv_func_printf_directive_n", "yes")
     #shelltools.export("gl_cv_func_isnanl_works", "yes")
     shelltools.export("DEFAULT_POSIX2_VERSION", "200112")
     shelltools.export("AUTOPOINT", "true")
-    shelltools.export("CFLAGS", "%s -fno-strict-aliasing -fPIC -D_GNU_SOURCE=1 " % get.CFLAGS())
     shelltools.export("FORCE_UNSAFE_CONFIGURE","1")
     shelltools.export("AT_M4DIR", "m4")
     autotools.autoreconf("-vfi")
@@ -34,7 +34,7 @@ def setup():
                          --libexecdir=/usr/lib")
 
 def build():
-    autotools.make("LDFLAGS=%s" % get.LDFLAGS())
+    autotools.make()
 
 def check():
     # check does horrible things like modifying mtab or loop mounting
