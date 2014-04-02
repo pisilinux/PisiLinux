@@ -14,8 +14,13 @@ def build():
     autotools.make("run-parts")
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    #remove conflicting which and man pages
-    pisitools.remove("/usr/share/man/*/man1/which.1")
-    pisitools.remove("/usr/share/man/man1/which.1")
-    pisitools.remove("/usr/bin/which")
+    pisitools.dobin("run-parts")
+    pisitools.doman("run-parts.8")
+    
+    pisitools.insinto("/usr/share/man/de/man8/", "po4a/de/run-parts.8")
+    pisitools.insinto("/usr/share/man/es/man8/", "po4a/es/run-parts.8")
+    pisitools.insinto("/usr/share/man/fr/man8/", "po4a/fr/run-parts.8")
+    pisitools.insinto("/usr/share/man/it/man8/", "po4a/it/run-parts.8")
+    pisitools.insinto("/usr/share/man/ja/man8/", "po4a/ja/run-parts.8")
+    pisitools.insinto("/usr/share/man/pl/man8/", "po4a/pl/run-parts.8")
+    pisitools.insinto("/usr/share/man/sl/man8/", "po4a/sl/run-parts.8")
