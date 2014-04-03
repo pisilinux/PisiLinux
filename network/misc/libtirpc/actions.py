@@ -4,19 +4,22 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
-
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.autoreconf("-fisv")
-    autotools.configure("--disable-static \
-                         --enable-gss \
-                         --with-pic")
-    
+
+    options = "\
+               --disable-static \
+               --disable-silent-rules \
+               --%sable-gssapi \
+               --with-pic \
+              " % ("dis" if get.buildTYPE() == "emul32" else "en")
+
+    autotools.configure(options)
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
@@ -28,5 +31,5 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.insinto("/etc", "doc/etc_netconfig", "netconfig")
+    pisitools.insinto("/etc", "doc/netconfig", "netconfig")
     pisitools.dodoc("AUTHORS", "NEWS", "ChangeLog", "README", "THANKS", "TODO")
