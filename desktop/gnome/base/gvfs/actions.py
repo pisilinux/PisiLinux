@@ -9,17 +9,18 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    #autotools.autoreconf("-fiv")
+    autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
                          --enable-keyring \
                          --enable-bash-completion \
                          --enable-archive \
+                         --enable-afc \
                          --enable-bluray \
                          --enable-udev \
                          --disable-hal \
                          --enable-gphoto2 \
                          --enable-samba \
-                         --enable-gtk \
+                         --enable-gtk=3 \
                          --enable-udisks2 \
                          --with-dbus-service-dir=/usr/share/dbus-1/services")
     pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
