@@ -10,7 +10,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    libtools.libtoolize("--copy --force")
     autotools.autoreconf("-vif")
     autotools.configure("--enable-jit \
                          --enable-pcretest-libreadline \
