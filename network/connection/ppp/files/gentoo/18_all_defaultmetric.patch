@@ -1,0 +1,108 @@
+diff -Nru ppp-2.4.5.orig/pppd/options.c ppp-2.4.5/pppd/options.c
+--- ppp-2.4.5.orig/pppd/options.c	2010-08-08 09:44:29.000000000 +0200
++++ ppp-2.4.5/pppd/options.c	2010-08-08 10:07:50.000000000 +0200
+@@ -94,6 +94,7 @@
+ int	kdebugflag = 0;		/* Tell kernel to print debug messages */
+ int	default_device = 1;	/* Using /dev/tty or equivalent */
+ char	devnam[MAXPATHLEN];	/* Device name */
++int defaultmetric = 0;		/* Metric of the default route */
+ bool	nodetach = 0;		/* Don't detach from controlling tty */
+ bool	updetach = 0;		/* Detach once link is up */
+ int	maxconnect = 0;		/* Maximum connect time */
+@@ -289,6 +290,10 @@
+       "Number of seconds to wait for child processes at exit",
+       OPT_PRIO },
+ 
++    { "defaultmetric", o_int, &defaultmetric,
++      "The metric of the default route",
++      OPT_LIMITS, 0, 32766 },
++
+ #ifdef HAVE_MULTILINK
+     { "multilink", o_bool, &multilink,
+       "Enable multilink operation", OPT_PRIO | 1 },
+diff -Nru ppp-2.4.5.orig/pppd/pppd.8 ppp-2.4.5/pppd/pppd.8
+--- ppp-2.4.5.orig/pppd/pppd.8	2010-08-08 10:06:57.000000000 +0200
++++ ppp-2.4.5/pppd/pppd.8	2010-08-08 10:07:50.000000000 +0200
+@@ -121,6 +121,9 @@
+ This entry is removed when the PPP connection is broken.  This option
+ is privileged if the \fInodefaultroute\fR option has been specified.
+ .TP
++.B defaultmetric \fIn
++The metric of the default route configured by pppd; default is 0.
++.TP
+ .B disconnect \fIscript
+ Execute the command specified by \fIscript\fR, by passing it to a
+ shell, after
+diff -Nru ppp-2.4.5.orig/pppd/pppd.h ppp-2.4.5/pppd/pppd.h
+--- ppp-2.4.5.orig/pppd/pppd.h	2010-08-08 09:58:19.000000000 +0200
++++ ppp-2.4.5/pppd/pppd.h	2010-08-08 10:07:50.000000000 +0200
+@@ -276,6 +276,7 @@
+ extern int	kdebugflag;	/* Tell kernel to print debug messages */
+ extern int	default_device;	/* Using /dev/tty or equivalent */
+ extern char	devnam[MAXPATHLEN];	/* Device name */
++extern int defaultmetric;		/* Metric of the default route */
+ extern int	crtscts;	/* Use hardware flow control */
+ extern bool	modem;		/* Use modem control lines */
+ extern int	inspeed;	/* Input/Output speed requested */
+diff -Nru ppp-2.4.5.orig/pppd/sys-linux.c ppp-2.4.5/pppd/sys-linux.c
+--- ppp-2.4.5.orig/pppd/sys-linux.c	2010-08-08 09:53:56.000000000 +0200
++++ ppp-2.4.5/pppd/sys-linux.c	2010-08-08 10:07:50.000000000 +0200
+@@ -1465,7 +1465,7 @@
+ FILE *route_fd = (FILE *) 0;
+ static char route_buffer[512];
+ static int route_dev_col, route_dest_col, route_gw_col;
+-static int route_flags_col, route_mask_col;
++static int route_flags_col, route_mask_col, route_metric_col;
+ static int route_num_cols;
+ 
+ static int open_route_table (void);
+@@ -1508,6 +1508,7 @@
+     route_dest_col = 1;
+     route_gw_col = 2;
+     route_flags_col = 3;
++    route_metric_col = 6;
+     route_mask_col = 7;
+     route_num_cols = 8;
+ 
+@@ -1527,6 +1528,8 @@
+ 		route_gw_col = col;
+ 	    else if (strcasecmp(q, "flags") == 0)
+ 		route_flags_col = col;
++	    else if (strcasecmp(q, "metric") == 0)
++		route_metric_col = col;
+ 	    else if (strcasecmp(q, "mask") == 0)
+ 		route_mask_col = col;
+ 	    else
+@@ -1569,6 +1572,7 @@
+ 
+     rt->rt_flags = (short) strtoul(cols[route_flags_col], NULL, 16);
+     rt->rt_dev   = cols[route_dev_col];
++    rt->rt_metric = (short) strtoul(cols[route_metric_col], NULL, 16);
+ 
+     return 1;
+ }
+@@ -1591,6 +1595,8 @@
+ 
+ 	if (kernel_version > KVERSION(2,1,0) && SIN_ADDR(rt->rt_genmask) != 0)
+ 	    continue;
++	if (rt->rt_metric != defaultmetric) /* consider only routes with the same metric */
++	    continue;
+ 	if (SIN_ADDR(rt->rt_dst) == 0L) {
+ 	    result = 1;
+ 	    break;
+@@ -1661,6 +1667,7 @@
+     SIN_ADDR(rt.rt_gateway) = gateway;
+ 
+     rt.rt_flags = RTF_UP | RTF_GATEWAY;
++    rt.rt_metric = defaultmetric + 1; /* +1 for binary compatibility */
+     if (ioctl(sock_fd, SIOCADDRT, &rt) < 0) {
+ 	if ( ! ok_error ( errno ))
+ 	    error("default route ioctl(SIOCADDRT): %m");
+@@ -1696,6 +1703,7 @@
+     SIN_ADDR(rt.rt_gateway) = gateway;
+ 
+     rt.rt_flags = RTF_UP | RTF_GATEWAY;
++    rt.rt_metric = defaultmetric + 1; /* +1 for binary compatibility */
+     if (ioctl(sock_fd, SIOCDELRT, &rt) < 0 && errno != ESRCH) {
+ 	if (still_ppp()) {
+ 	    if ( ! ok_error ( errno ))

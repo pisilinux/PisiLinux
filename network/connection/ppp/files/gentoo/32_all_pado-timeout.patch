@@ -1,0 +1,254 @@
+--- ppp-2.4.6/pppd/plugins/rp-pppoe/discovery.c
++++ ppp-2.4.6/pppd/plugins/rp-pppoe/discovery.c
+@@ -39,6 +39,7 @@
+ #endif
+ 
+ #include <signal.h>
++#include <time.h>
+ 
+ /* Calculate time remaining until *exp, return 0 if now >= *exp */
+ static int time_left(struct timeval *diff, struct timeval *exp)
+@@ -251,6 +252,80 @@
+ }
+ 
+ /***********************************************************************
++*%FUNCTION: recvPacketForMe
++*%ARGUMENTS:
++* packet -- output parameter
++* len -- output parameter length
++* conn -- connection
++* start -- operation startup timestamp
++* timeout -- how long to wait (in seconds)
++*%RETURNS:
++* -1:  error
++*  0:  timed out
++*  1:  packet received
++*%DESCRIPTION:
++* receive and filter junk packets
++***********************************************************************/
++
++static int
++recvPacketForMe(PPPoEPacket *packet, int *len, PPPoEConnection *conn, time_t start, int timeout)
++{
++    fd_set readable;
++    int r;
++    struct timeval tv;
++    time_t now;
++    int time_remain;
++
++    do {
++	time(&now);
++	time_remain = timeout - (int)difftime(now, start);
++	if (time_remain <= 0) return 0;  /* Timed out */
++
++	if (BPF_BUFFER_IS_EMPTY) {
++	    tv.tv_sec = time_remain;
++	    tv.tv_usec = 0;
++
++	    FD_ZERO(&readable);
++	    FD_SET(conn->discoverySocket, &readable);
++
++	    r = select(conn->discoverySocket+1, &readable, NULL, NULL, &tv);
++	    if (r < 0)
++	    {
++		if (errno == EINTR)
++		{
++		    continue;   /* interrupted, so retry */
++		}else
++		{
++		    error("pppoe: recvPacketForMe: select: %m");
++		    return -1;
++		}
++	    }
++
++	    if (r == 0) return 0;	/* Timed out */
++	}
++
++	/* Get the packet */
++	receivePacket(conn->discoverySocket, packet, len);
++
++	/* Check length */
++	if (ntohs(packet->length) + HDR_SIZE > *len) {
++	    error("Bogus PPPoE length field (%u)",
++		   (unsigned int) ntohs(packet->length));
++	    continue;
++	}
++
++#ifdef USE_BPF
++	/* If it's not a Discovery packet, loop again */
++	if (etherType(&packet) != Eth_PPPOE_Discovery) continue;
++#endif
++	/* If it's not for us, loop again */
++	}while ( ! packetIsForMe(conn, packet));
++
++	return 1;
++}
++
++
++/***********************************************************************
+ *%FUNCTION: sendPADI
+ *%ARGUMENTS:
+ * conn -- PPPoEConnection structure
+@@ -344,13 +419,12 @@
+ void
+ waitForPADO(PPPoEConnection *conn, int timeout)
+ {
+-    fd_set readable;
+     int r;
+-    struct timeval tv;
+     struct timeval expire_at;
+ 
+     PPPoEPacket packet;
+     int len;
++    time_t start;
+ 
+     struct PacketCriteria pc;
+     pc.conn          = conn;
+@@ -367,43 +441,10 @@
+     }
+     expire_at.tv_sec += timeout;
+ 
++    time(&start);
+     do {
+-	if (BPF_BUFFER_IS_EMPTY) {
+-	    if (!time_left(&tv, &expire_at))
+-		return;		/* Timed out */
+-
+-	    FD_ZERO(&readable);
+-	    FD_SET(conn->discoverySocket, &readable);
+-
+-	    while(1) {
+-		r = select(conn->discoverySocket+1, &readable, NULL, NULL, &tv);
+-		if (r >= 0 || errno != EINTR) break;
+-	    }
+-	    if (r < 0) {
+-		error("select (waitForPADO): %m");
+-		return;
+-	    }
+-	    if (r == 0)
+-		return;		/* Timed out */
+-	}
+-
+-	/* Get the packet */
+-	receivePacket(conn->discoverySocket, &packet, &len);
+-
+-	/* Check length */
+-	if (ntohs(packet.length) + HDR_SIZE > len) {
+-	    error("Bogus PPPoE length field (%u)",
+-		   (unsigned int) ntohs(packet.length));
+-	    continue;
+-	}
+-
+-#ifdef USE_BPF
+-	/* If it's not a Discovery packet, loop again */
+-	if (etherType(&packet) != Eth_PPPOE_Discovery) continue;
+-#endif
+-
+-	/* If it's not for us, loop again */
+-	if (!packetIsForMe(conn, &packet)) continue;
++	r = recvPacketForMe(&packet, &len, conn, start, timeout);
++	if (r<=0) return;  /* Timed out or error */
+ 
+ 	if (packet.code == CODE_PADO) {
+ 	    if (NOT_UNICAST(packet.ethHdr.h_source)) {
+@@ -537,13 +578,12 @@
+ static void
+ waitForPADS(PPPoEConnection *conn, int timeout)
+ {
+-    fd_set readable;
+     int r;
+-    struct timeval tv;
+     struct timeval expire_at;
+ 
+     PPPoEPacket packet;
+     int len;
++    time_t start;
+ 
+     if (gettimeofday(&expire_at, NULL) < 0) {
+ 	error("gettimeofday (waitForPADS): %m");
+@@ -551,48 +591,15 @@
+     }
+     expire_at.tv_sec += timeout;
+ 
++    time(&start);
+     conn->error = 0;
+     do {
+-	if (BPF_BUFFER_IS_EMPTY) {
+-	    if (!time_left(&tv, &expire_at))
+-		return;		/* Timed out */
+-
+-	    FD_ZERO(&readable);
+-	    FD_SET(conn->discoverySocket, &readable);
+-
+-	    while(1) {
+-		r = select(conn->discoverySocket+1, &readable, NULL, NULL, &tv);
+-		if (r >= 0 || errno != EINTR) break;
+-	    }
+-	    if (r < 0) {
+-		error("select (waitForPADS): %m");
+-		return;
+-	    }
+-	    if (r == 0)
+-		return;		/* Timed out */
+-	}
+-
+-	/* Get the packet */
+-	receivePacket(conn->discoverySocket, &packet, &len);
+-
+-	/* Check length */
+-	if (ntohs(packet.length) + HDR_SIZE > len) {
+-	    error("Bogus PPPoE length field (%u)",
+-		   (unsigned int) ntohs(packet.length));
+-	    continue;
+-	}
+-
+-#ifdef USE_BPF
+-	/* If it's not a Discovery packet, loop again */
+-	if (etherType(&packet) != Eth_PPPOE_Discovery) continue;
+-#endif
++	r = recvPacketForMe(&packet, &len, conn, start, timeout);
++	if (r<=0) return;  /* Timed out or error */
+ 
+ 	/* If it's not from the AC, it's not for me */
+ 	if (memcmp(packet.ethHdr.h_source, conn->peerEth, ETH_ALEN)) continue;
+ 
+-	/* If it's not for us, loop again */
+-	if (!packetIsForMe(conn, &packet)) continue;
+-
+ 	/* Is it PADS?  */
+ 	if (packet.code == CODE_PADS) {
+ 	    /* Parse for goodies */
+--- ppp-2.4.6/pppd/plugins/rp-pppoe/pppoe-discovery.c
++++ ppp-2.4.6/pppd/plugins/rp-pppoe/pppoe-discovery.c
+@@ -14,6 +14,7 @@
+ #include <unistd.h>
+ #include <errno.h>
+ #include <string.h>
++#include <time.h>
+ 
+ #include "pppoe.h"
+ 
+@@ -513,6 +514,8 @@
+     struct timeval tv;
+     PPPoEPacket packet;
+     int len;
++    time_t start, now;
++    int time_remain;
+ 
+     struct PacketCriteria pc;
+     pc.conn          = conn;
+@@ -522,9 +525,13 @@
+     pc.seenServiceName = 0;
+     conn->error = 0;
+ 	
++    time(&start);
+     do {
++	time(&now);
++	time_remain = timeout - (int)difftime(now, start);
++	if (time_remain <= 0) return;	/* Timed out */
+ 	if (BPF_BUFFER_IS_EMPTY) {
+-	    tv.tv_sec = timeout;
++	    tv.tv_sec = time_remain;
+ 	    tv.tv_usec = 0;
+ 	
+ 	    FD_ZERO(&readable);
