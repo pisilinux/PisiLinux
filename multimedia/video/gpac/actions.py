@@ -9,18 +9,15 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir="gpac"
+pisitools.cflags.add("-fno-strict-aliasing", "-fPIC")
 
 def setup():
-    shelltools.export("CC", get.CC())
-    shelltools.export("CFLAGS", "%s -fno-strict-aliasing" % get.CFLAGS())
-
-    #pisitools.dosed("configure", '^has_wx="yes', 'has_wx="no')
-    shelltools.chmod("configure")
     autotools.configure('--enable-svg \
                          --enable-pic \
-                         --disable-wx \
-                         --disable-amr \
+                         --enable-ipv6 \
+                         --enable-opengl \
+                         --use-ft=system \
+                         --use-js=no \
                          --use-a52=no \
                          --use-ffmpeg=no \
                          --use-ogg=system \
@@ -29,16 +26,17 @@ def setup():
                          --use-faad=system \
                          --use-png=system \
                          --use-jpeg=system \
-                         --use-ft=system \
-                         --use-js=system \
                          --use-mad=system \
                          --cc="%s" \
-                         --disable-oss-audio ' % get.CC())
-
-    shelltools.copy("config.h", "include/gpac/")
+                         --extra-cflags="%s" \
+                         --disable-wx \
+                         --disable-amr \
+                         --disable-oss-audio \
+                         --disable-silent-rules \
+                        ' % (get.CC(), get.CFLAGS()))
 
 def build():
-    autotools.make('-j1 OPTFLAGS="%s -fno-strict-aliasing -fPIC"' % get.CFLAGS())
+    autotools.make()
 
 def install():
     autotools.rawInstall('STRIP="true" DESTDIR="%s"' % get.installDIR())
