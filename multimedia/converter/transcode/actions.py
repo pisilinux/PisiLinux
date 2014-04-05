@@ -4,24 +4,22 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
+from pisi.actionsapi import libtools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import libtools
-from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
+pisitools.flags.add("-DDCT_YUV_PRECISION=1")
 
 def setup():
     #transcode-1.1.7-ffmpeg-0.10.patch
     pisitools.dosed("filter/filter_pp.c", "pp_mode_t", "pp_mode")
     pisitools.dosed("filter/filter_pp.c", "pp_context_t", "pp_context")
     pisitools.dosed("filter/subtitler/load_font.c", "freetype/ftglyph.h", "freetype2/ftglyph.h")
-    
+
     autotools.autoreconf("-vfi")
     libtools.libtoolize("--copy --force")
-
-    shelltools.export("CFLAGS", "%s -DDCT_YUV_PRECISION=1" % get.CFLAGS())
-    shelltools.export("CXXFLAGS", "%s -DDCT_YUV_PRECISION=1" % get.CXXFLAGS())
 
     autotools.configure("--enable-deprecated \
                          --enable-experimental \
