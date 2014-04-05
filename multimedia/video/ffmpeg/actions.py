@@ -4,59 +4,60 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
-
-minimumcpu = "" if get.ARCH() == "x86_64" else "--cpu=atom"
-
 
 def setup():
-    shelltools.export("CFLAGS","%s -fPIC" % get.CFLAGS())
-
-    # CPU thing is just used for CMOV detection
     autotools.rawConfigure("--prefix=/usr \
-                            %s \
                             --mandir=/usr/share/man \
+                            --disable-debug \
+                            --disable-static \
                             --disable-stripping \
-                            --enable-postproc \
-                            --enable-gpl \
-                            --enable-pthreads \
-                            --enable-libtheora \
-                            --enable-libvorbis --disable-encoder=vorbis \
-                            --enable-libvpx \
-                            --enable-x11grab \
-                            --enable-runtime-cpudetect \
-                            --enable-libdc1394 \
-                            --enable-libschroedinger \
-                            --enable-librtmp \
-                            --enable-libspeex \
-                            --enable-libfreetype \
-                            --enable-libnut \
-                            --enable-libgsm \
-                            --enable-libcelt \
-                            --enable-libopenjpeg \
-                            --enable-frei0r \
-                            --enable-libmodplug \
-                            --enable-libass \
+                            --enable-avfilter \
+                            --enable-avresample \
+                            --enable-dxva2 \
+                            --enable-fontconfig \
                             --enable-gnutls \
-                            --enable-libcdio \
-                            --enable-libpulse \
-                            --enable-libv4l2 \
+                            --enable-gpl \
+                            --enable-libass \
+                            --enable-libbluray \
+                            --enable-libfreetype \
+                            --enable-libgsm \
+                            --enable-libmodplug \
                             --enable-libmp3lame \
-                            --enable-libopencore-amrnb \
-                            --enable-libopencore-amrwb \
-                            --enable-version3 \
+                            --enable-libopencore_amrnb \
+                            --enable-libopencore_amrwb \
+                            --enable-libopenjpeg \
+                            --enable-libopus \
+                            --enable-libpulse \
+                            --enable-librtmp \
+                            --enable-libschroedinger \
+                            --enable-libspeex \
+                            --enable-libtheora \
+                            --enable-libv4l2 \
+                            --enable-libvorbis \
+                            --enable-libvpx \
                             --enable-libx264 \
+                            --enable-libx265 \
+                            --enable-libxvid \
+                            --enable-pic \
+                            --enable-postproc \
+                            --enable-runtime-cpudetect \
+                            --enable-shared \
+                            --enable-swresample \
+                            --enable-vdpau \
+                            --enable-version3 \
+                            --enable-x11grab \
+                            --enable-libdc1394 \
+                            --enable-libnut \
+                            --enable-libcelt \
+                            --enable-frei0r \
+                            --enable-libcdio \
                             --enable-libvo-aacenc \
                             --enable-libvo-amrwbenc \
-                            --enable-libxvid \
                             --enable-nonfree \
-                            --enable-libfaac \
-                            --enable-shared \
-                            --disable-static \
-                            --disable-debug" % minimumcpu)
+                            --enable-libfaac")
 
 def build():
     autotools.make()
