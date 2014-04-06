@@ -9,17 +9,13 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    kde4.configure()
+    kde4.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                    -DCMAKE_BUILD_TYPE=Release")
 
 def build():
     kde4.make()
 
 def install():
     kde4.install()
-    pisitools.dodoc("COPYING*","README*","ChangeLog", "AUTHORS", "BUGS", "FAQ", "HACKING*", "NEWS")
-    #locales sl and th are very incomplete
-    pisitools.removeDir(destinationDirectory="/usr/share/locale/sl")
-    pisitools.removeDir(destinationDirectory="/usr/share/locale/th")
+    pisitools.dodoc("COPYING*","README*","CHANGE*", "AUTHORS", "BUGS", "FAQ", "HACKING*", "NEWS")
