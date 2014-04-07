@@ -10,7 +10,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    pisitools.dosed("modules/text_renderer/freetype.c", "freetype/ftsynth.h", "freetype2/ftsynth.h")
     # Make it build with libtool 1.5
     shelltools.system("rm -rf m4/lt* m4/libtool.m4")
 
