@@ -10,36 +10,44 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    pisitools.dosed("modules/text_renderer/freetype.c", "freetype/ftsynth.h", "freetype2/ftsynth.h")
     # Make it build with libtool 1.5
     shelltools.system("rm -rf m4/lt* m4/libtool.m4")
 
     shelltools.export("AUTOPOINT", "true")
     shelltools.system("./bootstrap")
     autotools.autoreconf("-vfi")
-    autotools.rawConfigure("--prefix=/usr \
-                            --sysconfdir=/etc \
+    autotools.rawConfigure("\
+                            --prefix=/usr \
                             --libdir=/usr/lib \
-                            --disable-dependency-tracking \
-                            --disable-rpath \
-                            --disable-oss \
-                            --enable-fast-install \
-                            --enable-nls \
-                            --enable-vcdx \
-                            --enable-upnp \
-                            --enable-opus \
-                            --enable-sftp \
+                            --sysconfdir=/etc \
+                            --with-default-font-family=Sans \
+                            --with-default-monospace-font-family=Monospace \
+                            --with-default-font=/usr/share/fonts/dejavu/DejaVuSans.ttf \
+                            --with-default-monospace-font=/usr/share/fonts/dejavu/DejaVuSansMono.ttf \
+                            --with-x \
                             LUAC=luac5.1 \
-                            --enable-aa \
-                            --enable-bluray \
+                            --disable-altivec \
+                            --disable-bonjour \
+                            --disable-dependency-tracking \
+                            --disable-gnomevfs \
+                            --disable-growl \
+                            --disable-jack \
+                            --disable-oss \
+                            --disable-rpath \
+                            --disable-static \
+                            --disable-update-check \
+                            --disable-silent-rules \
                             --enable-a52 \
+                            --enable-aa \
                             --enable-alsa \
-                            --enable-dvbpsi \
+                            --enable-bluray \
                             --enable-dc1394 \
                             --enable-dca \
+                            --enable-dvbpsi \
                             --enable-dvdnav \
                             --enable-dvdread \
                             --enable-faad \
+                            --enable-fast-install \
                             --enable-flac \
                             --enable-freetype \
                             --enable-fribidi \
@@ -55,13 +63,16 @@ def setup():
                             --enable-mkv \
                             --enable-mod \
                             --enable-mpc \
+                            --enable-nls \
                             --enable-ogg \
+                            --enable-opus \
                             --enable-png \
                             --enable-projectm \
                             --enable-pulse \
                             --enable-realrtsp \
                             --enable-screen \
                             --enable-sdl \
+                            --enable-sftp \
                             --enable-sftp \
                             --enable-shared \
                             --enable-skins2 \
@@ -72,27 +83,17 @@ def setup():
                             --enable-theora \
                             --enable-twolame \
                             --enable-upnp \
+                            --enable-upnp \
+                            --enable-v4l2 \
                             --enable-vcd \
+                            --enable-vcdx \
                             --enable-vcdx \
                             --enable-vlm \
                             --enable-vorbis \
                             --enable-x264 \
                             --enable-xvideo \
-                            --enable-v4l2 \
-                            --disable-altivec \
-                            --disable-bonjour \
-                            --disable-gnomevfs \
-                            --disable-growl \
-                            --disable-jack \
-                            --disable-static \
-                            --disable-update-check \
-                            --with-default-font=/usr/share/fonts/dejavu/DejaVuSans.ttf \
-                            --with-default-font-family=Sans \
-                            --with-default-monospace-font=/usr/share/fonts/dejavu/DejaVuSansMono.ttf \
-                            --with-default-monospace-font-family=Monospace \
-                            --with-x \
                            ")
-    
+
     # for fix unused dependency
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
@@ -106,4 +107,3 @@ def install():
          pisitools.insinto("/usr/share/icons/hicolor/%s/apps/" % icon, "share/icons/%s/vlc*.png" % icon)
 
     pisitools.dodoc("AUTHORS", "THANKS", "NEWS", "README", "COPYING")
-

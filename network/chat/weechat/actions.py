@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure()
+    cmaketools.configure("-DENABLE_GUILE=OFF")
 
     # we use only console edition and binary name should be the same with package (weechat-curses -> weechat)
     #pisitools.dosed("doc/weechat-curses.1", "weechat-curses", "weechat")
