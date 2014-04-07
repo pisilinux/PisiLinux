@@ -12,7 +12,7 @@ def setup():
     cmaketools.configure()
 
     # we use only console edition and binary name should be the same with package (weechat-curses -> weechat)
-    pisitools.dosed("doc/weechat-curses.1", "weechat-curses", "weechat")
+    #pisitools.dosed("doc/weechat-curses.1", "weechat-curses", "weechat")
 
 def build():
     cmaketools.make()
