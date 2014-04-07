@@ -13,16 +13,22 @@ shelltools.export("HOME", get.workDIR())
 
 
 def setup():
+    shelltools.makedirs("build")
+    shelltools.cd("build")
     cmaketools.configure("-DWANT_SVN_STAMP=OFF \
-                          -DWANT_GIT_STAMP=0 \
-                          -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr")
+                          -DWANT_GIT_STAMP=OFF \
+                          -DCMAKE_BUILD_TYPE=Release \
+                          -DCMAKE_INSTALL_PREFIX=/usr" ,sourceDir="..")
 
 def build():
+    shelltools.cd("build")
     cmaketools.make()
 
 def install():
-    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+    shelltools.cd("build")
+    cmaketools.install()
 
     # Documentations
+    shelltools.cd("..")
     shelltools.cd("docs")
     pisitools.dodoc("AUTHORS*", "CHANGELOG*", "COPYRIGHT*", "gnu_gpl_3.0.txt", "README*")
