@@ -12,7 +12,7 @@ def setup():
     cmaketools.configure()
 
     # we use only console edition and binary name should be the same with package (weechat-curses -> weechat)
-    pisitools.dosed("doc/weechat-curses.1", "weechat-curses", "weechat")
+    #pisitools.dosed("doc/weechat-curses.1", "weechat-curses", "weechat")
 
 def build():
     cmaketools.make()
@@ -20,7 +20,7 @@ def build():
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.domove("/usr/bin/weechat-curses", "/usr/bin", "weechat")
-    pisitools.domove("/usr/share/man/man1/weechat-curses.1", "/usr/share/man/man1", "weechat.1")
+   # pisitools.domove("/usr/bin/weechat-curses", "/usr/bin", "weechat")
+   # pisitools.domove("/usr/share/man/man1/weechat-curses.1", "/usr/share/man/man1", "weechat.1")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")

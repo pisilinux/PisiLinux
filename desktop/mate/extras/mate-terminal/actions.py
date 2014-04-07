@@ -11,9 +11,8 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--prefix=/usr \
-                        --disable-scrollkeeper \
-                        --disable-schemas-install")
+    pisitools.dosed("src/org.mate.terminal.gschema.xml.in", "0.5", "0.75")
+    autotools.configure("--prefix=/usr ")
     
     # for fix unused dependency
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")

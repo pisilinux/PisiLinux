@@ -18,8 +18,7 @@ def setup():
                          --sysconfdir=/etc \
                          --sbindir=/usr/bin \
                          --libexecdir=/usr/lib/mate-disk-utility \
-                         --disable-static \
-                         --disable-scrollkeeper")
+                         --disable-static ")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
