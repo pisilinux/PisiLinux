@@ -12,12 +12,14 @@ from pisi.actionsapi import get
 def setup():
     #çalışma alanını 2 satırda gösterir.
     pisitools.dosed("applets/wncklet/org.mate.panel.applet.workspace-switcher.gschema.xml.in.in", "1", "2")
-    autotools.configure("--disable-scrollkeeper                 \
-                         --disable-static                       \
+    autotools.configure("--disable-static                       \
                          --disable-schemas-compile              \
                          --with-x                               \
                          --libexecdir=/usr/lib/mate-panel       \
                          --enable-introspection")
+        
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make()
@@ -25,9 +27,10 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.insinto("/usr/share/mate-panel/", "data/panel-default-layout.mate", "panel-default-layout.dist")
+    #pisitools.insinto("/usr/share/mate-panel/", "data/default-layout.mate", "default-layout.dist")
 
     # remove needless gsettings convert file to avoid slow session start
     pisitools.removeDir("/usr/share/MateConf")
+    
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "NEWS", "README")

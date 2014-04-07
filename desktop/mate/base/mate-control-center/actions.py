@@ -11,11 +11,9 @@ from pisi.actionsapi import get
 
 
 def setup():
-    pisitools.dosed("org.mate.control-center.gschema.xml.in.in", "http://art.gnome.org", "http://web.archive.org/web/20130811221725/http://art.gnome.org")
     autotools.configure("--disable-static          \
                          --disable-schemas-compile \
-                         --disable-update-mimedb   \
-                         --disable-scrollkeeper ")
+                         --disable-update-mimedb ")
     
     # fix unused-direct-shlib-dependency
     pisitools.dosed("libtool", "( -shared )", " -Wl,-O1,--as-needed\\1")

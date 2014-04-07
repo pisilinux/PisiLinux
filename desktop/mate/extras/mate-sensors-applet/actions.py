@@ -14,7 +14,6 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --libexecdir=/usr/lib/mate-sensors \
-                         --disable-scrollkeeper \
                          --disable-schemas-compile \
                          --enable-libnotify \
                          --with-nvidia")
