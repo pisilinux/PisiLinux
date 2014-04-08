@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 pisitools.cflags.add("-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64")
+pisitools.cflags.sub("-O[\d]", "-Os")
 
 def setup():
     shelltools.export("SUID_CFLAGS", "-fpie")
@@ -18,7 +19,6 @@ def setup():
 
     options = "\
                --disable-rpath \
-               --disable-static \
                --disable-silent-rules \
                --disable-use-tty-group \
                --disable-su  \
@@ -45,6 +45,7 @@ def setup():
                      --sbindir=/emul32/sbin \
                      --libdir=/usr/lib32 \
                      --without-ncurses \
+                     --disable-static \
                      --disable-partx \
                      --disable-raw \
                      --disable-write \
@@ -57,6 +58,7 @@ def setup():
         options += "\
                      --bindir=/bin \
                      --sbindir=/sbin \
+                     --enable-static \
                      --enable-partx \
                      --enable-raw \
                      --enable-write \
