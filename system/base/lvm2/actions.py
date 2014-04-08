@@ -9,8 +9,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-WorkDir = "LVM2.%s" % get.srcVERSION()
-
 def builddiet():
     #dietCC = "diet %s %s %s -Os -static" % (get.CC(), get.CFLAGS(), get.LDFLAGS())
     dietCC = "%s %s %s -Os -static" % (get.CC(), get.CFLAGS(), get.LDFLAGS())
@@ -50,12 +48,14 @@ def builddiet():
 
 def setup():
     # Breaks linking when sandbox is disabled
-    #shelltools.export("CLDFLAGS", get.LDFLAGS())
+    shelltools.export("CLDFLAGS", get.LDFLAGS())
 
     shelltools.export("LIB_PTHREAD", "-lpthread")
+    pisitools.dosed("conf/example.conf.in", "use_lvmetad = 0", "use_lvmetad = 1")
 
     autotools.autoreconf("-fi")
     autotools.configure("--enable-lvm1_fallback \
+                         --with-default-pid-dir=/run \
                          --with-default-run-dir=/run/lvm \
                          --with-default-locking-dir=/run/lock/lvm \
                          --with-dmeventd-path=/sbin/dmeventd \
@@ -84,7 +84,7 @@ def setup():
                          --enable-cmdlib \
                          --enable-pkgconfig " % get.sbinDIR())
 
-    pisitools.dosed("make.tmpl","-lm","")
+#    pisitools.dosed("make.tmpl","-lm","")
 
 def build():
     autotools.make("-C include")
