@@ -16,8 +16,7 @@ def setup():
                          --enable-polkit \
                          --enable-networkmanager \
                          --enable-ipv6 \
-                         --disable-static \
-                         --disable-scrollkeeper")
+                         --disable-static")
 
 def build():
     autotools.make()
