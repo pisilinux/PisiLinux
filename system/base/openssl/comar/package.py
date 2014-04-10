@@ -3,4 +3,4 @@
 import os
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
-    os.system("/usr/bin/c_rehash /etc/pki/tls/certs")
+    os.system("/usr/bin/c_rehash /etc/ssl/certs")

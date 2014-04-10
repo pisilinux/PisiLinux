@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 def setup():
     options = " --prefix=/usr \
                 --libdir=lib \
-                --openssldir=/etc/pki/tls \
+                --openssldir=/etc/ssl \
                 --enginesdir=/usr/lib/openssl/engines \
                 shared -Wa,--noexecstack \
                 zlib enable-camellia enable-seed enable-tlsext enable-rfc3779 \
@@ -71,12 +71,11 @@ def install():
 
     # Certificate stuff
     pisitools.dobin("tools/c_rehash")
-    pisitools.dosym("/etc/pki/tls/certs/ca-bundle.crt","/etc/pki/tls/cert.pem")
 
 
-    # Create CA dirs
-    for cadir in ["CA", "CA/private", "CA/certs", "CA/crl", "CA/newcerts"]:
-        pisitools.dodir("/etc/pki/%s" % cadir)
+    # Create needed dirs
+    for cadir in ["misc", "private"]:
+        pisitools.dodir("/etc/ssl/%s" % cadir)
 
     # No static libs
     pisitools.remove("/usr/lib/*.a")
