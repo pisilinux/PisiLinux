@@ -9,8 +9,8 @@ from comar.service import *
 @synchronized
 def start():
     startService(command="/usr/sbin/atieventsd",
-		args=config.get("ATIEVENTSDOPTS", ""),
-                donotify=True)
+                 args=config.get("ATIEVENTSDOPTS", ""),
+                 donotify=True)
 
 @synchronized
 def stop():
