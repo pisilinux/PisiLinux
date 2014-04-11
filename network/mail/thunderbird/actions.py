@@ -19,6 +19,7 @@ ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
     # LOCALE
+    shelltools.system('sed -i "/ac_cpp=/s/$CPPFLAGS/& -O2/" mozilla/configure')
     shelltools.system("rm -rf langpack-tb/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
     for locale in locales:
