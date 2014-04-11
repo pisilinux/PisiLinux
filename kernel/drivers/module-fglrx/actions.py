@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+#
+# Licensed under the GNU General Public License, version 3.
+# See the file http://www.gnu.org/licenses/gpl.txt
+
 from pisi.actionsapi import kerneltools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
@@ -48,6 +53,7 @@ def install():
         pisitools.dobin("arch/%s/usr/X11R6/bin/*" % Target)
         pisitools.dobin("common/usr/X11R6/bin/*")
         pisitools.dosbin("arch/%s/usr/sbin/*" % Target)
+        pisitools.dobin("arch/%s/usr/bin/*" % Target)
         pisitools.dosbin("common/usr/sbin/*")
 
    # Controlcenter libraries
@@ -55,6 +61,7 @@ def install():
     DIRS = {
             "common/usr/share/doc/fglrx/examples/etc/acpi/events": "/etc/acpi",
             "common/etc/*": "/etc",
+            "arch/%s/etc/OpenCL/*" % Target:     "/etc/OpenCL",
             "arch/%s/usr/X11R6/lib*/*" % Target: Libdir,
             "arch/%s/usr/lib*/*" % Target: Libdir,
             "common/usr/share/*": "/usr/share"
@@ -114,6 +121,8 @@ def install():
 
     # Another compatibility link
     pisitools.dosym("/usr", "/usr/X11R6")
+    
+    pisitools.dosym("../security/console.apps/amdcccle-su", "/etc/pam.d/amdcccle-su")
 
     # copy compiled kernel module
     pisitools.insinto("/lib/modules/%s/extra/fglrx" % KDIR, "common/lib/modules/fglrx/fglrx.%s.ko" % KDIR, "fglrx.ko")
@@ -127,6 +136,9 @@ def install():
 
     pisitools.domove("/usr/share/icons/ccc_large.xpm", "/usr/share/pixmaps", "amdcccle.xpm")
     pisitools.removeDir("/usr/share/icons")
+    
+    #LICENSE information
+    pisitools.dodoc("LICENSE.TXT")
 
     # Fix file permissions
     exec_file_suffixes = (".sh", ".so", ".so.1.2.0")
