@@ -4,11 +4,11 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
+from pisi.actionsapi import libtools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import libtools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 KeepSpecial = ["libtool"]
 
@@ -18,10 +18,7 @@ def setup():
     libtools.libtoolize("--force --copy")
     autotools.configure("--enable-shared \
                          --enable-asm \
-                         --enable-firewire \
                          --enable-gpl \
-                         --enable-mmx \
-                         --disable-gtk \
                          --with-alsa \
                          --with-faad2 \
                          --with-ffmpeg \
@@ -35,6 +32,8 @@ def setup():
                          --with-x264 \
                          --without-doxygen \
                          --without-cpuflags")
+
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()

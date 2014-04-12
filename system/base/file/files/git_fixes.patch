@@ -1,0 +1,66 @@
+diff -aur file-5.18/ChangeLog file.git/ChangeLog
+--- file-5.18/ChangeLog	2014-03-26 16:27:39.000000000 +0100
++++ file.git/ChangeLog	2014-04-03 18:50:06.066659023 +0200
+@@ -1,3 +1,7 @@
++2014-04-01  15:25  Christos Zoulas <christos@zoulas.com>
++
++	* PR/341: Jan Kaluza, fix memory leak
++	* PR/342: Jan Kaluza, fix out of bounds read
+ 2014-03-26  11:25  Christos Zoulas <christos@zoulas.com>
+ 
+ 	* release 5.18
+diff -aur file-5.18/src/apprentice.c file.git/src/apprentice.c
+--- file-5.18/src/apprentice.c	2014-03-14 19:48:11.000000000 +0100
++++ file.git/src/apprentice.c	2014-04-03 18:50:06.086659024 +0200
+@@ -517,14 +517,18 @@
+ {
+ 	if (map == NULL)
+ 		return;
+-	if (map->p == NULL)
+-		return;
++	if (map->p != NULL) {
+ #ifdef QUICK
+-	if (map->len)
+-		(void)munmap(map->p, map->len);
+-	else
++		if (map->len)
++			(void)munmap(map->p, map->len);
++		else
+ #endif
+ 		free(map->p);
++	} else {
++		uint32_t j;
++		for (j = 0; j < MAGIC_SETS; j++)
++			free(map->magic[j]);
++	}
+ 	free(map);
+ }
+ 
+@@ -1290,11 +1294,7 @@
+ 		magic_entry_free(mset[j].me, mset[j].count);
+ 
+ 	if (errs) {
+-		for (j = 0; j < MAGIC_SETS; j++) {
+-			if (map->magic[j])
+-				free(map->magic[j]);
+-		}
+-		free(map);
++		apprentice_unmap(map);
+ 		return NULL;
+ 	}
+ 	return map;
+diff -aur file-5.18/python/magic.py file.git/python/magic.py
+--- file-5.18/python/magic.py	2014-04-04 20:34:38.086623965 +0200
++++ file.git/python/magic.py	2014-04-04 20:35:42.886623752 +0200
+@@ -116,7 +116,10 @@
+         is set.  A call to errno() will return the numeric error code.
+         """
+         try: # attempt python3 approach first
+-            bi = bytes(filename, 'utf-8')
++            if isinstance(filename, bytes):
++                bi = filename
++            else:
++                bi = bytes(filename, 'utf-8')
+             return str(_file(self._magic_t, bi), 'utf-8')
+         except:
+             return _file(self._magic_t, filename.encode('utf-8'))

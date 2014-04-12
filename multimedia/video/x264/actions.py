@@ -4,14 +4,16 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 verMAJOR = "0"
 verMINOR = "0"
 staticlibfile = "/usr/lib/libx264.a"
+
+pisitools.cflags.sub("-O[\ds]", "-O3")
 
 def getMinorVersion():
     f = file("x264.h").read()
@@ -30,11 +32,13 @@ def setup():
     # these disables are here to prevent circular deps, especially with ffmpeg
     autotools.rawConfigure("--prefix=/usr \
                             --enable-pic \
+                            --enable-shared \
                             --disable-avs \
                             --disable-ffms \
-                            --disable-swscale \
                             --disable-lavf \
-                            --enable-shared")
+                            --disable-swscale \
+                            --bit-depth=10 \
+                           ")
 
 def build():
     autotools.make()

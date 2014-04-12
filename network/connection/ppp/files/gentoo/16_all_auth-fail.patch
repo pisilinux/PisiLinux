@@ -1,0 +1,141 @@
+diff -Nru ppp-2.4.5.orig/pppd/auth.c ppp-2.4.5/pppd/auth.c
+--- ppp-2.4.5.orig/pppd/auth.c	2010-08-08 09:58:19.000000000 +0200
++++ ppp-2.4.5/pppd/auth.c	2010-08-08 10:06:06.000000000 +0200
+@@ -259,7 +259,7 @@
+ 			       struct wordlist **, struct wordlist **,
+ 			       char *, int));
+ static void free_wordlist __P((struct wordlist *));
+-static void auth_script __P((char *));
++static void auth_script __P((char *, int));
+ static void auth_script_done __P((void *));
+ static void set_allowed_addrs __P((int, struct wordlist *, struct wordlist *));
+ static int  some_ip_ok __P((struct wordlist *));
+@@ -690,7 +690,7 @@
+ 	if (auth_script_state == s_up && auth_script_pid == 0) {
+ 	    update_link_stats(unit);
+ 	    auth_script_state = s_down;
+-	    auth_script(_PATH_AUTHDOWN);
++	    auth_script(_PATH_AUTHDOWN, 0);
+ 	}
+     }
+     if (!doing_multilink) {
+@@ -822,7 +822,7 @@
+ 	auth_state = s_up;
+ 	if (auth_script_state == s_down && auth_script_pid == 0) {
+ 	    auth_script_state = s_up;
+-	    auth_script(_PATH_AUTHUP);
++	    auth_script(_PATH_AUTHUP, 0);
+ 	}
+     }
+ 
+@@ -923,6 +923,7 @@
+      * Authentication failure: take the link down
+      */
+     status = EXIT_PEER_AUTH_FAILED;
++    auth_script(_PATH_AUTHFAIL, 1);
+     lcp_close(unit, "Authentication failed");
+ }
+ 
+@@ -1001,6 +1002,7 @@
+      * authentication secrets.
+      */
+     status = EXIT_AUTH_TOPEER_FAILED;
++    auth_script(_PATH_AUTHFAIL, 1);
+     lcp_close(unit, "Failed to authenticate ourselves to peer");
+ }
+ 
+@@ -1233,6 +1235,8 @@
+     if (user[0] == 0 && !explicit_user)
+ 	strlcpy(user, our_name, sizeof(user));
+ 
++    script_setenv("LOCALNAME", user, 0);
++
+     /*
+      * If we have a default route, require the peer to authenticate
+      * unless the noauth option was given or the real user is root.
+@@ -2314,13 +2318,13 @@
+     case s_up:
+ 	if (auth_state == s_down) {
+ 	    auth_script_state = s_down;
+-	    auth_script(_PATH_AUTHDOWN);
++	    auth_script(_PATH_AUTHDOWN, 0);
+ 	}
+ 	break;
+     case s_down:
+ 	if (auth_state == s_up) {
+ 	    auth_script_state = s_up;
+-	    auth_script(_PATH_AUTHUP);
++	    auth_script(_PATH_AUTHUP, 0);
+ 	}
+ 	break;
+     }
+@@ -2331,8 +2335,9 @@
+  * interface-name peer-name real-user tty speed
+  */
+ static void
+-auth_script(script)
++auth_script(script, wait)
+     char *script;
++    int wait;
+ {
+     char strspeed[32];
+     struct passwd *pw;
+@@ -2356,5 +2361,8 @@
+     argv[5] = strspeed;
+     argv[6] = NULL;
+ 
+-    auth_script_pid = run_program(script, argv, 0, auth_script_done, NULL, 0);
++    if (wait)
++	run_program(script, argv, 0, NULL, NULL, 1);
++    else
++	auth_script_pid = run_program(script, argv, 0, auth_script_done, NULL, 0);
+ }
+diff -Nru ppp-2.4.5.orig/pppd/pathnames.h ppp-2.4.5/pppd/pathnames.h
+--- ppp-2.4.5.orig/pppd/pathnames.h	2009-11-16 23:26:07.000000000 +0100
++++ ppp-2.4.5/pppd/pathnames.h	2010-08-08 10:06:06.000000000 +0200
+@@ -27,6 +27,7 @@
+ #define _PATH_IPPREUP	 _ROOT_PATH "/etc/ppp/ip-pre-up"
+ #define _PATH_AUTHUP	 _ROOT_PATH "/etc/ppp/auth-up"
+ #define _PATH_AUTHDOWN	 _ROOT_PATH "/etc/ppp/auth-down"
++#define _PATH_AUTHFAIL	 _ROOT_PATH "/etc/ppp/auth-fail"
+ #define _PATH_TTYOPT	 _ROOT_PATH "/etc/ppp/options."
+ #define _PATH_CONNERRS	 _ROOT_PATH "/etc/ppp/connect-errors"
+ #define _PATH_PEERFILES	 _ROOT_PATH "/etc/ppp/peers/"
+diff -Nru ppp-2.4.5.orig/pppd/pppd.8 ppp-2.4.5/pppd/pppd.8
+--- ppp-2.4.5.orig/pppd/pppd.8	2009-11-16 23:26:07.000000000 +0100
++++ ppp-2.4.5/pppd/pppd.8	2010-08-08 10:06:06.000000000 +0200
+@@ -1553,8 +1553,8 @@
+ Pppd invokes scripts at various stages in its processing which can be
+ used to perform site-specific ancillary processing.  These scripts are
+ usually shell scripts, but could be executable code files instead.
+-Pppd does not wait for the scripts to finish (except for the ip-pre-up
+-script).  The scripts are
++Pppd does not wait for the scripts to finish (except for the ip-pre-up,
++and auth-fail scripts).  The scripts are
+ executed as root (with the real and effective user-id set to 0), so
+ that they can do things such as update routing tables or run
+ privileged daemons.  Be careful that the contents of these scripts do
+@@ -1582,6 +1582,11 @@
+ The authenticated name of the peer.  This is only set if the peer
+ authenticates itself.
+ .TP
++.B LOCALNAME
++The username passed to the user option of the pppd daemon.  This is
++handy to identify which account was used for authentication purposes
++when multiple accounts are available.
++.TP
+ .B SPEED
+ The baud rate of the tty device.
+ .TP
+@@ -1634,6 +1639,11 @@
+ /etc/ppp/auth\-up was previously executed.  It is executed in the same
+ manner with the same parameters as /etc/ppp/auth\-up.
+ .TP
++.B /etc/ppp/auth\-fail
++A program or script which is executed should authentication fail.  pppd
++waits for this script to finish.  It is executed in the same manner, with
++the same parameters as /etc/ppp/auth\-up.
++.TP
+ .B /etc/ppp/ip\-pre\-up
+ A program or script which is executed just before the ppp network
+ interface is brought up.  It is executed with the same parameters as

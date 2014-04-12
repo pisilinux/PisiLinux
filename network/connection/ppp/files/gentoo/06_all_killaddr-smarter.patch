@@ -1,0 +1,134 @@
+diff -Nur ppp-2.4.5.orig/pppd/options.c ppp-2.4.5/pppd/options.c
+--- ppp-2.4.5.orig/pppd/options.c	2009-11-16 23:26:07.000000000 +0100
++++ ppp-2.4.5/pppd/options.c	2010-08-08 09:43:47.000000000 +0200
+@@ -100,6 +100,9 @@
+ char	user[MAXNAMELEN];	/* Username for PAP */
+ char	passwd[MAXSECRETLEN];	/* Password for PAP */
+ bool	persist = 0;		/* Reopen link after it goes down */
++bool	killoldaddr = 0;		/* If our IP is reassigned on
++				    reconnect, kill active TCP
++				     connections using the old IP. */
+ char	our_name[MAXNAMELEN];	/* Our name for authentication purposes */
+ bool	demand = 0;		/* do dial-on-demand */
+ char	*ipparam = NULL;	/* Extra parameter for ip up/down scripts */
+@@ -231,6 +234,11 @@
+     { "demand", o_bool, &demand,
+       "Dial on demand", OPT_INITONLY | 1, &persist },
+ 
++    { "killoldaddr", o_bool, &killoldaddr,
++      "Kill connections from an old source address", 1},
++    { "nokilloldaddr", o_bool,&killoldaddr,
++      "Don't kill connections from an old source address" },
++
+     { "--version", o_special_noarg, (void *)showversion,
+       "Show version number" },
+     { "--help", o_special_noarg, (void *)showhelp,
+diff -Nur ppp-2.4.5.orig/pppd/pppd.h ppp-2.4.5/pppd/pppd.h
+--- ppp-2.4.5.orig/pppd/pppd.h	2009-11-16 23:26:07.000000000 +0100
++++ ppp-2.4.5/pppd/pppd.h	2010-08-08 09:43:47.000000000 +0200
+@@ -298,6 +298,9 @@
+ extern char	remote_name[MAXNAMELEN]; /* Peer's name for authentication */
+ extern bool	explicit_remote;/* remote_name specified with remotename opt */
+ extern bool	demand;		/* Do dial-on-demand */
++extern bool	killoldaddr;	/* If our IP is reassigned on
++				    reconnect, kill active TCP
++				     connections using the old IP. */
+ extern char	*ipparam;	/* Extra parameter for ip up/down scripts */
+ extern bool	cryptpap;	/* Others' PAP passwords are encrypted */
+ extern int	idle_time_limit;/* Shut down link if idle for this long */
+diff -Nur ppp-2.4.5.orig/pppd/sys-linux.c ppp-2.4.5/pppd/sys-linux.c
+--- ppp-2.4.5.orig/pppd/sys-linux.c	2009-11-16 23:26:07.000000000 +0100
++++ ppp-2.4.5/pppd/sys-linux.c	2010-08-08 09:43:47.000000000 +0200
+@@ -165,6 +165,10 @@
+ 
+ #endif /* INET6 */
+ 
++#ifndef SIOCKILLADDR
++#define SIOCKILLADDR	0x8939
++#endif
++
+ /* We can get an EIO error on an ioctl if the modem has hung up */
+ #define ok_error(num) ((num)==EIO)
+ 
+@@ -209,6 +213,7 @@
+ static u_int32_t proxy_arp_addr;	/* Addr for proxy arp entry added */
+ static char proxy_arp_dev[16];		/* Device for proxy arp entry */
+ static u_int32_t our_old_addr;		/* for detecting address changes */
++static u_int32_t our_current_addr;
+ static int	dynaddr_set;		/* 1 if ip_dynaddr set */
+ static int	looped;			/* 1 if using loop */
+ static int	link_mtu;		/* mtu for the link (not bundle) */
+@@ -537,6 +542,27 @@
+     return -1;
+ }
+ 
++static void do_killaddr(u_int32_t oldaddr)
++{
++    struct ifreq   ifr; 
++
++    memset(&ifr,0,sizeof ifr);
++
++    SET_SA_FAMILY (ifr.ifr_addr,    AF_INET); 
++    SET_SA_FAMILY (ifr.ifr_dstaddr, AF_INET); 
++    SET_SA_FAMILY (ifr.ifr_netmask, AF_INET); 
++    
++    SIN_ADDR(ifr.ifr_addr) = oldaddr;
++
++    strlcpy(ifr.ifr_name, ifname, sizeof (ifr.ifr_name));
++    
++    if(ioctl(sock_fd,SIOCKILLADDR,&ifr) < 0) {
++      if (!ok_error (errno))
++	error("ioctl(SIOCKILLADDR): %m(%d)", errno);
++      return;
++    }
++}
++
+ /********************************************************************
+  *
+  * tty_disestablish_ppp - Restore the serial port to normal operation.
+@@ -2385,21 +2411,29 @@
+ 	}
+     }
+ 
+-    /* set ip_dynaddr in demand mode if address changes */
+-    if (demand && tune_kernel && !dynaddr_set
+-	&& our_old_addr && our_old_addr != our_adr) {
++    if(persist && our_old_addr && our_old_addr != our_adr) {
++
++      if(killoldaddr)
++	do_killaddr(our_old_addr);
++
++	
++      /* set ip_dynaddr in persist mode if address changes */
++      if (tune_kernel && !dynaddr_set) {
+ 	/* set ip_dynaddr if possible */
+ 	char *path;
+ 	int fd;
+ 
+ 	path = path_to_procfs("/sys/net/ipv4/ip_dynaddr");
+ 	if (path != 0 && (fd = open(path, O_WRONLY)) >= 0) {
+-	    if (write(fd, "1", 1) != 1)
+-		error("Couldn't enable dynamic IP addressing: %m");
+-	    close(fd);
++	  if (write(fd, "1", 1) != 1)
++	    error("Couldn't enable dynamic IP addressing: %m");
++	  close(fd);
+ 	}
+ 	dynaddr_set = 1;	/* only 1 attempt */
++      }
+     }
++
++    our_current_addr = our_adr;
+     our_old_addr = 0;
+ 
+     return 1;
+@@ -2455,7 +2489,8 @@
+     }
+ 
+     our_old_addr = our_adr;
+-
++    our_current_addr = 0;
++    
+     return 1;
+ }
+ 

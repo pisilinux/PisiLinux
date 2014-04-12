@@ -6,7 +6,7 @@ import platform
 import os
 
 fileassociations = open("/usr/share/applications/mimeapps.list","a")
-fileassociations.write("application/x-pisi=package-manager.desktop;\n")
+fileassociations.write("application/x-pisi=package-manager-helper.desktop;\n")
 fileassociations.write("x-scheme-handler/http=mozillafirefox.desktop;\n")
 fileassociations.write("x-scheme-handler/https=mozillafirefox.desktop;\n")
 fileassociations.write("x-scheme-handler/about=mozillafirefox.desktop;\n")

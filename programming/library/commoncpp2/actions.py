@@ -8,8 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--with-gnutls \
-                         --without-openssl \
+    autotools.configure("--without-openssl \
                          --enable-debug \
                          --with-ipv6 \
                          --disable-static \

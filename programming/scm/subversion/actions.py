@@ -23,8 +23,8 @@ def setup():
                          --with-apr-util=/usr \
                          --with-apache=/usr/lib/apache2/ \
                          --with-apxs \
+                         --with-serf=/usr \
                          --with-sqlite=/usr \
-                         --with-berkeley-db=:/usr/include/:/usr/lib:db-5.3 \
                          --with-zlib=/usr \
                          --with-jikes=no \
                          --with-kwallet \

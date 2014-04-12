@@ -27,7 +27,7 @@ def install():
     # Remove bundled fonts
     #pisitools.remove("/usr/share/pokerth/data/fonts/VeraBd.ttf")
     #pisitools.remove("/usr/share/pokerth/data/fonts/c059013l.pfb")
-    pisitools.remove("/usr/share/pokerth/data/fonts/n019003l.pfb")
+    #pisitools.remove("/usr/share/pokerth/data/fonts/n019003l.pfb")
 
     # and replace them with symlinks
     shelltools.sym("/usr/share/fonts/Type1/c059013l.pfb", "%s/usr/share/pokerth/data/fonts/c059013l.pfb" % get.installDIR())

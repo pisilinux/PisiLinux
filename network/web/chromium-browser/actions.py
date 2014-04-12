@@ -61,7 +61,6 @@ def setup():
                 -Dusb_ids_path=/usr/share/misc/usb.ids \
                 -Dlinux_sandbox_path=/usr/lib/chromium-browser/chromium-sandbox \
                 -Dlinux_sandbox_chrome_path=/usr/lib/chromium-browser/chromium-browser \
-                -Dgcc_version=45 \
                 -Dno_strict_aliasing=1 \
                 -Dtarget_arch=x64'
                
@@ -74,8 +73,8 @@ def setup():
 
 def build():
     shelltools.system("export -n CFLAGS CXXFLAGS")
-    #pisitools.flags.add("-fno-stack-protector","-fno-ipa-cp")
-    pisitools.flags.add("-fno-stack-protector")
+    pisitools.flags.add("-fno-stack-protector","-fno-ipa-cp")
+    #pisitools.flags.add("-fno-stack-protector")
     autotools.make("chrome chrome_sandbox BUILDTYPE=Release V=1")
 
 def install():

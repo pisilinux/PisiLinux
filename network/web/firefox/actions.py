@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 
 shelltools.export("JAVAC","/usr/lib/jvm/java-7-openjdk/bin/javac")
 shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
+pisitools.flags.replace("-ggdb3", "-g")
 
 WorkDir = "mozilla-release"
 
@@ -25,6 +26,11 @@ arch = get.ARCH()
 ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
+    # Google API key
+    shelltools.echo("google_api_key", "AIzaSyBINKL31ZYd8W5byPuwTXYK6cEyoceGh6Y")
+    pisitools.dosed(".mozconfig", "%%PWD%%", get.curDIR())
+    pisitools.dosed(".mozconfig", "%%FILE%%", "google_api_key")
+
     # Fix build with new freetype
     pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
     pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")

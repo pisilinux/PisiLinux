@@ -4,14 +4,21 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
 WorkDir="%s-%s" % (get.srcNAME(), get.srcVERSION())
+pisitools.cflags.add("-fno-strict-aliasing")
 
 def setup():
+    # nss-pem
+    #shelltools.copytree("../nss-pem-3ade37c5c4ca5a6094e3f4b2e4591405db1867dd/nss/lib/ckfw/pem", "nss/lib/ckfw")
+
+    # Respect LDFLAGS
+    pisitools.dosed("nss/coreconf/rules.mk", "(\$\(MKSHLIB\))\s-o", r"\1 $(LDFLAGS) -o")
+
     # Create nss.pc and nss-config dynamically
     shelltools.system("./generate-pc-config.sh")
 
@@ -25,7 +32,7 @@ def build():
     shelltools.export("NSS_USE_SYSTEM_SQLITE", "1")
     shelltools.export("NSPR_INCLUDE_DIR", "`nspr-config --includedir`")
     shelltools.export("NSPR_LIB_DIR", "`nspr-config --libdir`")
-    shelltools.export("XCFLAGS","%s -g -fno-strict-aliasing" % get.CFLAGS())
+    shelltools.export("XCFLAGS", get.CFLAGS())
 
     # Use system zlib
     shelltools.export("PKG_CONFIG_ALLOW_SYSTEM_LIBS", "1")

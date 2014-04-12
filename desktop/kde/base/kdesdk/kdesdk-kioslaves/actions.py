@@ -9,11 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 NoStrip=["/usr/share"]
 
 def setup():
-    kde4.configure()
+    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+                    -DKDE4_BUILD_TESTS=OFF \
+                    -DCMAKE_INSTALL_PREFIX=/usr")
 
 def build():
     kde4.make()

@@ -13,7 +13,6 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--prefix=/usr               \
                          --disable-static            \
-                         --disable-scrollkeeper      \
                          --disable-schemas-compile   \
                          --enable-gdict-applet       \
                          --enable-gtk-doc-html       \

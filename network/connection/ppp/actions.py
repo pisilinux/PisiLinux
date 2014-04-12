@@ -10,13 +10,25 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    # Fix pppoe and pppol2tp build problems
-    shelltools.unlink("include/linux/if_pppol2tp.h")
+    pisitools.cflags.add("-fPIC", "-D_GNU_SOURCE")
+    shelltools.copytree("%s/dhcp" % get.workDIR(), "pppd/plugins")
+    pisitools.dosed("pppd/plugins/dhcp/Makefile.linux", "^(CFLAGS=.+)\s-O2", "\\1 %s" % get.CFLAGS())
+
+    # Enable atm
+    pisitools.dosed("pppd/Makefile.linux", "^#(HAVE_LIBATM=yes)", "\\1")
+    # Enable pam
+    pisitools.dosed("pppd/Makefile.linux", "^#(USE_PAM=y)", "\\1")
+    # Enable CBCP
+    pisitools.dosed("pppd/Makefile.linux", "^#(CBCP=y)", "\\1")
+    # Enable IPv6
+    pisitools.dosed("pppd/Makefile.linux", "^#(HAVE_INET6)", "\\1")
+    # Enable dhcp
+    pisitools.dosed("pppd/plugins/Makefile.linux", "^(SUBDIRS\s:=.+)", "\\1 dhcp")
 
     autotools.configure()
 
 def build():
-    autotools.make("CC=%s RPM_OPT_FLAGS='%s -fPIC'" % (get.CC(), get.CFLAGS()))
+    autotools.make()
 
 def install():
     # The build mechanism is crap. Don't remove \/usr from DESTDIR or else the paths will fail
@@ -27,9 +39,6 @@ def install():
 
     # Install Radius config files
     pisitools.insinto("/etc/radiusclient", "pppd/plugins/radius/etc/*")
-
-    # Remove unused directory, the log file is at /var/log/ppp.log
-    pisitools.removeDir("/var")
 
     # Create peers directory
     pisitools.dodir("/run/ppp")

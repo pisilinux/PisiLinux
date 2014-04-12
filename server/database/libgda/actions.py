@@ -24,5 +24,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    pisitools.removeDir("/usr/share/glade")
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")

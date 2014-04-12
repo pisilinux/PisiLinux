@@ -17,16 +17,12 @@ def setup():
                          --enable-polkit \
                          --enable-networkmanager \
                          --enable-ipv6 \
-                         --disable-static \
-                         --disable-scrollkeeper")
+                         --disable-static")
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    
-    # remove needless gsettings convert file to avoid slow session start
-    pisitools.removeDir("/usr/share/MateConf")
 
     pisitools.dodoc("README", "NEWS", "ChangeLog", "AUTHORS", "COPYING")

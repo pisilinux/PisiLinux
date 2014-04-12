@@ -1,0 +1,256 @@
+--- ppp-2.4.6/pppd/ipcp.c
++++ ppp-2.4.6/pppd/ipcp.c
+@@ -91,6 +91,7 @@
+ static int default_route_set[NUM_PPP];	/* Have set up a default route */
+ static int proxy_arp_set[NUM_PPP];	/* Have created proxy arp entry */
+ static bool usepeerdns;			/* Ask peer for DNS addrs */
++static bool usepeerwins;		/* Ask peer for WINS addrs */
+ static int ipcp_is_up;			/* have called np_up() */
+ static int ipcp_is_open;		/* haven't called np_finished() */
+ static bool ask_for_local;		/* request our address from peer */
+@@ -210,6 +211,9 @@
+     { "usepeerdns", o_bool, &usepeerdns,
+       "Ask peer for DNS address(es)", 1 },
+ 
++    { "usepeerwins", o_bool, &usepeerwins,
++      "Ask peer for WINS address(es)", 1 },
++
+     { "netmask", o_special, (void *)setnetmask,
+       "set netmask", OPT_PRIO | OPT_A2STRVAL | OPT_STATIC, netmask_str },
+ 
+@@ -703,6 +707,8 @@
+ 	wo->accept_remote = 1;
+     wo->req_dns1 = usepeerdns;	/* Request DNS addresses from the peer */
+     wo->req_dns2 = usepeerdns;
++    wo->req_wins1 = usepeerwins; /* Request WINS addresses from the peer */
++    wo->req_wins2 = usepeerwins;
+     *go = *wo;
+     if (!ask_for_local)
+ 	go->ouraddr = 0;
+@@ -755,8 +761,8 @@
+ 	    LENCIADDR(go->neg_addr) +
+ 	    LENCIDNS(go->req_dns1) +
+ 	    LENCIDNS(go->req_dns2) +
+-	    LENCIWINS(go->winsaddr[0]) +
+-	    LENCIWINS(go->winsaddr[1])) ;
++	    LENCIWINS(go->req_wins1) +
++	    LENCIWINS(go->req_wins2)) ;
+ }
+ 
+ 
+@@ -830,8 +836,8 @@
+ 	    neg = 0; \
+     }
+ 
+-#define ADDCIWINS(opt, addr) \
+-    if (addr) { \
++#define ADDCIWINS(opt, neg, addr) \
++    if (neg) { \
+ 	if (len >= CILEN_ADDR) { \
+ 	    u_int32_t l; \
+ 	    PUTCHAR(opt, ucp); \
+@@ -840,7 +846,7 @@
+ 	    PUTLONG(l, ucp); \
+ 	    len -= CILEN_ADDR; \
+ 	} else \
+-	    addr = 0; \
++	    neg = 0; \
+     }
+ 
+     ADDCIADDRS(CI_ADDRS, !go->neg_addr && go->old_addrs, go->ouraddr,
+@@ -855,9 +861,9 @@
+ 
+     ADDCIDNS(CI_MS_DNS2, go->req_dns2, go->dnsaddr[1]);
+ 
+-    ADDCIWINS(CI_MS_WINS1, go->winsaddr[0]);
++    ADDCIWINS(CI_MS_WINS1, go->req_wins1, go->winsaddr[0]);
+ 
+-    ADDCIWINS(CI_MS_WINS2, go->winsaddr[1]);
++    ADDCIWINS(CI_MS_WINS2, go->req_wins2, go->winsaddr[1]);
+     
+     *lenp -= len;
+ }
+@@ -962,8 +968,8 @@
+ 	    goto bad; \
+     }
+ 
+-#define ACKCIWINS(opt, addr) \
+-    if (addr) { \
++#define ACKCIWINS(opt, neg, addr) \
++    if (neg) { \
+ 	u_int32_t l; \
+ 	if ((len -= CILEN_ADDR) < 0) \
+ 	    goto bad; \
+@@ -989,9 +995,9 @@
+ 
+     ACKCIDNS(CI_MS_DNS2, go->req_dns2, go->dnsaddr[1]);
+ 
+-    ACKCIWINS(CI_MS_WINS1, go->winsaddr[0]);
++    ACKCIWINS(CI_MS_WINS1, go->req_wins1, go->winsaddr[0]);
+ 
+-    ACKCIWINS(CI_MS_WINS2, go->winsaddr[1]);
++    ACKCIWINS(CI_MS_WINS2, go->req_wins2, go->winsaddr[1]);
+ 
+     /*
+      * If there are any remaining CIs, then this packet is bad.
+@@ -1026,7 +1032,7 @@
+     u_char cimaxslotindex, cicflag;
+     u_char citype, cilen, *next;
+     u_short cishort;
+-    u_int32_t ciaddr1, ciaddr2, l, cidnsaddr;
++    u_int32_t ciaddr1, ciaddr2, l, cidnsaddr, ciwinsaddr;
+     ipcp_options no;		/* options we've seen Naks for */
+     ipcp_options try;		/* options to request next time */
+ 
+@@ -1091,6 +1097,19 @@
+ 	code \
+     }
+ 
++#define NAKCIWINS(opt, neg, code) \
++    if (go->neg && \
++	((cilen = p[1]) == CILEN_ADDR) && \
++	len >= cilen && \
++	p[0] == opt) { \
++	len -= cilen; \
++	INCPTR(2, p); \
++	GETLONG(l, p); \
++	ciwinsaddr = htonl(l); \
++	no.neg = 1; \
++	code \
++    }
++
+     /*
+      * Accept the peer's idea of {our,his} address, if different
+      * from our idea, only if the accept_{local,remote} flag is set.
+@@ -1167,6 +1186,22 @@
+ 	     }
+ 	     );
+ 
++    NAKCIWINS(CI_MS_WINS1, req_wins1,
++	     if (treat_as_reject) {
++		 try.req_wins1 = 0;
++	     } else {
++		 try.winsaddr[0] = ciwinsaddr;
++	     }
++	     );
++
++    NAKCIWINS(CI_MS_WINS2, req_wins2,
++	     if (treat_as_reject) {
++		 try.req_wins2 = 0;
++	     } else {
++		 try.winsaddr[1] = ciwinsaddr;
++	     }
++	     );
++
+     /*
+      * There may be remaining CIs, if the peer is requesting negotiation
+      * on an option that we didn't include in our request packet.
+@@ -1259,7 +1294,6 @@
+     return 0;
+ }
+ 
+-
+ /*
+  * ipcp_rejci - Reject some of our CIs.
+  * Callback from fsm_rconfnakrej.
+@@ -1357,8 +1391,8 @@
+ 	try.neg = 0; \
+     }
+ 
+-#define REJCIWINS(opt, addr) \
+-    if (addr && \
++#define REJCIWINS(opt, neg, addr) \
++    if (go->neg && \
+ 	((cilen = p[1]) == CILEN_ADDR) && \
+ 	len >= cilen && \
+ 	p[0] == opt) { \
+@@ -1370,7 +1404,7 @@
+ 	/* Check rejected value. */ \
+ 	if (cilong != addr) \
+ 	    goto bad; \
+-	try.winsaddr[opt == CI_MS_WINS2] = 0; \
++	try.neg = 0; \
+     }
+ 
+     REJCIADDRS(CI_ADDRS, !go->neg_addr && go->old_addrs,
+@@ -1385,9 +1419,9 @@
+ 
+     REJCIDNS(CI_MS_DNS2, req_dns2, go->dnsaddr[1]);
+ 
+-    REJCIWINS(CI_MS_WINS1, go->winsaddr[0]);
++    REJCIWINS(CI_MS_WINS1, req_wins1, go->winsaddr[0]);
+ 
+-    REJCIWINS(CI_MS_WINS2, go->winsaddr[1]);
++    REJCIWINS(CI_MS_WINS2, req_wins2, go->winsaddr[1]);
+ 
+     /*
+      * If there are any remaining CIs, then this packet is bad.
+@@ -1581,7 +1615,7 @@
+ 	    /* Microsoft primary or secondary WINS request */
+ 	    d = citype == CI_MS_WINS2;
+ 
+-	    /* If we do not have a DNS address then we cannot send it */
++	    /* If we do not have a WINS address then we cannot send it */
+ 	    if (ao->winsaddr[d] == 0 ||
+ 		cilen != CILEN_ADDR) {	/* Check CI length */
+ 		orc = CONFREJ;		/* Reject CI */
+@@ -1830,6 +1864,13 @@
+ 	create_resolv(go->dnsaddr[0], go->dnsaddr[1]);
+     }
+ 
++    if (go->winsaddr[0])
++        script_setenv("WINS1", ip_ntoa(go->winsaddr[0]), 0);
++    if (go->winsaddr[1])
++        script_setenv("WINS2", ip_ntoa(go->winsaddr[1]), 0);
++    if (usepeerwins && (go->winsaddr[0] || go->winsaddr[1]))
++        script_setenv("USEPEERWINS", "1", 0);
++
+     /*
+      * Check that the peer is allowed to use the IP address it wants.
+      */
+--- ppp-2.4.6/pppd/ipcp.h
++++ ppp-2.4.6/pppd/ipcp.h
+@@ -77,6 +77,8 @@
+     bool accept_remote;		/* accept peer's value for hisaddr */
+     bool req_dns1;		/* Ask peer to send primary DNS address? */
+     bool req_dns2;		/* Ask peer to send secondary DNS address? */
++    bool req_wins1;		/* Ask peer to send primary WINS address? */
++    bool req_wins2;		/* Ask peer to send secondary WINS address? */
+     int  vj_protocol;		/* protocol value to use in VJ option */
+     int  maxslotindex;		/* values for RFC1332 VJ compression neg. */
+     bool cflag;
+--- ppp-2.4.6/pppd/pppd.8
++++ ppp-2.4.6/pppd/pppd.8
+@@ -1102,6 +1102,16 @@
+ /etc/ppp/resolv.conf file containing one or two nameserver lines with
+ the address(es) supplied by the peer.
+ .TP
++.B usepeerwins
++Ask the peer for up to 2 WINS server addresses.  The addresses supplied
++by the peer (if any) are passed to the /etc/ppp/ip\-up script in the
++environment variables WINS1 and WINS2, and the environment variable
++USEPEERWINS will be set to 1.
++.LP
++Please note that some modems (like the Huawei E220) requires this option in
++order to avoid a race condition that results in the incorrect DNS servers
++being assigned.
++.TP
+ .B user \fIname
+ Sets the name used for authenticating the local system to the peer to
+ \fIname\fR.
+@@ -1650,6 +1660,15 @@
+ If the peer supplies DNS server addresses, this variable is set to the
+ second DNS server address supplied (whether or not the usepeerdns
+ option was given).
++.TP
++.B WINS1
++If the peer supplies WINS server addresses, this variable is set to the
++first WINS server address supplied.
++.TP
++.B WINS2
++If the peer supplies WINS server addresses, this variable is set to the
++second WINS server address supplied.
++.P
+ .P
+ Pppd invokes the following scripts, if they exist.  It is not an error
+ if they don't exist.

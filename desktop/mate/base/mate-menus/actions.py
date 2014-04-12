@@ -10,13 +10,15 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
     shelltools.system("NOCONFIGURE=1 ./autogen.sh")
     autotools.configure("--disable-static \
                          --enable-python \
                          --enable-introspection=yes")
+        
+    # for fix unused dependency
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
+
 
 def build():
     autotools.make()
