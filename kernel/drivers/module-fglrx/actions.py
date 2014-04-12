@@ -75,6 +75,8 @@ def install():
 
     for source, target in DIRS.items():
         pisitools.insinto(target, source)
+        
+    pisitools.insinto("usr/share/ati/lib64", "arch/%s/usr/share/ati/lib*/*" % Target)   
 
     # X.org drivers
     pisitools.domove("%s/modules" % Libdir, "%s/fglrx" % Libdir)
