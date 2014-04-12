@@ -18,6 +18,7 @@ arch = get.ARCH()
 ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
+    pisitools.flags.sub("-ggdb3", "-g")
     # LOCALE
     shelltools.system("rm -rf langpack-tb/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
