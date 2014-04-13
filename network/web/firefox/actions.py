@@ -26,6 +26,7 @@ arch = get.ARCH()
 ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
+    pisitools.ldflags.add("-Wl,-rpath,/usr/lib/firefox")
     # Google API key
     shelltools.echo("google_api_key", "AIzaSyBINKL31ZYd8W5byPuwTXYK6cEyoceGh6Y")
     pisitools.dosed(".mozconfig", "%%PWD%%", get.curDIR())
@@ -64,11 +65,6 @@ def setup():
     shelltools.system("../configure --prefix=/usr --libdir=/usr/lib --disable-strip --disable-install-strip")
 
 def build():
-    # FIXME: Change library path and version with variables
-    shelltools.export("LDFLAGS", "%s -Wl,-rpath,/usr/lib/%s-%s" % (get.LDFLAGS(), get.srcNAME(), get.srcVERSION()))
-    # avoid linking to xulrunner
-    pisitools.ldflags.remove("-lxul")
-
     shelltools.cd(ObjDir)
     autotools.make("-f ../client.mk build")
 
