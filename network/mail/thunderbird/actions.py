@@ -37,6 +37,7 @@ def setup():
     pisitools.dosed(".pisilinux-default-prefs.js", "DISTRIB_RELEASE", get.lsbINFO()["DISTRIB_RELEASE"])
 
 def build():
+    pisitools.ldflags.remove("-lxul")
     autotools.make("-f client.mk build")
     
 def install():
