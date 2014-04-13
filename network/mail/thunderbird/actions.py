@@ -19,6 +19,7 @@ ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
     pisitools.flags.sub("-ggdb3", "-g")
+    pisitools.ldflags.add("-Wl,-rpath,/usr/lib/thunderbird")
     # LOCALE
     shelltools.system("rm -rf langpack-tb/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
@@ -37,7 +38,6 @@ def setup():
     pisitools.dosed(".pisilinux-default-prefs.js", "DISTRIB_RELEASE", get.lsbINFO()["DISTRIB_RELEASE"])
 
 def build():
-    pisitools.ldflags.remove("-lxul")
     autotools.make("-f client.mk build")
     
 def install():
