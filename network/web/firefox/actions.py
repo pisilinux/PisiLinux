@@ -66,6 +66,8 @@ def setup():
 def build():
     # FIXME: Change library path and version with variables
     shelltools.export("LDFLAGS", "%s -Wl,-rpath,/usr/lib/%s-%s" % (get.LDFLAGS(), get.srcNAME(), get.srcVERSION()))
+    # avoid linking to xulrunner
+    pisitools.ldflags.remove("-lxul")
 
     shelltools.cd(ObjDir)
     autotools.make("-f ../client.mk build")
