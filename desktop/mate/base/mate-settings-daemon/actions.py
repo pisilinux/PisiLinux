@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("data/org.mate.peripherals-touchpad.gschema.xml.in.in", "<default>false</default>", "<default>true</default>")
     autotools.configure("--disable-pulse  \
                          --disable-static \
                          --disable-schemas-compile \

@@ -11,6 +11,8 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    #Change default xcursor
+    pisitools.dosed("schemas/org.mate.peripherals-mouse.gschema.xml.in.in", "<default>''</default>", "<default>'mate'</default>")
     pisitools.dosed("schemas/org.mate.background.gschema.xml.in.in", "backgrounds/mate/desktop/Stripes.png", "backgrounds/mate/nature/pisi.jpg")
     autotools.configure("--disable-scrollkeeper                                \
                          --disable-schemas-compile                             \
