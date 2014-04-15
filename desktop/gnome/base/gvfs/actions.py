@@ -11,20 +11,22 @@ from pisi.actionsapi import shelltools
 
 def setup():
     autotools.autoreconf("-fi")
-    autotools.configure("--disable-static \
-                         --disable-silent-rules \
-                         --enable-keyring \
-                         --enable-bash-completion \
-                         --enable-archive \
-                         --enable-afc \
-                         --enable-bluray \
-                         --enable-udev \
+    autotools.configure("\
+                         --with-dbus-service-dir=/usr/share/dbus-1/services \
                          --disable-hal \
+                         --disable-silent-rules \
+                         --disable-static \
+                         --enable-afc \
+                         --enable-archive \
+                         --enable-bash-completion \
+                         --enable-bluray \
                          --enable-gphoto2 \
-                         --enable-samba \
                          --enable-gtk=3 \
+                         --enable-keyring \
+                         --enable-samba \
+                         --enable-udev \
                          --enable-udisks2 \
-                         --with-dbus-service-dir=/usr/share/dbus-1/services")
+                        ")
 
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
