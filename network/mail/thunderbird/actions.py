@@ -19,7 +19,7 @@ ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
     pisitools.flags.sub("-ggdb3", "-g")
-    pisitools.ldflags.add("-Wl,-rpath,/usr/lib/thunderbird")
+    pisitools.ldflags.add("-Wl,-rpath,/usr/lib/MozillaThunderbird")
     # LOCALE
     shelltools.system("rm -rf langpack-tb/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
