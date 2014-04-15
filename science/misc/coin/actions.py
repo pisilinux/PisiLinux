@@ -19,6 +19,7 @@ def setup():
                          --with-mesa \
                          --disable-debug \
                          --enable-shared \
+                         --enable-html \
                          --disable-maintainer-mode \
                          --disable-dependency-tracking \
                          --enable-system-expat")
