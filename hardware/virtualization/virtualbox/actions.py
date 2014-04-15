@@ -3,15 +3,14 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import pythonmodules
-from pisi.actionsapi import get
 
 VBoxLibDir = "/usr/lib/virtualbox"
 VBoxDataDir = "/usr/share/virtualbox"
-XorgVersion = "114"
 
 def setup():
     #pisitools.dosed("LocalConfig.kmk", "__VBOXLIBDIR__", VBoxLibDir)
@@ -34,6 +33,9 @@ def build():
     shelltools.system("source %s/env.sh && kmk" % get.curDIR())
 
 def install():
+    shelltools.system("awk '$1 ~ /Version:/ { print gensub(/([0-9]+)\.([0-9]+).*/, \"\\\\1\\\\2\", \"g\", $2) }' /usr/lib/pkgconfig/xorg-server.pc > XorgVersion")
+    with open("XorgVersion", "r") as f:
+        XorgVersion = f.readline()
     pisitools.insinto("/etc/vbox", "vbox.cfg")
     shelltools.chmod("src/VBox/Additions/x11/Installer/98vboxadd-xclient", 0755)
     pisitools.insinto("/usr/bin", "src/VBox/Additions/x11/Installer/98vboxadd-xclient", "VBoxClient-all")
