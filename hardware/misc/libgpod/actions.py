@@ -10,13 +10,15 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.configure("--disable-static \
-                         --disable-gtk-doc \
+    autotools.configure("\
+                         --with-html-dir=/usr/share/doc/%s/html \
+                         --with-temp-mount-dir=/run/libgpod \
                          --without-hal \
                          --without-mono \
-                         --with-temp-mount-dir=/run/libgpod \
+                         --disable-gtk-doc \
+                         --disable-static \
                          --enable-udev \
-                         --with-html-dir=/usr/share/doc/%s/html" % get.srcNAME())
+                        " % get.srcNAME())
 
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
