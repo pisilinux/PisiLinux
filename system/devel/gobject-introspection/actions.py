@@ -14,8 +14,7 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.autoreconf("-fiv")
     autotools.configure("--disable-static \
-			 --with-gnu-ld \
-                         --disable-gtk-doc-html")
+                         --enable-doctool")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
