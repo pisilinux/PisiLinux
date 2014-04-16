@@ -35,7 +35,7 @@ def build():
 def install():
     shelltools.system("awk '$1 ~ /Version:/ { print gensub(/([0-9]+)\.([0-9]+).*/, \"\\\\1\\\\2\", \"g\", $2) }' /usr/lib/pkgconfig/xorg-server.pc > XorgVersion")
     with open("XorgVersion", "r") as f:
-        XorgVersion = f.readline()
+        XorgVersion = f.readline().strip()
     pisitools.insinto("/etc/vbox", "vbox.cfg")
     shelltools.chmod("src/VBox/Additions/x11/Installer/98vboxadd-xclient", 0755)
     pisitools.insinto("/usr/bin", "src/VBox/Additions/x11/Installer/98vboxadd-xclient", "VBoxClient-all")
