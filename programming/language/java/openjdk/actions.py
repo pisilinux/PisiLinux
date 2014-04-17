@@ -28,13 +28,13 @@ def setup():
                             --enable-bootstrap \
                             --with-ecj-jar=/usr/share/java/ecj.jar \
                             --with-jdk-home=/usr/lib/jvm/java-7-openjdk \
-                            --with-openjdk-src-zip=b028e58c1b77.tar.gz \
-                            --with-hotspot-src-zip=172674e0ab65.tar.gz \
-                            --with-corba-src-zip=48ef1bb6d120.tar.gz \
-                            --with-jaxp-src-zip=e0ba4b9a8b91.tar.gz \
-                            --with-jaxws-src-zip=4bd947cd146b.tar.gz \
-                            --with-jdk-src-zip=b5282042aae0.tar.gz \
-                            --with-langtools-src-zip=06eeb77dac24.tar.gz \
+                            --with-openjdk-src-zip=13970e76b784.tar.gz \
+                            --with-hotspot-src-zip=69b542696e5b.tar.gz \
+                            --with-corba-src-zip=e6ad5b912691.tar.gz \
+                            --with-jaxp-src-zip=94b7e8e0d96f.tar.gz \
+                            --with-jaxws-src-zip=bd9a50a78d04.tar.gz \
+                            --with-jdk-src-zip=9448fff93286.tar.gz \
+                            --with-langtools-src-zip=8c26a3c39128.tar.gz \
                             --with-abs-install-dir=/usr/lib/jvm/java-7-openjdk \
                             --with-pkgversion='PisiLinux build 7.u51_2.4.6' \
                            " % get.makeJOBS().replace("-j", ""))
