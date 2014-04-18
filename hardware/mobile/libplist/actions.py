@@ -4,21 +4,25 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import cmaketools
-from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
+from pisi.actionsapi import pisitools
+from pisi.actionsapi import autotools
 
 def setup():
-    cmaketools.configure("-DCMAKE_SKIP_RPATH=ON \
-                          -DCMAKE_VERBOSE_MAKEFILE=TRUE \
-                          -DPYTHON_EXECUTABLE=/usr/bin/python \
-                          -DPYTHON_LIBRARY=/usr/lib/python2.7 \
-                          -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 ")
+    #  do not link with installed old library
+    pisitools.dosed("cython/Makefile.*", "(plist_la_LDFLAGS\s=.*)(\s-L\$\(libdir\))(.*)", r"\1\3")
+
+    autotools.configure("\
+                         --disable-static \
+                         --disable-silent-rules \
+                        ")
+
+    pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
-    cmaketools.make()
+    autotools.make("-j1")
 
 def install():
-    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "COPYING", "COPYING.LESSER", "README")

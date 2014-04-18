@@ -9,7 +9,7 @@ from pisi.actionsapi import kde4
 def setup():
     kde4.configure("-DCMAKE_BUILD_TYPE=Release \
                     -DKDE4_BUILD_TESTS=OFF \
-                    -DCMAKE_SKIP_RPATH=ON \
+                    -DCMAKE_SKIP_RPATH=YES \
                     -DCMAKE_INSTALL_PREFIX=/usr")
 
 def build():

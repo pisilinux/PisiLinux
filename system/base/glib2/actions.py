@@ -11,8 +11,7 @@ from pisi.actionsapi import shelltools
 
 
 def setup():
-    options = "--disable-gtk-doc \
-               --with-pcre=system \
+    options = "--with-pcre=system \
                --disable-fam \
                --disable-static \
                --enable-shared \
@@ -44,7 +43,6 @@ def install():
         pisitools.domove("/_emul32/bin/gio-querymodules", "/usr/bin/32/")
         pisitools.removeDir("/_emul32")
 
-    pisitools.removeDir("/usr/share/gtk-doc")
     pisitools.removeDir("/usr/share/gdb")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "README", "NEWS")
