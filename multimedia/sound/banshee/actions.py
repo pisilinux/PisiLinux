@@ -14,7 +14,6 @@ def setup():
                         --disable-docs \
                         --disable-static \
                         --disable-scrollkeeper \
-                        --disable-schemas-install \
                         --disable-boo \
                         --disable-youtube \
                         --disable-appledevice \
