@@ -9,17 +9,16 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-#shelltools.export("USER","q")
-
 def setup():
-    autotools.configure("--disable-static \
-                         --enable-swap-16bit-csp \
+    autotools.configure("\
+                         --disable-static \
                          --enable-experimental \
-                         --enable-libwebpmux \
-                         --enable-libwebpdemux \
                          --enable-libwebpdecoder \
+                         --enable-libwebpdemux \
+                         --enable-libwebpmux \
+                         --enable-swap-16bit-csp \
                         ")
-    
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ") 
 
 def build():
