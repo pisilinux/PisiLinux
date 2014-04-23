@@ -12,4 +12,4 @@ def build():
 
 def install():
     autotools.rawInstall("PREFIX=/usr DESTDIR=%s" % get.installDIR())
-
+    pisitools.dodoc("Readme.txt","Release_notes.txt","Changelog","Copying.txt") 
