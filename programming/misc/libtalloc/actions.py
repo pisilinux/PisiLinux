@@ -4,18 +4,22 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
 
-WorkDir = "talloc-%s" % get.srcVERSION()
 libdir = "lib32" if get.buildTYPE() == "emul32" else "lib"
 jobs = get.makeJOBS().replace("-j", "")
 
 def setup():
-    autotools.configure("--enable-talloc-compat1 \
+    autotools.configure("\
                          --sysconfdir=/etc/samba \
+                         --builtin-libraries=replace \
+                         --bundled-libraries=NONE \
+                         --disable-rpath \
+                         --disable-rpath-install \
+                         --disable-silent-rules \
+                         --enable-talloc-compat1 \
                         ")
 
 def build():
