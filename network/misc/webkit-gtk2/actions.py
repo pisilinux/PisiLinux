@@ -36,7 +36,7 @@ def build():
 def install():
     autotools.rawInstall("-j1 DESTDIR=%s" % get.installDIR())
 
-    pisitools.domove("/usr/share/gtk-doc/html/webkitgtk", "/usr/share/gtk-doc/html/webkitgtk2")
+    pisitools.domove("/usr/share/gtk-doc/html", "/usr/share/doc/webkit-gtk2")
 
     pisitools.dodoc("NEWS")
     shelltools.cd("Source")
