@@ -11,7 +11,11 @@ from pisi.actionsapi import pisitools
 jobs = get.makeJOBS().replace("-j", "")
 
 def setup():
-    autotools.configure()
+    autotools.configure("\
+                         --builtin-libraries=replace \
+                         --bundled-libraries=NONE \
+                         --disable-rpath \
+                        ")
 
 def build():
     autotools.make("JOBS=%s" % jobs)
