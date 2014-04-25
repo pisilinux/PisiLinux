@@ -21,6 +21,6 @@ def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     #Remove files conflicts with kdesdk(cervisia)
-    #pisitools.remove("usr/share/kde4/services/svn*.protocol")
+    pisitools.remove("usr/share/kde4/services/svn*.protocol")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "GPL*", "TODO")
