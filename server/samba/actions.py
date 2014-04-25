@@ -19,33 +19,33 @@ auth_unix,auth_wbc,auth_server,auth_netlogond,auth_script,auth_samba4"
 def setup():
     pisitools.flags.add("-D_FILE_OFFSET_BITS=64", "-D_GNU_SOURCE", "-DLDAP_DEPRECATED", "-fPIC")
 
-    autotools.configure("--disable-rpath-install \
-                         --enable-fhs \
+    autotools.configure("\
                          --libdir=/usr/lib \
-                         --with-dnsupdate \
-                         --with-ads \
+                         --with-cachedir=/var/lib/samba \
+                         --with-configdir=/etc/samba \
+                         --with-lockdir=/var/lib/samba \
+                         --with-logfilebase=/var/log/samba \
+                         --with-modulesdir=/usr/lib/samba \
+                         --with-pammodulesdir=/lib/security \
+                         --with-piddir=/run/samba \
+                         --with-privatedir=/var/lib/samba/private \
+                         --with-sockets-dir=/run/samba \
+                         --enable-fhs \
+                         --enable-old-ctdb \
                          --with-acl-support \
+                         --with-ads \
                          --with-automount \
                          --with-cluster-support \
-                         --enable-old-ctdb \
+                         --with-dnsupdate \
                          --with-dnsupdate \
                          --with-pam \
                          --with-pam_smbpass \
                          --with-quotas \
                          --with-sendfile-support \
+                         --with-shared-modules=%s \
                          --with-syslog \
                          --with-utmp \
                          --with-winbind \
-                         --with-cachedir=/var/lib/samba \
-                         --with-lockdir=/var/lib/samba \
-                         --with-piddir=/run/samba \
-                         --with-sockets-dir=/run/samba \
-                         --with-privatedir=/var/lib/samba/private \
-                         --with-logfilebase=/var/log/samba \
-                         --with-configdir=/etc/samba \
-                         --with-modulesdir=/usr/lib/samba \
-                         --with-pammodulesdir=/lib/security \
-                         --with-shared-modules=%s \
                         " % MODULES)
 
 def build():
