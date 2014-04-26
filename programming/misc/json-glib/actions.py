@@ -7,17 +7,34 @@
 from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 
 def setup():
-    autotools.autoreconf("-fi")
-    autotools.configure("--disable-gtk-doc-html --disable-gtk-doc --enable-introspection")
+    options = "--disable-gtk-doc-html \
+               --disable-gtk-doc \
+               --enable-introspection \
+              "
+               
+    if get.buildTYPE() == "_emul32":
+        options += " --libdir=/usr/lib32 \
+                     --bindir=/_emul32/bin \
+                     --sbindir=/_emul32/sbin \
+                   "
+        shelltools.export("CC", "%s -m32" % get.CC())
+        shelltools.export("CXX", "%s -m32" % get.CXX())
+        shelltools.export("PKG_CONFIG_PATH", "/usr/lib32/pkgconfig")
+
+    autotools.configure(options)
 
 def build():
     autotools.make()
 
 def install():
-    autotools.install()
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    if get.buildTYPE() == "_emul32":
+        pisitools.removeDir("/_emul32")
 
     pisitools.removeDir("/usr/share/gtk-doc")
 
