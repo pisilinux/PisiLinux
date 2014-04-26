@@ -9,11 +9,21 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    autotools.configure("--prefix=/usr \
-			 --sysconfdir=/etc")
+    options = "--prefix=/usr \
+               --sysconfdir=/etc"
+               
+    if get.buildTYPE() == "_emul32":
+        options += " --libdir=/usr/lib32 \
+                     --bindir=/_emul32/bin \
+                     --sbindir=/_emul32/sbin \
+                     --disable-dtrace"
+                     
+        shelltools.export("CC", "%s -m32" % get.CC())
+        shelltools.export("CXX", "%s -m32" % get.CXX())
+        shelltools.export("PKG_CONFIG_PATH", "/usr/lib32/pkgconfig")
+        
+    autotools.configure(options)
 
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
@@ -22,6 +32,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "README")
-
