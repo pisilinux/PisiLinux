@@ -22,5 +22,7 @@ def install():
     
     #remove dirs because conflicted perl-docs
     pisitools.removeDir("/usr/share/man/")
+    #remove dirs because conflicted perl
+    pisitools.removeDir("/usr/bin")
       
     pisitools.dodoc("Changes", "MANIFEST", "README")
