@@ -30,8 +30,6 @@ def setup():
                          --with-piddir=/run/samba \
                          --with-privatedir=/var/lib/samba/private \
                          --with-sockets-dir=/run/samba \
-                         --builtin-libraries=NONE \
-                         --bundled-libraries=NONE \
                          --disable-rpath \
                          --disable-rpath-install \
                          --enable-fhs \
