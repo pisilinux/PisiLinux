@@ -8,7 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--disable-dependency-tracking")
+    autotools.configure("--enable-dbus --enable-gtk2")
 
 def build():
     autotools.make()
