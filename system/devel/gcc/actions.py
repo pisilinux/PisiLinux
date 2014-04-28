@@ -77,7 +77,7 @@ def setup():
                        --enable-checking=release \
                        --enable-clocale=gnu \
                        --enable-__cxa_atexit \
-                       --enable-languages=c,c++,fortran,objc,obj-c++,lto \
+                       --enable-languages=c,c++,fortran,lto,objc,obj-c++ \
                        --enable-libstdcxx-allocator=new \
                        --disable-libstdcxx-pch \
                        --enable-cloog-backend=isl \
@@ -100,7 +100,7 @@ def setup():
                        %s \
                        --with-tune=generic \
                        --with-system-zlib \
-                      --enable-checking=release \
+                       --enable-checking=release \
                        --with-tune=generic \
                        --enable-gnu-unique-object \
                        --with-pkgversion="Pisi Linux" \
@@ -129,7 +129,7 @@ def install():
     pisitools.removeDir("/usr/lib/gcc/*/*/install-tools")
 
     # This one comes with binutils
-    pisitools.remove("/usr/lib*/libiberty.a")
+    #pisitools.remove("/usr/lib*/libiberty.a")
 
     # cc symlink
     pisitools.dosym("/usr/bin/gcc" , "/usr/bin/cc")
