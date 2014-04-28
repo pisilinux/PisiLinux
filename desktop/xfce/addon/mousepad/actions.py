@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
 def setup():
-    shelltools.system("./autogen.sh --prefix=/usr \
+    autotools.configure("--prefix=/usr \
                         --libexecdir=/usr/lib/xfce4 \
                         --disable-static \
                         --disable-debug")
