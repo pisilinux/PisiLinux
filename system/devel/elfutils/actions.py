@@ -4,27 +4,30 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 
 def setup():
     pisitools.flags.add("-fexceptions")
+    pisitools.flags.replace("-ggdb3", "-g")
     autotools.autoreconf("-vfi")
 
     # Remove -Wall from default flags. The makefiles enable enough warnings
     # themselves, and they use -Werror.
     pisitools.cflags.remove("-Wall")
 
-    autotools.configure("--program-prefix=\"eu-\" \
-                         --enable-thread-safety \
-                         --enable-dwz \
+    autotools.configure("\
                          --disable-nls \
-                         --with-zlib \
+                         --enable-dwz \
+                         --enable-thread-safety \
+                         --program-prefix=\"eu-\" \
                          --with-bzlib \
-                         --with-lzma")
+                         --with-lzma \
+                         --with-zlib \
+                        ")
 
 def build():
     autotools.make()
