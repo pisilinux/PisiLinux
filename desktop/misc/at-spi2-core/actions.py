@@ -16,6 +16,7 @@ else:
     sysconf = ""
 
 def setup():
+    autotools.autoreconf("-vif")
     autotools.configure("--disable-static \
                          --disable-silent-rules \
                          --disable-xevie \
@@ -24,7 +25,7 @@ def setup():
                          %s \
                         " % (libexec, sysconf))
 
-    pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
+    #pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
     pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
     pisitools.dosed("libtool", "( -shared )", " -Wl,--as-needed\\1")
 
