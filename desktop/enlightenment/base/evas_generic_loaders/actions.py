@@ -14,7 +14,6 @@ shelltools.export("LDFLAGS", "%s -fvisibility=hidden" % get.LDFLAGS())
 
 def setup():
     autotools.configure("--prefix=/usr \
-                         --libexecdir=/usr/lib/evas \
                          --enable-poppler \
                          --enable-spectre \
                          --enable-libraw \
