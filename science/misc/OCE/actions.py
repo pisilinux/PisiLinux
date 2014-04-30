@@ -26,4 +26,5 @@ def install():
     shelltools.cd("build")
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
     
+    shelltools.cd("..")
     pisitools.dodoc("AUTHORS", "LICENSE*.*", "NEWS", "README.*")
