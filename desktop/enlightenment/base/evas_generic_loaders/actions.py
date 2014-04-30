@@ -13,12 +13,13 @@ shelltools.export("CFLAGS", "%s -fvisibility=hidden" % get.CFLAGS())
 shelltools.export("LDFLAGS", "%s -fvisibility=hidden" % get.LDFLAGS())
 
 def setup():
-    autotools.configure("--enable-poppler \
+    autotools.configure("--prefix=/usr \
+                         --libexecdir=/usr/lib/evas \
+                         --enable-poppler \
                          --enable-spectre \
                          --enable-libraw \
                          --enable-svg \
-                         --enable-gstreamer \
-                        ")
+                         --enable-gstreamer")
 
 def build():
     autotools.make()
