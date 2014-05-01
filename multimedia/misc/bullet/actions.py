@@ -10,6 +10,7 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
 def setup():
+    pisitools.flags.add("-fPIC")
     cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
                           -DCMAKE_INSTALL_LIBDIR=/usr/lib \
                           -DBUILD_EXTRAS=ON")
