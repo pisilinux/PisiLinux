@@ -33,9 +33,9 @@ def setup():
     pisitools.dosed(".mozconfig", "%%FILE%%", "google_api_key")
 
     # Fix build with new freetype
-    pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
-    pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")
-    pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.h$")
+    #pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
+    #pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")
+    #pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.h$")
     # LOCALE
     shelltools.system("rm -rf langpack-ff/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
@@ -51,6 +51,10 @@ def setup():
     # Mozilla sticks on with autoconf-213
     shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
 
+    # configure script misdetects the preprocessor without an optimization level
+    # https://bugs.archlinux.org/task/34644
+    shelltools.system("sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' configure")
+    
     # Set job count for make
     pisitools.dosed(".mozconfig", "%%JOBS%%", get.makeJOBS())
 
@@ -61,7 +65,7 @@ def setup():
 
     shelltools.makedirs(ObjDir)
     shelltools.cd(ObjDir)
-
+    #shelltools.export("DISPLAY", "99")
     shelltools.system("../configure --prefix=/usr --libdir=/usr/lib --disable-strip --disable-install-strip")
 
 def build():
@@ -74,7 +78,7 @@ def build():
        #autotools.make("-C browser/locales langpack-%s" % locale)
 
 def install():
-    autotools.rawInstall("-f client.mk DESTDIR=%s" % get.installDIR())
+    autotools.rawInstall("-f client.mk DESTDIR=%s INSTALL_SDK= install" % get.installDIR())
 
     pisitools.remove("/usr/bin/firefox") # new Additional File  will replace that
 
@@ -91,9 +95,5 @@ def install():
     # Install branding icon
     pisitools.insinto("/usr/share/pixmaps", "browser/branding/official/default256.png", "firefox.png")
     
-    # We don't want the development stuff
-    pisitools.removeDir("/usr/lib/firefox-devel")    
-    pisitools.removeDir("/usr/share/idl")
-
     # Install docs
     pisitools.dodoc("LEGAL", "LICENSE")
