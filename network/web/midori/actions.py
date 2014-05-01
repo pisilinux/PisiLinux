@@ -10,6 +10,7 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 
 shelltools.export("LC_ALL", "C")
+WorkDir = "."
 
 def setup():
     autotools.rawConfigure("--prefix=/usr")
