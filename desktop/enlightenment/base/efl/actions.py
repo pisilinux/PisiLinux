@@ -9,11 +9,10 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-shelltools.export("CFLAGS", "%s -fvisibility=hidden" % get.CFLAGS())
-shelltools.export("LDFLAGS", "%s -fvisibility=hidden" % get.LDFLAGS())
+
 
 def setup():
-    pisitools.flags.add("-fPIC")
+    pisitools.flags.add("-fvisibility=hidden -fPIC")
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --disable-tslib \
