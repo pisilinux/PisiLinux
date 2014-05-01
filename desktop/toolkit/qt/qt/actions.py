@@ -19,6 +19,7 @@ qtbase = qt4.prefix
 absoluteWorkDir = "%s/%s" % (get.workDIR(), WorkDir)
 
 def setup():
+    pisitools.flags.add("-I/usr/include/gtk-2.0/gdk")
     #make sure we don't use them
     for d in ('libjpeg', 'freetype', 'libpng', 'zlib', 'libtiff'):
         shelltools.unlinkDir("src/3rdparty/%s" % d)
