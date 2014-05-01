@@ -13,11 +13,10 @@ shelltools.export("CFLAGS", "%s -fvisibility=hidden" % get.CFLAGS())
 shelltools.export("LDFLAGS", "%s -fvisibility=hidden" % get.LDFLAGS())
 
 def setup():
+    pisitools.flags.add("-fPIC")
     autotools.configure("--prefix=/usr \
                          --disable-static \
-                         --disable-silent-rules \
                          --disable-tslib \
-                         --disable-physics \
                          --enable-xine \
                          --enable-fb \
                          --enable-doc \
