@@ -1,0 +1,102 @@
+
+Fix build with kernel-3.14
+
+Signed-off-by: Thomas Backlund <tmb@mageia.org>
+
+ drivers/gpu/drm/mach64/mach64_dma.c   |   10 +++++-----
+ drivers/gpu/drm/mach64/mach64_drv.h   |    2 +-
+ drivers/gpu/drm/mach64/mach64_irq.c   |    2 +-
+ drivers/gpu/drm/mach64/mach64_state.c |    6 +++---
+ 4 files changed, 10 insertions(+), 10 deletions(-)
+
+diff -urp linux/drivers/gpu/drm/mach64.orig/mach64_dma.c linux/drivers/gpu/drm/mach64/mach64_dma.c
+--- linux/drivers/gpu/drm/mach64.orig/mach64_dma.c	2014-04-26 19:10:55.000000000 +0300
++++ linux/drivers/gpu/drm/mach64/mach64_dma.c	2014-04-26 20:26:05.263501325 +0300
+@@ -696,9 +696,9 @@ do {									\
+ 		DRM_INFO( "ADVANCE_RING() wr=0x%06x tail=0x%06x\n",	\
+ 			  _ring_write, _ring_tail );			\
+ 	}								\
+-	DRM_MEMORYBARRIER();						\
++	mb();								\
+ 	mach64_clear_dma_eol( &_ring[(_ring_tail - 2) & _ring_mask] );	\
+-	DRM_MEMORYBARRIER();						\
++	mb();								\
+ 	dev_priv->ring.tail = _ring_write;				\
+ 	mach64_ring_tick( dev_priv, &(dev_priv)->ring );		\
+ } while (0)
+@@ -912,7 +912,7 @@ static int mach64_bm_dma_test(struct drm
+ 		DRM_DEBUG(" data[%d] = 0x%08x\n", i, data[i]);
+ 	}
+ 
+-	DRM_MEMORYBARRIER();
++	mb();
+ 
+ 	DRM_DEBUG("waiting for idle...\n");
+ 	if ((i = mach64_do_wait_for_idle(dev_priv))) {
+@@ -1716,10 +1716,10 @@ static int mach64_dma_get_buffers(struct
+ 
+ 		buf->file_priv = file_priv;
+ 
+-		if (DRM_COPY_TO_USER(&d->request_indices[i], &buf->idx,
++		if (copy_to_user(&d->request_indices[i], &buf->idx,
+ 				     sizeof(buf->idx)))
+ 			return -EFAULT;
+-		if (DRM_COPY_TO_USER(&d->request_sizes[i], &buf->total,
++		if (copy_to_user(&d->request_sizes[i], &buf->total,
+ 				     sizeof(buf->total)))
+ 			return -EFAULT;
+ 
+diff -urp linux/drivers/gpu/drm/mach64.orig/mach64_drv.h linux/drivers/gpu/drm/mach64/mach64_drv.h
+--- linux/drivers/gpu/drm/mach64.orig/mach64_drv.h	2014-04-26 19:10:55.000000000 +0300
++++ linux/drivers/gpu/drm/mach64/mach64_drv.h	2014-04-26 20:28:43.693457652 +0300
+@@ -166,7 +166,7 @@ extern int mach64_get_param(struct drm_d
+ extern u32 mach64_get_vblank_counter(struct drm_device *dev, int crtc);
+ extern int mach64_enable_vblank(struct drm_device *dev, int crtc);
+ extern void mach64_disable_vblank(struct drm_device *dev, int crtc);
+-extern irqreturn_t mach64_driver_irq_handler(DRM_IRQ_ARGS);
++extern irqreturn_t mach64_driver_irq_handler(int irq, void *arg);
+ extern void mach64_driver_irq_preinstall(struct drm_device *dev);
+ extern int mach64_driver_irq_postinstall(struct drm_device *dev);
+ extern void mach64_driver_irq_uninstall(struct drm_device *dev);
+diff -urp linux/drivers/gpu/drm/mach64.orig/mach64_irq.c linux/drivers/gpu/drm/mach64/mach64_irq.c
+--- linux/drivers/gpu/drm/mach64.orig/mach64_irq.c	2014-04-26 19:10:55.000000000 +0300
++++ linux/drivers/gpu/drm/mach64/mach64_irq.c	2014-04-26 20:32:01.464898140 +0300
+@@ -40,7 +40,7 @@
+ #include "mach64_drm.h"
+ #include "mach64_drv.h"
+ 
+-irqreturn_t mach64_driver_irq_handler(DRM_IRQ_ARGS)
++irqreturn_t mach64_driver_irq_handler(int irq, void *arg)
+ {
+ 	struct drm_device *dev = arg;
+ 	drm_mach64_private_t *dev_priv = dev->dev_private;
+diff -urp linux/drivers/gpu/drm/mach64.orig/mach64_state.c linux/drivers/gpu/drm/mach64/mach64_state.c
+--- linux/drivers/gpu/drm/mach64.orig/mach64_state.c	2014-04-26 19:10:55.000000000 +0300
++++ linux/drivers/gpu/drm/mach64/mach64_state.c	2014-04-26 20:07:16.701527488 +0300
+@@ -494,7 +494,7 @@ static __inline__ int copy_from_user_ver
+ 	if (from == NULL)
+ 		return -ENOMEM;
+ 
+-	if (DRM_COPY_FROM_USER(from, ufrom, bytes)) {
++	if (copy_from_user(from, ufrom, bytes)) {
+ 		kfree(from);
+ 		return -EFAULT;
+ 	}
+@@ -640,7 +640,7 @@ static __inline__ int copy_from_user_bli
+ {
+ 	to = (u32 *)((char *)to + MACH64_HOSTDATA_BLIT_OFFSET);
+ 
+-	if (DRM_COPY_FROM_USER(to, ufrom, bytes)) {
++	if (copy_from_user(to, ufrom, bytes)) {
+ 		return -EFAULT;
+ 	}
+ 
+@@ -901,7 +901,7 @@ int mach64_get_param(struct drm_device *
+ 		return -EINVAL;
+ 	}
+ 
+-	if (DRM_COPY_TO_USER(param->value, &value, sizeof(int))) {
++	if (copy_to_user(param->value, &value, sizeof(int))) {
+ 		DRM_ERROR("copy_to_user\n");
+ 		return -EFAULT;
+ 	}
