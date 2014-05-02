@@ -19,13 +19,9 @@ ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else 
 
 def setup():
     pisitools.ldflags.add("-Wl,-rpath,/usr/lib/xulrunner-%s" % XulVersion)
-    # Fix build with new freetype
-    #pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
-    #pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")
-    #pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.h$")
     # Write xulrunner version correctly including the minor part
-    #for f in ("xulrunner/installer/Makefile.in", ".mozconfig", "20-xulrunner.conf"):
-        #pisitools.dosed(f, "PSPEC_VERSION", XulVersion)
+    for f in ("xulrunner/installer/Makefile.in", ".mozconfig", "20-xulrunner.conf"):
+        pisitools.dosed(f, "PSPEC_VERSION", XulVersion)
 
     # Mozilla sticks on with autoconf-213, so use autoconf-213 which we provide via a hacky patch to produce configure
     shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
