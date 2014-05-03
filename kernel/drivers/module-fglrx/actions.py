@@ -39,6 +39,8 @@ def setup():
     pisitools.dosed("common/etc/ati/authatieventsd.sh", "/var/lib/xdm/authdir/authfiles", "/var/run/xauth")
 
     shelltools.system("patch -p1 < desktop-files.patch")
+    shelltools.system("patch -p1 < cold-fglrx-3.14-current_euid.patch")
+    
 
 def build():
     if get.buildTYPE() == "emul32":
