@@ -12,7 +12,7 @@ WorkDir = get.ARCH()
 KDIR = kerneltools.getKernelVersion()
 
 def build():
-    autotools.make("-C /lib/modules/%s/build M=%s modules" % (KDIR, get.curDIR()))
+    autotools.make("Werror=0 -C /lib/modules/%s/build M=%s modules" % (KDIR, get.curDIR()))
 
 def install():
     pisitools.insinto("/lib/modules/%s/extra" % KDIR, "wl.ko")
