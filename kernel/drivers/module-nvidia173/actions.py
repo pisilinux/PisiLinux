@@ -22,6 +22,7 @@ datadir = "/usr/share/%s" % driver_dir_name
 def setup():
     shelltools.system("sh NVIDIA-Linux-%s-%s-pkg2.run -x --target tmp" % (arch, version))
     shelltools.move("tmp/*", ".")
+    shelltools.system("patch -p1  < nvidia173-kernel-3.14.patch")
 
     # Our libc is TLS enabled so use TLS library
     shelltools.unlink("usr/lib/*-tls.so*")
