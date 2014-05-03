@@ -27,4 +27,4 @@ def install():
     #remove index.theme file of hicolor icon theme, correct source for the file is the hicolor icon theme package itself
     pisitools.remove("/usr/share/icons/hicolor/index.theme")
     
-    pisitools.dosym("/usr/bin/", "/usr/lib/kde4/libexec/kdesud")
+    pisitools.dosym("/usr/lib/kde4/libexec/kdesud", "/usr/bin/kdesud")
