@@ -4,14 +4,12 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import qt4
 from pisi.actionsapi import get
 
 NoStrip=["/usr/share"]
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure("-DKDE_DISTRIBUTION_TEXT='Pisi Linux' \
@@ -33,7 +31,7 @@ def install():
     pisitools.removeDir("%s/plugins/designer" % kde4.modulesdir)
 
     #Use openssl CA list instead of the outdated KDE list
-    pisitools.remove("%s/kssl/ca-bundle.crt" % kde4.appsdir)
-    pisitools.dosym("/etc/pki/tls/certs/ca-bundle.crt", "%s/kssl/ca-bundle.crt" % kde4.appsdir)
+    pisitools.remove("%s/apps/kssl/ca-bundle.crt" % kde4.appsdir)
+    pisitools.dosym("/etc/ssl/certs/ca-bundle.crt", "%s/apps/kssl/ca-bundle.crt" % kde4.appsdir)
 
     pisitools.dodoc("AUTHORS", "COPYING*", "README", "TODO")

@@ -9,13 +9,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-NoStrip = ["/usr/kde/4/share/", "/usr/share"]
-shelltools.export("HOME", get.workDIR())
+#NoStrip = ["/usr/kde/4/share/", "/usr/share"]
 
 def setup():
     kde4.configure("-DWITH_PulseAudio=ON \
                     -DCMAKE_SKIP_RPATH=ON \
                     -DWITH_QNtrack=OFF \
+                    -DWITH_NepomukCore=OFF \
                     -DDEBUG_PACKAGE_INSTALLER_NAME=\"installdbgsymbols.py\"")
 
 def build():
@@ -26,3 +26,5 @@ def install():
 
     #remove index.theme file of hicolor icon theme, correct source for the file is the hicolor icon theme package itself
     pisitools.remove("/usr/share/icons/hicolor/index.theme")
+    
+    pisitools.dosym("/usr/bin/", "/usr/lib/kde4/libexec/kdesud")

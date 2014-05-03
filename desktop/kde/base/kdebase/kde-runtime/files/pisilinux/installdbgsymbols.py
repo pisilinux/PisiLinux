@@ -8,7 +8,7 @@ import urllib2
 import os
 import piksemel
 
-REPO_URL = "http://packages.pardus.org.tr/pardus-2009-debug"
+REPO_URL = "http://farm.pisilinux.org/.nofarm-repo/x86_64/"
 
 def log(msg):
     print "%s: %s" % (sys.argv[0], msg)
