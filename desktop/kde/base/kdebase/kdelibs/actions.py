@@ -31,7 +31,7 @@ def install():
     pisitools.removeDir("%s/plugins/designer" % kde4.modulesdir)
 
     #Use openssl CA list instead of the outdated KDE list
-    pisitools.remove("%s/apps/kssl/ca-bundle.crt" % kde4.appsdir)
-    pisitools.dosym("/etc/ssl/certs/ca-bundle.crt", "%s/apps/kssl/ca-bundle.crt" % kde4.appsdir)
+    pisitools.remove("%s/kssl/ca-bundle.crt" % kde4.appsdir)
+    pisitools.dosym("/etc/ssl/certs/ca-bundle.crt", "%s/kssl/ca-bundle.crt" % kde4.appsdir)
 
     pisitools.dodoc("AUTHORS", "COPYING*", "README", "TODO")
