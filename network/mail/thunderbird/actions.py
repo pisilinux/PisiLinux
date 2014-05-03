@@ -10,7 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 WorkDir = "comm-esr24"
-MOZAPPDIR= "/usr/lib/MozillaThunderbird"
+MOZAPPDIR= "/usr/lib/thunderbird"
 
 locales = "be  ca  da  de  el  en-US  es-AR  es-ES  fi  fr  hr  hu  it  lt nl  pl  pt-BR  pt-PT  ro  ru  sr  sv-SE  tr  uk".split()
 xpidir = "%s/xpi" % get.workDIR()
@@ -19,7 +19,12 @@ ver = ".".join(get.srcVERSION().split(".")[:3])
 
 def setup():
     pisitools.flags.sub("-ggdb3", "-g")
-    pisitools.ldflags.add("-Wl,-rpath,/usr/lib/MozillaThunderbird")
+    pisitools.ldflags.add("-Wl,-rpath,/usr/lib/thunderbird")
+    
+    # configure script misdetects the preprocessor without an optimization level
+    # https://bugs.archlinux.org/task/34644
+    shelltools.system("sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' mozilla/configure")
+  
     # LOCALE
     shelltools.system("rm -rf langpack-tb/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
@@ -27,12 +32,6 @@ def setup():
         shelltools.system("wget -c -P %s ftp://ftp.mozilla.org/pub/mozilla.org/thunderbird/releases/%s/linux-%s/xpi/%s.xpi" % (xpidir, ver, arch, locale))
         shelltools.makedirs("langpack-tb/langpack-%s@thunderbird.mozilla.org" % locale)
         shelltools.system("unzip -uo %s/%s.xpi -d langpack-tb/langpack-%s@thunderbird.mozilla.org" % (xpidir, locale, locale))
-        
-    # Use autoconf 2.13, pff
-    shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
-
-    # Set job count for make
-    pisitools.dosed(".mozconfig", "%%JOBS%%", get.makeJOBS())
 
     pisitools.dosed(".pisilinux-default-prefs.js", "DISTRIB_ID", get.lsbINFO()["DISTRIB_ID"])
     pisitools.dosed(".pisilinux-default-prefs.js", "DISTRIB_RELEASE", get.lsbINFO()["DISTRIB_RELEASE"])
@@ -40,11 +39,11 @@ def setup():
 def build():
     autotools.make("-f client.mk build")
     
-def install():
-    pisitools.insinto("/usr/lib/", "objdir/mozilla/dist/bin/", "MozillaThunderbird", sym=False)
-        
+def install():    
+    autotools.rawInstall("-f client.mk DESTDIR=%s" % get.installDIR())    
+    
     # Install fix language packs
-    pisitools.insinto("/usr/lib/MozillaThunderbird/extensions", "./langpack-tb/*")
+    pisitools.insinto("/usr/lib/thunderbird/extensions", "./langpack-tb/*")
    
    # Install default-prefs.js
     pisitools.insinto("%s/defaults/pref" % MOZAPPDIR, ".pisilinux-default-prefs.js", "all-pisilinux.js")
@@ -53,15 +52,6 @@ def install():
     pisitools.dodir("%s/extensions/langpack-tr@thunderbird.mozilla.org/dictionaries" % MOZAPPDIR)
     shelltools.touch("%s/%s/%s/dictionaries/tr-TR.aff" % (get.installDIR(), MOZAPPDIR, "extensions/langpack-tr@thunderbird.mozilla.org"))
     shelltools.touch("%s/%s/%s/dictionaries/tr-TR.dic" % (get.installDIR(), MOZAPPDIR, "extensions/langpack-tr@thunderbird.mozilla.org"))
-    
-    pisitools.removeDir("%s/dictionaries" % MOZAPPDIR)
-    pisitools.dosym("/usr/share/hunspell", "%s/dictionaries" % MOZAPPDIR)
-
-    # Remove useless file
-    pisitools.remove("/usr/lib/MozillaThunderbird/.purgecaches")
-
-    # Remove this to avoid spellchecking dictionary detection problems
-    pisitools.remove("/usr/lib/MozillaThunderbird/defaults/pref/all-l10n.js")
 
     # Install icons
     pisitools.insinto("/usr/share/pixmaps", "other-licenses/branding/thunderbird/mailicon256.png", "thunderbird.png")
@@ -71,8 +61,9 @@ def install():
         pisitools.insinto("/usr/share/icons/hicolor/%dx%d/apps" % (s,s), "other-licenses/branding/thunderbird/mailicon%d.png" % s, "thunderbird.png")
     
     # We don't want the development stuff
-    #pisitools.removeDir("/usr/lib/firefox-devel")    
-    #pisitools.removeDir("/usr/share/idl")
+    pisitools.removeDir("/usr/lib/thunderbird-devel*")
+    pisitools.removeDir("/usr/share/idl")
+    pisitools.removeDir("/usr/include")
 
     # Install docs
     pisitools.dodoc("mozilla/LEGAL", "mozilla/LICENSE")
