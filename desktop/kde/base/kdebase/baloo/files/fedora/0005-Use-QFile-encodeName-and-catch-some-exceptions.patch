@@ -1,0 +1,158 @@
+From 5a2e520a4f5db3a0d1180c41e1d0e29927b1cbe8 Mon Sep 17 00:00:00 2001
+From: Montel Laurent <montel@kde.org>
+Date: Tue, 22 Apr 2014 13:24:27 +0200
+Subject: [PATCH 05/28] Use QFile::encodeName and catch some exceptions
+
+---
+ src/file/lib/db.cpp              |  3 ++-
+ src/pim/agent/agent.cpp          |  4 +++-
+ src/pim/lib/contactcompleter.cpp |  4 +++-
+ src/pim/lib/contactquery.cpp     | 11 ++++++++++-
+ src/pim/lib/emailquery.cpp       |  4 +++-
+ src/pim/lib/notequery.cpp        | 11 ++++++++++-
+ 6 files changed, 31 insertions(+), 6 deletions(-)
+
+diff --git a/src/file/lib/db.cpp b/src/file/lib/db.cpp
+index 15bd62b..10bf933 100644
+--- a/src/file/lib/db.cpp
++++ b/src/file/lib/db.cpp
+@@ -27,10 +27,11 @@
+ 
+ #include <QSqlQuery>
+ #include <QSqlError>
++#include <QFile>
+ 
+ std::string fileIndexDbPath()
+ {
+-    return (KGlobal::dirs()->localxdgdatadir() + "baloo/file").toUtf8().constData();
++    return QFile::encodeName(KGlobal::dirs()->localxdgdatadir() + "baloo/file").constData();
+ }
+ 
+ QSqlDatabase fileMappingDb() {
+diff --git a/src/pim/agent/agent.cpp b/src/pim/agent/agent.cpp
+index 7de454e..8904d49 100644
+--- a/src/pim/agent/agent.cpp
++++ b/src/pim/agent/agent.cpp
+@@ -41,6 +41,8 @@
+ #include <KConfigGroup>
+ #include <KLocalizedString>
+ 
++#include <QFile>
++
+ namespace {
+     QString dbPath(const QString& dbName) {
+         QString basePath = "baloo";
+@@ -144,7 +146,7 @@ qlonglong BalooIndexingAgent::indexedItemsInDatabase(const std::string& term, co
+ {
+     Xapian::Database db;
+     try {
+-        db = Xapian::Database(dbPath.toUtf8().constData());
++        db = Xapian::Database(QFile::encodeName(dbPath).constData());
+     } catch (const Xapian::DatabaseError& e) {
+         kError() << "Failed to open database" << dbPath << ":" << QString::fromStdString(e.get_msg());
+         return 0;
+diff --git a/src/pim/lib/contactcompleter.cpp b/src/pim/lib/contactcompleter.cpp
+index c7e011d..e841ddd 100644
+--- a/src/pim/lib/contactcompleter.cpp
++++ b/src/pim/lib/contactcompleter.cpp
+@@ -26,6 +26,8 @@
+ #include <KStandardDirs>
+ #include <KDebug>
+ 
++#include <QFile>
++
+ using namespace Baloo::PIM;
+ 
+ ContactCompleter::ContactCompleter(const QString& prefix, int limit)
+@@ -40,7 +42,7 @@ QStringList ContactCompleter::complete()
+     const QString dir = KGlobal::dirs()->localxdgdatadir() + "baloo/emailContacts/";
+     Xapian::Database db;
+     try {
+-        db = Xapian::Database(dir.toUtf8().constData());
++        db = Xapian::Database(QFile::encodeName(dir).constData());
+     }
+     catch (const Xapian::DatabaseError& e) {
+         kWarning() << QString::fromStdString(e.get_type()) << QString::fromStdString(e.get_description());
+diff --git a/src/pim/lib/contactquery.cpp b/src/pim/lib/contactquery.cpp
+index a30fb59..9740969 100644
+--- a/src/pim/lib/contactquery.cpp
++++ b/src/pim/lib/contactquery.cpp
+@@ -28,6 +28,8 @@
+ #include <KDebug>
+ #include <KStandardDirs>
+ 
++#include <QFile>
++
+ using namespace Baloo::PIM;
+ 
+ class ContactQuery::Private {
+@@ -102,7 +104,14 @@ void ContactQuery::setMatchCriteria(ContactQuery::MatchCriteria m)
+ ResultIterator ContactQuery::exec()
+ {
+     const QString dir = KGlobal::dirs()->localxdgdatadir() + "baloo/contacts/";
+-    Xapian::Database db(dir.toUtf8().constData());
++    Xapian::Database db;
++
++    try {
++        db = Xapian::Database(QFile::encodeName(dir).constData());
++    } catch (const Xapian::DatabaseError& e) {
++        kWarning() << "Failed to open Xapian database:" << QString::fromStdString(e.get_error_string());
++        return ResultIterator();
++    }
+ 
+     QList<Xapian::Query> m_queries;
+ 
+diff --git a/src/pim/lib/emailquery.cpp b/src/pim/lib/emailquery.cpp
+index e23f8b9..af25962 100644
+--- a/src/pim/lib/emailquery.cpp
++++ b/src/pim/lib/emailquery.cpp
+@@ -27,6 +27,8 @@
+ 
+ #include <KStandardDirs>
+ 
++#include <QFile>
++
+ using namespace Baloo::PIM;
+ 
+ class EmailQuery::Private
+@@ -184,7 +186,7 @@ ResultIterator EmailQuery::exec()
+     const QString dir = KGlobal::dirs()->localxdgdatadir() + "baloo/email/";
+     Xapian::Database db;
+     try {
+-        db = Xapian::Database(dir.toUtf8().constData());
++        db = Xapian::Database(QFile::encodeName(dir).constData());
+     } catch (const Xapian::DatabaseError& e) {
+         kWarning() << "Failed to open Xapian database:" << QString::fromStdString(e.get_error_string());
+         return ResultIterator();
+diff --git a/src/pim/lib/notequery.cpp b/src/pim/lib/notequery.cpp
+index 2257cc6..632fcd8 100644
+--- a/src/pim/lib/notequery.cpp
++++ b/src/pim/lib/notequery.cpp
+@@ -25,6 +25,8 @@
+ #include "xapian.h"
+ 
+ #include <QList>
++#include <QFile>
++
+ #include <KDebug>
+ #include <KStandardDirs>
+ 
+@@ -77,7 +79,14 @@ int NoteQuery::limit() const
+ ResultIterator NoteQuery::exec()
+ {
+     const QString dir = KGlobal::dirs()->localxdgdatadir() + "baloo/notes/";
+-    Xapian::Database db(dir.toUtf8().constData());
++
++    Xapian::Database db;
++    try {
++        db = Xapian::Database(QFile::encodeName(dir).constData());
++    } catch (const Xapian::DatabaseError& e) {
++        kWarning() << "Failed to open Xapian database:" << QString::fromStdString(e.get_error_string());
++        return ResultIterator();
++    }
+ 
+     QList<Xapian::Query> m_queries;
+ 
+-- 
+1.9.0
+
