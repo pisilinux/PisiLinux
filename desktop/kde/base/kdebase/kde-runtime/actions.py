@@ -15,8 +15,7 @@ def setup():
     kde4.configure("-DWITH_PulseAudio=ON \
                     -DCMAKE_SKIP_RPATH=ON \
                     -DWITH_QNtrack=OFF \
-                    -DWITH_NepomukCore=OFF \
-                    -DDEBUG_PACKAGE_INSTALLER_NAME=\"installdbgsymbols.py\"")
+                    -DWITH_NepomukCore=OFF")
 
 def build():
     kde4.make()
