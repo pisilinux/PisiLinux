@@ -3,4 +3,4 @@
 import os
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
-    os.system("/usr/bin/update-ca-certificates --fresh")
+    os.system("/usr/sbin/update-ca-certificates --fresh")
