@@ -32,6 +32,6 @@ def install():
 
     #Use openssl CA list instead of the outdated KDE list
     pisitools.remove("%s/kssl/ca-bundle.crt" % kde4.appsdir)
-    pisitools.dosym("/etc/ssl/certs/ca-bundle.crt", "%s/kssl/ca-bundle.crt" % kde4.appsdir)
+    pisitools.dosym("/etc/ssl/certs/ca-certificates.crt", "%s/kssl/ca-bundle.crt" % kde4.appsdir)
 
     pisitools.dodoc("AUTHORS", "COPYING*", "README", "TODO")
