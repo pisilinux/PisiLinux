@@ -8,7 +8,9 @@ from pisi.actionsapi import kde4
 from pisi.actionsapi import pisitools
 
 def setup():
-     kde4.configure()
+     kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+                     -DINSTALL_QSQLITE_IN_QT_PREFIX=TRUE \
+                     -DWITH_SOPRANO=OFF")
 
 def build():
     kde4.make()

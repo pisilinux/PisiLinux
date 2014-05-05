@@ -1,0 +1,41 @@
+commit 4ca8b846baaad48ebbd723f6411f9571a3b0f5ad
+Author: Dan Vrátil <dvratil@redhat.com>
+Date:   Tue Apr 22 11:28:07 2014 +0200
+
+    Remove the invalid GID part from PartTable before starting PartTable migration
+    
+    More people than we expected have invalid 'GID' part in their PartTable,
+    which breaks migration to schema 25, because it expects all part types
+    to have a valid name.
+    
+    To work around this fact, we DELETE all parts with name 'GID' from PartTable
+    before starting the actual migration. This will not fix the migration for
+    people with other invalid parts, but I haven't heard of any such. To make
+    this completely bullet-proof, we would need to iterate through all entries,
+    which would be massively slower than current INSERT INTO ... SELECT FROM approach.
+    
+    Distributions, this is a good choice for backporting into 1.12.1 ;-)
+    
+    BUG: 331867
+    FIXED-IN: 1.12.2
+
+diff --git a/server/src/storage/dbupdater.cpp b/server/src/storage/dbupdater.cpp
+index ccaf584..d6368b5 100644
+--- a/server/src/storage/dbupdater.cpp
++++ b/server/src/storage/dbupdater.cpp
+@@ -261,6 +261,15 @@ bool DbUpdater::complexUpdate_25()
+     }
+   }
+ 
++  {
++    // It appears that more users than expected have the invalid "GID" part in their
++    // PartTable, which breaks the migration below (see BKO#331867), so we apply this
++    // wanna-be fix to remove the invalid part before we start the actual migration.
++    QueryBuilder qb( QLatin1String( "PartTable" ), QueryBuilder::Delete );
++    qb.addValueCondition( QLatin1String( "PartTable.name" ), Query::Equals, QLatin1String( "GID" ) );
++    qb.exec();
++  }
++
+   akDebug() << "Creating a PartTable_new";
+   {
+     TableDescription description;
