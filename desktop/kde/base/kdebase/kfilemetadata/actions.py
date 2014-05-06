@@ -8,7 +8,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 
 def setup():
-    kde4.configure()
+    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+                    -Wno-dev")
 
 def build():
     kde4.make()
