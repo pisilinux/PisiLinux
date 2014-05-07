@@ -9,8 +9,8 @@ from pisi.actionsapi import kde4
 def setup():
     kde4.configure("-DCMAKE_BUILD_TYPE=Release \
                     -DKDE4_BUILD_TESTS=OFF \
-                    -DCMAKE_INSTALL_PREFIX=/usr \
-                    -DBUILD_nepomuk=OFF")
+                    -DBUILD_nepomuk=OFF \
+                    -Wno-dev ")
 
 def build():
     kde4.make()
