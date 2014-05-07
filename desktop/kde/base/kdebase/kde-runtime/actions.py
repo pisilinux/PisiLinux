@@ -4,12 +4,8 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
-from pisi.actionsapi import get
-
-#NoStrip = ["/usr/kde/4/share/", "/usr/share"]
 
 def setup():
     kde4.configure("-DWITH_PulseAudio=ON \
@@ -17,9 +13,8 @@ def setup():
                     -DWITH_QNtrack=OFF \
                     -DKDE4_ENABLE_FPIE=ON \
                     -DWITH_NepomukCore=OFF \
-                    -DKDERUNTIME_BUILD_NEPOMUK=OFF")
-                    
-                    #-DDEBUG_PACKAGE_INSTALLER_NAME=\"installdbgsymbols.py\"")
+                    -DKDERUNTIME_BUILD_NEPOMUK=OFF \
+                    -Wno-dev ")
 
 def build():
     kde4.make()
