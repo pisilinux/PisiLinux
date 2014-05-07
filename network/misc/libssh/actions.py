@@ -14,7 +14,7 @@ shelltools.export("HOME", "%s" % get.workDIR())
 def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
-    cmaketools.configure(sourceDir="..")
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release", sourceDir="..")
 
 def build():
     shelltools.cd("build")
