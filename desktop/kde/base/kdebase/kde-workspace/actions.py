@@ -16,6 +16,9 @@ def setup():
     # PAM files are named kde4.pam and kde4-np.pam. We should change cmake file to make PAM modules work
     # -DKDE4_ENABLE_FINAL=1 \
     kde4.configure("-DKDE4_COMMON_PAM_SERVICE=kde4 \
+                    -DKDE4_KDM_PAM_SERVICE=kdm \
+                    -DKDE4_KSCREENSAVER_PAM_SERVICE=kscreensaver \
+                    -DKDE4_ENABLE_FPIE=ON \
                     -DDBUS_SYSTEM_SERVICES_INSTALL_DIR=/usr/share/dbus-1/system-services \
                     -DWITH_Googlegadgets=OFF \
                     -DKDE4_KCHECKPASS_PAM_SERVICE=kde4")
