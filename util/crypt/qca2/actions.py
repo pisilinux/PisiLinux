@@ -8,10 +8,12 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = 'qca-%s' % (get.srcVERSION())
-
 def setup():
-    autotools.rawConfigure("--prefix=/%s --datadir=/usr/share --no-separate-debug-info --verbose" % get.defaultprefixDIR())
+    autotools.rawConfigure("--prefix=/usr \
+                            --datadir=/usr/share \
+                            --no-separate-debug-info \
+                            --release \
+                            --certstore-path=/etc/ssl/certs/ca-certificates.crt")
 
 def build():
     autotools.make()
