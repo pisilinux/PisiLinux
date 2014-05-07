@@ -13,23 +13,12 @@ def setup():
     kde4.configure("-DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_SKIP_RPATH=ON \
                     -Wno-dev")
-    shelltools.cd("kde_cdemu")
-    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
-                    -DCMAKE_SKIP_RPATH=ON \
-                    -Wno-dev")
-    shelltools.cd("../")
 
 def build():
     kde4.make()
-    shelltools.cd("kde_cdemu")
-    kde4.make()
-    shelltools.cd("../")
 
 def install():
     kde4.install()
-    shelltools.cd("kde_cdemu")
-    kde4.install()
-    shelltools.cd("../")
 
     shelltools.move("../pics/*.png", "%s/usr/share/kde4/apps/kdm/pics/users" % get.installDIR())
     #this file exceeds 20K limit of kdm, and KDM cannot display that.
