@@ -9,12 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", "%s" % get.workDIR())
 
 def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
-    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release", sourceDir="..")
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
+                          -DWITH_GSSAPI=OFF", sourceDir="..")
 
 def build():
     shelltools.cd("build")
