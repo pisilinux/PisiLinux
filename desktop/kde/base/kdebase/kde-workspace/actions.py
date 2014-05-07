@@ -9,9 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-NoStrip=["/usr/share"]
-
 def setup():
     # PAM files are named kde4.pam and kde4-np.pam. We should change cmake file to make PAM modules work
     # -DKDE4_ENABLE_FINAL=1 \
@@ -22,7 +19,8 @@ def setup():
                     -DWITH_NepomukCore=OFF \
                     -DWITH_Xmms=OFF \
                     -DWITH_Soprano=OFF \
-                    -DKDE4_KCHECKPASS_PAM_SERVICE=kde4")
+                    -DKDE4_KCHECKPASS_PAM_SERVICE=kde4 \
+                    -Wno-dev")
 
 def build():
     kde4.make()
