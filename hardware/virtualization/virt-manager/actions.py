@@ -4,19 +4,13 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
-from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
+from pisi.actionsapi import pythonmodules
 
 def setup():
-    autotools.configure("--disable-rpath \
-                         --with-qemu-user=qemu")
-
-def build():
-    autotools.make()
+     pythonmodules.configure()
+     pythonmodules.compile()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    pisitools.dodoc("AUTHORS", "ChangeLog", "README*", "NEWS")
+    pythonmodules.install()
+    pisitools.dodoc("COPYING", "NEWS", "README*", "PKG-INFO")
