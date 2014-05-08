@@ -13,7 +13,9 @@ from pisi.actionsapi import get
 def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
-    cmaketools.configure(sourceDir="..")
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
+                         -DQT4_BUILD=ON \
+                         -Wno-dev", sourceDir="..")
 
 def build():
     shelltools.cd("build")
