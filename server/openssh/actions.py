@@ -15,12 +15,12 @@ def setup():
     shelltools.export("CFLAGS","%s -fpie" % get.CFLAGS())
     shelltools.export("LDFLAGS","%s -pie" % get.LDFLAGS())
 
-    pisitools.dosed("pathnames.h", "/usr/X11R6/bin/xauth", r"/usr/bin/xauth")
-    pisitools.dosed("sshd_config", "(?m)^(^#UsePAM ).*", r"UsePAM yes")
-    pisitools.dosed("sshd_config", "(?m)^(^#PasswordAuthentication ).*", r"PasswordAuthentication no")
-    pisitools.dosed("sshd_config", "(?m)^(^#X11Forwarding ).*", r"X11Forwarding yes")
-    pisitools.dosed("sshd_config", "(?m)^(^#UseDNS ).*", r"UseDNS no")
-    pisitools.dosed("sshd_config", "(?m)^(^#PermitRootLogin ).*", r"PermitRootLogin no")
+    #pisitools.dosed("pathnames.h", "/usr/X11R6/bin/xauth", r"/usr/bin/xauth")
+    #pisitools.dosed("sshd_config", "(?m)^(^#UsePAM ).*", r"UsePAM yes")
+    #pisitools.dosed("sshd_config", "(?m)^(^#PasswordAuthentication ).*", r"PasswordAuthentication no")
+    #pisitools.dosed("sshd_config", "(?m)^(^#X11Forwarding ).*", r"X11Forwarding yes")
+    #pisitools.dosed("sshd_config", "(?m)^(^#UseDNS ).*", r"UseDNS no")
+    #pisitools.dosed("sshd_config", "(?m)^(^#PermitRootLogin ).*", r"PermitRootLogin no")
 
     autotools.autoreconf("-fi")
 
