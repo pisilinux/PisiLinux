@@ -20,16 +20,16 @@ def start():
         os.unlink(PIDFILE)
 
     startService(command="/usr/sbin/libvirtd",
-                 args="--daemon --config %s %s" % (
+                 args="--daemon --config %s %s --pid-file %s" % (
                      config.get("LIBVIRTD_ARGS", ""),
                      config.get("LIBVIRTD_CONFIG", LIBVIRTD_CONFIG),
+                     PIDFILE,
                      ),
-                 pidfile=PIDFILE,
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile="/run/libvirtd.pid",
+    stopService(pidfile="/run/libvirt/libvirtd.pid",
                 donotify=True)
     if os.path.exists(PIDFILE):
         os.unlink(PIDFILE)
