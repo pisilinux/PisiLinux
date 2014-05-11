@@ -13,14 +13,13 @@ import os
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure("-DIHAVEPATCHEDQT=1 \
-		    -DCMAKE_SKIP_RPATH=ON \
-		    -DCMAKE_BUILD_TYPE=Release \
-		    -DBUILD_active=OFF \
-		    -DBUILD_cstester:BOOL=OFF \
-		    -DKDE4_BUILD_TESTS=OFF \
-		    -DBUILD_mobile=OFF \
-		    -DCMAKE_INSTALL_PREFIX=/usr ")
+    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+                    -DCMAKE_SKIP_RPATH=ON \
+                    -DKDE4_BUILD_TESTS=OFF \
+                    -DCMAKE_INSTALL_PREFIX=/usr \
+                    -DCMAKE_INSTALL_LIBDIR=lib \
+                    -DBUILD_active=OFF \
+                    -DWITH_Soprano=OFF")
 
 def build():
     kde4.make()
@@ -30,9 +29,3 @@ def install():
 
     pisitools.dodoc("COPYING*", "README", "doc/status.txt")
     
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaDarker.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/Krita50.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBlender.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBrighter.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBright.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaDark.colors")
