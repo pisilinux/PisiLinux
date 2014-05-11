@@ -17,10 +17,11 @@ lib = "lib32" if get.buildTYPE() == "emul32" else "lib"
 
 def setup():
     if not shelltools.isDirectory("tools/clang"):
-        pisitools.dosed("tools/cfe-3.3.src/lib/Driver/ToolChains.cpp", '"ld"', '"ld.gold"')
+        pisitools.dosed("tools/cfe-3.4.1.src/lib/Driver/ToolChains.cpp", '"ld"', '"ld.gold"')
         shelltools.move("tools/cfe-%s.src" % get.srcVERSION(), "tools/clang")
+        shelltools.move("tools/clang-tools-extra-3.4", "tools/clang/extra")
     if not shelltools.isDirectory("projects/compiler-rt"):
-        shelltools.move("projects/compiler-rt-%s.src" % get.srcVERSION(), "projects/compiler-rt")
+        shelltools.move("projects/compiler-rt-3.4", "projects/compiler-rt")
 
     pisitools.dosed("utils/llvm-build/llvm-build", "python", "python2.7")
     pisitools.dosed("bindings/ocaml/Makefile.ocaml", '\$\(PROJ_libdir\)', libdir)
@@ -43,7 +44,6 @@ def setup():
                --enable-shared \
                --enable-libffi \
                --enable-targets=all \
-               --enable-experimental-targets=R600 \
                --disable-expensive-checks \
                --disable-debug-runtime \
                --disable-assertions \
