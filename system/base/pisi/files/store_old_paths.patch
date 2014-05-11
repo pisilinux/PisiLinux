@@ -1,0 +1,114 @@
+diff -aur pisi~/atomicoperations.py pisi/atomicoperations.py
+--- pisi~/atomicoperations.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/atomicoperations.py	2014-05-05 20:26:29.443251098 +0200
+@@ -137,6 +137,7 @@
+         self.filesdb = pisi.db.filesdb.FilesDB()
+         self.installdb = pisi.db.installdb.InstallDB()
+         self.operation = INSTALL
++        self.store_old_paths = None
+ 
+     def install(self, ask_reinstall = True):
+ 
+@@ -244,6 +245,10 @@
+             else:
+                 pkg_version = pisi.version.make_version(pkg.version)
+                 iversion = pisi.version.make_version(iversion_s)
++                if ctx.get_option('store_lib_info') and pkg_version > iversion:
++                    self.store_old_paths = os.path.join(ctx.config.old_paths_cache_dir(), pkg.name)
++                    ctx.ui.info(_('Storing old paths info'))
++                    open(self.store_old_paths, "w").write("Version: %s\n" % iversion_s)
+ 
+                 pkg_release = int(pkg.release)
+                 irelease = int(irelease_s)
+@@ -274,7 +279,7 @@
+             self.old_files = self.installdb.get_files(pkg.name)
+             self.old_pkginfo = self.installdb.get_info(pkg.name)
+             self.old_path = self.installdb.pkg_dir(pkg.name, iversion_s, irelease_s)
+-            self.remove_old = Remove(pkg.name)
++            self.remove_old = Remove(pkg.name, store_old_paths = self.store_old_paths)
+             self.remove_old.run_preremove()
+             self.remove_old.run_postremove()
+ 
+@@ -446,7 +451,7 @@
+                     if os.path.samestat(new_file_stat, old_file_stat):
+                         break
+                 else:
+-                    Remove.remove_file(old_file, self.pkginfo.name)
++                    Remove.remove_file(old_file, self.pkginfo.name, store_old_paths=self.store_old_paths)
+ 
+         if self.reinstall():
+             # get 'config' typed file objects
+@@ -554,12 +559,13 @@
+ 
+ class Remove(AtomicOperation):
+ 
+-    def __init__(self, package_name, ignore_dep = None):
++    def __init__(self, package_name, ignore_dep = None, store_old_paths = None):
+         super(Remove, self).__init__(ignore_dep)
+         self.installdb = pisi.db.installdb.InstallDB()
+         self.filesdb = pisi.db.filesdb.FilesDB()
+         self.package_name = package_name
+         self.package = self.installdb.get_package(self.package_name)
++        self.store_old_paths = store_old_paths
+         try:
+             self.files = self.installdb.get_files(self.package_name)
+         except pisi.Error, e:
+@@ -599,11 +605,11 @@
+         # is there any package who depends on this package?
+ 
+     @staticmethod
+-    def remove_file(fileinfo, package_name, remove_permanent=False):
++    def remove_file(fileinfo, package_name, remove_permanent=False, store_old_paths=None):
+ 
+         if fileinfo.permanent and not remove_permanent:
+             return
+-        
++
+         fpath = pisi.util.join_path(ctx.config.dest_dir(), fileinfo.path)
+ 
+         historydb = pisi.db.historydb.HistoryDB()
+@@ -640,6 +646,8 @@
+         else:
+             if os.path.isfile(fpath) or os.path.islink(fpath):
+                 os.unlink(fpath)
++                if store_old_paths:
++                    open(store_old_paths, "a").write("%s\n" % fpath)
+             elif os.path.isdir(fpath) and not os.listdir(fpath):
+                 os.rmdir(fpath)
+             else:
+diff -aur pisi~/cli/install.py pisi/cli/install.py
+--- pisi~/cli/install.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/cli/install.py	2014-04-27 12:13:25.123283920 +0200
+@@ -66,6 +66,8 @@
+                      help=_("When installing packages, ignore packages "
+                             "and components whose basenames match "
+                             "any pattern contained in file."))
++        group.add_option("-s", "--store-lib-info", action="store_true",
++                     default=False, help=_("Store previous libraries info when package is updating to newer version."))
+         self.parser.add_option_group(group)
+ 
+     def run(self):
+diff -aur pisi~/configfile.py pisi/configfile.py
+--- pisi~/configfile.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/configfile.py	2014-04-27 13:49:14.893265111 +0200
+@@ -104,6 +104,7 @@
+     cached_packages_dir = "/var/cache/pisi/packages"
+     compiled_packages_dir = "/var/cache/pisi/packages"
+     debug_packages_dir = "/var/cache/pisi/packages-debug"
++    old_paths_cache_dir = "/var/cache/pisi/old-paths"
+     packages_dir = "/var/lib/pisi/package"
+     lock_dir = "/var/lock/subsys"
+     index_dir = "/var/lib/pisi/index"
+diff -aur pisi~/config.py pisi/config.py
+--- pisi~/config.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/config.py	2014-04-27 14:02:15.189929225 +0200
+@@ -132,6 +132,9 @@
+     def debug_packages_dir(self):
+         return self.subdir(self.values.dirs.debug_packages_dir)
+ 
++    def old_paths_cache_dir(self):
++        return self.subdir(self.values.dirs.old_paths_cache_dir)
++
+     def index_dir(self):
+         return self.subdir(self.values.dirs.index_dir)
+ 
