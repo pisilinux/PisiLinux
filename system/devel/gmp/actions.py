@@ -11,7 +11,9 @@ from pisi.actionsapi import get
 
 
 def setup():
-    options = "--enable-cxx"
+    options = "--enable-cxx \
+               --enable-mpbsd \
+               --enable-fft"
 
     if get.buildTYPE() == "emul32":
         shelltools.export("CC", "%s -m32" % get.CC())
