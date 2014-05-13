@@ -7,12 +7,10 @@
 from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 
 
 def setup():
     pisitools.flags.add("-fexceptions")
-    pisitools.flags.replace("-ggdb3", "-g")
     autotools.autoreconf("-vfi")
 
     # Remove -Wall from default flags. The makefiles enable enough warnings
