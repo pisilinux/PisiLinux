@@ -13,3 +13,4 @@ def build():
 
 def install():
     pythonmodules.install()
+    pisitools.dodoc("COPYING", "AUTHORS", "README")    
