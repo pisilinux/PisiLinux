@@ -63,5 +63,5 @@ def install():
     #pisitools.domove("usr/share/opencv/doc", doc_dir)
     #pisitools.domove("usr/share/opencv/samples", doc_dir)
 
-    pisitools.dodoc("doc/license.txt")
+    pisitools.dodoc("README.md", "LICENSE", )
 
