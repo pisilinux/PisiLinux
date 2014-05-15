@@ -16,7 +16,7 @@ WorkDir = "glibc-2.19"
 defaultflags = "-O3 -g -fasynchronous-unwind-tables"
 # this is getting ridiculous, also gdb3 breaks resulting binary
 #sysflags = get.CFLAGS().replace("-fstack-protector", "").replace("-D_FORTIFY_SOURCE=2", "").replace("-funwind-tables", "").replace("-fasynchronous-unwind-tables", "")
-sysflags = "-mtune=generic -march=x86-64" if get.ARCH() == "x86_64" else "-mtune=atom -march=i686"
+sysflags = "-mtune=generic -march=x86-64" if get.ARCH() == "x86_64" else "-mtune=generic -march=i686"
 
 multibuild = (get.ARCH() == "x86_64")
 pkgworkdir = "%s/%s" % (get.workDIR(), WorkDir)
@@ -26,7 +26,7 @@ config = {"multiarch": {
                 "extraconfig": "--build=i686-pc-linux-gnu --enable-multi-arch",
                 "coreflags":   "-m32",
                 "libdir":      "lib32",
-                "buildflags":  "-mtune=atom -march=i686 %s" % defaultflags,
+                "buildflags":  "-mtune=generic -march=i686 %s" % defaultflags,
                 "builddir":    "%s/build32" % pkgworkdir
             },
            "system": {
