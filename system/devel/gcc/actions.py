@@ -21,7 +21,7 @@ else:
 
 arch = get.ARCH().replace("x86_64", "x86-64")
 
-opt_unwind = "--with-system-libunwind" if get.ARCH() == "x86_64" else "--without-system-libunwind"
+#opt_unwind = "--with-system-libunwind" if get.ARCH() == "x86_64" else "--without-system-libunwind"
 opt_arch = "--with-arch_32=i686" if get.ARCH() == "x86_64" else "--with-arch=i686"
 opt_multilib = "--enable-multilib" if get.ARCH() == "x86_64" else ""
 
@@ -53,6 +53,8 @@ def setup():
     exportFlags()
     # Maintainer mode off, do not force recreation of generated files
     #shelltools.system("contrib/gcc_update --touch")
+    shelltools.system('sed -i "s@\./fixinc\.sh@-c true@" gcc/Makefile.in')
+    shelltools.system('sed -i "/ac_cpp=/s/\$CPPFLAGS/\$CPPFLAGS -O2/" {libiberty,gcc}/configure')
 
     shelltools.cd("../")
     shelltools.makedirs("build")
@@ -66,50 +68,31 @@ def setup():
                        --includedir=/usr/include \
                        --mandir=/usr/share/man \
                        --infodir=/usr/share/info \
-                       --with-gxx-include-dir=/usr/include/c++ \
-                       --build=%s \
-                       --disable-libgcj \
-                       --disable-nls \
-                       --disable-mudflap \
-                       --disable-libmudflap \
-                       --disable-libunwind-exceptions \
-                       --with-linker-hash-style=gnu \
-                       --enable-checking=release \
-                       --enable-clocale=gnu \
-                       --enable-__cxa_atexit \
+                       --with-bugurl=http://bugs.pisilinux.org \
                        --enable-languages=c,c++,fortran,lto,objc,obj-c++ \
-                       --enable-libstdcxx-allocator=new \
+                       --disable-libgcj \
+                       --enable-shared \
+                       --enable-threads=posix \
+                       --with-system-zlib \
+                       --enable-__cxa_atexit \
+                       --disable-libunwind-exceptions \
+                       --enable-clocale=gnu \
                        --disable-libstdcxx-pch \
+                       --disable-libssp \
+                       --enable-gnu-unique-object \
+                       --enable-linker-build-id \
                        --enable-cloog-backend=isl \
                        --disable-cloog-version-check \
-                       --enable-shared \
                        --enable-lto \
-                       --enable-gold \
-                       --enable-ld=default \
                        --enable-plugin \
-                       --with-plugin-ld=ld.gold \
-                       --enable-ssp \
-                       --disable-libssp \
-                       --enable-plugin \
-                       --enable-threads=posix \
-                       --disable-libstdcxx-pch \
-                       --enable-linker-build-id \
-                       --without-included-gettext \
-                       %s \
-                       %s \
-                       %s \
-                       --with-tune=generic \
-                       --with-system-zlib \
-                       --enable-checking=release \
-                       --with-tune=generic \
-                       --enable-gnu-unique-object \
+                       --with-linker-hash-style=gnu \
                        --with-pkgversion="Pisi Linux" \
-                       --disable-libunwind-exceptions \
-                       --enable-long-long \
-                       --with-bugurl=http://bugs.pisilinux.org' % ( verMajor , get.HOST(), opt_arch, opt_unwind, opt_multilib))
-
-
-
+                       --disable-werror \
+                       --enable-checking=release \
+                       --build=%s \
+                               %s \
+                               %s ' % ( verMajor , get.HOST(), opt_arch, opt_multilib))
+      
 def build():
     exportFlags()
 
