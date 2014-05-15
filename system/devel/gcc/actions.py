@@ -53,8 +53,9 @@ def setup():
     exportFlags()
     # Maintainer mode off, do not force recreation of generated files
     #shelltools.system("contrib/gcc_update --touch")
-    shelltools.system('sed -i "s@\./fixinc\.sh@-c true@" gcc/Makefile.in')
-    shelltools.system('sed -i "/ac_cpp=/s/\$CPPFLAGS/\$CPPFLAGS -O2/" {libiberty,gcc}/configure')
+    pisitools.dosed("gcc/Makefile.in", "\.\/fixinc\.sh", "-c true")
+    pisitools.dosed("gcc/configure", "^(ac_cpp='\$CPP\s\$CPPFLAGS)", r"\1 -O2")
+    pisitools.dosed("libiberty/configure", "^(ac_cpp='\$CPP\s\$CPPFLAGS)", r"\1 -O2")
 
     shelltools.cd("../")
     shelltools.makedirs("build")
