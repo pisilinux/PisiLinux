@@ -155,7 +155,7 @@ def install():
 
     # localedata can be shared between archs
     shelltools.cd(config["system"]["builddir"])
-    autotools.rawInstall("install_root=%s install-locales -C ../localedata objdir=`pwd`" % get.installDIR())
+    autotools.rawInstall("install_root=%s localedata/install-locales" % get.installDIR())
 
     # now we do generic stuff
     shelltools.cd(pkgworkdir)
