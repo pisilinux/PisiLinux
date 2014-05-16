@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def builddiet():
+    pisitools.flags.add("-fno-lto")
     #dietCC = "diet %s %s %s -Os -static" % (get.CC(), get.CFLAGS(), get.LDFLAGS())
     dietCC = "%s %s %s -Os -static" % (get.CC(), get.CFLAGS(), get.LDFLAGS())
     shelltools.export("CC", dietCC)
