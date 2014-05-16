@@ -11,13 +11,13 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--sbindir=/sbin \
-                         --disable-alsaconf \
-                         --with-systemdsystemunitdir=/lib/systemd/system")
+                         --disable-alsaconf")
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    
+    
     pisitools.dodoc("ChangeLog", "README", "TODO", "seq/aconnect/README.aconnect", "seq/aseqnet/README.aseqnet")
