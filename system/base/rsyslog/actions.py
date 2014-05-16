@@ -21,6 +21,7 @@ def setup():
                          --disable-gnutls \
                          --disable-static \
                          --disable-rfc3195 \
+                         --disable-omjournal \
                          --disable-testbench \
                          --disable-mmnormalize \
                          --disable-gssapi-krb5 \
