@@ -30,7 +30,7 @@ def setup():
                          --with-magick_plus_plus \
                          --with-gslib \
                          --with-wmf \
-                         --with-lcms22 \
+                         --with-lcms2 \
                          --with-rsvg \
                          --with-xml \
                          --with-djvu \
