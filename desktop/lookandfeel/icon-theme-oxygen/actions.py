@@ -38,6 +38,11 @@ def install():
     shelltools.copytree("scalable", "%s/usr/share/icons/oxygen/scalable" % get.installDIR())
     pisitools.remove("/usr/share/icons/oxygen/scalable/*.sh")
 
+    pisitools.dosym("/usr/share/icons/oxygen/16x16/actions/list-add.png", "/usr/share/icons/oxygen/16x16/actions/add.png")
+    pisitools.dosym("/usr/share/icons/oxygen/22x22/actions/list-add.png", "/usr/share/icons/oxygen/22x22/actions/add.png")
+    pisitools.dosym("/usr/share/icons/oxygen/32x32/actions/list-add.png", "/usr/share/icons/oxygen/32x32/actions/add.png")
+    pisitools.dosym("/usr/share/icons/oxygen/48x48/actions/list-add.png", "/usr/share/icons/oxygen/48x48/actions/add.png")
+    
     #delete kmplayer icons from oxygen theme
     prefix = "/usr/share/icons/oxygen/"
     conflictingIcons = ("kmplayer", "digikam", "showfoto")
