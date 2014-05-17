@@ -14,10 +14,10 @@ def setup():
     if get.buildTYPE() == "emul32":
         pisitools.dosed("configure.in", "(gdk-pixbuf-query-loaders)([\s\]])", r"\1-32\2")
 
-    autotools.autoreconf("-vfi")
+    autotools.autoreconf("-if")
     autotools.configure("--disable-gtk-doc \
                          --enable-pixbuf-loader=yes \
-                         --disable-static")
+                         --disable-static --disable-vala")
 
     pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
     pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
