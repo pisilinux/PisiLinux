@@ -18,5 +18,11 @@ def build():
 
 def install():
     kde4.install()
+    
+    # fix for package-manager
+    pisitools.dosym("/usr/share/icons/nuvola/16x16/actions/list-add.png", "/usr/share/icons/nuvola/16x16/actions/add.png")
+    pisitools.dosym("/usr/share/icons/nuvola/22x22/actions/list-add.png", "/usr/share/icons/nuvola/22x22/actions/add.png")
+    pisitools.dosym("/usr/share/icons/nuvola/32x32/actions/list-add.png", "/usr/share/icons/nuvola/32x32/actions/add.png")
+    pisitools.dosym("/usr/share/icons/nuvola/48x48/actions/list-add.png", "/usr/share/icons/nuvola/48x48/actions/add.png")
 
     pisitools.dodoc("COPYING*", "README")
