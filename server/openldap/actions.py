@@ -19,8 +19,8 @@ def setup():
     )
     pisitools.dosed("servers/slapd/Makefile.in", "(\$\(DESTDIR\))\$\(localstatedir\)(\/run)", r"\1\2")
 
-    pisitools.cflags.add("-D_REENTRANT -D_GNU_SOURCE -fPIC -Wl,--as-needed -DLDAP_CONNECTIONLESS -fpie")
-    pisitools.ldflags.add("-pie")
+    pisitools.flags.add("-D_REENTRANT -D_GNU_SOURCE -fPIC -Wl,--as-needed -DLDAP_CONNECTIONLESS")
+    #pisitools.ldflags.add("-pie")
 
     options = "--prefix=/usr \
                --enable-bdb \
