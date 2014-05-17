@@ -17,7 +17,7 @@ MSG_ERR_STOPUPSM = _({"en": "Could not stop upsmon.",
                       "tr": "Upsmon durdurulamadı.",
                       })
 
-piddir = "/var/lib/nut"
+piddir = "/run/nut"
 model = config.get("MODEL", "upsdrvctl")
 server = config.get("SERVER", "no")
 
