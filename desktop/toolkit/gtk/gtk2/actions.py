@@ -31,7 +31,7 @@ def setup():
         shelltools.export("LDFLAGS", "%s -m32" % get.LDFLAGS())
         shelltools.export("CPPFLAGS", "-DGTK_COMPILATION")
 
-    autotools.autoreconf("-vif")
+    autotools.autoconf()
     autotools.configure(options)
 
     pisitools.dosed("libtool"," -shared ", " -Wl,-O1,--as-needed -shared ")
