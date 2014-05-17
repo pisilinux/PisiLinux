@@ -13,7 +13,7 @@ def check():
     try:
         f = file("/etc/mdadm.conf")
         confLines = [a.lstrip() for a in f]
-        confLines = filter(lambda x: not (x.startswith("#") or x == ""), confLines)
+        confLines = filter(lambda x: not (x.startswith("\#") or x == ""), confLines)
         check = False
         for line in confLines:
             if "MAILADDR" or "PROGRAM" in line.split():
