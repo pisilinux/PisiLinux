@@ -49,7 +49,7 @@ def setup():
                          --enable-dns-for-realm")
 
     # Fix krb5-config script to remove rpaths and CFLAGS
-    pisitools.dosed("krb5-config", "^CC_LINK=.*", "CC_LINK='$(CC) $(PROG_LIBPATH)'")
+    #pisitools.dosed("krb5-config", "^CC_LINK=.*", "CC_LINK='$(CC) $(PROG_LIBPATH)'")
     # Fix unused dependency
     pisitools.dosed("config/shlib.conf"," -shared ", " -Wl,--as-needed -shared ")
 
