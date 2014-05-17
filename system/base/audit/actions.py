@@ -9,11 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-vifs")
+    autotools.autoreconf("-vif")
     autotools.configure("--with-libcap-ng=yes \
-                         --with-python=yes \
                          --enable-gssapi-krb5=no \
-                         --enable-pam=yes \
+                         --enable-systemd=no \
+                         --with-python=yes \
                          --disable-static")
 
 def build():

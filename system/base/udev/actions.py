@@ -13,6 +13,7 @@ from pisi.actionsapi import shelltools
 suffix = "32" if get.buildTYPE() == "emul32" else ""
 
 def setup():
+    pisitools.flags.add("-fno-lto")
     #shelltools.echo("docs/gtk-doc.make", "EXTRA_DIST=")
     autotools.autoreconf("-fi")
     libtools.libtoolize("--force")
