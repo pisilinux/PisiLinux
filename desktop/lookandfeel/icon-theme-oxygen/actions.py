@@ -43,6 +43,11 @@ def install():
     pisitools.dosym("/usr/share/icons/oxygen/32x32/actions/list-add.png", "/usr/share/icons/oxygen/32x32/actions/add.png")
     pisitools.dosym("/usr/share/icons/oxygen/48x48/actions/list-add.png", "/usr/share/icons/oxygen/48x48/actions/add.png")
     
+    pisitools.dosym("/usr/share/icons/oxygen/16x16/actions/application-exit.png", "/usr/share/icons/oxygen/16x16/actions/cancel.png")
+    pisitools.dosym("/usr/share/icons/oxygen/22x22/actions/application-exit.png", "/usr/share/icons/oxygen/22x22/actions/cancel.png")
+    pisitools.dosym("/usr/share/icons/oxygen/32x32/actions/application-exit.png", "/usr/share/icons/oxygen/32x32/actions/cancel.png")
+    pisitools.dosym("/usr/share/icons/oxygen/48x48/actions/application-exit.png", "/usr/share/icons/oxygen/48x48/actions/cancel.png")
+    
     #delete kmplayer icons from oxygen theme
     prefix = "/usr/share/icons/oxygen/"
     conflictingIcons = ("kmplayer", "digikam", "showfoto")
