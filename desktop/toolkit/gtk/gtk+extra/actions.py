@@ -8,9 +8,8 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.autoreconf("-vif")
     autotools.configure("--enable-static=no \
-			 --enable-introspection=yes")
+			             --enable-introspection=yes")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
