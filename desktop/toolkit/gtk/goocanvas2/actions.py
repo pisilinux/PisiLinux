@@ -9,12 +9,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
     autotools.autoreconf("-vif")
     autotools.configure("--disable-rebuilds \
-			 --disable-static")
+			             --disable-static")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
     
