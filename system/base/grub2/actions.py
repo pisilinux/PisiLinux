@@ -13,7 +13,7 @@ def setup():
     shelltools.copy("../unifont*.bdf", "./unifont.bdf")
     shelltools.export("GRUB_CONTRIB", "%s/grub-%s/grub-extras" % (get.workDIR(), get.srcVERSION()))
 
-    pisitools.cflags.remove("-fstack-protector", "-fasynchronous-unwind-tables", "-fexceptions")
+    pisitools.cflags.remove("-fstack-protector", "-fasynchronous-unwind-tables", "-fexceptions", "-fPIC")
     pisitools.cflags.sub("\s?(-O[\ds]|-D_FORTIFY_SOURCE=\d)\s?", " ")
 
     #shelltools.system("./linguas.sh")
