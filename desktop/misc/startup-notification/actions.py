@@ -6,8 +6,11 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
+    shelltools.system('sed -i -e "/AC_PATH_XTRA/d" configure.in')
+    autotools.autoreconf("-fi")
     autotools.configure("--disable-static")
 
     # Put flags in front of the libs. Needed for --as-needed.
