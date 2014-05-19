@@ -32,9 +32,6 @@ def setup():
                           -DINSTALL_MYSQLSHAREDIR=share/mysql \
                           -DINSTALL_DOCDIR=share/mysql/docs \
                           -DINSTALL_SHAREDIR=share/mysql \
-                          -DINSTALL_MYSQLDATADIR=0 \
-                          -DINSTALL_MYSQLTESTDIR=0 \
-                          -DINSTALL_SQLBENCHDIR=0 \
                           -DWITH_READLINE=ON \
                           -DWITH_ZLIB=system \
                           -DWITH_SSL=system \
@@ -49,7 +46,7 @@ def setup():
                           -DWITHOUT_EXAMPLE_STORAGE_ENGINE=1 \
                           -DWITHOUT_FEDERATED_STORAGE_ENGINE=1 \
                           -DWITHOUT_PBXT_STORAGE_ENGINE=1 \
-                          -DENABLE_DTRACE=ON \
+                          -DWITHOUT_TOKUDB=1 \
                          ")
 
 def build():
@@ -71,6 +68,8 @@ def install():
 
     # Remove not needed files
     pisitools.removeDir("/usr/data")
+    pisitools.removeDir("/usr/mysql-test")
+    pisitools.removeDir("/usr/sql-bench")
     pisitools.remove("/usr/share/man/man1/mysql-test-run.pl.1")
 
     # Remove -lprobes_mysql
