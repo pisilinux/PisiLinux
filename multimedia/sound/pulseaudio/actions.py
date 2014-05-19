@@ -18,7 +18,6 @@ emul32_libs = "libpulsecommon-%s.la \
               " % get.srcVERSION()
 
 def setup():
-    shelltools.system("git pull origin master")
     options = "--disable-dependency-tracking \
                --disable-static \
                --disable-rpath \
@@ -49,7 +48,7 @@ def setup():
                      --disable-default-build-tests"
 
     shelltools.echo(".tarball-version", get.srcVERSION())
-    shelltools.system("NOCONFIGURE=1 ./bootstrap.sh")
+    #shelltools.system("NOCONFIGURE=1 ./bootstrap.sh")
     autotools.configure(options)
 
     pisitools.dosed("libtool", "CC(\s-shared\s)", r"CC -Wl,-O1,--as-needed\1")
