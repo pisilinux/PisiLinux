@@ -88,6 +88,7 @@ def setup():
                        --enable-ext-nlpsolver \
                        --disable-python \
                        --enable-cairo-canvas \
+                       --without-system-icu \
                        --with-system-cairo \
                        --without-ppds --without-sun-templates --without-afms --without-fonts --without-system-apache-commons --without-system-mythes --without-system-libcmis \
                        --without-system-libexttextcat --without-system-jfreereport  --without-system-libcdr --without-system-libwpg --without-system-libwpd --without-system-libwps \
