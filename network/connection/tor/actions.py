@@ -9,7 +9,11 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure()
+    autotools.configure("--prefix=/usr \
+                         --with-libevent-dir=/usr/lib  \
+                         --with-zlib-dir=/usr/lib  \
+                         --with-openssl-dir=/usr/lib  \
+                         --enable-dependency-tracking")
 
 def build():
     autotools.make()
