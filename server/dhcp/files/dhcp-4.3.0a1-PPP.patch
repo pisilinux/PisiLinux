@@ -1,0 +1,150 @@
+diff -up dhcp-4.3.0a1/client/dhc6.c.PPP dhcp-4.3.0a1/client/dhc6.c
+--- dhcp-4.3.0a1/client/dhc6.c.PPP	2013-12-19 16:16:45.925550229 +0100
++++ dhcp-4.3.0a1/client/dhc6.c	2013-12-19 16:16:45.930550159 +0100
+@@ -5080,7 +5080,8 @@ make_client6_options(struct client_state
+ 	 */
+ 	if ((oc = lookup_option(&dhcpv6_universe, *op,
+ 				D6O_CLIENTID)) == NULL) {
+-		if (!option_cache(&oc, &default_duid, NULL, clientid_option,
++		if (default_duid.len == 0 ||
++		    !option_cache(&oc, &default_duid, NULL, clientid_option,
+ 				  MDL))
+ 			log_fatal("Failure assembling a DUID.");
+ 
+diff -up dhcp-4.3.0a1/client/dhclient.c.PPP dhcp-4.3.0a1/client/dhclient.c
+--- dhcp-4.3.0a1/client/dhclient.c.PPP	2013-12-19 16:16:45.932550131 +0100
++++ dhcp-4.3.0a1/client/dhclient.c	2013-12-19 16:27:38.334473958 +0100
+@@ -926,8 +926,8 @@ main(int argc, char **argv) {
+ 			if (default_duid.buffer != NULL)
+ 				data_string_forget(&default_duid, MDL);
+ 
+-			form_duid(&default_duid, MDL);
+-			write_duid(&default_duid);
++			if (form_duid(&default_duid, MDL) == ISC_R_SUCCESS)
++				write_duid(&default_duid);
+ 		}
+ 	}
+ 
+@@ -3225,7 +3225,7 @@ write_options(struct client_state *clien
+  * is not how it is intended.  Upcoming rearchitecting the client should
+  * address this "one daemon model."
+  */
+-void
++isc_result_t
+ form_duid(struct data_string *duid, const char *file, int line)
+ {
+ 	struct interface_info *ip;
+@@ -3237,6 +3237,15 @@ form_duid(struct data_string *duid, cons
+ 	if (ip == NULL)
+ 		log_fatal("Impossible condition at %s:%d.", MDL);
+ 
++	while (ip && ip->hw_address.hbuf[0] == HTYPE_RESERVED) {
++		/* Try the other interfaces */
++		log_debug("Cannot form default DUID from interface %s.", ip->name);
++		ip = ip->next;
++	}
++	if (ip == NULL) {
++		return ISC_R_UNEXPECTED;
++	}
++
+ 	if ((ip->hw_address.hlen == 0) ||
+ 	    (ip->hw_address.hlen > sizeof(ip->hw_address.hbuf)))
+ 		log_fatal("Impossible hardware address length at %s:%d.", MDL);
+@@ -3272,6 +3281,8 @@ form_duid(struct data_string *duid, cons
+ 		memcpy(duid->buffer->data + 4, ip->hw_address.hbuf + 1,
+ 		       ip->hw_address.hlen - 1);
+ 	}
++	
++	return ISC_R_SUCCESS;
+ }
+ 
+ /* Write the default DUID to the lease store. */
+diff -up dhcp-4.3.0a1/common/bpf.c.PPP dhcp-4.3.0a1/common/bpf.c
+--- dhcp-4.3.0a1/common/bpf.c.PPP	2013-12-19 16:16:45.868551024 +0100
++++ dhcp-4.3.0a1/common/bpf.c	2013-12-19 16:16:45.934550103 +0100
+@@ -602,6 +602,22 @@ get_hw_addr(const char *name, struct har
+                         memcpy(&hw->hbuf[1], LLADDR(sa), sa->sdl_alen);
+                         break;
+ #endif /* IFT_FDDI */
++#if defined(IFT_PPP)
++                case IFT_PPP:
++                        if (local_family != AF_INET6)
++                             log_fatal("Unsupported device type %d for \"%s\"",
++                                        sa->sdl_type, name);
++                        hw->hlen = 0;
++                        hw->hbuf[0] = HTYPE_RESERVED;
++                        /* 0xdeadbeef should never occur on the wire,
++                         *  and is a signature that something went wrong.
++                         */
++                        hw->hbuf[1] = 0xde;
++                        hw->hbuf[2] = 0xad;
++                        hw->hbuf[3] = 0xbe;
++                        hw->hbuf[4] = 0xef;
++                        break;
++#endif
+                 default:
+                         log_fatal("Unsupported device type %d for \"%s\"",
+                                   sa->sdl_type, name);
+diff -up dhcp-4.3.0a1/common/lpf.c.PPP dhcp-4.3.0a1/common/lpf.c
+--- dhcp-4.3.0a1/common/lpf.c.PPP	2013-12-19 16:16:45.848551303 +0100
++++ dhcp-4.3.0a1/common/lpf.c	2013-12-19 16:16:45.934550103 +0100
+@@ -511,6 +511,22 @@ get_hw_addr(const char *name, struct har
+ 			hw->hbuf[0] = HTYPE_FDDI;
+ 			memcpy(&hw->hbuf[1], sa->sa_data, 6);
+ 			break;
++#if defined(ARPHRD_PPP)
++		case ARPHRD_PPP:
++			if (local_family != AF_INET6)
++				log_fatal("Unsupported device type %d for \"%s\"",
++				           sa->sa_family, name);
++			hw->hlen = 0;
++			hw->hbuf[0] = HTYPE_RESERVED;
++			/* 0xdeadbeef should never occur on the wire,
++			 * and is a signature that something went wrong.
++			 */
++			hw->hbuf[1] = 0xde;
++			hw->hbuf[2] = 0xad;
++			hw->hbuf[3] = 0xbe;
++			hw->hbuf[4] = 0xef;
++			break;
++#endif
+ 		default:
+ 			log_fatal("Unsupported device type %ld for \"%s\"",
+ 				  (long int)sa->sa_family, name);
+diff -up dhcp-4.3.0a1/includes/dhcp.h.PPP dhcp-4.3.0a1/includes/dhcp.h
+--- dhcp-4.3.0a1/includes/dhcp.h.PPP	2013-12-19 16:16:45.919550313 +0100
++++ dhcp-4.3.0a1/includes/dhcp.h	2013-12-19 16:16:45.936550076 +0100
+@@ -85,6 +85,8 @@ struct dhcp_packet {
+ 					 * is no standard for this so we
+ 					 * just steal a type            */
+ 
++#define HTYPE_RESERVED	0		/* RFC 5494 */
++
+ /* Magic cookie validating dhcp options field (and bootp vendor
+    extensions field). */
+ #define DHCP_OPTIONS_COOKIE	"\143\202\123\143"
+diff -up dhcp-4.3.0a1/includes/dhcpd.h.PPP dhcp-4.3.0a1/includes/dhcpd.h
+--- dhcp-4.3.0a1/includes/dhcpd.h.PPP	2013-12-19 16:16:45.935550090 +0100
++++ dhcp-4.3.0a1/includes/dhcpd.h	2013-12-19 16:28:33.468709007 +0100
+@@ -2824,7 +2824,7 @@ void client_dns_remove(struct client_sta
+ 
+ void dhcpv4_client_assignments(void);
+ void dhcpv6_client_assignments(void);
+-void form_duid(struct data_string *duid, const char *file, int line);
++isc_result_t form_duid(struct data_string *duid, const char *file, int line);
+ 
+ /* dhc6.c */
+ void dhc6_lease_destroy(struct dhc6_lease **src, const char *file, int line);
+diff -up dhcp-4.3.0a1/server/dhcpv6.c.PPP dhcp-4.3.0a1/server/dhcpv6.c
+--- dhcp-4.3.0a1/server/dhcpv6.c.PPP	2013-12-19 16:16:45.901550564 +0100
++++ dhcp-4.3.0a1/server/dhcpv6.c	2013-12-19 16:16:45.937550062 +0100
+@@ -307,6 +307,9 @@ generate_new_server_duid(void) {
+ 		if (p->hw_address.hlen > 0) {
+ 			break;
+ 		}
++		if (p->next == NULL && p->hw_address.hbuf[0] == HTYPE_RESERVED) {
++			log_error("Can not generate DUID from interfaces which do not have hardware addresses, please configure server-duid!");
++		}
+ 	}
+ 	if (p == NULL) {
+ 		return ISC_R_UNEXPECTED;

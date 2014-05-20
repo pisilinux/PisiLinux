@@ -11,18 +11,18 @@ from pisi.actionsapi import get
 
 def setup():
     shelltools.export("CFLAGS", "%s -D_GNU_SOURCE -fPIC" % get.CFLAGS())
+#in some troff man pages
+    #for i in ["dhclient.conf.5", "dhclient.leases.5", "dhclient-script.8", "dhclient.8"]:
+    #    pisitools.dosed("client/%s" % i, "CLIENTBINDIR", "/sbin")
+    #   pisitools.dosed("client/%s" % i, "RUNDIR", "/run")
+    #  pisitools.dosed("client/%s" % i, "DBDIR", "/var/lib/dhcpd")
+    # pisitools.dosed("client/%s" % i, "ETCDIR", "/etc/dhcp")
 
-    for i in ["dhclient.conf.5", "dhclient.leases.5", "dhclient-script.8", "dhclient.8"]:
-        pisitools.dosed("client/%s" % i, "CLIENTBINDIR", "/sbin")
-        pisitools.dosed("client/%s" % i, "RUNDIR", "/run")
-        pisitools.dosed("client/%s" % i, "DBDIR", "/var/lib/dhcpd")
-        pisitools.dosed("client/%s" % i, "ETCDIR", "/etc/dhcp")
-
-    for i in ["dhcpd.conf.5", "dhcpd.leases.5", "dhcpd.8"]:
-        pisitools.dosed("server/%s" % i, "CLIENTBINDIR", "/sbin")
-        pisitools.dosed("server/%s" % i, "RUNDIR", "/run")
-        pisitools.dosed("server/%s" % i, "DBDIR", "/var/lib/dhcpd")
-        pisitools.dosed("server/%s" % i, "ETCDIR", "/etc/dhcp")
+    #for i in ["dhcpd.conf.5", "dhcpd.leases.5", "dhcpd.8"]:
+    #    pisitools.dosed("server/%s" % i, "CLIENTBINDIR", "/sbin")
+    #   pisitools.dosed("server/%s" % i, "RUNDIR", "/run")
+    #    pisitools.dosed("server/%s" % i, "DBDIR", "/var/lib/dhcpd")
+    #   pisitools.dosed("server/%s" % i, "ETCDIR", "/etc/dhcp")
 
     pisitools.dosed("client/scripts/linux", "/etc/dhclient-exit-hooks", "/etc/dhcp/dhclient-exit-hooks")
     pisitools.dosed("client/scripts/linux", "/etc/dhclient-enter-hooks", "/etc/dhcp/dhclient-enter-hooks")
