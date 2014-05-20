@@ -22,6 +22,8 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-silent-rules \
                          --disable-wimax \
+                         --enable-ppp=yes \
+                         --enable-bluez4=yes \
                          --enable-more-warnings=yes \
                          --with-crypto=nss \
                          --with-resolvconf=/etc/resolv.default.conf \
