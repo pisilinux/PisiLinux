@@ -9,20 +9,16 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
     shelltools.export("AUTOPOINT", "true")
     autotools.autoreconf("-vfi")
     #shelltools.system("./autogen.sh --disable-gtk-doc --disable-docbook")
 
-    options = '--with-package-name="GStreamer package for PisiLinux" \
+    options = '--with-package-name="GStreamer for PisiLinux" \
                --with-package-origin="http://www.pisilinux.org" \
                --enable-nls \
                --disable-dependency-tracking \
                --disable-examples \
-               --disable-tests \
-               --disable-failing-tests \
                --enable-introspection \
                --disable-static \
                --disable-rpath \

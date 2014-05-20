@@ -10,9 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS", "%s -fPIC" % get.CFLAGS())
-
-    #autotools.autoreconf("-fi")
+    autotools.autoreconf("-fi")
     autotools.configure("--disable-static")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
