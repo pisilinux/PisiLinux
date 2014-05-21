@@ -6,15 +6,12 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import libtools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-# WorkDir = "faac"
-
 def setup():
-    autotools.autoreconf("-vfi")
-    autotools.configure("--disable-static \
-                         --with-external-mp4v2")
+    shelltools.system("./bootstrap")
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()
