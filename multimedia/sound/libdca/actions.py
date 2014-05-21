@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--enable-shared \
-                         --enable-oss \
                          --disable-static")
 
 def build():
