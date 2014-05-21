@@ -11,18 +11,14 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.dosed("config/override.m4", "2.64", "2.69")
-
+    shelltools.system('sed -i "/ac_cpp=/s/\$CPPFLAGS/\$CPPFLAGS -O2/" libiberty/configure')
     autotools.autoreconf("-vfi")
     autotools.configure("--with-system-readline \
                          --with-separate-debug-dir=/usr/lib/debug \
                          --with-gdb-datadir=/usr/share/gdb \
                          --with-pythondir=/usr/lib/%s/site-packages \
-                         --enable-tui \
                          --disable-nls \
-                         --disable-sim \
                          --disable-rpath \
-                         --disable-werror \
-                         --without-rpm \
                          --with-python \
                          --with-expat" % get.curPYTHON())
 
