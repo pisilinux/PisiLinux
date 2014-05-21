@@ -13,14 +13,11 @@ shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 def setup():
     autotools.autoreconf("-vif")
-    # Some of the examples need the static lib to build.
-    # Don't build them if not building the static lib too.
     autotools.configure("--disable-static \
                          --disable-bdjava")
 
 def build():
     autotools.make()
-    #autotools.make("doxygen-pdf")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
