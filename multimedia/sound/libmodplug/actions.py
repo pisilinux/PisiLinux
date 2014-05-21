@@ -8,7 +8,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    pisitools.dosed("configure.in", "-ffast-math")
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-dependency-tracking \
                          --disable-static")
