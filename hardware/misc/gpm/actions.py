@@ -12,7 +12,6 @@ from pisi.actionsapi import get
 
 def setup():
     shelltools.system("./autogen.sh")
-    #autotools.autoreconf("-fi")
     autotools.configure("--libdir=/usr/lib \
                          --sysconfdir=/etc/gpm")
 
