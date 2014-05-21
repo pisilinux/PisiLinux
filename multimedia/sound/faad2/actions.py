@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 
 def setup():
-    pisitools.dosed("libfaad/Makefile.am", "iquote ", "I")
+    #pisitools.dosed("libfaad/Makefile.am", "iquote ", "I")
     autotools.autoreconf("-vfi")
 
     autotools.configure("--without-xmms \
