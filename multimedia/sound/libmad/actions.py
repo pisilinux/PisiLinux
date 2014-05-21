@@ -7,17 +7,14 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import libtools
-from pisi.actionsapi import get
 
 def setup():
+    pisitools.cflags.add("-ftree-vectorize -ftree-vectorizer-verbose=1")
     for i in ["NEWS", "AUTHORS", "ChangeLog"]:
         shelltools.touch(i)
 
-    # autotools.autoreconf("-vfi -Im4")
     autotools.autoreconf("-vfi")
 
-    # libtools.libtoolize("--force --install")
     autotools.configure("--disable-debugging \
                          --disable-static")
 
