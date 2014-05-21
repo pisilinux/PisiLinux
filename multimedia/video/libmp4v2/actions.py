@@ -6,21 +6,11 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-WorkDir = "mp4v2-%s" % get.srcVERSION()
-
-# autoreconf breaks sandbox with subversion
-shelltools.export("HOME", get.workDIR())
 
 def setup():
-    #autotools.autoreconf("-vfi")
-    autotools.configure("--disable-dependency-tracking \
-                         --disable-static \
-                         --enable-util \
-                         --disable-gch")
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()
