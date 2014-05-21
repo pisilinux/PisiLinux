@@ -7,16 +7,13 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import libtools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
     libtools.libtoolize("--force --install")
     autotools.autoreconf("-fi")
     
-    autotools.configure("--with-x \
-                         --disable-gl \
-                         --disable-static")
+    autotools.configure("--disable-static")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
