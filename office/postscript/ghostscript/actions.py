@@ -33,7 +33,7 @@ def setup():
                --without-omni \
                --with-x \
                --with-fontpath=/usr/share/fonts:/usr/share/fonts/default/ghostscript:/usr/share/cups/fonts:/usr/share/fonts/TTF:/usr/share/fonts/Type1:/usr/share/poppler/cMap/*"
-    options += " --disable-cups --libdir=/usr/lib32" if get.buildTYPE() == "emul32" else " --enable-cups --with-install-cups"
+    options += " --disable-cups --includedir=/usr/include --libdir=/usr/lib32" if get.buildTYPE() == "emul32" else " --enable-cups --with-install-cups"
 
     autotools.configure(options)
 
