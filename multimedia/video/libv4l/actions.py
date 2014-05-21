@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 def setup():
         autotools.autoreconf("-vfi")
         autotools.configure("--disable-static \
-			     --disable-rpath")
+                             --disable-rpath")
 
         pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
