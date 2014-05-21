@@ -8,10 +8,8 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "aalib-1.4.0"
 
 def setup():
-    pisitools.dosed("configure.in", "gpm_mousedriver_test=yes", "gpm_mousedriver_test=no")
     autotools.autoreconf("-vfi")
 
     autotools.configure("--with-slang-driver \
