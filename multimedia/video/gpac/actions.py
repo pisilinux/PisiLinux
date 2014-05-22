@@ -19,7 +19,7 @@ def setup():
                          --use-ft=system \
                          --use-js=no \
                          --use-a52=no \
-                         --use-ffmpeg=no \
+                         --use-ffmpeg=system \
                          --use-ogg=system \
                          --use-vorbis=system \
                          --use-theora=system \
