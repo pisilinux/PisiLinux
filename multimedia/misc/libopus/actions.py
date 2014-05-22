@@ -11,7 +11,8 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vif")
-    autotools.configure("--disable-static \
+    autotools.configure("--enable-custom-modes \
+                         --disable-static \
                          --disable-doc")
 
 def build():
