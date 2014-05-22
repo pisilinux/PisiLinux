@@ -14,15 +14,9 @@ from pisi.actionsapi import get
 
 def setup():
     shelltools.export("AT_M4DIR", get.curDIR())
-    #libtools.libtoolize("--copy --force")
-    #autotools.autoreconf("-fi")
-
-    shelltools.makedirs("libmp3lame/i386/.libs")
-    autotools.configure("--disable-mp3x \
-                         --disable-static \
-                         --enable-shared \
-                         --disable-mp3rtp \
-                         --enable-nasm")
+    autotools.configure("--prefix=/usr \
+                         --enable-nasm \
+                         --enable-shared")
 
 def build():
     autotools.make()
