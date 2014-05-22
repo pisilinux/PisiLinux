@@ -14,10 +14,9 @@ def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--disable-selinux \
                          --disable-static \
-                         --disable-schemas-install \
-                         --with-hal-mount=/usr/bin/mount \
-                         --with-hal-umount=/usr/bin/umount \
-                         --with-hal-eject=/usr/bin/eject")
+                         --enable-samba --with-samba-includes=/usr/include/samba-4.0 \
+                         --disable-hal --enable-avahi --disable-howl")
+    
     pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
     pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
