@@ -10,10 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-# WorkDir = "lame-398-2"
-
 def setup():
-    shelltools.export("AT_M4DIR", get.curDIR())
     autotools.configure("--prefix=/usr \
                          --enable-nasm \
                          --enable-shared")
@@ -27,3 +24,11 @@ def install():
     pisitools.dodoc("API", "ChangeLog", "HACKING", "README*", "STYLEGUIDE", "TODO", "USAGE")
     pisitools.dohtml("misc/*", "Dll/*")
     pisitools.dobin("misc/mlame")
+    
+    pisitools.remove("/usr/lib/libmp3lame.so")
+    pisitools.remove("/usr/lib/libmp3lame.so.0")
+    
+    
+    
+    pisitools.dosym("/usr/lib/libmp3lame.so.0.0.0", "/usr/lib/libmp3lame.so")
+    pisitools.dosym("/usr/lib/libmp3lame.so.0.0.0", "/usr/lib/libmp3lame.so.0")
