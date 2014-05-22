@@ -1,0 +1,96 @@
+Index: src/corelib/kernel/qobject.cpp
+===================================================================
+--- src/corelib/kernel/qobject.cpp.orig
++++ src/corelib/kernel/qobject.cpp
+@@ -1102,10 +1102,19 @@ void QObject::setObjectName(const QStrin
+ 
+     d->objectName = name;
+ 
++#if defined(Q_WS_X11)
++    d->checkWindowRole();
++#endif
++
+     if (objectNameChanged) 
+         d->declarativeData->objectNameChanged(d->declarativeData, this);
+ }
+ 
++#if defined(Q_WS_X11)
++void QObjectPrivate::checkWindowRole()
++{
++}
++#endif
+ 
+ #ifdef QT3_SUPPORT
+ /*! \internal
+Index: src/corelib/kernel/qobject_p.h
+===================================================================
+--- src/corelib/kernel/qobject_p.h.orig
++++ src/corelib/kernel/qobject_p.h
+@@ -162,6 +162,9 @@ public:
+ #ifdef QT3_SUPPORT
+     void sendPendingChildInsertedEvents();
+ #endif
++#if defined(Q_WS_X11)
++    virtual void checkWindowRole();
++#endif
+ 
+     static inline Sender *setCurrentSender(QObject *receiver,
+                                     Sender *sender);
+Index: src/gui/kernel/qwidget_p.h
+===================================================================
+--- src/gui/kernel/qwidget_p.h.orig
++++ src/gui/kernel/qwidget_p.h
+@@ -784,6 +784,7 @@ public:
+     static QWidget *keyboardGrabber;
+ 
+     void setWindowRole();
++    virtual void checkWindowRole();
+     void sendStartupMessage(const char *message) const;
+     void setNetWmWindowTypes();
+     void x11UpdateIsOpaque();
+Index: src/gui/kernel/qwidget_x11.cpp
+===================================================================
+--- src/gui/kernel/qwidget_x11.cpp.orig
++++ src/gui/kernel/qwidget_x11.cpp
+@@ -849,13 +849,17 @@ void QWidgetPrivate::create_sys(WId wind
+ 
+ 
+         // declare the widget's window role
++        QByteArray windowRole;
+         if (QTLWExtra *topData = maybeTopData()) {
+-            if (!topData->role.isEmpty()) {
+-                QByteArray windowRole = topData->role.toUtf8();
+-                XChangeProperty(dpy, id,
+-                                ATOM(WM_WINDOW_ROLE), XA_STRING, 8, PropModeReplace,
+-                                (unsigned char *)windowRole.constData(), windowRole.length());
+-            }
++            if (!topData->role.isEmpty())
++                windowRole = topData->role.toUtf8();
++        }
++        if (windowRole.isEmpty()) // use object name as a fallback
++            windowRole = objectName.toUtf8();
++        if (!windowRole.isEmpty()) {
++            XChangeProperty(dpy, id,
++                            ATOM(WM_WINDOW_ROLE), XA_STRING, 8, PropModeReplace,
++                            (unsigned char *)windowRole.constData(), windowRole.length());
+         }
+ 
+         // set client leader property
+@@ -3015,6 +3019,17 @@ void QWidgetPrivate::setWindowRole()
+     XChangeProperty(X11->display, q->internalWinId(),
+                     ATOM(WM_WINDOW_ROLE), XA_STRING, 8, PropModeReplace,
+                     (unsigned char *)windowRole.constData(), windowRole.length());
++}
++
++void QWidgetPrivate::checkWindowRole()
++{
++    Q_Q(QWidget);
++    if( !q->windowRole().isEmpty() || !q->internalWinId())
++        return;
++    QByteArray windowRole = objectName.toUtf8(); // use as a fallback
++    XChangeProperty(X11->display, q->internalWinId(),
++                    ATOM(WM_WINDOW_ROLE), XA_STRING, 8, PropModeReplace,
++                    (unsigned char *)windowRole.constData(), windowRole.length());
+ }
+ 
+ Q_GLOBAL_STATIC(QX11PaintEngine, qt_widget_paintengine)
