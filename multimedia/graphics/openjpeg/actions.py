@@ -14,6 +14,8 @@ def setup():
 
     if get.buildTYPE() == "emul32":
         shelltools.export("PKG_CONFIG_LIBDIR", "/usr/lib32/pkgconfig")
+        
+    shelltools.system("./bootstrap.sh")    
 
     autotools.configure(options)
 
