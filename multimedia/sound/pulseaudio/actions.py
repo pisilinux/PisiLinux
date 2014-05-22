@@ -22,9 +22,9 @@ def setup():
                --disable-static \
                --disable-rpath \
                --disable-jack \
-               --disable-solaris \
-               --disable-adrian-aec \
+               --disable-oss-output \
                --enable-largefile \
+               --enable-bluez5 \
                --with-system-user=pulse \
                --with-system-group=pulse \
                --with-access-group=pulse-access \
@@ -36,7 +36,8 @@ def setup():
                      --disable-gconf \
                      --disable-gtk2 \
                      --disable-jack \
-                     --disable-bluez \
+                     --disable-bluez4 \
+                     --disable-bluez5 \
                      --disable-asyncns \
                      --disable-lirc \
                      --disable-x11 \
