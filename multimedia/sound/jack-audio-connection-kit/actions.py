@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 import os
 
-a=get.srcVERSION()
-WorkDir = "jack-%s/jack-%s" % (a,a)
 del(os.environ["JOBS"])
 
 def setup():
