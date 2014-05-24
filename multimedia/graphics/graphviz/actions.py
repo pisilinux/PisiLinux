@@ -12,7 +12,7 @@ import os
 
 def setup():
     # install the graph and cgraph api alongside
-    pisitools.dosed("lib/graph/Makefile.in", "@WITH_CGRAPH_FALSE@", "")
+    pisitools.dosed("lib/cgraph/Makefile.in", "@WITH_CGRAPH_FALSE@", "")
 
     #autotools.autoreconf("-vfi")
 
