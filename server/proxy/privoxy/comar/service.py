@@ -11,7 +11,7 @@ PIDFILE = "/run/privoxy.pid"
 @synchronized
 def start():
     startService(command="/usr/sbin/privoxy",
-                 args="--pidfile %s --user privoxy /etc/privoxy/config" % PIDFILE,
+                 args="--pidfile %s --user privoxy /etc/privoxy/" % PIDFILE,
                  donotify=True)
 
 @synchronized
