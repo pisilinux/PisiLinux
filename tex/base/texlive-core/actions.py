@@ -17,9 +17,9 @@ def setup():
     for tar_file in shelltools.ls(get.workDIR()):
         if tar_file.endswith("xz"):
             shelltools.system("tar Jxfv %s" % tar_file)
-
+#    for folder in ["tlpkg", "doc", "source", "omega"]:
 def build():
-    for folder in ["tlpkg", "doc", "source", "omega"]:
+    for folder in ["tlpkg", "doc", "source"]:
         shelltools.unlinkDir("%s/%s" %(get.workDIR() , folder))
 
 def install():
