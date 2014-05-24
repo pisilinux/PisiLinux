@@ -6,4 +6,4 @@
 from pisi.actionsapi import pisitools
 
 def install():
-    pisitools.insinto("/usr/share/java", "bsh-2.0b4.jar", "bsh.jar")
+    pisitools.insinto("/usr/share/java", "bsh-2.1.7.jar", "bsh.jar")
