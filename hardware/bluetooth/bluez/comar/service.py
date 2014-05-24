@@ -7,7 +7,7 @@ serviceDesc = _({"en": "Bluetooth Service",
 serviceDefault = "on"
 
 PIDFILE="/run/bluez.pid"
-DAEMON = "/usr/sbin/bluetoothd"
+DAEMON = "/usr/libexec/bluetooth/bluetoothd"
 
 @synchronized
 def start():

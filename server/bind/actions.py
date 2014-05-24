@@ -76,6 +76,6 @@ def install():
 
     # Documentation
     pisitools.dodoc("CHANGES", "COPYRIGHT", "FAQ", "README")
-    pisitools.dodoc("doc/misc/*", "contrib/named-bootconf/named-bootconf.sh", "contrib/nanny/nanny.pl")
+    pisitools.dodoc("doc/misc/*", "contrib/scripts/named-bootconf.sh", "contrib/scripts/nanny.pl")
     pisitools.dohtml("doc/arm/*")
     pisitools.remove("/usr/share/doc/%s/Makefile*" % get.srcNAME())

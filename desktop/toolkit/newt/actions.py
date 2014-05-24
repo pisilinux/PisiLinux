@@ -9,9 +9,16 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
+    # use python2.x
+    pisitools.dosed("configure", "(\/usr\/include\/)python\*", r"\1python2*")
+    # fix unused direct dependency
+    pisitools.dosed("Makefile.in", "(PLFLAGS=)`\$\$pyconfig --libs`", r"\1'-lpython2.7'")
+    pisitools.dosed("Makefile.in", "(PLDFLAGS=)`\$\$pyconfig --ldflags`", r"\1'-lpython2.7 -Xlinker -export-dynamic'")
+
     shelltools.echo("config.h.in", "#define USE_INTERP_RESULT 1")
-    autotools.configure("--prefix=/usr \
-                         --with-gpm-support")
+    autotools.configure("\
+                         --with-gpm-support \
+                        ")
 
 def build():
     autotools.make()
@@ -23,4 +30,3 @@ def install():
     pisitools.remove("/usr/lib/libnewt.a")
 
     pisitools.dodoc("CHANGES", "COPYING")
-
