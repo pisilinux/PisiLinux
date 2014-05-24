@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fi")
+    autotools.autoconf()
     autotools.configure("--disable-static \
                          --with-fontconfig \
                          --with-png \
@@ -24,4 +24,4 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dohtml(".")
-    pisitools.dodoc("README*")
+    pisitools.dodoc("COPYING", "NEWS", "ChangeLog")
