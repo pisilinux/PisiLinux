@@ -13,6 +13,9 @@ def setup():
     pisitools.dosed("CMakeLists.txt", "LIB_SUFFIX 64", deleteLine="True")
 
     cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DPYTHON_EXECUTABLE=/usr/bin/python2.7 \
+                          -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
+                          -DPYTHON_LIBRARY=/usr/lib/python2.7 \
                           -DCMAKE_SKIP_BUILD_RPATH=ON \
                           -DCMAKE_BUILD_TYPE=Release \
                           -DEXAMPLES=OFF -DFTDI_EEPROM=OFF")
