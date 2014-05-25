@@ -10,6 +10,7 @@ from pisi.actionsapi import get
 
 
 def build():
+    pisitools.cflags.add("-lX11")
     autotools.make()
 
 def install():
