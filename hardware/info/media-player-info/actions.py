@@ -13,7 +13,7 @@ def setup():
                          --with-udevdir=/lib/udev")
 
 def build():
-    autotools.make('LANG="en_US.UTF-8"')
+    autotools.make("LANG=en_US.UTF-8")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
