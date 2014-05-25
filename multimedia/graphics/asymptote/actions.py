@@ -16,10 +16,9 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --includedir=/usr/include \
                          --enable-gsl \
-                         --enable-gc=system \
+                         --enable-gc=/usr \
                          --with-latex=/usr/share/texmf/tex/latex \
-                         --with-context=/usr/share/texmf/tex/context \
-                         --enable-texlive-build")
+                         --with-context=/usr/share/texmf/tex/context")
 
 def build():
     autotools.make()
