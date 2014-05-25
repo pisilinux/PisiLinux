@@ -6,32 +6,27 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import get
 
 def setup():
-    # I haven't enabled non-C bindings, cause they aren't very useful
-    # at the moment. In case if you need them later:
-    # C++ binding: remove --without-boost and depend on boost
-    autotools.configure("--without-boost \
-                         --enable-python-binding \
-                         --disable-static")
+    pisitools.dosed("CMakeLists.txt", "LIB_SUFFIX 64", deleteLine="True")
 
-    # kernel doesn't provide usb_device anymore
-    pisitools.dosed("packages/99-libftdi.rules", "usb_device", "usb")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DCMAKE_SKIP_BUILD_RPATH=ON \
+                          -DCMAKE_BUILD_TYPE=Release \
+                          -DEXAMPLES=OFF -DFTDI_EEPROM=OFF")
+
 
 def build():
     autotools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    # Compiled examples are not useful, they also pollute /usr/bin namespace
-    pisitools.remove("/usr/bin/bitbang*")
-    pisitools.remove("/usr/bin/find*")
-    pisitools.remove("/usr/bin/simple")
-    pisitools.remove("/usr/bin/baud_test")
-    #pisitools.remove("/usr/bin/serial_read")
-
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    #Remove python examples
+    pisitools.removeDir("/usr/share/libftdi")
+    
     # Their source can be useful though
     pisitools.dodoc("examples/*.c", destDir="%s/examples" % get.srcNAME())
 
