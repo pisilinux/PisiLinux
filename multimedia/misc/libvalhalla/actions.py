@@ -14,7 +14,7 @@ shelltools.export("HOME", get.workDIR())
 def setup():
     autotools.rawConfigure("--prefix=/usr \
                             --disable-static \
-                            --enable-doc \
+                            --disable-doc \
                             --enable-grabbers")
 
 def build():
