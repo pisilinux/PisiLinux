@@ -6,11 +6,14 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fi")
-    autotools.configure("--disable-maintainer-mode \
+    shelltools.export("PYTHON","python2.7")
+    shelltools.system("./autogen.sh")
+    autotools.configure("--prefix=/usr \
+                         --disable-maintainer-mode \
                          --enable-fts \
                          --enable-datahub \
                          --enable-telepathy \
