@@ -6,15 +6,14 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("./autogen.sh")
-    autotools.configure()
+    autotools.configure("--prefix=/usr \
+                         --with-udevdir=/lib/udev")
 
 def build():
-    autotools.make()
+    autotools.make('LANG="en_US.UTF-8"')
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
