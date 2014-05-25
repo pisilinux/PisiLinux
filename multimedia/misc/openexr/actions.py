@@ -6,12 +6,14 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.flags.add("-pthread -I/usr/include/OpenEXR -I/usr/include/libdrm")
+    pisitools.ldflags.add("-lImath -lHalf -lIex -lIexMath -lIlmThread -lpthread")
+    shelltools.system("./bootstrap")
     autotools.configure("--enable-shared \
-                         --enable-imfexamples \
-                         --enable-imffuzztest \
                          --disable-static")
 
 def build():
