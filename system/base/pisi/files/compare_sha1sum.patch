@@ -1,0 +1,76 @@
+diff -aur pisi.old/cli/upgrade.py pisi/cli/upgrade.py
+--- pisi.old/cli/upgrade.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/cli/upgrade.py	2014-05-26 19:22:46.699975466 +0200
+@@ -71,6 +71,8 @@
+                      help=_("When upgrading system, ignore packages "
+                             "and components whose basenames match "
+                             "any pattern contained in file."))
++        group.add_option("-s", "--compare-sha1sum", action="store_true",
++                     default=False, help=_("compare sha1sum repo and installed packages"))
+ 
+         self.parser.add_option_group(group)
+ 
+diff -aur pisi.old/db/installdb.py pisi/db/installdb.py
+--- pisi.old/db/installdb.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/db/installdb.py	2014-05-26 19:16:34.169976684 +0200
+@@ -148,6 +148,16 @@
+ 
+         return distro, release
+ 
++    def __get_install_tar_hash(self, meta_doc):
++        hash = meta_doc.getTag("Package").getTagData("InstallTarHash")
++
++        return hash
++
++    def get_install_tar_hash(self, package):
++        metadata_xml = os.path.join(self.package_path(package), ctx.const.metadata_xml)
++        meta_doc = piksemel.parse(metadata_xml)
++        return self.__get_install_tar_hash(meta_doc)
++
+     def get_version_and_distro_release(self, package):
+         metadata_xml = os.path.join(self.package_path(package), ctx.const.metadata_xml)
+         meta_doc = piksemel.parse(metadata_xml)
+diff -aur pisi.old/operations/upgrade.py pisi/operations/upgrade.py
+--- pisi.old/operations/upgrade.py	2014-04-27 11:49:14.823288665 +0200
++++ pisi/operations/upgrade.py	2014-05-26 20:03:20.049967505 +0200
+@@ -67,9 +67,12 @@
+     packagedb = pisi.db.packagedb.PackageDB()
+     installdb = pisi.db.installdb.InstallDB()
+ 
++    debug = ctx.config.get_option("debug")
+     security_only = ctx.get_option('security_only')
++    comparesha1sum = ctx.get_option('compare_sha1sum')
+ 
+     Ap = []
++    ds = []
+     for i_pkg in packages:
+ 
+         if i_pkg in replaces.keys():
+@@ -89,6 +92,7 @@
+             continue
+ 
+         pkg = packagedb.get_package(i_pkg)
++        hash = installdb.get_install_tar_hash(i_pkg)
+         (version, release, build, distro, distro_release) = installdb.get_version_and_distro_release(i_pkg)
+ 
+         if security_only and not pkg.has_update_type("security", release):
+@@ -101,10 +105,19 @@
+         else:
+             if int(release) < int(pkg.release):
+                 Ap.append(i_pkg)
++            elif comparesha1sum and \
++                int(release) == int(pkg.release) and \
++                not pkg.installTarHash == hash:
++                Ap.append(i_pkg)
++                ds.append(i_pkg)
+             else:
+                 ctx.ui.info(_('Package %s is already at the latest release %s.')
+                             % (pkg.name, pkg.release), True)
+ 
++    if debug:
++        ctx.ui.status(_('The following packages have different sha1sum:'))
++        ctx.ui.info(util.format_by_columns(sorted(ds)))
++
+     return Ap
+ 
+ def upgrade(A=[], repo=None):
