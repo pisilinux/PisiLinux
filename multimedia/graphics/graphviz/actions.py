@@ -4,33 +4,35 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
-
-import os
 
 def setup():
     # install the graph and cgraph api alongside
     pisitools.dosed("lib/cgraph/Makefile.in", "@WITH_CGRAPH_FALSE@", "")
 
-    #autotools.autoreconf("-vfi")
+    # do not check guile1.8
+    pisitools.dosed("configure.ac", " guile1.8")
+    autotools.autoreconf("-vfi")
 
     #R support is disabled because of its deps.
-    autotools.configure("--disable-static \
-                         --with-libgd \
-                         --with-pangocairo \
-                         --with-fontconfig \
-                         --with-devil=no \
+    autotools.configure("\
                          --disable-dependency-tracking \
-                         --disable-php \
-                         --disable-r \
+                         --disable-io \
                          --disable-lua \
                          --disable-ocaml \
+                         --disable-php \
+                         --disable-r \
+                         --disable-rpath \
                          --disable-sharp \
-                         --disable-io \
-                         --disable-rpath")
-    
+                         --disable-static \
+                         --with-devil=no \
+                         --with-fontconfig \
+                         --with-libgd \
+                         --with-pangocairo \
+                        ")
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
