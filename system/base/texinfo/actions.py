@@ -7,15 +7,18 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
+
+TEX="/usr/share/texmf"
 
 def setup():
     autotools.configure()
 
 def build():
-    autotools.make()
+    autotools.make("TEXMF=TEX install-tex")
 
 def install():
+    pisitools.insinto("/usr/share/texmf", "%s/%s-%s/doc/TEX/tex" % (get.workDIR(), get.srcNAME(), get.srcVERSION()))
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    #pisitools.insinto("/usr/share/texmf/tex/texinfo/", "/usr/share/info/texinfo.tex")
     pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "README", "TODO")
     
