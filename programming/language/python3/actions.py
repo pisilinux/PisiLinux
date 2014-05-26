@@ -3,22 +3,16 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/copyleft/gpl.txt
 
-from pisi.actionsapi import autotools
 from pisi.actionsapi import get
+from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-# You can use these as variables, they will replace GUI values before build.
-# Package Name : python3
-# Version : 3.2.3
-# Summary : Next generation of the python high-level scripting language
-
-# If the project that you are tying to compile is in a sub directory in the 
-# source archive, than you can define working directory. For example; 
-# WorkDir="python3-"+ get.srcVERSION() +"/sub_project_dir/"
-pyDIR = "Python-3.2.3"
 def setup():
+    pisitools.flags.add("-fwrapv")
+
     pisitools.dosed("Lib/cgi.py","^#.* /usr/local/bin/python","#!/usr/bin/python")
+
     shelltools.unlinkDir("Modules/expat")
     shelltools.unlinkDir("Modules/zlib")
     shelltools.unlinkDir("Modules/_ctypes/darwin")
@@ -27,15 +21,21 @@ def setup():
     shelltools.unlinkDir("Modules/_ctypes/libffi_msvc")
     shelltools.unlinkDir("Modules/_ctypes/libffi_osx")
 
-    autotools.rawConfigure("--prefix=/usr --enable-shared \
-                            --with-threads \
-                            --with-computed-gotos \
+    autotools.rawConfigure("\
+                            --prefix=/usr \
                             --enable-ipv6 \
-                            --with-valgrind \
-                            --with-wide-unicode \
+                            --enable-loadable-sqlite-extensions \
+                            --enable-shared \
+                            --with-computed-gotos \
                             --with-dbmliborder=gdbm:ndbm \
+                            --with-fpectl \
                             --with-system-expat \
-                            --with-system-ffi")
+                            --with-system-ffi \
+                            --with-system-libmpdec \
+                            --with-threads \
+                            --with-valgrind \
+                            --without-ensurepip \
+                           ")
 
 def build():
     autotools.make()
