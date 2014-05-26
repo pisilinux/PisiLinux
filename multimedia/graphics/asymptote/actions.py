@@ -15,12 +15,15 @@ def setup():
     #autotools.autoreconf("-fi")
     autotools.configure("--prefix=/usr \
                          --includedir=/usr/include \
+                         --with-docdir=/usr/share/doc/asymptote \
                          --enable-gsl \
-                         --enable-gc=/usr \
+                         --enable-gc=system \
+                         --enable-texlive-build \
                          --with-latex=/usr/share/texmf/tex/latex \
                          --with-context=/usr/share/texmf/tex/context")
 
-def build():
+
+def build():   
     autotools.make()
 
 def install():
@@ -28,6 +31,7 @@ def install():
 
     # add files for emacs users
     pisitools.domove("/usr/share/asymptote/*.el", "/usr/share/emacs/site-lisp/")
+    pisitools.domove("/usr/share/asymptote/*.vim", "/usr/share/vim/vimfiles/ftdetect/")
 
     # move file to correct path.
     #pisitools.domove("/usr/local/share/texmf/tex/context/third/asymptote/colo-asy.tex", "/usr/share/texmf/tex/context/third/asymptote/")
