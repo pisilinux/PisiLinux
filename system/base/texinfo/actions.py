@@ -16,6 +16,6 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.insinto("/usr/share/texmf/tex/texinfo/", "/usr/share/info/texinfo.tex")
+    #pisitools.insinto("/usr/share/texmf/tex/texinfo/", "/usr/share/info/texinfo.tex")
     pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "README", "TODO")
     
