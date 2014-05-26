@@ -14,7 +14,7 @@ WorkDir = "soundtouch"
 
 def setup():
     pisitools.dosed("source/SoundStretch/Makefile.*", "-O3", "")
-
+    shelltools.system("./bootstrap")
     autotools.configure("--enable-shared \
                          --disable-dependency-tracking \
                          --disable-static \
