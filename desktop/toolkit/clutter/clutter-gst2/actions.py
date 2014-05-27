@@ -14,6 +14,8 @@ def setup():
     #shelltools.system("gtkdocize")
     #autotools.autoreconf("-fi")
     autotools.configure("--disable-static")
+    
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
     autotools.make("V=1")
