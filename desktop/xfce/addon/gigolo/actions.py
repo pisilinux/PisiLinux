@@ -9,8 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.autoreconf("-fiv")
-    shelltools.system("intltoolize --force --copy --automake")
     autotools.configure()
 
 def build():
