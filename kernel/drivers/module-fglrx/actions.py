@@ -8,7 +8,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "fglrx-13.35.1005"
+WorkDir = "fglrx-14.10.1006"
 KDIR = kerneltools.getKernelVersion()
 NoStrip = ["/lib/modules"]
 
@@ -94,7 +94,7 @@ def install():
                      "%s/fglrx/modules/extensions" % Libdir, "libglx.so")
     
     pisitools.domove("%s/xorg/modules/extensions/fglrx/fglrx-libglx.so" % Libdir,
-                     "%s/xorg/modules/extensions" % Libdir, "libglx.so")
+                     "%s/xorg/modules/extensions/fglrx" % Libdir, "libglx.so")
 
     # Necessary symlinks
     pisitools.dosym("%s/xorg/modules/dri/fglrx_dri.so" % Libdir, "%s/dri/fglrx_dri.so" % Libdir)
