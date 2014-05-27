@@ -15,7 +15,7 @@ def setup():
                          --enable-introspection \
                          --disable-static \
                          --enable-shared ")
-    
+
     pisitools.dosed("libtool"," -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
