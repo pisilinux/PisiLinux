@@ -9,22 +9,23 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-
 def setup():
-    autotools.autoreconf("-fi")
-    autotools.configure("--with-moc=/usr/bin/moc --disable-static --prefix=/usr")
-    
-    # for fix unused dependency
-    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")    
+    # guess we should update to new autoconf
+    #shelltools.system("gtkdocize")
+    #autotools.autoreconf("-fi")
+    autotools.configure("--disable-static")
 
 def build():
-    autotools.make()
+    autotools.make("V=1")
 
 def install():
     autotools.rawInstall('DESTDIR=%s INSTALL="install -p"' % get.installDIR())
 
-    for i in shelltools.ls("examples/"):
-        if i.endswith(".cc") or i.endswith(".h") or i.endswith(".png"):
+    for i in shelltools.ls("examples"):
+        if i.endswith(".png") or i.endswith(".c"):
             pisitools.insinto("/%s/%s/examples/" % (get.docDIR(), get.srcNAME()), "examples/%s" % i)
+            
+    pisitools.domove("/usr/share/gtk-doc/html/clutter-gst/*", "/usr/share/gtk-doc/html/clutter-gs2/")
+    pisitools.removeDir("/usr/share/gtk-doc/html/clutter-gst/")
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README*", "NEWS")
+    pisitools.dodoc("AUTHORS", "ChangeLog*", "README*", "NEWS")
