@@ -1,0 +1,113 @@
+From jani.nikula@intel.com  Wed May 14 12:59:07 2014
+From: Jani Nikula <jani.nikula@intel.com>
+Date: Mon, 28 Apr 2014 13:10:07 +0300
+Subject: [PATCH for stable 3.14 only 1/1] drm/i915: restore QUIRK_NO_PCH_PWM_ENABLE
+To: stable@vger.kernel.org, Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Cc: intel-gfx@lists.freedesktop.org, daniel@ffwll.ch, Romain Francoise <romain@orebokech.com>, Kamal Mostafa <kamal@canonical.com>, jani.nikula@intel.com
+Message-ID: <b6e9694e03367a3133511f7093c917b4982f1266.1398678778.git.jani.nikula@intel.com>
+
+From: Jani Nikula <jani.nikula@intel.com>
+
+This reverts the bisected regressing
+
+commit bc0bb9fd1c7810407ab810d204bbaecb255fddde
+Author: Jani Nikula <jani.nikula@intel.com>
+Date:   Thu Nov 14 12:14:29 2013 +0200
+
+    drm/i915: remove QUIRK_NO_PCH_PWM_ENABLE
+
+restoring QUIRK_NO_PCH_PWM_ENABLE for a couple of Dell XPS models which
+broke in 3.14.
+
+There is no such revert upstream. We have root caused and fixed the
+issue upstream, without the quirk, with:
+
+commit 39fbc9c8f6765959b55e0b127dd5c57df5a47d67
+Author: Jani Nikula <jani.nikula@intel.com>
+Date:   Wed Apr 9 11:22:06 2014 +0300
+
+    drm/i915: check VBT for supported backlight type
+
+and
+
+commit c675949ec58ca50d5a3ae3c757892f1560f6e896
+Author: Jani Nikula <jani.nikula@intel.com>
+Date:   Wed Apr 9 11:31:37 2014 +0300
+
+    drm/i915: do not setup backlight if not available according to VBT
+
+While the commits are within the stable rules otherwise, and fix more
+machines than just the regressed Dell XPS models, we feel backporting
+them to stable may be too risky. The revert is limited to the broken
+machines, and the impact should be effectively the same as what the
+upstream commits do more generally.
+
+Bugzilla: https://bugs.freedesktop.org/show_bug.cgi?id=76276
+Reported-by: Romain Francoise <romain@orebokech.com>
+Acked-by: Daniel Vetter <daniel@ffwll.ch>
+Tested-by: Kamal Mostafa <kamal@canonical.com>
+Signed-off-by: Jani Nikula <jani.nikula@intel.com>
+Tested-by: Romain Francoise <romain@orebokech.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/gpu/drm/i915/i915_drv.h      |    1 +
+ drivers/gpu/drm/i915/intel_display.c |   16 ++++++++++++++++
+ drivers/gpu/drm/i915/intel_panel.c   |    4 ++++
+ 3 files changed, 21 insertions(+)
+
+--- a/drivers/gpu/drm/i915/i915_drv.h
++++ b/drivers/gpu/drm/i915/i915_drv.h
+@@ -734,6 +734,7 @@ enum intel_sbi_destination {
+ #define QUIRK_PIPEA_FORCE (1<<0)
+ #define QUIRK_LVDS_SSC_DISABLE (1<<1)
+ #define QUIRK_INVERT_BRIGHTNESS (1<<2)
++#define QUIRK_NO_PCH_PWM_ENABLE (1<<3)
+ 
+ struct intel_fbdev;
+ struct intel_fbc_work;
+--- a/drivers/gpu/drm/i915/intel_display.c
++++ b/drivers/gpu/drm/i915/intel_display.c
+@@ -10771,6 +10771,17 @@ static void quirk_invert_brightness(stru
+ 	DRM_INFO("applying inverted panel brightness quirk\n");
+ }
+ 
++/*
++ * Some machines (Dell XPS13) suffer broken backlight controls if
++ * BLM_PCH_PWM_ENABLE is set.
++ */
++static void quirk_no_pcm_pwm_enable(struct drm_device *dev)
++{
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	dev_priv->quirks |= QUIRK_NO_PCH_PWM_ENABLE;
++	DRM_INFO("applying no-PCH_PWM_ENABLE quirk\n");
++}
++
+ struct intel_quirk {
+ 	int device;
+ 	int subsystem_vendor;
+@@ -10839,6 +10850,11 @@ static struct intel_quirk intel_quirks[]
+ 
+ 	/* Acer Aspire 4736Z */
+ 	{ 0x2a42, 0x1025, 0x0260, quirk_invert_brightness },
++
++	/* Dell XPS13 HD Sandy Bridge */
++	{ 0x0116, 0x1028, 0x052e, quirk_no_pcm_pwm_enable },
++	/* Dell XPS13 HD and XPS13 FHD Ivy Bridge */
++	{ 0x0166, 0x1028, 0x058b, quirk_no_pcm_pwm_enable },
+ };
+ 
+ static void intel_init_quirks(struct drm_device *dev)
+--- a/drivers/gpu/drm/i915/intel_panel.c
++++ b/drivers/gpu/drm/i915/intel_panel.c
+@@ -671,6 +671,10 @@ static void pch_enable_backlight(struct
+ 	pch_ctl2 = panel->backlight.max << 16;
+ 	I915_WRITE(BLC_PWM_PCH_CTL2, pch_ctl2);
+ 
++	/* XXX: transitional */
++	if (dev_priv->quirks & QUIRK_NO_PCH_PWM_ENABLE)
++		return;
++
+ 	pch_ctl1 = 0;
+ 	if (panel->backlight.active_low_pwm)
+ 		pch_ctl1 |= BLM_PCH_POLARITY;
