@@ -24,13 +24,15 @@ def setup():
                          --enable-python \
                          --with-rrd-default-font=/usr/share/fonts/dejavu/DejaVuSansMono.ttf \
                          --with-perl-options='installdirs=vendor destdir=%(DESTDIR)s' \
-                        --with-ruby-options='sitedir=%(DESTDIR)s/usr/lib/ruby' \
+                         --with-ruby-options='sitedir=%(DESTDIR)s/usr/lib/ruby' \
                          " % {"DESTDIR": get.installDIR()})
  
     pisitools.dosed("Makefile", "^RRDDOCDIR.*$", "RRDDOCDIR=${datadir}/doc/${PACKAGE}")
     pisitools.dosed("doc/Makefile", "^RRDDOCDIR.*$", "RRDDOCDIR=${datadir}/doc/${PACKAGE}")
     pisitools.dosed("bindings/Makefile", "^RRDDOCDIR.*$", "RRDDOCDIR=${datadir}/doc/${PACKAGE}")
     pisitools.dosed("examples/Makefile", "examplesdir = .*$", "examplesdir = $(datadir)/doc/${PACKAGE}/examples")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
