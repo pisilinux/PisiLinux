@@ -23,6 +23,7 @@ def setup():
                       -DCMAKE_BUILD_TYPE=Release \
                       -DCMAKE_SKIP_RPATH=ON \
                       -DWITH_JACK=ON \
+                      -DWITH_JACK_DYNLOAD=ON \
                       -DWITH_IMAGE_OPENEXR=ON \
                       -DWITH_FFTW3=ON\
                       -DWITH_PLAYER=ON \
@@ -30,6 +31,11 @@ def setup():
                       -DWITH_INSTALL_PORTABLE=OFF \
                       -DWITH_GAMEENGINE=ON \
                       -DWITH_PYTHON_INSTALL=OFF \
+                      -DWITH_MOD_OCEANSIM=ON \
+                      -DPYTHON_VERSION=3.4 \
+                      -DPYTHON_LIBPATH=/usr/lib \
+                      -DPYTHON_LIBRARY=python3.4m \
+                      -DPYTHON_INCLUDE_DIRS=/usr/include/python3.4m \
                       -DWITH_CODEC_SNDFILE=ON ")
 
 def build():
