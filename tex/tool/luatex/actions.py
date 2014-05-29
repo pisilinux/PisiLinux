@@ -13,7 +13,7 @@ def setup():
     shelltools.cd("source")
 
     autotools.configure(' --disable-native-texlive-build \
-                          --with-banner-add="/PisiLinux" \
+                          --with-banner-add=/PisiLinux \
                           --enable-cxx-runtime-hack \
                           --disable-all-pkgs \
                           --disable-dump-share \
@@ -54,7 +54,4 @@ def install():
     ## install luatex binary
     pisitools.dobin("texk/web2c/luatex")
 
-    ## install luatex reference file
-    shelltools.cd("..")
-    pisitools.dodoc("manual/*.pdf")
-
+    pisitools.dodoc("doc/texlive.pdf")
