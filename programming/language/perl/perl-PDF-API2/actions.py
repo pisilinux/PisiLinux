@@ -23,4 +23,4 @@ def install():
     for d in ["contrib", "examples"]:
         pisitools.insinto("/usr/share/doc/%s" % get.srcNAME(), d)
 
-    pisitools.dodoc("Changes", "CONTACT", "HACKING", "LICENSE", "PATENTS", "README")
+    pisitools.dodoc("Changes", "LICENSE", "PATENTS", "README")
