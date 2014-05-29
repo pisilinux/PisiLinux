@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--disable-static \
                          --enable-reentrant \
-                         --disable-libxfce4mcs \
                          --with-bdb4")
 
 def build():
