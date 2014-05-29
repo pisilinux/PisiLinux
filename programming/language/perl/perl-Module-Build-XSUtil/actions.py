@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!    pisitools.remove("/usr/bin/python
 # -*- coding: utf-8 -*-
 #
 # Licensed under the GNU General Public License, version 3.
@@ -19,4 +19,4 @@ def check():
 def install():
     perlmodules.install()
 
-    pisitools.dodoc("README*", "Changes")
+    pisitools.dodoc("README*", "LICENSE")
