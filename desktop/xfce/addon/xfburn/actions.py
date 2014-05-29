@@ -9,10 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--enable-gstreamer \
-                        --enable-thunar-vfs \
-                        --enable-dbus \
-                        --disable-hal")
+    autotools.configure("--prefix=/usr \
+                         --enable-gstreamer")
 
 def build():
     autotools.make()
