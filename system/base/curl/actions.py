@@ -10,8 +10,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.flags.sub("-D_FORTIFY_SOURCE=\d", "")
-    autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
                          --disable-dependency-tracking \
                          --disable-ldap \
