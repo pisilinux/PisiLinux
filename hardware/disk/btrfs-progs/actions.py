@@ -13,7 +13,8 @@ def build():
   
     shelltools.cd("%s/" % get.workDIR())
     pisitools.dosym("./Makefile", "Makefile")
-    autotools.make("CC=%s CFLAGS=\"%s\"" % (get.CC(), get.CFLAGS()))
+    autotools.make("V=1 CC=%s CFLAGS=\"%s\"" % (get.CC(), get.CFLAGS()))
+    autotools.make("V=1 CC=%s CFLAGS=\"%s\" btrfs-select-super" % (get.CC(), get.CFLAGS()))
 
 def install():
   
