@@ -9,6 +9,7 @@ from pisi.actionsapi import kde4
 
 def setup():
     kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+                    -DCMAKE_INSTALL_PREFIX=/usr \
                     -Wno-dev")
 
 def build():
