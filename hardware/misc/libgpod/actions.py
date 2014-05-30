@@ -30,5 +30,8 @@ def install():
 
     # For temporary mounts
     pisitools.dodir("/run/libgpod")
-
+    
+    # rm "/usr/lib/pkgconfig/libgpod-sharp.pc"
+    pisitools.remove("/usr/lib/pkgconfig/libgpod-sharp.pc")
+    
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README*")
