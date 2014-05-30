@@ -76,14 +76,14 @@ def build():
 def install():
   
     shelltools.cd("%s/source/build/" % get.workDIR())
-    autotools.install("prefix=%s/source/build/usr" % get.workDIR())
+    autotools.rawInstall("prefix=/usr DESTDIR=%s" % get.installDIR())
 
     pisitools.dodir("/usr/share/tlpkg/TeXLive")
 
-    shelltools.move("%s/source/build/usr/bin" % get.workDIR(), "%s/usr" % get.installDIR()) 
-    shelltools.move("%s/source/build/usr/lib" % get.workDIR(), "%s/usr" % get.installDIR())
-    shelltools.move("%s/source/build/usr/include" % get.workDIR(), "%s/usr" % get.installDIR())
-    shelltools.move("%s/source/build/usr/share/texmf-dist" % get.workDIR(), "%s/usr/share" % get.installDIR())
+    #shelltools.move("%s/source/build/usr/bin" % get.workDIR(), "%s/usr" % get.installDIR()) 
+    #shelltools.move("%s/source/build/usr/lib" % get.workDIR(), "%s/usr" % get.installDIR())
+    #shelltools.move("%s/source/build/usr/include" % get.workDIR(), "%s/usr" % get.installDIR())
+    #shelltools.move("%s/source/build/usr/share/texmf-dist" % get.workDIR(), "%s/usr/share" % get.installDIR())
     shelltools.move("%s/source/utils/biber/TeXLive/*.pm" % get.workDIR(), "%s/usr/share/tlpkg/TeXLive" % get.installDIR())
 
 
