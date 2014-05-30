@@ -10,7 +10,22 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--prefix=/usr \
-                         --sysconfdir=/etc")
+                         --sysconfdir=/etc \
+                         --enable-audacious=yes \
+                         --enable-curl \
+                         --enable-weather-xoap \
+                         --enable-rss \
+                         --enable-weather-metar \
+                         --enable-imlib2 \
+                         --enable-lua-imlib2 \
+                         --enable-wlan \
+                         --enable-lua-cairo \
+                         --enable-lua \
+                         --enable-hddtemp \
+                         --enable-x11 \
+                         --enable-xdamage \
+	                 --enable-xft \
+                         --enable-alsa ")
  
 def build():
   autotools.make()
