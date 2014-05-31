@@ -6,18 +6,13 @@
 
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import pythonmodules
-from pisi.actionsapi import get
-from pisi.actionsapi import shelltools
-
-WorkDir = "M2Crypto-%s" % get.srcVERSION()
-contrib = "%s/%s/contrib" % (get.docDIR(), get.srcNAME())
 
 def build():
     pythonmodules.compile()
-    shelltools.chmod("contrib/*", 0644)
 
 def install():
-    pythonmodules.install()
+    pythonmodules.install("--optimize=1")
 
-    pisitools.insinto(contrib, "contrib/*")
-    pisitools.dohtml("doc/")
+    pisitools.removeDir("/usr/lib/python2.7/site-packages/M2Crypto-*")
+
+    pisitools.dodoc("PKG-INFO" , "README")
