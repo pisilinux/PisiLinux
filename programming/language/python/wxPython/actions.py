@@ -4,16 +4,31 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
+from pisi.actionsapi import autotools
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 
-WorkDir = "wxPython-src-%s/wxPython" % get.srcVERSION()
+options="WXPORT=gtk2 UNICODE=1 WX_CONFIG=/usr/bin/wx-config-2.8"
+
+def setup():
+    autotools.configure("--with-gtk=2 \
+                         --with-opengl \
+                         --enable-unicode \
+                         --enable-graphics_ctx \
+                         --disable-optimize \
+                         --enable-mediactrl \
+                         --with-regex=sys --with-libpng=sys \
+                         --with-libxpm=sys --with-libjpeg=sys \
+                         --with-libtiff=sys --disable-precomp-headers")
 
 def build():
-    pythonmodules.compile()
+    shelltools.cd("wxPython")
+    pythonmodules.compile(options)
 
 def install():
-    pythonmodules.install()
+    shelltools.cd("wxPython")
+    pythonmodules.install(options)
 
     pisitools.dohtml("docs/*")
     pisitools.dodoc("docs/*.txt")

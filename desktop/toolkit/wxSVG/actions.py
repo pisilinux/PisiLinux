@@ -9,8 +9,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--disable-static")
-    
+    autotools.configure("--disable-static \
+                         --with-wx-config=/usr/bin/wx-config-2.8")
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():

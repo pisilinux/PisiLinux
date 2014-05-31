@@ -54,9 +54,4 @@ def install():
     autotools.install()
     autotools.install("-C contrib")
 
-    pisitools.remove("/usr/bin/wx-config")
-    pisitools.dosym("/usr/lib/wx/config/gtk2-unicode-release-2.8", "/usr/bin/wx-config")
-
-    pisitools.remove("/usr/share/locale/it/LC_MESSAGES/wxmsw.mo")
-
     pisitools.dodoc("docs/*.txt", "docs/*.htm")

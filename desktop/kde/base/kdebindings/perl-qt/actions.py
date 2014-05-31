@@ -8,7 +8,8 @@ from pisi.actionsapi import kde4
 
 def setup():
     kde4.configure("-DKDE4_BUILD_TESTS=OFF \
-                    -DCMAKE_SKIP_RPATH=ON")
+                    -DCMAKE_SKIP_RPATH=ON \
+                    -DWITH_Qwt5=OFF")
 
 def build():
     kde4.make()

@@ -12,6 +12,8 @@ from pisi.actionsapi import get
 def setup():
     shelltools.export("AUTOPOINT", "true")
     pisitools.dosed("autogen.sh", "tool_run.*autopoint --force.*")
+    
+    pisitools.dosed("ext/modplug/gstmodplug.cc", "stdafx.h", "libmodplug/stdafx.h")
 
     shelltools.export("NOCONFIGURE", "1")
     shelltools.system("./autogen.sh")

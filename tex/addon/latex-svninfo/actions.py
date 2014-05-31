@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
-WorkDir="svninfo-%s" % get.srcVERSION()
+WorkDir="svninfo"
 
 def build():
     shelltools.export("VARTEXFONTS", get.curDIR())

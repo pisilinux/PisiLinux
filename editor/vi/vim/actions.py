@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 
 shelltools.export("HOME", get.workDIR())
-WorkDir = "vim73"
+WorkDir = "vim74"
 
 def setup():
     # TODO: do we need that ?

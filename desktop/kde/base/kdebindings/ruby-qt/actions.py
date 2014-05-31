@@ -8,7 +8,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 
 def setup():
-    kde4.configure("-DKDE4_BUILD_TESTS=OFF")
+    kde4.configure("-DKDE4_BUILD_TESTS=OFF \
+                    -DWITH_Qwt5=OFF")
 
 def build():
     kde4.make()

@@ -20,17 +20,23 @@ def setup():
                          --disable-shared \
                          --with-system-t1lib \
                          --without-system-kpathsea \
+                         --without-system-ptexenc \
+                         --with-x-toolkit=xaw \
+                         --enable-build-in-source-tree \
                          --with-xdvi-x-toolkit='motif'")
-
+    
+    
+    
 def build():
-    autotools.make("-C texk/kpathsea texmf='/usr/share/texmf'")
-    autotools.make("-C texk/xdvik texmf='/usr/share/texmf'")
+    autotools.make()
     shelltools.cd("texk/xdvik")
     shelltools.system("/usr/bin/emacs -batch -q --no-site-file -L  -f batch-byte-compile xdvi-search.el")
 
 def install():
+    pisitools.dodir("usr/texmf-dist/dvips/config/config.xdvi")
     pisitools.dodir("/etc/texmf/xdvi")
     pisitools.dodir("/etc/X11/app-defaults/")
+    pisitools.dodir("/usr/share/texmf/xdvi/XDvi")
 
     shelltools.cd("texk/xdvik")
 

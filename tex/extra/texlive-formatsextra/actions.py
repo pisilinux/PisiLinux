@@ -10,8 +10,8 @@ from pisi.actionsapi import get
 import os
 from distutils.dir_util import copy_tree
 
-WorkDir = "%s" % get.srcNAME()
-
+#WorkDir = "%s" % get.srcNAME()
+WorkDir = "."
 def setup():
     # Unpack and prepare files
     for tar_file in shelltools.ls('.'):

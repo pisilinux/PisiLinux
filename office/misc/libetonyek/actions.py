@@ -12,7 +12,7 @@ def setup():
     autotools.configure("--disable-silent-rules \
                          --disable-static \
                          --disable-werror")
-    
+
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():

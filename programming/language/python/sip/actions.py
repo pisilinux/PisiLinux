@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 
 WorkDir = "%s-%s" % (get.srcNAME(),  get.srcVERSION())
 py2dir = get.curPYTHON()
-py3dir = "python3.3"
+py3dir = "python3.4"
 
 def setup():
     shelltools.cd("..")

@@ -6,5 +6,9 @@
 
 from pisi.actionsapi import pythonmodules
 
+def setup():
+#    pythonmodules.configure()
+    pythonmodules.compile()
+
 def install():
     pythonmodules.install()

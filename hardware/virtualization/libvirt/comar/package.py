@@ -34,3 +34,5 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
         if os.path.exists(_file):
             os.system("/bin/chown -R %s %s" % (perms[1], _file))
             os.system("/bin/chmod %s %s" % (perms[0], _file))
+    os.system("groupadd libvirt")
+    os.system("usermod -G libvirt %s" % os.getusername())
