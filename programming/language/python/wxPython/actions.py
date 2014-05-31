@@ -14,7 +14,6 @@ options="WXPORT=gtk2 UNICODE=1 WX_CONFIG=/usr/bin/wx-config-2.8"
 def setup():
     autotools.configure("--with-gtk=2 \
                          --with-opengl \
-                         --with-sdl \
                          --enable-unicode \
                          --enable-graphics_ctx \
                          --disable-optimize \
