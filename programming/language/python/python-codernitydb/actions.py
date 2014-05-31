@@ -1,14 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+#
 # Licensed under the GNU General Public License, version 3.
-# See the file http://www.gnu.org/copyleft/gpl.txt
+# See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import pythonmodules
-
-def build():
-    pythonmodules.compile()
+from pisi.actionsapi import pisitools
 
 def install():
     pythonmodules.install()
 
-# By PiSiDo 2.0.0
+    pisitools.removeDir("/usr/lib/python2.7/site-packages/CodernityDB-*")

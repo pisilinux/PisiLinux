@@ -26,7 +26,7 @@ def install():
 
 #    pisitools.domove("usr/share/locale/tr/LC_MESSAGES", "/usr/share/playonlinux/lang/locale/tr")
 
-    pisitools.dodoc("%s/playonlinux/LICENCE" % installdir, "%s/playonlinux/CHANGELOG" % installdir)
+    pisitools.dodoc("%s/playonlinux/LICENCE" % installdir, "%s/playonlinux/CHANGELOG.*" % installdir)
 
     shelltools.move("%s/etc/PlayOnLinux.desktop" % (get.installDIR() + "/usr/share/playonlinux"), "%s/usr/share/applications/PlayOnLinux.desktop" % get.installDIR())
 

@@ -54,6 +54,7 @@ def setup():
                          --with-grib \
                          --with-curl \
                          --with-webp \
+                         --with-python \
                          --without-poppler \
                          --with-xerces \
                          --without-openjpeg \
@@ -75,9 +76,9 @@ def setup():
                          --without-idb \
                          --without-sde \
                          --without-ruby")
-    
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
-    
+
     shelltools.cd("swig/perl")
     perlmodules.configure()
     pisitools.dosed("Makefile_*"," -shared ", " -Wl,--as-needed -shared ")
@@ -90,4 +91,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    #remove egg
+    pisitools.removeDir("/usr/lib/python2.7/site-packages/GDAL-*")
+
     perlmodules.removePodfiles()
