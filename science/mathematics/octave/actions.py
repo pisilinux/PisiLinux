@@ -26,10 +26,11 @@ def setup():
                             --with-blas \
                             --with-glpk \
                             --with-opengl \
+                            --disable-java \
                             --with-umfpack="-lumfpack -lsuitesparseconfig" \
                             --enable-shared' % get.HOST())
-    
-    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
+
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make("-j1") #use parallel build patch to turn parallel build on

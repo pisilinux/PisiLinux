@@ -10,8 +10,8 @@ pidfile = "/run/xbmc.pid"
 
 @synchronized
 def start():
-    startService(command="/usr/bin/xinit",
-                 args="/usr/bin/xbmc",
+    startService(command="/usr/bin/xbmc",
+                 args="--standalone -- -nocursor :0",
                  pidfile=pidfile,
                  donotify=True)
 
