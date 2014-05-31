@@ -10,4 +10,4 @@ from pisi.actionsapi import pisitools
 def install():
     pythonmodules.install()
 
-    pisitools.dodoc("ChangeLog", "PKG-INFO", "LICENSE", "TODO")
+    pisitools.dodoc("PKG-INFO", "README.txt", "CHANGES.txt")
