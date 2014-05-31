@@ -34,15 +34,13 @@ def setup():
                          --disable-t1utils \
                          --disable-bibtexu \
                          --disable-xz \
-                         --disable-xdvik \
                          --disable-dump-share \
                          --disable-aleph \
                          --disable-static \
-                         --disable-web2c \
                          --disable-xindy-rules \
                          --disable-dependency-tracking \
                          --disable-mktexmf-default \
-                         --disable-xindy-rules \
+                         --disable-web2c \
                          --enable-xindy-docs \
                          --enable-shared \
                          --enable-build-in-source-tree \
@@ -67,7 +65,6 @@ def setup():
                          --with-banner-add=/PisiLinux \
                          --with-clisp-runtime=default ")
 
-
 def build():
   
     shelltools.cd("%s/source/build/" % get.workDIR())
@@ -79,12 +76,8 @@ def install():
     autotools.rawInstall("prefix=/usr DESTDIR=%s" % get.installDIR())
 
     pisitools.dodir("/usr/share/tlpkg/TeXLive")
-
-    #shelltools.move("%s/source/build/usr/bin" % get.workDIR(), "%s/usr" % get.installDIR()) 
-    #shelltools.move("%s/source/build/usr/lib" % get.workDIR(), "%s/usr" % get.installDIR())
-    #shelltools.move("%s/source/build/usr/include" % get.workDIR(), "%s/usr" % get.installDIR())
-    #shelltools.move("%s/source/build/usr/share/texmf-dist" % get.workDIR(), "%s/usr/share" % get.installDIR())
     shelltools.move("%s/source/utils/biber/TeXLive/*.pm" % get.workDIR(), "%s/usr/share/tlpkg/TeXLive" % get.installDIR())
-
-
+    
+    #pisitools.remove("/usr/bin/biber")
+    #shelltools.move("%s/biber" % get.workDIR(), "%s/usr/bin/" % get.installDIR())
     #pisitools.insinto("/usr/bin/", "%s/biber" % get.workDIR())
