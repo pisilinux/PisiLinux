@@ -26,6 +26,7 @@ def setup():
                             --with-blas \
                             --with-glpk \
                             --with-opengl \
+                            --disable-java \
                             --with-umfpack="-lumfpack -lsuitesparseconfig" \
                             --enable-shared' % get.HOST())
 
