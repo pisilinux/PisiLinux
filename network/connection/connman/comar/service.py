@@ -13,6 +13,7 @@ serviceDefault = "on"
 def start():
     loadEnvironment()
     startService(command="/usr/sbin/connmand",
+                 args="-c /etc/dbus-1/system.d/connman.conf",
                  pidfile="/run/connman/connman.pid",
                  donotify=True)
     os.system("pidof -o %PPID /usr/sbin/connmand > /run/connman/connman.pid")

@@ -4,11 +4,13 @@ serviceType = "server"
 serviceDesc = _({"en": "Pyro Name Server Daemon"})
 serviceConf = "pyro-nsd"
 
+PIDFILE = "/run/pyro-nsd.pid"
+
 @synchronized
 def start():
     startService(command="/usr/bin/pyro-nsd",
-                 args="start",
-                 pidfile="/run/pyro-nsd.pid",
+                 args="start --pidfile=%s" % PIDFILE,
+                 makepid=True,
                  donotify=True)
 
 @synchronized

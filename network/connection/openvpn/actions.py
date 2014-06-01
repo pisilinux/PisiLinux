@@ -42,6 +42,19 @@ def install():
 
     pisitools.dodir("/etc/openvpn")
     pisitools.dodir("/run/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/server.conf", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/client.conf", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/firewall.sh", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/xinetd-server-config", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/xinetd-client-config", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/loopback-server", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/loopback-client", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/openvpn-startup.sh", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-config-files/openvpn-shutdown.sh", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-keys/*.key", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-keys/*.crt", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample-keys/*.pem", "/etc/openvpn")
 
+     
     pisitools.dodoc("AUTHORS", "COPYING", "COPYRIGHT.GPL", "ChangeLog", "README")
 

@@ -23,8 +23,8 @@ def start():
     os.system("modprobe -q tun")
 
     # Run startup script if defined
-    if os.path.exists(os.path.join(WORKDIR, "openvpn-startup")):
-        os.system(os.path.join(WORKDIR, "openvpn-startup"))
+    if os.path.exists(os.path.join(WORKDIR, "openvpn-startup.sh")):
+        os.system(os.path.join(WORKDIR, "openvpn-startup.sh"))
 
     configs = [_c for _c in os.listdir(WORKDIR) if _c.endswith(".conf")]
 
@@ -45,7 +45,8 @@ def start():
                 os.unlink(PIDFILE)
 
             startService(command=OPENVPN,
-                         args="--daemon --writepid %s --config %s/%s --cd %s --user openvpn --group openvpn --script-security 2" % (PIDFILE, WORKDIR, conf, WORKDIR),
+                         args="--daemon --writepid %s --config %s/%s --cd %s --script-security 2" % (PIDFILE, WORKDIR, conf, WORKDIR),
+                         pidfile=PIDFILE,
                          donotify=True)
 
         # Reset PIDFILE. This is a hack for status() calls from startService() problems..
@@ -65,8 +66,8 @@ def stop():
             pass
 
     # Run shutdown script if defined
-    if os.path.exists(os.path.join(WORKDIR, "openvpn-shutdown")):
-        os.system(os.path.join(WORKDIR, "openvpn-shutdown"))
+    if os.path.exists(os.path.join(WORKDIR, "openvpn-shutdown.sh")):
+        os.system(os.path.join(WORKDIR, "openvpn-shutdown.sh"))
 
 @synchronized
 def reload():
