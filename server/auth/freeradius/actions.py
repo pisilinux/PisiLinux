@@ -14,6 +14,8 @@ def setup():
     shelltools.export("LDFLAGS", "%s -pie" % get.LDFLAGS())
 
     autotools.configure('--libdir=/usr/lib/freeradius \
+                         --with-system-libtool \
+                         --with-system-libltd \
                          --with-modules="rlm_wimax" \
                          --with-rlm-sql_postgresql-include-dir=/usr/include/pgsql \
                          --with-rlm-sql_postgresql-lib-dir=/usr/lib \
@@ -33,7 +35,7 @@ def setup():
                          --without-rlm_sql_db2 \
                          --without-rlm_sql_oracle \
                          --without-rlm_eap_tnc \
-                         --without-rlm_opendirectory \
+                         --without-rlm_unbound \
                          --enable-strict-dependencies \
                          --with-threads \
                          --with-threads-pool \
@@ -43,7 +45,7 @@ def setup():
                          --disable-static')
 
 def build():
-    autotools.make("-j1")
+    autotools.make()
 
 def install():
     autotools.rawInstall("R=%s" % get.installDIR())
