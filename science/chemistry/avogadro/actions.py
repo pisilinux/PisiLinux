@@ -9,9 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure("-DENABLE_THREADGL=FALSE \
-                          -DENABLE_RPATH=OFF \
-                          -DENABLE_UPDATE_CHECKER=OFF \
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
+                          -DQT_MKSPECS_RELATIVE=share/qt4/mkspecs \
                           -DEIGEN2_INCLUDE_DIR=/usr/include/eigen2 \
                           -DPYTHON_LIBRARY:PATH='/usr/lib/lib%s.so'" % get.curPYTHON() )
 
