@@ -22,7 +22,8 @@ def build():
 
 def install():
     pythonmodules.install()
-    pisitools.dodoc("README")
+    pisitools.removeDir("/usr/lib/python2.7/site-packages/tagpy-2013*")
+    pisitools.dodoc("LICENSE")
 
     shelltools.chmod("test/*", 0644)
     pisitools.insinto(examples, "test/*")
