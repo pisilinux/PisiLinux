@@ -29,7 +29,10 @@ BLK_SHA1                = 1
 NEEDS_CRYPTO_WITH_SSL   = 1
 NO_PYTHON               = 1
 USE_LIBPCRE             = 1
+NO_CROSS_DIRECTORY_HARDLINKS = 1
+MAN_BOLD_LITERAL        = 1
 """ % (get.CFLAGS(), get.LDFLAGS(), get.installDIR())
+
 
 def setup():
     shelltools.echo("config.mak", config)
