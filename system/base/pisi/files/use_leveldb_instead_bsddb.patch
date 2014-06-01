@@ -1,0 +1,265 @@
+diff -Naur pisi~/api.py pisi/api.py
+--- pisi~/api.py	2011-06-17 13:30:47.000000000 +0200
++++ pisi/api.py	2014-06-01 18:28:39.923920598 +0200
+@@ -25,7 +25,7 @@
+ import pisi.pgraph as pgraph
+ import pisi.db.packagedb
+ import pisi.db.repodb
+-import pisi.db.filesdb
++import pisi.db.filesldb
+ import pisi.db.installdb
+ import pisi.db.historydb
+ import pisi.db.sourcedb
+@@ -401,7 +401,7 @@
+ 
+     >>> [("kvm", (["lib/modules/2.6.18.8-86/extra/kvm-amd.ko","lib/modules/2.6.18.8-86/extra/kvm-intel.ko"])),]
+     """
+-    filesdb = pisi.db.filesdb.FilesDB()
++    filesdb = pisi.db.filesldb.FilesLDB()
+     if term.startswith("/"): # FIXME: why? why?
+         term = term[1:]
+     return filesdb.search_file(term)
+@@ -870,7 +870,7 @@
+ @locked
+ def rebuild_db(files=False):
+ 
+-    filesdb = pisi.db.filesdb.FilesDB()
++    filesdb = pisi.db.filesldb.FilesLDB()
+     installdb = pisi.db.installdb.InstallDB()
+ 
+     def rebuild_filesdb():
+@@ -888,7 +888,7 @@
+ 
+     filesdb.close()
+     filesdb.destroy()
+-    filesdb.init()
++    filesdb = pisi.db.filesldb.FilesLDB()
+ 
+     # reinitialize everything
+     set_userinterface(ui)
+diff -Naur pisi~/atomicoperations.py pisi/atomicoperations.py
+--- pisi~/atomicoperations.py	2014-06-01 15:10:14.000000000 +0200
++++ pisi/atomicoperations.py	2014-06-01 18:26:53.450924489 +0200
+@@ -134,11 +134,14 @@
+         self.metadata = self.package.metadata
+         self.files = self.package.files
+         self.pkginfo = self.metadata.package
+-        self.filesdb = pisi.db.filesdb.FilesDB()
++        self.filesdb = pisi.db.filesldb.FilesLDB()
+         self.installdb = pisi.db.installdb.InstallDB()
+         self.operation = INSTALL
+         self.store_old_paths = None
+ 
++    def __del__(self):
++        self.filesdb.close()
++
+     def install(self, ask_reinstall = True):
+ 
+         # Any package should remove the package it replaces before
+@@ -212,8 +215,8 @@
+         # check file conflicts
+         file_conflicts = []
+         for f in self.files.list:
+-            if self.filesdb.has_file(f.path):
+-                pkg, existing_file = self.filesdb.get_file(f.path)
++            pkg, existing_file = self.filesdb.get_file(f.path)
++            if pkg:
+                 dst = pisi.util.join_path(ctx.config.dest_dir(), f.path)
+                 if pkg != self.pkginfo.name and not os.path.isdir(dst) and really_conflicts(pkg):
+                     file_conflicts.append( (pkg, existing_file) )
+@@ -279,7 +282,7 @@
+             self.old_files = self.installdb.get_files(pkg.name)
+             self.old_pkginfo = self.installdb.get_info(pkg.name)
+             self.old_path = self.installdb.pkg_dir(pkg.name, iversion_s, irelease_s)
+-            self.remove_old = Remove(pkg.name, store_old_paths = self.store_old_paths)
++            self.remove_old = Remove(pkg.name, store_old_paths = self.store_old_paths, filesdb = self.filesdb)
+             self.remove_old.run_preremove()
+             self.remove_old.run_postremove()
+ 
+@@ -451,7 +454,7 @@
+                     if os.path.samestat(new_file_stat, old_file_stat):
+                         break
+                 else:
+-                    Remove.remove_file(old_file, self.pkginfo.name, store_old_paths=self.store_old_paths)
++                    Remove.remove_file(old_file, self.pkginfo.name, store_old_paths=self.store_old_paths, filesdb=self.filesdb)
+ 
+         if self.reinstall():
+             # get 'config' typed file objects
+@@ -509,7 +512,7 @@
+     def update_databases(self):
+         "update databases"
+         if self.reinstall():
+-            self.remove_old.remove_db()
++            self.remove_old.remove_db(filesdb=self.filesdb)
+ 
+         if self.config_later:
+             self.installdb.mark_pending(self.pkginfo.name)
+@@ -559,10 +562,11 @@
+ 
+ class Remove(AtomicOperation):
+ 
+-    def __init__(self, package_name, ignore_dep = None, store_old_paths = None):
++    def __init__(self, package_name, ignore_dep = None, store_old_paths = None, filesdb = None):
+         super(Remove, self).__init__(ignore_dep)
+         self.installdb = pisi.db.installdb.InstallDB()
+-        self.filesdb = pisi.db.filesdb.FilesDB()
++        if not filesdb:
++            self.filesdb = pisi.db.filesldb.FilesLDB()
+         self.package_name = package_name
+         self.package = self.installdb.get_package(self.package_name)
+         self.store_old_paths = store_old_paths
+@@ -587,7 +591,7 @@
+ 
+         self.run_preremove()
+         for fileinfo in self.files.list:
+-            self.remove_file(fileinfo, self.package_name, True)
++            self.remove_file(fileinfo, self.package_name, True, filesdb=self.filesdb)
+ 
+         self.run_postremove()
+ 
+@@ -605,7 +609,7 @@
+         # is there any package who depends on this package?
+ 
+     @staticmethod
+-    def remove_file(fileinfo, package_name, remove_permanent=False, store_old_paths=None):
++    def remove_file(fileinfo, package_name, remove_permanent=False, store_old_paths=None, filesdb=None):
+ 
+         if fileinfo.permanent and not remove_permanent:
+             return
+@@ -613,16 +617,16 @@
+         fpath = pisi.util.join_path(ctx.config.dest_dir(), fileinfo.path)
+ 
+         historydb = pisi.db.historydb.HistoryDB()
+-        filesdb = pisi.db.filesdb.FilesDB()
+         # we should check if the file belongs to another
+         # package (this can legitimately occur while upgrading
+         # two packages such that a file has moved from one package to
+         # another as in #2911)
+-        if filesdb.has_file(fileinfo.path):
+-            pkg, existing_file = filesdb.get_file(fileinfo.path)
+-            if pkg != package_name:
+-                ctx.ui.warning(_('Not removing conflicted file : %s') % fpath)
+-                return
++        if not filesdb:
++            filesdb = pisi.db.filesldb.FilesLDB()
++        pkg, existing_file = filesdb.get_file(fileinfo.path)
++        if pkg and not pkg == package_name:
++            ctx.ui.warning(_('Not removing conflicted file : %s') % fpath)
++            return
+ 
+         if fileinfo.type == ctx.const.conf:
+             # config files are precious, leave them as they are
+@@ -686,9 +690,10 @@
+     def remove_pisi_files(self):
+         util.clean_dir(self.package.pkg_dir())
+ 
+-    def remove_db(self):
++    def remove_db(self, filesdb=None):
+         self.installdb.remove_package(self.package_name)
+-        self.filesdb.remove_files(self.files.list)
++        if not filesdb: self.filesdb.remove_files(self.files.list)
++        else: filesdb.remove_files(self.files.list)
+ # FIX:DB
+ #         # FIXME: something goes wrong here, if we use ctx operations ends up with segmentation fault!
+ #         pisi.db.packagedb.remove_tracking_package(self.package_name)
+diff -Naur pisi~/constants.py pisi/constants.py
+--- pisi~/constants.py	2014-03-07 23:03:46.000000000 +0100
++++ pisi/constants.py	2014-06-01 14:29:49.775444192 +0200
+@@ -96,6 +96,7 @@
+         self.__c.needs_restart = "needsrestart"
+         self.__c.needs_reboot = "needsreboot"
+         self.__c.files_db = "files.db"
++        self.__c.files_ldb = "files.ldb"
+         self.__c.repos = "repos"
+         self.__c.devel_package_end = "-devel"
+         self.__c.doc_package_end = "-docs?$"
+diff -Naur pisi~/db/filesldb.py pisi/db/filesldb.py
+--- /dev/null	1970-01-01 01:00:00.000000000 +0100
++++ pisi/db/filesldb.py	2014-06-01 17:35:36.088036929 +0200
+@@ -0,0 +1,59 @@
++# -*- coding: utf-8 -*-
++#
++# Copyright (C) 2014, Marcin Bojara
++#
++# This program is free software; you can redistribute it and/or modify it under
++# the terms of the GNU General Public License as published by the Free
++# Software Foundation; either version 2 of the License, or (at your option)
++# any later version.
++#
++# Please read the COPYING file.
++#
++
++import os
++import re
++import plyvel
++import hashlib
++
++import pisi
++import pisi.context as ctx
++
++class FilesLDB ():
++    def __init__(self):
++        self.files_ldb = os.path.join(ctx.config.info_dir(), ctx.const.files_ldb)
++        self.filesdb = plyvel.DB(self.files_ldb, create_if_missing=True)
++
++    def __del__(self):
++        self.close()
++
++    def get_file(self, path):
++        return self.filesdb.get(hashlib.md5(path).digest()), path
++
++    def search_file(self, term):
++        pkg, path = self.get_file(term)
++        if pkg:
++            return [(pkg,[path])]
++
++        installdb = pisi.db.installdb.InstallDB()
++        found = []
++        for pkg in installdb.list_installed():
++            files_xml = open(os.path.join(installdb.package_path(pkg), ctx.const.files_xml)).read()
++            paths = re.compile('<Path>(.*?%s.*?)</Path>' % re.escape(term), re.I).findall(files_xml)
++            if paths:
++                found.append((pkg, paths))
++        return found
++
++    def add_files(self, pkg, files):
++        for f in files.list:
++            self.filesdb.put(hashlib.md5(f.path).digest(), pkg)
++
++    def remove_files(self, files):
++        for f in files:
++            self.filesdb.delete(hashlib.md5(f.path).digest())
++
++    def destroy(self):
++        if os.path.exists(self.files_ldb):
++            for f in os.listdir(self.files_ldb): os.unlink(os.path.join(self.files_ldb, f))
++
++    def close(self):
++        if not self.filesdb.closed: self.filesdb.close()
+diff -Naur pisi~/__init__.py pisi/__init__.py
+--- pisi~/__init__.py	2011-08-04 15:24:50.000000000 +0200
++++ pisi/__init__.py	2014-06-01 15:07:09.382362362 +0200
+@@ -59,9 +59,9 @@
+         ctx.loghandler.flush()
+         ctx.log.removeHandler(ctx.loghandler)
+ 
+-    filesdb = pisi.db.filesdb.FilesDB()
+-    if filesdb.is_initialized():
+-        filesdb.close()
++#    filesdb = pisi.db.filesdb.FilesDB()
++#    if filesdb.is_initialized():
++#        filesdb.close()
+ 
+     if ctx.build_leftover and os.path.exists(ctx.build_leftover):
+         os.unlink(ctx.build_leftover)
+diff -Naur pisi~/operations/install.py pisi/operations/install.py
+--- pisi~/operations/install.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/operations/install.py	2014-06-01 18:23:32.869931817 +0200
+@@ -95,6 +95,7 @@
+         ctx.ui.info(util.colorize(_("Downloading %d / %d") % (order.index(x)+1, len(order)), "yellow"))
+         install_op = atomicoperations.Install.from_name(x)
+         paths.append(install_op.package_fname)
++    else: install_op = None
+ 
+     # fetch to be installed packages but do not install them.
+     if ctx.get_option('fetch_only'):
