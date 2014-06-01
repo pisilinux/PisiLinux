@@ -20,31 +20,22 @@ def setup():
     shelltools.makedirs("%s/source/build" % get.workDIR())
     shelltools.cd("%s/source/build" % get.workDIR())
     shelltools.sym("../configure", "configure")
-    autotools.configure("--disable-native-texlive-build \
+    autotools.configure("--prefix=/usr \
+                         --sysconfdir=/etc \
+                         --datarootdir=/usr/share \
+                         --datadir=/usr/share \
+                         --mandir=/usr/share/man \
+                         --disable-native-texlive-build \
+                         --with-banner-add=/PisiLinux \
                          --disable-multiplatform \
-                         --disable-chktex \
                          --disable-dialog \
-                         --disable-detex \
-                         --disable-dvipng \
-                         --disable-dvi2tty \
-                         --disable-dvipdfmx \
-                         --disable-lcdf-typetools \
-                         --disable-ps2eps \
                          --disable-psutils \
                          --disable-t1utils \
                          --disable-bibtexu \
                          --disable-xz \
-                         --disable-dump-share \
-                         --disable-aleph \
-                         --disable-static \
-                         --disable-xindy-rules \
-                         --disable-dependency-tracking \
-                         --disable-mktexmf-default \
                          --disable-web2c \
-                         --enable-xindy-docs \
                          --enable-shared \
-                         --enable-build-in-source-tree \
-                         --enable-xindy \
+                         --disable-static \
                          --with-system-zlib \
                          --with-system-zziplib \
                          --with-system-pnglib \
@@ -55,15 +46,20 @@ def setup():
                          --with-system-xpdf \
                          --with-system-freetype2 \
                          --with-system-pixman \
-                         --with-system-icu \
-                         --with-system-graphite2 \
                          --with-system-cairo \
                          --with-system-harfbuzz \
+                         --with-system-graphite \
+                         --with-system-icu \
                          --with-freetype2-libdir=/usr/lib \
                          --with-freetype2-include=/usr/include/freetype2 \
                          --with-xdvi-x-toolkit=xaw \
-                         --with-banner-add=/PisiLinux \
-                         --with-clisp-runtime=default ")
+                         --disable-dump-share \
+                         --disable-aleph \
+                         --enable-luatex \
+                         --with-clisp-runtime=default \
+                         --enable-xindy \
+                         --disable-xindy-rules \
+                         --disable-xindy-docs ")
 
 def build():
   
@@ -71,13 +67,80 @@ def build():
     autotools.make()
  
 def install():
-  
+        
+    #shelltools.chmod("%s/biber" % get.workDIR())
     shelltools.cd("%s/source/build/" % get.workDIR())
     autotools.rawInstall("prefix=/usr DESTDIR=%s" % get.installDIR())
 
     pisitools.dodir("/usr/share/tlpkg/TeXLive")
     shelltools.move("%s/source/utils/biber/TeXLive/*.pm" % get.workDIR(), "%s/usr/share/tlpkg/TeXLive" % get.installDIR())
     
-    #pisitools.remove("/usr/bin/biber")
-    #shelltools.move("%s/biber" % get.workDIR(), "%s/usr/bin/" % get.installDIR())
-    #pisitools.insinto("/usr/bin/", "%s/biber" % get.workDIR())
+    
+    # install texmf tree
+    folders = ["/usr/share",
+	       "/etc/texmf/chktex",
+	       "/etc/texmf/tex/",
+               "/etc/texmf/web2c",
+               "/etc/texmf/dvips/config",
+               "/etc/texmf/dvipdfm",
+               "/etc/texmf/texconfig",
+               "/etc/texmf/ttf2pk",
+               "/etc/texmf/xdvi",
+               "/etc/fonts/conf.avail",
+               "/etc/texmf/dvipdfmx"]
+
+    for dirs in folders:
+        pisitools.dodir(dirs)
+
+    # remove aleph from fmtutil.cnf
+    pisitools.dosed("%s/usr/share/texmf-dist/web2c/fmtutil.cnf" % get.installDIR(), "^.*aleph.*$")
+
+
+
+    #copy config files to $TEXMFSYSCONFIG tree (defined in texmf.cnf)
+    config_files = [ "/usr/share/texmf-dist/chktex/chktexrc",
+		     "/usr/share/texmf-dist/web2c/texmf.cnf",
+                     "/usr/share/texmf-dist/web2c/fmtutil.cnf",
+                     "/usr/share/texmf-dist/dvips/config/config.xdvi",
+                     "/usr/share/texmf-dist/texconfig/tcfmgr.map",
+                     "/usr/share/texmf-dist/dvipdfmx/dvipdfmx.cfg",
+                     "/usr/share/texmf-dist/ttf2pk/ttf2pk.cfg",
+                     "/usr/share/texmf-dist/xdvi/XDvi"]
+    
+    for share_file in config_files:
+        etc_file = share_file.replace("/usr/share/texmf-dist", "/etc/texmf")
+        pisitools.domove("%s" % share_file, "%s" % etc_file)
+        pisitools.dosym("%s" % etc_file, "%s" % share_file)
+
+
+    # fix symlinks, some are incorrect
+    # makefile patching is another way, but there are lot of scripts
+    # pathing each makefile makes it much harder, for now this is a "simpler" solution
+    for binary in shelltools.ls(get.installDIR() + "/usr/bin"):
+        real_path = shelltools.realPath(get.installDIR() + "/usr/bin/" + binary)
+        if "texmf" in real_path and not os.path.exists(real_path): # modify only if it is broken
+            base_path = real_path.replace(get.installDIR() + "/usr", "")
+            new_path = "/usr/share" + base_path
+            shelltools.unlink(get.installDIR() + "/usr/bin/" + binary)
+            pisitools.dosym(new_path, "/usr/bin/" + binary)
+
+    # create symlinks for formats
+    # shelltools.export("PATH", get.installDIR() + "/usr/bin")
+    #shelltools.system("PATH=\"$PATH:%s/usr/bin\" texlinks -f %s/usr/share/texmf-dist/web2c/fmtutil.cnf %s/usr/bin/" % (get.installDIR(), get.installDIR(), get.installDIR()))
+
+    # remove files form disabled packages
+    # we copy all man and info files into mandir. Disabling packages just remove binaries.
+    # the remaining man and info files should be deleted manually
+    
+    pisitools.remove("/usr/share/texmf-dist/fonts/map/dvipdfmx/cid-x.map")
+    pisitools.remove("/usr/share/texmf-dist/fonts/map/glyphlist/texglyphlist.txt")
+    pisitools.remove("/usr/share/texmf-dist/scripts/chktex/chkweb.sh")
+    pisitools.remove("/usr/share/texmf-dist/fonts/enc/dvips/base/7t.enc")
+    pisitools.remove("/usr/share/texmf-dist/fonts/map/glyphlist/pdfglyphlist.txt")
+    pisitools.remove("/usr/share/texmf-dist/scripts/chktex/deweb.pl")
+    pisitools.remove("/usr/share/texmf-dist/scripts/ps2eps/ps2eps.pl")
+    pisitools.remove("/usr/share/texmf-dist/fonts/cmap/dvipdfmx/EUC-UCS2")
+    pisitools.remove("/usr/share/texmf-dist/chktex/chktexrc")
+    pisitools.remove("/usr/share/texmf-dist/dvipdfmx/dvipdfmx.cfg")
+    pisitools.remove("/usr/share/texmf-dist/fonts/map/glyphlist/glyphlist.txt")
+
