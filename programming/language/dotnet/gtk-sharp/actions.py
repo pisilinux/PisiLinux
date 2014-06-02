@@ -13,9 +13,12 @@ shelltools.export("LC_ALL", "C")
 
 def setup():
     shelltools.export("MONO_SHARED_DIR", get.workDIR())
-    autotools.autoreconf("-fi")
-    autotools.configure("--disable-static")
-    
+    #autotools.autoreconf("-fi")
+    shelltools.system("./bootstrap-2.12")
+    autotools.configure("--prefix=/usr \
+                         --sysconfdir=/etc \
+                         --disable-static")
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
