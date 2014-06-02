@@ -11,16 +11,9 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vfi")
-    autotools.configure("--with-readline=gnu \
-                         --enable-history-file \
-                         --enable-rgip \
-                         --enable-mgr \
-                         --enable-iris \
-                         --enable-thin-splines \
-                         --with-x \
-                         --x-includes=/usr/include/X11 \
-                         --x-libraries=/usr/lib \
-                         --with-linux-vga")
+    autotools.configure("WX_CONFIG=/usr/bin/wx-config-2.8 \
+                        --with-gihdir=/usr/share/gnuplot \
+                        --with-readline=gnu --enable-qt")
 
 def build():
     autotools.make()
