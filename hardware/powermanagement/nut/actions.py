@@ -75,7 +75,7 @@ def install():
     #        pisitools.dosym("/lib/nut/%s" % f, "/usr/libexec/%s" % f)
 
     # needed by scripts, this trick is for safely unmounting /usr
-    pisitools.dosym("/lib/nut/upsdrvctl", "/usr/sbin/upsdrvctl")
+    #pisitools.dosym("/lib/nut/upsdrvctl", "/usr/sbin/upsdrvctl")
 
     # nut's own statedir
     pisitools.dodir(nutconfig["STATE_PATH"])
