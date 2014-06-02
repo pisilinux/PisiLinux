@@ -11,9 +11,9 @@ from pisi.actionsapi import shelltools
 def setup():
     pisitools.dosed("examples/CMakeLists.txt", "\$\{DATA_DIR\}\/examples", "/usr/share/plplot")
     pisitools.dosed("examples/*/CMakeLists.txt", "\$\{DATA_DIR\}\/examples", "/usr/share/plplot")
-    pisitools.dosed("cmake/modules/instdirs.cmake", "\$\{VERSION\}", "")
+    pisitools.dosed("cmake/modules/instdirs.cmake", "_VERSION", "")
     pisitools.dosed("cmake/modules/instdirs.cmake", "doc\/\$\{PACKAGE\}", "doc/plplot/${PF}")
-    pisitools.dosed("cmake/modules/tcl-related.cmake", "3.4 3.3 3.2 3", "4.0.0 3.4 3.3 3.2 3")
+    #pisitools.dosed("cmake/modules/tcl-related.cmake", "3.4 3.3 3.2 3", "4.0.0 3.4 3.3 3.2 3")
 
     cmaketools.configure("-DUSE_RPATH=OFF     \
                           -DENABLE_ada=OFF    \
