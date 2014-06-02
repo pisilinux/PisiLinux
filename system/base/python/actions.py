@@ -16,7 +16,10 @@ WorkDir = "Python-%s" % get.srcVERSION()
 PythonVersion = "2.7"
 
 def setup():
-    pisitools.cflags.add("-fPIC", "-fwrapv")
+    pisitools.cflags.add("-fwrapv")
+
+    # no rpath
+    pisitools.dosed("configure.ac", "-rpath \$\(LIBDIR\) ")
 
     pisitools.dosed("Lib/cgi.py", r"/usr/local/bin/", r"/usr/bin/")
     pisitools.dosed("setup.py", "SQLITE_OMIT_LOAD_EXTENSION", deleteLine=True)
@@ -27,6 +30,12 @@ def setup():
         shelltools.unlinkDir("Modules/%s" % dir)
 
     autotools.autoreconf("-vif")
+
+    # disable bsddb
+    pisitools.dosed("setup.py", "^(disabled_module_list = \[)\]", r"\1'_bsddb', 'dbm']")
+    # no rpath
+    pisitools.dosed("Lib/distutils/command/build_ext.py", "self.rpath.append\(user_lib\)", "pass")
+
     autotools.configure("--with-fpectl \
                          --enable-shared \
                          --enable-ipv6 \
@@ -36,6 +45,7 @@ def setup():
                          --with-wctype-functions \
                          --with-system-expat \
                          --with-system-ffi \
+                         --with-dbmliborder=gdbm \
                         ")
 
 def build():
