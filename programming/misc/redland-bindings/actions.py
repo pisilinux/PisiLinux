@@ -28,6 +28,6 @@ def install():
 
     pisitools.dodoc("AUTHORS", "ChangeLog*", "COPYING*", "NEWS", "README", "TODO")
     pisitools.dohtml("*.html")
-    
-    pisitools.remove("/usr/lib/perl5/5.18.1/x86_64-linux-thread-multi/perllocal.pod") 
-    
+
+    pisitools.remove("/usr/lib/perl5/5.18.2/x86_64-linux-thread-multi/perllocal.pod")
+
