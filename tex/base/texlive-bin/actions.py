@@ -68,7 +68,6 @@ def build():
  
 def install():
         
-    #shelltools.chmod("%s/biber" % get.workDIR())
     shelltools.cd("%s/source/build/" % get.workDIR())
     autotools.rawInstall("prefix=/usr DESTDIR=%s" % get.installDIR())
 
