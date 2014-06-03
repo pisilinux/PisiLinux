@@ -94,27 +94,17 @@ def install():
 
     # remove aleph from fmtutil.cnf
     pisitools.dosed("%s/usr/share/texmf-dist/web2c/fmtutil.cnf" % get.installDIR(), "^.*aleph.*$")
-
-
-
-    #copy config files to $TEXMFSYSCONFIG tree (defined in texmf.cnf)
-    config_files = [ "/usr/share/texmf-dist/chktex/chktexrc",
-		     "/usr/share/texmf-dist/web2c/texmf.cnf",
-                     "/usr/share/texmf-dist/web2c/fmtutil.cnf",
-                     "/usr/share/texmf-dist/dvips/config/config.xdvi",
-                     "/usr/share/texmf-dist/texconfig/tcfmgr.map",
-                     "/usr/share/texmf-dist/dvipdfmx/dvipdfmx.cfg",
-                     "/usr/share/texmf-dist/ttf2pk/ttf2pk.cfg",
-                     "/usr/share/texmf-dist/xdvi/XDvi"]
     
-    for share_file in config_files:
-        etc_file = share_file.replace("/usr/share/texmf-dist", "/etc/texmf")
-        pisitools.domove("%s" % share_file, "%s" % etc_file)
-        pisitools.dosym("%s" % etc_file, "%s" % share_file)
-
+    pisitools.insinto("/etc/texmf/chktex", "%s/usr/share/texmf-dist/chktex/chktexrc" % get.installDIR(), sym=True) 
+    pisitools.insinto("/etc/texmf/web2c", "%s/usr/share/texmf-dist/web2c/texmf.cnf" % get.installDIR(), sym=True)
+    pisitools.insinto("/etc/texmf/web2c", "%s/usr/share/texmf-dist/web2c/fmtutil.cnf" % get.installDIR(), sym=True)
+    pisitools.insinto("/etc/texmf/texconfig", "%s/usr/share/texmf-dist/texconfig/tcfmgr.map" % get.installDIR(), sym=True)
+    pisitools.insinto("/etc/texmf/dvipdfmx", "%s/usr/share/texmf-dist/dvipdfmx/dvipdfmx.cfg" % get.installDIR(), sym=True)
+    pisitools.insinto("/etc/texmf/ttf2pk", "%s/usr/share/texmf-dist/ttf2pk/ttf2pk.cfg" % get.installDIR(), sym=True)
+    pisitools.insinto("/etc/texmf/xdvi", "%s/usr/share/texmf-dist/xdvi/XDvi" % get.installDIR(), sym=True)
 
     # fix symlinks, some are incorrect
-    # makefile patching is another way, but there are lot of scripts
+    # makefile patching is another way, but there ar/dvipdfmx.cfge lot of scripts
     # pathing each makefile makes it much harder, for now this is a "simpler" solution
     for binary in shelltools.ls(get.installDIR() + "/usr/bin"):
         real_path = shelltools.realPath(get.installDIR() + "/usr/bin/" + binary)
