@@ -15,13 +15,16 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --enable-shared")
-    
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
 
+def build():
+    autotools.make("check")
+
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    
+
     pisitools.dodoc("README", "COPYING", "ChangeLog", "NEWS", "AUTHORS")

@@ -6,11 +6,14 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
     # fix for glibc 2.16
     #pisitools.dosed("src/base/linuxthreads.cc", "siginfo_t", "siginfo")
+    shelltools.chmod("autogen.sh", 0755)
+    shelltools.system("./autogen.sh")
     autotools.configure("--disable-static \
                          --disable-dependency-tracking \
                          --enable-fast-install \
