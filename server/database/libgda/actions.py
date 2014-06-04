@@ -12,11 +12,15 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --with-gnome-keyring \
                          --with-libsoup \
+                         --disable-static \
                          --enable-json \
                          --enable-gda-gi\
+                         --with-java=yes \
+                         --with-graphviz \
+                         --with-ui \
                          --enable-system-sqlite \
                         ")
-    
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
@@ -24,5 +28,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.removeDir("/usr/share/glade")
+
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")

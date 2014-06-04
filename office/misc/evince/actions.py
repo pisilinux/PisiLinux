@@ -12,27 +12,21 @@ from pisi.actionsapi import get
 shelltools.export('HOME', get.workDIR())
 
 def setup():
-    shelltools.system("sed -i -e 's/gnome-icon-theme//' configure.ac configure")
-    autotools.autoreconf("-vif")
     autotools.configure("--prefix=/usr \
-                         --libexecdir=/usr/lib/$_pkgalias \
-                         --sysconfdir=/etc \
-                         --localstatedir=/var \
-                         --disable-maintainer-mode \
-                         --disable-schemas-compile \
-                         --disable-debug \
-                         --disable-tests \
-                         --disable-nautilus \
-                         --enable-previewer \
-                         --disable-introspection \
-                         --enable-t1lib \
-                         --enable-comics \
-                         --disable-dvi \
-                         --disable-ps \
-                         --disable-djvu \
-                         --disable-gtk-doc \
-                         --without-keyring \
-                         --with-smclient=xsmp")
+                        --sysconfdir=/etc \
+                        --disable-static \
+                        --enable-pdf \
+                        --enable-tiff \
+                        --enable-djvu \
+                        --enable-dvi \
+                        --enable-t1lib \
+                        --disable-nautilus \
+                        --enable-comics \
+                        --disable-scrollkeeper \
+                        --disable-schemas-compile \
+                        --enable-introspection")
+                        #--enable-nautilus \ 
+    
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():

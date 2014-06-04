@@ -45,6 +45,8 @@ def setup():
                          --disable-static')
 
 def build():
+    shelltools.makedirs("build/lib/local")
+    shelltools.makedirs("build/bin/local")
     autotools.make()
 
 def install():
@@ -59,15 +61,14 @@ def install():
 
     # remove useless files
     pisitools.remove("/usr/sbin/rc.radiusd")
-    pisitools.remove("/usr/include/ltdl.h")
 
     pisitools.remove("/etc/raddb/experimental.conf")
-    pisitools.removeDir("/etc/raddb/sql/mssql")
-    pisitools.removeDir("/etc/raddb/sql/oracle")
 
     #pisitools.insinto("/usr/share/doc/freeradius/", "scripts")
 
     pisitools.dosed("%s/etc/raddb/radiusd.conf" % get.installDIR(), '^#user *= *radius', 'user = radiusd')
     pisitools.dosed("%s/etc/raddb/radiusd.conf" % get.installDIR(), '^#group *= *radius', 'group = radiusd')
 
-    pisitools.dodoc("CREDITS", "README", "COPYRIGHT", "LICENSE", "todo/TODO")
+    pisitools.removeDir("/var/run/radiusd")
+
+    pisitools.dodoc("CREDITS", "README*", "COPYRIGHT", "LICENSE")

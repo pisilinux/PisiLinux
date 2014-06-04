@@ -11,17 +11,6 @@ from pisi.actionsapi import get
 
 options="WXPORT=gtk2 UNICODE=1 WX_CONFIG=/usr/bin/wx-config-2.8"
 
-def setup():
-    autotools.configure("--with-gtk=2 \
-                         --with-opengl \
-                         --enable-unicode \
-                         --enable-graphics_ctx \
-                         --disable-optimize \
-                         --enable-mediactrl \
-                         --with-regex=sys --with-libpng=sys \
-                         --with-libxpm=sys --with-libjpeg=sys \
-                         --with-libtiff=sys --disable-precomp-headers")
-
 def build():
     shelltools.cd("wxPython")
     pythonmodules.compile(options)
