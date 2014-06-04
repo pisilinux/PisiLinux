@@ -13,6 +13,8 @@ def setup():
     shelltools.export("CFLAGS", "%s -DLDAP_DEPRECATED -fPIC -DPIC" % get.CFLAGS())
     shelltools.export("LDFLAGS", "%s -pie" % get.LDFLAGS())
 
+    pisitools.dosed("raddb/radiusd.conf" '^#user *= *radius', 'user = radiusd')
+    pisitools.dosed("raddb/radiusd.conf", '^#group *= *radius', 'group = radiusd')
     autotools.configure('--libdir=/usr/lib/freeradius \
                          --with-system-libtool \
                          --with-system-libltd \
@@ -45,6 +47,8 @@ def setup():
                          --disable-static')
 
 def build():
+    shelltools.makedirs("build/lib/local")
+    shelltools.makedirs("build/bin/local")
     autotools.make()
 
 def install():
@@ -59,15 +63,14 @@ def install():
 
     # remove useless files
     pisitools.remove("/usr/sbin/rc.radiusd")
-    pisitools.remove("/usr/include/ltdl.h")
 
     pisitools.remove("/etc/raddb/experimental.conf")
-    pisitools.removeDir("/etc/raddb/sql/mssql")
-    pisitools.removeDir("/etc/raddb/sql/oracle")
 
     #pisitools.insinto("/usr/share/doc/freeradius/", "scripts")
 
     pisitools.dosed("%s/etc/raddb/radiusd.conf" % get.installDIR(), '^#user *= *radius', 'user = radiusd')
     pisitools.dosed("%s/etc/raddb/radiusd.conf" % get.installDIR(), '^#group *= *radius', 'group = radiusd')
 
-    pisitools.dodoc("CREDITS", "README", "COPYRIGHT", "LICENSE", "todo/TODO")
+    pisitools.removeDir("/var/run/radiusd")
+
+    pisitools.dodoc("CREDITS", "README*", "COPYRIGHT", "LICENSE")
