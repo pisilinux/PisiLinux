@@ -13,8 +13,6 @@ def setup():
     shelltools.export("CFLAGS", "%s -DLDAP_DEPRECATED -fPIC -DPIC" % get.CFLAGS())
     shelltools.export("LDFLAGS", "%s -pie" % get.LDFLAGS())
 
-    pisitools.dosed("raddb/radiusd.conf" '^#user *= *radius', 'user = radiusd')
-    pisitools.dosed("raddb/radiusd.conf", '^#group *= *radius', 'group = radiusd')
     autotools.configure('--libdir=/usr/lib/freeradius \
                          --with-system-libtool \
                          --with-system-libltd \
