@@ -1,6 +1,6 @@
 diff -Naur pisi~/api.py pisi/api.py
 --- pisi~/api.py	2011-06-17 13:30:47.000000000 +0200
-+++ pisi/api.py	2014-06-01 18:28:39.923920598 +0200
++++ pisi/api.py	2014-06-04 21:30:17.501694634 +0200
 @@ -25,7 +25,7 @@
  import pisi.pgraph as pgraph
  import pisi.db.packagedb
@@ -19,16 +19,27 @@ diff -Naur pisi~/api.py pisi/api.py
      if term.startswith("/"): # FIXME: why? why?
          term = term[1:]
      return filesdb.search_file(term)
-@@ -870,7 +870,7 @@
+@@ -868,17 +868,8 @@
+ 
+ # FIXME: rebuild_db is only here for filesdb and it really is ugly. we should not need any rebuild.
  @locked
- def rebuild_db(files=False):
- 
+-def rebuild_db(files=False):
+-
 -    filesdb = pisi.db.filesdb.FilesDB()
+-    installdb = pisi.db.installdb.InstallDB()
+-
+-    def rebuild_filesdb():
+-        for pkg in list_installed():
+-            ctx.ui.info(_('Adding \'%s\' to db... ') % pkg, noln=True)
+-            files = installdb.get_files(pkg)
+-            filesdb.add_files(pkg, files)
+-            ctx.ui.info(_('OK.'))
++def rebuild_db():
 +    filesdb = pisi.db.filesldb.FilesLDB()
-     installdb = pisi.db.installdb.InstallDB()
  
-     def rebuild_filesdb():
-@@ -888,7 +888,7 @@
+     # save parameters and shutdown pisi
+     options = ctx.config.options
+@@ -888,7 +879,7 @@
  
      filesdb.close()
      filesdb.destroy()
@@ -37,9 +48,18 @@ diff -Naur pisi~/api.py pisi/api.py
  
      # reinitialize everything
      set_userinterface(ui)
+@@ -896,7 +887,7 @@
+     set_comar(comar)
+ 
+     # construct new database
+-    rebuild_filesdb()
++    filesdb.create_filesdb()
+ 
+ ############# FIXME: this was a quick fix. ##############################
+ 
 diff -Naur pisi~/atomicoperations.py pisi/atomicoperations.py
 --- pisi~/atomicoperations.py	2014-06-01 15:10:14.000000000 +0200
-+++ pisi/atomicoperations.py	2014-06-02 08:46:44.632752688 +0200
++++ pisi/atomicoperations.py	2014-06-04 21:30:35.167693988 +0200
 @@ -134,11 +134,14 @@
          self.metadata = self.package.metadata
          self.files = self.package.files
@@ -191,9 +211,18 @@ diff -Naur pisi~/atomicoperations.py pisi/atomicoperations.py
  
  def build(package):
      # wrapper for build op
+diff -Naur pisi~/cli/rebuilddb.py pisi/cli/rebuilddb.py
+--- pisi~/cli/rebuilddb.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/cli/rebuilddb.py	2014-06-04 20:40:22.196804076 +0200
+@@ -49,4 +49,4 @@
+     def run(self):
+         self.init(database=True)
+         if ctx.ui.confirm(_('Rebuild PiSi databases?')):
+-            pisi.api.rebuild_db(ctx.get_option('files'))
++            pisi.api.rebuild_db()
 diff -Naur pisi~/constants.py pisi/constants.py
 --- pisi~/constants.py	2014-03-07 23:03:46.000000000 +0100
-+++ pisi/constants.py	2014-06-01 14:29:49.775444192 +0200
++++ pisi/constants.py	2014-06-03 23:03:17.000000000 +0200
 @@ -96,6 +96,7 @@
          self.__c.needs_restart = "needsrestart"
          self.__c.needs_reboot = "needsreboot"
@@ -203,9 +232,9 @@ diff -Naur pisi~/constants.py pisi/constants.py
          self.__c.devel_package_end = "-devel"
          self.__c.doc_package_end = "-docs?$"
 diff -Naur pisi~/db/filesldb.py pisi/db/filesldb.py
---- /dev/null	1970-01-01 01:00:00.000000000 +0100
-+++ pisi/db/filesldb.py	2014-06-01 17:35:36.088036929 +0200
-@@ -0,0 +1,59 @@
+--- /dev/null	2014-06-04 21:17:17.154723146 +0200
++++ pisi/db/filesldb.py	2014-06-04 21:17:17.154723146 +0200
+@@ -0,0 +1,77 @@
 +# -*- coding: utf-8 -*-
 +#
 +# Copyright (C) 2014, Marcin Bojara
@@ -223,16 +252,33 @@ diff -Naur pisi~/db/filesldb.py pisi/db/filesldb.py
 +import plyvel
 +import hashlib
 +
++import gettext
++__trans = gettext.translation('pisi', fallback=True)
++_ = __trans.ugettext
++
 +import pisi
 +import pisi.context as ctx
 +
 +class FilesLDB ():
 +    def __init__(self):
-+        self.files_ldb = os.path.join(ctx.config.info_dir(), ctx.const.files_ldb)
-+        self.filesdb = plyvel.DB(self.files_ldb, create_if_missing=True)
++        self.files_ldb_path = os.path.join(ctx.config.info_dir(), ctx.const.files_ldb)
++        self.filesdb = plyvel.DB(self.files_ldb_path, create_if_missing=True)
++        if not [f for f in os.listdir(self.files_ldb_path) if f.endswith('.ldb')]:
++            self.destroy()
++            self.create_filesdb()
 +
 +    def __del__(self):
 +        self.close()
++
++    def create_filesdb(self):
++        ctx.ui.info(pisi.util.colorize(_('Creating files database...'), 'green'))
++        installdb = pisi.db.installdb.InstallDB()
++        for pkg in installdb.list_installed():
++            ctx.ui.info(_('Adding \'%s\' to db... ') % pkg, noln=True)
++            files = installdb.get_files(pkg)
++            self.add_files(pkg, files)
++            ctx.ui.info(_('OK.'))
++        ctx.ui.info(pisi.util.colorize(_('done.'), 'green'))
 +
 +    def get_file(self, path):
 +        return self.filesdb.get(hashlib.md5(path).digest()), path
@@ -260,14 +306,15 @@ diff -Naur pisi~/db/filesldb.py pisi/db/filesldb.py
 +            self.filesdb.delete(hashlib.md5(f.path).digest())
 +
 +    def destroy(self):
-+        if os.path.exists(self.files_ldb):
-+            for f in os.listdir(self.files_ldb): os.unlink(os.path.join(self.files_ldb, f))
++        ctx.ui.info(pisi.util.colorize(_('Cleaning files database folder... '), 'green'), noln=True)
++        for f in os.listdir(self.files_ldb_path): os.unlink(os.path.join(self.files_ldb_path, f))
++        ctx.ui.info(pisi.util.colorize(_('done.'), 'green'))
 +
 +    def close(self):
 +        if not self.filesdb.closed: self.filesdb.close()
 diff -Naur pisi~/__init__.py pisi/__init__.py
 --- pisi~/__init__.py	2011-08-04 15:24:50.000000000 +0200
-+++ pisi/__init__.py	2014-06-01 15:07:09.382362362 +0200
++++ pisi/__init__.py	2014-06-04 21:30:39.684693823 +0200
 @@ -59,9 +59,9 @@
          ctx.loghandler.flush()
          ctx.log.removeHandler(ctx.loghandler)
@@ -283,7 +330,7 @@ diff -Naur pisi~/__init__.py pisi/__init__.py
          os.unlink(ctx.build_leftover)
 diff -Naur pisi~/operations/install.py pisi/operations/install.py
 --- pisi~/operations/install.py	2011-05-26 19:17:29.000000000 +0200
-+++ pisi/operations/install.py	2014-06-01 19:31:17.174783316 +0200
++++ pisi/operations/install.py	2014-06-03 23:03:17.000000000 +0200
 @@ -95,6 +95,7 @@
          ctx.ui.info(util.colorize(_("Downloading %d / %d") % (order.index(x)+1, len(order)), "yellow"))
          install_op = atomicoperations.Install.from_name(x)
@@ -301,8 +348,8 @@ diff -Naur pisi~/operations/install.py pisi/operations/install.py
      return True
  
 diff -Naur pisi~/operations/remove.py pisi/operations/remove.py
---- pisi~/operations/remove.py  2011-05-26 19:17:29.000000000 +0200
-+++ pisi/operations/remove.py   2014-06-03 22:00:48.385780502 +0200
+--- pisi~/operations/remove.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/operations/remove.py	2014-06-03 23:03:17.000000000 +0200
 @@ -24,9 +24,11 @@
  import pisi.ui as ui
  import pisi.db
@@ -336,7 +383,7 @@ diff -Naur pisi~/operations/remove.py pisi/operations/remove.py
          raise Exception(_("Replaced package remains"))
 diff -Naur pisi~/operations/upgrade.py pisi/operations/upgrade.py
 --- pisi~/operations/upgrade.py	2014-06-01 15:10:14.000000000 +0200
-+++ pisi/operations/upgrade.py	2014-06-02 07:28:37.850923933 +0200
++++ pisi/operations/upgrade.py	2014-06-03 23:03:17.000000000 +0200
 @@ -205,6 +205,7 @@
          ctx.ui.info(util.colorize(_("Downloading %d / %d") % (order.index(x)+1, len(order)), "yellow"))
          install_op = atomicoperations.Install.from_name(x)
