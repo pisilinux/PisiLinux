@@ -69,6 +69,6 @@ def install():
     pisitools.dosed("%s/etc/raddb/radiusd.conf" % get.installDIR(), '^#user *= *radius', 'user = radiusd')
     pisitools.dosed("%s/etc/raddb/radiusd.conf" % get.installDIR(), '^#group *= *radius', 'group = radiusd')
 
-    pisitools.removeDir("/var/run/radiusd")
+    pisitools.removeDir("/var/run/")
 
     pisitools.dodoc("CREDITS", "README*", "COPYRIGHT", "LICENSE")
