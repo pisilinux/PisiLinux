@@ -43,88 +43,103 @@ def setup():
     vars = {"lang": langs,
             "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
-    
+    shelltools.system("./autogen.sh")
     shelltools.system("ulimit -c unlimited")
-    autotools.aclocal("-I m4")
-    autotools.autoconf()
+    #autotools.aclocal("-I m4")
+    #autotools.autoconf()
     # avoid running autogen.sh on make
     shelltools.touch("autogen.lastrun")
     autotools.rawConfigure('--with-vendor="PisiLinux" \
                        --with-ant-home="/usr/share/ant" \
-                       --with-jdk-home="/usr/lib/jvm/java-7-openjdk" \
+                       --with-lang="%(lang)s" \
                        --prefix=/usr --exec-prefix=/usr --sysconfdir=/etc \
                        --libdir=/usr/lib --mandir=/usr/share/man \
                        --enable-release-build \
-                       --enable-verbose \
-                       --disable-dependency-tracking \
-                       --disable-rpath \
-                       --disable-crashdump \
-                       --disable-ccache \
-                       --disable-epm \
-                       --disable-online-update \
-                       --disable-pch \
-                       --with-system-jars \
-                       --with-system-libs \
-                       --with-system-headers \
-                       --with-lang="%(lang)s" \
-                       --enable-graphite \
-                       --enable-cups \
+                       --enable-crashdump \
                        --enable-dbus \
                        --enable-evolution2 \
                        --enable-gio \
-                       --disable-gnome-vfs \
-                       --disable-kde \
                        --enable-kde4 \
-                       --enable-largefile \
                        --enable-lockdown \
                        --enable-opengl \
                        --enable-odk \
-                       --enable-randr \
-                       --enable-randr-link \
-                       --enable-extension-integration \
                        --enable-scripting-beanshell \
                        --enable-scripting-javascript \
                        --enable-ext-wiki-publisher \
                        --enable-ext-nlpsolver \
-                       --disable-python \
-                       --enable-cairo-canvas \
+                       --enable-python=system \
+                       --enable-split-app-modules \
+                       --enable-avahi \
+                       --enable-gtk3 \
+                       --enable-gstreamer \
+                       --enable-opencl \
+                       --enable-openssl \
+                       --enable-lockdown \
+                       --enable-orcus \
+                       --disable-kde \
+                       --disable-gstreamer-0-10 \
+                       --disable-verbose \
+                       --disable-gnome-vfs \
+                       --disable-dependency-tracking \
+                       --disable-telepathy \
+                       --without-system-apache-commons \
+                       --without-system-libexttextcat \
+                       --without-system-jfreereport \
                        --without-system-icu \
+                       --without-system-liblangtag \
+                       --without-system-harfbuzz \
+                       --without-system-boost \
+                       --without-system-orcus \
+                       --without-system-hsqldb \
+                       --without-system-libmwaw \
+                       --without-system-libfreehand \
+                       --without-system-libebook \
+                       --without-system-firebird \
+                       --without-system-libabw \
+                       --without-myspell-dicts \
+                       --without-system-npapi-headers \
+                       --without-ppds \
+                       --without-afms \
+                       --without-fonts \
+                       --without-doxygen \
+                       --with-system-libs \
+                       --with-system-headers \
                        --with-system-cairo \
-                       --without-ppds --without-sun-templates --without-afms --without-fonts --without-system-apache-commons --without-system-mythes --without-system-libcmis \
-                       --without-system-libexttextcat --without-system-jfreereport  --without-system-libcdr --without-system-libwpg --without-system-libwpd --without-system-libwps \
-                       --without-system-redland --without-system-clucene --without-system-libvisio \
-                       --with-helppack-integration \
+                       --with-system-mythes \
+                       --with-system-libcdr \
+                       --with-system-libwpg \
+                       --with-system-libwps \
+                       --with-system-redland \
+                       --with-system-clucene \
+                       --with-system-libmspub \
+                       --with-system-cppunit \
+                       --with-system-mdds \
+                       --with-system-libodfgen \
+                       --with-system-libetonyek \
+                       --with-system-libatomic_ops \
+                       --with-system-libcmis \
                        --with-system-beanshell \
                        --with-system-graphite \
                        --with-system-dicts \
-                       --with-system-nss \
-                       --without-system-lcms2 \
-                       --without-system-libmspub --without-system-liblangtag --without-system-boost --without-system-harfbuzz --without-system-cppunit --without-system-orcus \
-                       --without-system-mdds --without-system-ucpp --without-system-hsqldb --without-system-libodfgen --without-system-libmwaw --without-system-libetonyek \
-                       --without-system-libfreehand --without-system-libebook --without-system-firebird --without-system-libabw --without-system-libatomic_ops --without-system-libeot \
-                       --without-system-libodfgen --without-myspell-dicts --without-system-npapi-headers --without-system-sane --without-system-servlet-api --without-system-vigra \
+                       --with-system-libvisio \
                        --with-external-dict-dir=/usr/share/hunspell \
                        --with-external-hyph-dir=/usr/share/hyphen \
                        --with-external-thes-dir=/usr/share/mythes \
+                       --with-helppack-integration \
                        --with-alloc=system \
-                       --disable-fetch-external \
                        --with-parallelism=%(jobs)s \
-                       --with-external-tar="%(etar)s"' % vars)
-    
+                       --with-external-tar="%(etar)s" \
+                       --disable-fetch-external' % vars)
+
 def build():
     autotools.make()
-    pisitools.dosed("workdir/CustomTarget/sysui/share/oxygenoffice/startcenter.desktop", "GenericName\[tr\]=Ofis", "GenericName[tr]=Ofis Uygulamaları")
-    
+
 def check():
     autotools.make("unitcheck")
     autotools.make("slowcheck")
 
 def install():
     autotools.rawInstall("DESTDIR=%s distro-pack-install -o build -o check" % get.installDIR())
-    
-    #kill rpath bombs, strip unstripped shared libararies
-    shelltools.system("strip --strip-unneeded %s/usr/lib/libreoffice/program/librdf-lo.so.0" % get.installDIR())
-    shelltools.system("strip --strip-unneeded %s/usr/lib/libreoffice/program/librasqal-lo.so.3" % get.installDIR())   
 
     if not shelltools.isDirectory(langpackpath): shelltools.makedirs(langpackpath)
     else: shelltools.unlinkDir(langpackpath)
