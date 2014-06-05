@@ -54,6 +54,7 @@ def setup():
                        --with-lang="%(lang)s" \
                        --prefix=/usr --exec-prefix=/usr --sysconfdir=/etc \
                        --libdir=/usr/lib --mandir=/usr/share/man \
+                       --with-jdk-home="/usr/lib/jvm/java-7-openjdk" \
                        --enable-release-build \
                        --enable-crashdump \
                        --enable-dbus \
