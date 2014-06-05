@@ -10,8 +10,8 @@ from pisi.actionsapi import get
 
 shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
-def setup():
-    shelltools.system("ant clean")
+#def setup():
+    #shelltools.system("ant clean")
 
 def build():
     shelltools.export("LC_ALL", "C")
