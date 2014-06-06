@@ -17,17 +17,19 @@ def start():
         return
 
     if oneshot == "yes":
-        args += ("--oneshot")
+        args += ("--oneshot -f")
 
     if affinity:
         os.environ["IRQBALANCE_BANNED_CPUS"] = affinity
 
     startService(command="/usr/sbin/irqbalance",
                  args=args, donotify=True)
+    os.system("pidof -o %PPID /usr/sbin/irqbalance > /run/irqbalance.pid")
 
 @synchronized
 def stop():
     stopService(command="/usr/sbin/irqbalance",
+                pidfile="/run/irqbalance.pid",
                 donotify=True)
 
     try:
