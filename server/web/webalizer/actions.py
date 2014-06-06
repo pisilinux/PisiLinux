@@ -22,6 +22,13 @@ def build():
 def install():
     pisitools.dobin("webalizer")
     pisitools.dosym("/usr/bin/webalizer","/usr/bin/webazolver")
+
     pisitools.dodir("/usr/share/GeoDB")
+    pisitools.dodir("/usr/share/webalizer/flags")
+
+    pisitools.insinto("/usr/share/GeoDB","../GeoDB.dat")
+    pisitools.insinto("/usr/share/GeoDB","../GEODB.README")
+    pisitools.insinto("/usr/share/webalizer/flags","../flags/*")
+
     pisitools.doman("webalizer.1")
     pisitools.dodoc("*README*","CHANGES","Copyright")
