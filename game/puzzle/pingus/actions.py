@@ -35,7 +35,10 @@ def build():
                 LINKFLAGS="%(LINKFLAGS)s"' % flags)
 
 def install():
+    shelltools.cd("build")
     pisitools.dobin("pingus")
+    
+    shelltools.cd("..")
     pisitools.dodoc("AUTHORS", "NEWS", "README","TODO")
 
     pisitools.dodir(datadir)
