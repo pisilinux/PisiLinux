@@ -12,6 +12,7 @@ DAEMON = "/usr/bin/macfanctld"
 @synchronized
 def start():
     startService(command=DAEMON,
+                 args=" -f",
                  donotify=True)
     os.system("pidof -o %PPID " + "%s > %s" % (DAEMON, PIDFILE))
 
