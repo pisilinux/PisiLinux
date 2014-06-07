@@ -8,18 +8,17 @@ serviceDefault = "on"
 
 @synchronized
 def start():
-    reply = startService(command="/sbin/auditd",
-                         pidfile="/var/run/auditd.pid",
+    reply = startService(command="/usr/sbin/auditd",
+                         pidfile="/run/auditd.pid",
                          donotify=True)
     if reply == 0:
-        run("/sbin/auditctl -R /etc/audit/audit.rules")
+        run("/usr/sbin/auditctl -R /etc/audit/rules.d/audit.rules")
 
 @synchronized
 def stop():
-    reply = stopService(pidfile="/var/run/auditd.pid",
+    stopService(pidfile="/run/auditd.pid",
                         donotify=True)
-    if reply == 0:
-        run("/sbin/auditctl -D")
+    run("/usr/sbin/auditctl -D")
 
 def status():
-    return isServiceRunning("/var/run/auditd.pid")
+    return isServiceRunning("/run/auditd.pid")
