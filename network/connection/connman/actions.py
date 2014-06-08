@@ -9,13 +9,16 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--enable-threads \
-                         --enable-openconnect \
-                         --enable-openvpn \
-                         --enable-polkit \
-                         --enable-bluetooth \
-                         --enable-wifi \
-                         --enable-client")
+    autotools.configure(" --prefix=/usr \
+                          --sysconfdir=/etc \
+                          --localstatedir=/var \
+                          --enable-threads \
+                          --enable-pptp \
+                          --enable-openconnect \
+                          --enable-vpnc \
+                          --enable-openvpn \
+                          --enable-polkit \
+                          --enable-client")
 
 def build():
     autotools.make()
