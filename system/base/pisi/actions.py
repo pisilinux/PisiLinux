@@ -20,4 +20,4 @@ def install():
 
     # we need it teporary
     pisitools.dodir("/usr/lib/pardus")
-    pisitools.dosym("../pisilinux/pisi", "/usr/lib/pardus/pisi")
+    pisitools.dosym("/usr/lib/pisilinux/pisi", "/usr/lib/pardus/pisi")
