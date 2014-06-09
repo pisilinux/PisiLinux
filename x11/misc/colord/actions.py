@@ -15,8 +15,9 @@ def setup():
                          --disable-rpath \
                          --disable-silent-rules \
                          --enable-polkit \
-                         --disable-systemd-login \
+                         --enable-systemd-login=no \
                          --with-daemon-user=colord \
+                         --with-systemdsystemunitdir=no \
                          --enable-introspection \
                          --enable-vala \
                          --enable-sane")
