@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--prefix=/usr \
-                         --libexecdir=/usr/lib \
                          --disable-static \
                          --disable-gtk-doc \
                          --disable-gladeui \
