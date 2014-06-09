@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 
 
 def setup():
-    pisitools.flags.add("-fvisibility=hidden")
+    pisitools.flags.add("-fvisibility=hidden -fPIC")
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --disable-tslib \
