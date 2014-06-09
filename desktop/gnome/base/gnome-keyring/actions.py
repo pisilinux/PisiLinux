@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--disable-static \
-                         --with-pam-dir=/lib/security \
+                         --with-pam-dir=/etc \
                          --without-libcap-ng \
                        ")
                         
