@@ -10,6 +10,8 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--disable-static \
+                         --enable-pam \
+                         --with-dbus-services=/usr/share/dbus-1/services \
                          --with-pam-dir=/usr/lib/security \
                          --without-libcap-ng \
                        ")
