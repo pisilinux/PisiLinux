@@ -11,7 +11,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("libexecdir=/usr/bin")
+    autotools.configure()
 
 def build():
     autotools.make()

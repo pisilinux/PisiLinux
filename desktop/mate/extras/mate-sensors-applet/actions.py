@@ -13,7 +13,6 @@ def setup():
     shelltools.export("LDFLAGS", "%s -ldl"  % get.LDFLAGS())
     autotools.configure("--prefix=/usr \
                          --disable-static \
-                         --libexecdir=/usr/lib/mate-sensors \
                          --disable-schemas-compile \
                          --enable-libnotify \
                          --with-nvidia")

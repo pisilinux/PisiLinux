@@ -14,7 +14,6 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
                          --localstatedir=/var \
-                         --libexecdir=/usr/lib/atril \
                          --disable-static \
                          --disable-rpath \
                          --enable-caja \

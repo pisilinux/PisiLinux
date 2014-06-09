@@ -14,8 +14,7 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --disable-scrollkeeper \
                          --enable-gvfs-metadata \
-                         --enable-python \
-                         --libexecdir=/usr/lib/mate-text-editor")
+                         --enable-python ")
     
     # for fix unused dependency
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")

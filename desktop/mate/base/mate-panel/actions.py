@@ -15,7 +15,6 @@ def setup():
     autotools.configure("--disable-static                       \
                          --disable-schemas-compile              \
                          --with-x                               \
-                         --libexecdir=/usr/lib/mate-panel       \
                          --enable-introspection")
         
     # for fix unused dependency

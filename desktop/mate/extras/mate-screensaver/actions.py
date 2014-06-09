@@ -16,7 +16,6 @@ def setup():
                           --with-systemd=no \
                           --prefix=/usr \
                           --sysconfdir=/etc \
-                          --libexecdir=/usr/lib \
                           --without-console-kit \
                           --with-xscreensaverdir=/usr/share/xscreensaver/config \
                           --with-xscreensaverhackdir=/usr/lib/misc/xscreensaver")
