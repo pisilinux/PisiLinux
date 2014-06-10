@@ -23,7 +23,8 @@ def setup():
                          --disable-static \
                          --with-libpng \
                          --with-libdv=/usr")
-
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
