@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 def setup():
     pisitools.dosed("defaults/defaults", "(use_compositing=).*", r"\1true")
     autotools.configure("--prefix=/usr \
-                         --libexecdir=/usr/lib \
                          --disable-static \
                          --enable-startup-notification \
                          --enable-randr \
