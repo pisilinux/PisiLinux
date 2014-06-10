@@ -21,7 +21,7 @@ def setup():
                          --with-os-type=PisiLinux \
                          --enable-examples \
                          --enable-introspection \
-                         --libexecdir=/usr/lib/polkit-1 \
+                         --enable-libsystemd-login=no \
                          --disable-man-pages \
                          --disable-gtk-doc \
                          --disable-static")

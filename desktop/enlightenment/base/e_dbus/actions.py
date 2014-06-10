@@ -13,14 +13,22 @@ shelltools.export("CFLAGS", "%s -fvisibility=hidden" % get.CFLAGS())
 shelltools.export("LDFLAGS", "%s -fvisibility=hidden" % get.LDFLAGS())
 
 def setup():
-    autotools.configure("--disable-static \
-                         --enable-ebluez \
-                         --enable-econnman0_7x \
-                         --disable-ehal \
-                         --enable-enotify \
-                         --enable-eofono \
-                         --enable-eukit \
-                         --disable-doc")
+    autotools.configure("--prefix=/usr \
+                        --disable-static \
+                        --disable-ebluez \
+                        --disable-econnman0_7x \
+                        --disable-ehal \
+                        --enable-enotify \
+                        --disable-eofono \
+                        --enable-eukit \
+                        --disable-edbus-test \
+                        --disable-edbus-test-client \
+                        --disable-edbus-bluez-test \
+                        --disable-edbus-connman0_7x-test \
+                        --disable-edbus-ofono-test \
+                        --disable-edbus-async-test \
+                        --disable-edbus-performance-test \
+                        --disable-doc")
 
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 

@@ -12,11 +12,10 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--prefix=/usr \
+                         --prefix=/usr \
                          --sysconfdir=/etc \
-                         --sbindir=/usr/bin \
-                         --libexecdir=/usr/lib/mate-netbook \
-                         --disable-static \
-                         --disable-scrollkeeper")
+                         --with-gtk=2.0 \
+                         --disable-static")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 

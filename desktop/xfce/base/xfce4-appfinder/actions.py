@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 
 def setup():
     autotools.configure("--prefix=/usr \
-                         --libexecdir=/usr/lib \
                          --disable-static \
                          --disable-debug")
 

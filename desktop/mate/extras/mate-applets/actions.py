@@ -10,10 +10,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-vif")
+    pisitools.ldflags.add("-lcpupower")
+    autotools.autoreconf("-fi")
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
-                         --libexecdir=/usr/lib/mate-applets \
                          --enable-polkit \
                          --enable-networkmanager \
                          --enable-ipv6 \

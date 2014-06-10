@@ -17,7 +17,6 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
                          --sbindir=/usr/bin \
-                         --libexecdir=/usr/lib/mate-disk-utility \
                          --disable-static ")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")

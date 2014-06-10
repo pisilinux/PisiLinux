@@ -9,17 +9,19 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    options = "\
-               --disable-static \
-               --disable-silent-rules \
-              "
+    options = "--with-glib=yes \
+               --with-freetype=yes \
+               --with-cairo=yes \
+               --with-icu=yes \
+               --with-graphite2=yes"
+
     if get.buildTYPE() == "emul32":
-        options += "\
+        options += "--with-glib=yes\
                     --with-graphite2=no \
-                    --without-cairo \
-                   "
+                    --with-cairo=yes \
+                    --with-icu=yes"
     autotools.configure(options)
-    
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():

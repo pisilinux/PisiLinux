@@ -9,7 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure()
+    autotools.configure("--sbindir=/sbin \
+                         --disable-maintainer-mode \
+                         --disable-schemas-compile")
 
 def build():
     autotools.make()
