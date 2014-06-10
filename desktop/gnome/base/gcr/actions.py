@@ -15,7 +15,7 @@ def setup():
                          --disable-update-mime \
                          --disable-schemas-compile \
                          --enable-introspection \
-                        ")
+                         --with-dbus-services=/usr/share/dbus-1/services")
 
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
@@ -26,7 +26,7 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     #remove files conflicted with gnome-keyring
-    pisitools.remove("/usr/share/glib-2.0/schemas/org.gnome.crypto.pgp.gschema.xml")
-    pisitools.remove("/usr/share/GConf/gsettings/org.gnome.crypto.pgp.convert")
+    #pisitools.remove("/usr/share/glib-2.0/schemas/org.gnome.crypto.pgp.gschema.xml")
+    #pisitools.remove("/usr/share/GConf/gsettings/org.gnome.crypto.pgp.convert")
 
     pisitools.dodoc("AUTHORS", "ChangeLog","COPYING", "README", "NEWS")
