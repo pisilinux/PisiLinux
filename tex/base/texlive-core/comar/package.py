@@ -12,6 +12,9 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     updmap_local_file = "/etc/texmf/web2c/updmap-local.cfg"
     updmap_share_file = "/usr/share/texmf/web2c/updmap-hdr.cfg"
     temp_file = "/tmp/updmap.cfg.temp"
+    texmf_file="/etc/texmf/web2c/texmf.cnf"
+    texmf_symfile="/usr/share/texmf-dist/web2c/texmf.cnf"
+   
 
     print "texlive: saving updmap.cfg as %s" % temp_file
     shutil.copy2(updmap_file, temp_file)
@@ -20,6 +23,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     print "         into /etc/texmf/web2c/updmap-local.cfg"
 
     shutil.copy2(updmap_share_file, updmap_file)
+    shutil.copy2(texmf_file, texmf_symfile)
 
 
     # In bash: cat *.maps >> updmap.cfg
