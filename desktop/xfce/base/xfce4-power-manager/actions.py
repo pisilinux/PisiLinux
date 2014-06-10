@@ -10,7 +10,6 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--prefix=/usr \
                          --sbindir=/usr/bin \
-                         --libexecdir=/usr/lib \
                          --disable-network-manager \
                          --enable-polkit \
                          --enable-dpms \
