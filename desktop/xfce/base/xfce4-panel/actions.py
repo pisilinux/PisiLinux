@@ -10,7 +10,6 @@ from pisi.actionsapi import shelltools
 
 def setup():
     autotools.configure("--prefix=/usr \
-                         --libexecdir=/usr/lib \
                          --disable-static \
                          --enable-gio-unix \
                          --disable-gtk-doc \
