@@ -5,25 +5,30 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure("--enable-cg --disable-devil --enable-openexr")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DOGRE_INSTALL_SAMPLES=TRUE \
+                          -DOGRE_INSTALL_DOCS=TRUE \
+                          -DOGRE_INSTALL_SAMPLES_SOURCE=TRUE \
+                          -DOGRE_FULL_RPATH=0 \
+                          -DCMAKE_SKIP_RPATH=1 \
+                          -DOGRE_LIB_DIRECTORY=lib \
+                          -DOGRE_BUILD_RTSHADERSYSTEM_EXT_SHADERS=1 \
+                          -DOGRE_BUILD_PLUGIN_CG=0")
 
 def build():
-    autotools.make()
+    cmaketools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dohtml("Docs/*.html")
     pisitools.dohtml("Docs/*.gif")
 
-    for dirs in ("Docs/api", "Docs/manual",  "Docs/vbo-update"):
-        shelltools.copytree(dirs, "%s/%s/%s/html" % (get.installDIR(), get.docDIR(), get.srcNAME()))
 
     pisitools.dodoc("AUTHORS", "BUGS", "COPYING", \
                     "README", "Docs/shadows/OgreShadows.pdf", \

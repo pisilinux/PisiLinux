@@ -16,6 +16,7 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --disable-static \
                          --disable-tslib \
+                         --disable-systemd \
                          --enable-xine \
                          --enable-fb \
                          --enable-doc \
