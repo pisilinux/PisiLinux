@@ -12,8 +12,4 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
             os.chown(d, 250, 18)
             os.chmod(d, 0750)
 
-        if not os.path.exists("/run/mpd"):
-            os.mkdir("/run/mpd")
-            os.chown("/run/mpd", 250, 18)
-            os.chmod("/run/mpd", 0755)
-
+    os.system("/sbin/mudur_tmpfiles.py /usr/lib/tmpfiles.d/mpd.conf")
