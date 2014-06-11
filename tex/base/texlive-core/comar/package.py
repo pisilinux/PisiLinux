@@ -28,7 +28,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
 
     # In bash: cat *.maps >> updmap.cfg
     # In python:ugly lines below ...
-    for map_file in glob.glob("/var/lib/texmf/pardus/*.maps"):
+    for map_file in glob.glob("/var/lib/texmf/pisilinux/*.maps"):
         print "texlive: adding %s to updmap.cfg" % map_file
         fin = open(map_file, "r")
         updmap_hdr = fin.read()

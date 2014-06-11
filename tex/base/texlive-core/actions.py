@@ -94,13 +94,6 @@ def install():
 		      "chktex/chkweb.sh",
 		      "chktex/deweb.pl",
 		      "context/perl/mptopdf.pl",
-		      "context/stubs/unix/context",
-		      "context/stubs/unix/ctxtools",
-		      "context/stubs/unix/luatools",
-		      "context/stubs/unix/mtxrun",
-		      "context/stubs/unix/pstopdf",
-		      "context/stubs/unix/texexec",
-		      "context/stubs/unix/texmfstart",
 		      "ctanify/ctanify",
 		      "ctanupload/ctanupload.pl",
 		      "de-macro/de-macro",
@@ -128,18 +121,6 @@ def install():
 		      "mf2pt1/mf2pt1.pl",
 		      "mkjobtexmf/mkjobtexmf.pl",
 		      "pdfcrop/pdfcrop.pl",
-		      "pdfjam/pdf180",
-		      "pdfjam/pdf270",
-		      "pdfjam/pdf90",
-		      "pdfjam/pdfbook",
-		      "pdfjam/pdfflip",
-		      "pdfjam/pdfjam",
-		      "pdfjam/pdfjam-pocketmod",
-		      "pdfjam/pdfjam-slides3up",
-		      "pdfjam/pdfjam-slides6up",
-		      "pdfjam/pdfjoin",
-		      "pdfjam/pdfnup",
-		      "pdfjam/pdfpun",
 		      "pfarrei/a5toa4.tlu",
 		      "pfarrei/pfarrei.tlu",
 		      "pkfix-helper/pkfix-helper",
@@ -154,24 +135,6 @@ def install():
 		      "texdirflatten/texdirflatten",
 		      "texdoc/texdoc.tlu",
 		      "texdoctk/texdoctk.pl",
-		      "texlive/allcm.sh",
-		      "texlive/allneeded.sh",
-		      "texlive/dvi2fax.sh",
-		      "texlive/dvired.sh",
-		      "texlive/fmtutil-sys.sh",
-		      "texlive/fmtutil.sh",
-		      "texlive/fontinst.sh",
-		      "texlive/kpsetool.sh",
-		      "texlive/kpsewhere.sh",
-		      "texlive/ps2frag.sh",
-		      "texlive/pslatex.sh",
-		      "texlive/rungs.tlu",
-		      "texlive/texconfig-dialog.sh",
-		      "texlive/texconfig-sys.sh",
-		      "texlive/texconfig.sh",
-		      "texlive/texlinks.sh",
-		      "texlive/updmap-sys.sh",
-		      "texlive/updmap.pl",
 		      "texliveonfly/texliveonfly.py",
 		      "texloganalyser/texloganalyser",
 		      "thumbpdf/thumbpdf.pl",
@@ -182,8 +145,54 @@ def install():
     for folder in linked_scripts:
         pisitools.insinto("/usr/bin/", "/usr/share/texmf-dist/scripts/%s" % folder, sym = True)
     pisitools.dosym("/usr/share/texmf-dist/scripts/listings-ext/listings-ext.sh", "/usr/bin/listings-ext.sh")
-  
     
+    texlive_scripts=[ "allcm.sh",
+		      "allneeded.sh",
+		      "dvi2fax.sh",
+		      "dvired.sh",
+		      "fmtutil-sys.sh",
+		      "fmtutil.sh",
+		      "fontinst.sh",
+		      "kpsetool.sh",
+		      "kpsewhere.sh",
+		      "ps2frag.sh",
+		      "pslatex.sh",
+		      "rungs.tlu",
+		      "texconfig-dialog.sh",
+		      "texconfig-sys.sh",
+		      "texconfig.sh",
+		      "texlinks.sh",
+		      "updmap-sys.sh",
+		      "updmap.pl"]
+    
+    for folder in texlive_scripts:
+        pisitools.dosym("/usr/share/texmf-dist/scripts/texlive/%s" % folder, "/usr/bin/%s" % folder)
+        
+    pdfjam_scripts=[  "pdf180",
+		      "pdf270",
+		      "pdf90",
+		      "pdfbook",
+		      "pdfflip",
+		      "pdfjam",
+		      "pdfjam-pocketmod",
+		      "pdfjam-slides3up",
+		      "pdfjam-slides6up",
+		      "pdfjoin",
+		      "pdfnup",
+		      "pdfpun"]
+    
+    for folder in pdfjam_scripts:
+        pisitools.dosym("/usr/share/texmf-dist/scripts/pdfjam/%s" % folder, "/usr/bin/%s" % folder)
+        
+    context_scripts=[ "context",
+		      "ctxtools",
+		      "luatools",
+		      "mtxrun",
+		      "pstopdf",
+		      "texexec",
+		      "texmfstart"]
+    for folder in context_scripts:
+        pisitools.dosym("/usr/share/texmf-dist/scripts/context/stubs/unix/%s" % folder, "/usr/bin/%s" % folder)
     # old packages, we will not provide them
     
     pisitools.remove("/usr/share/texmf-dist/web2c/texmf.cnf")

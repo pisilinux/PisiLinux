@@ -13,6 +13,7 @@ WorkDir = "SDL2_mixer-%s" % get.srcVERSION()
 
 def setup():
     pisitools.dosed("timidity/config.h", "/usr/local/lib/timidity", "/usr/share/timidity")
+    pisitools.flags.add("-I/usr/include/libmodplug")
 
     options = "--disable-dependency-tracking \
                --disable-static \

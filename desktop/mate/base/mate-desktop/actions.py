@@ -14,15 +14,13 @@ def setup():
     #Change default xcursor
     pisitools.dosed("schemas/org.mate.peripherals-mouse.gschema.xml.in.in", "<default>''</default>", "<default>'mate'</default>")
     pisitools.dosed("schemas/org.mate.background.gschema.xml.in.in", "backgrounds/mate/desktop/Stripes.png", "backgrounds/mate/nature/pisi.jpg")
-    autotools.configure("--disable-scrollkeeper                                \
-                         --disable-schemas-compile                             \
-                         --with-gtk=2.0                                        \
-                         --with-x                                              \
-                         --disable-static                                      \
-                         --enable-unique                                       \
-                         --enable-gtk-doc                                      \
-                         --with-pnp-ids-path=/usr/share/hwdata/pnp.ids         \
-                         --with-omf-dir=/usr/share/omf/mate-desktop            ")
+    autotools.configure("--prefix=/usr \
+                         --with-gtk=2.0 \
+                         --enable-mpaste \
+                         --disable-static \
+                         --disable-schemas-compile \
+                         --disable-desktop-docs \
+                         --enable-gtk-doc")
 
 def build():
     autotools.make()
