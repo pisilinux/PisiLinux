@@ -9,7 +9,7 @@ from comar.service import *
 import re
 import os
 
-PIDFILE = "/var/lib/mpd/.mpd/pid"
+PIDFILE = "/run/mpd/mpd.pid"
 
 @synchronized
 def start():
