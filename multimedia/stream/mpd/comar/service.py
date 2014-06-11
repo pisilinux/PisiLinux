@@ -9,17 +9,19 @@ from comar.service import *
 import re
 import os
 
-pidfile = "/run/mpd/mpd.pid"
+PIDFILE = "/var/lib/mpd/.mpd/pid"
 
 @synchronized
 def start():
-    startService(command="/usr/bin/mpd",
+    startService(command="/usr/bin/mpd", 
+                 args="/etc/mpd.conf",
+                 pidfile=PIDFILE,
                  donotify=True)
 
 @synchronized
 def stop():
-    stopService(pidfile,
+    stopService(PIDFILE,
                 donotify=True)
 
 def status():
-    return isServiceRunning(pidfile)
+    return isServiceRunning(PIDFILE)
