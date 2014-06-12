@@ -16,7 +16,7 @@ def setup():
 #    for f in ["configure", "libmpdemux/demux_rtp.cpp", "libmpdemux/demux_rtp_internal.h"]:
 #        pisitools.dosed(f, "([\"<])(liveMedia|BasicUsageEnvironment)(\.hh)([\">])", "\\1\\2/\\2\\3\\4")
 #    pisitools.dosed("libmpdemux/demux_rtp.cpp", "GroupsockHelper.hh", "groupsock/GroupsockHelper.hh")
-    shelltools.copytree("../ffmpeg-2.2", "ffmpeg")
+    shelltools.copytree("../ffmpeg-2.2.3", "ffmpeg")
     autotools.rawConfigure(' \
                              --confdir=/usr/share/mplayer \
                              --datadir=/usr/share/mplayer \
@@ -30,7 +30,7 @@ def setup():
                              --disable-debug \
                              --disable-dvdread-internal \
                              --disable-esd \
-                             --disable-fribidi \
+                             --enable-fribidi \
                              --disable-ggi \
                              --disable-libdvdcss-internal \
                              --disable-live \
@@ -105,7 +105,7 @@ def setup():
                              --enable-xvid \
                              --enable-xvmc \
                              --extra-ldflags="-lvorbisenc -lvorbis -logg" \
-                             --extra-libs="-lopenal -ljack -lxvidcore -lfontconfig -lass -laa -lX11 -lXext" \
+                             --extra-libs="-lfribidi -lglib-2.0 -lopenal -ljack -lxvidcore -lfontconfig -lass -laa -lX11 -lXext" \
                              --language=en \
                              --with-xvmclib=XvMCW \
                             ')
@@ -132,7 +132,7 @@ def install():
                        MANDIR=%(D)s/usr/share/man" % {"D": get.installDIR()})
 
     # set the default skin for gui
-    shelltools.copytree("default_skin", "%s/usr/share/mplayer/skins/default_skin" % get.installDIR())
+    shelltools.copytree("default_skin", "%s/usr/share/mplayer/skins/default" % get.installDIR())
 
     # codecs conf, not something user will interact with
     pisitools.insinto("/usr/share/mplayer", "etc/codecs.conf")
