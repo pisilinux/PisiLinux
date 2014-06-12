@@ -11,11 +11,11 @@ from pisi.actionsapi import pisitools
 
 def setup():    
     shelltools.cd("build/workspaces/")
-    shelltools.export("CPPFLAGS", get.CXXFLAGS())
-    shelltools.export("WX_CONFIG=/usr/bin/wx-config-2.8")
+    shelltools.export("WX_CONFIG", "/usr/bin/wx-config-2.8 ")
     shelltools.system("./update-workspaces.sh \
                        --enable-atlas \
                        --with-system-enet \
+                       --with-system-mozjs24 \
                        --with-system-miniupnpc \
                        --bindir=/usr/bin \
                        --libdir=/usr/lib/0ad \
