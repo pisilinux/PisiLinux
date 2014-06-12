@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    #amulegui is buggy: http://wiki.amule.org/index.php/AMuleGUI
     autotools.configure("--enable-amulecmd \
                          --enable-webserver \
                          --enable-amule-daemon \
@@ -20,11 +19,14 @@ def setup():
                          --enable-alc \
                          --enable-cas \
                          --enable-wxcas \
-                         --disable-amule-gui \
+                         --enable-amule-gui \
                          --enable-alcc \
                          --enable-geoip \
                          --disable-rpath \
-                         --disable-debug")
+                         --disable-debug \
+                         --enable-upnp \
+                         --with-wxversion=2.8 \
+                         --with-wx-config=/usr/bin/wx-config-2.8")
 
 def build():
     autotools.make()
