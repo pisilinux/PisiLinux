@@ -10,12 +10,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-WorkDir = "funguloids"
-
 def setup():
-    #shelltools.export("CXXFLAGS", "%s -Wno-deprecated" % get.CXXFLAGS())
     shelltools.export("LDFLAGS", "-lboost_system")
-    shelltools.system("sh sed.sh")
     libtools.libtoolize()
     autotools.autoreconf("-fi")
     autotools.configure("--without-fmod \
@@ -29,5 +25,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.rename("/usr/share/docs", "doc")
     pisitools.dodoc("COPYING", "README")
