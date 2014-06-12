@@ -26,9 +26,22 @@ def build():
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dohtml("Docs/*.html")
-    pisitools.dohtml("Docs/*.gif")
+    #move cfg files to etc/OGRE
+    pisitools.dodir("/etc/OGRE")
+    cfgfile=["plugins.cfg", "quakemap.cfg", "resources.cfg" , "samples.cfg"]
+    for cfg in cfgfile:
+        pisitools.domove("/usr/share/OGRE/%s" % cfg, "/etc/OGRE")
 
+    #move cmake files to right place
+    pisitools.dodir("/usr/share/cmake/Modules")
+    pisitools.domove("/usr/lib/OGRE/cmake/*", "/usr/share/cmake/Modules")
+    pisitools.removeDir("/usr/lib/OGRE/cmake")
+
+    pisitools.remove("/usr/share/OGRE/tests.cfg")
+    pisitools.remove("/usr/share/OGRE/CMakeLists.txt")
+
+    pisitools.removeDir("/usr/share/OGRE/docs/CMakeFiles")
+    pisitools.remove("/usr/share/OGRE/docs/CMakeLists.txt")
 
     pisitools.dodoc("AUTHORS", "BUGS", "COPYING", \
                     "README", "Docs/shadows/OgreShadows.pdf", \
