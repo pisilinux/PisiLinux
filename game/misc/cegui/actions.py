@@ -13,7 +13,9 @@ def setup():
 
     cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
                           -DCEGUI_LIB_INSTALL_DIR=lib \
-                          -DCEGUI_BUILD_PYTHON_MODULES=OFF")
+                          -DCEGUI_BUILD_PYTHON_MODULES=OFF \
+                          -DCEGUI_BUILD_RENDERER_DIRECTFB=OFF \
+                          -DCEGUI_SAMPLES_USE_DIRECTFB=OFF")
 
 def build():
     cmaketools.make()
