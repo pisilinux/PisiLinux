@@ -1,1 +1,1 @@
-setenv J2SDKDIR "/usr/lib/jvm/java-7-openjdk"
+setenv JAVA_HOME "/usr/lib/jvm/java-7-openjdk/jre"
