@@ -8,14 +8,16 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "GeoIP-%s" % get.srcVERSION()
-
 def setup():
+    pisitools.dosed("geoip.pc.in", "prefix=@prefix@", "prefix=@prefix@\nexec_prefix=${prefix}")
     autotools.configure("--enable-shared \
                          --disable-static")
 
 def build():
     autotools.make()
+
+def check():
+    autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
