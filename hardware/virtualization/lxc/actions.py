@@ -10,10 +10,18 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    #autotools.autoreconf("-vif")
+    autotools.autoreconf("-vif")
 
-    autotools.configure("--localstatedir=/var \
-                         --disable-doc")
+    autotools.configure("--prefix=/usr \
+                         --sbindir=/usr/bin \
+                         --localstatedir=/var \
+                         --libexecdir=/usr/lib \
+                         --sysconfdir=/etc \
+                         --disable-apparmor \
+ #                        --enable-seccomp \
+                         --enable-cgmanager \
+                         --enable-capabilities \
+                         --enable-lua")
 
 def build():
     autotools.make()
@@ -24,12 +32,11 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.doman("doc/*.[1-8]")
+    #pisitools.doman("doc/*.[1-8]")
     pisitools.dodir("/var/lib/lxc")
 
     # Install management tools
-    shelltools.unlink("lxc-management-tools/lxc-management-tools.spec")
     for script in shelltools.ls("lxc-management-tools/lxc-*"):
         pisitools.dobin(script)
 
-    shelltools.move("%s/usr/lib/lxc/templates" % get.installDIR(), "%s/%s/lxc/" % (get.installDIR(), get.docDIR()))
+    #shelltools.move("%s/usr/lib/lxc/templates" % get.installDIR(), "%s/%s/lxc/" % (get.installDIR(), get.docDIR()))
