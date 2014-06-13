@@ -8,8 +8,10 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
+
 def setup():
-    cmaketools.configure(installPrefix = "/%s" % (get.defaultprefixDIR()))
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+			  -DCMAKE_BUILD_TYPE=release ")
 
 def build():
     cmaketools.make()
