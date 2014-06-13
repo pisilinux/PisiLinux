@@ -15,7 +15,7 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --sbindir=/usr/bin \
                          --localstatedir=/var \
-                         --libexecdir=/usr/lib \
+                         --libexecdir=/usr/libexec \
                          --sysconfdir=/etc \
                          --disable-apparmor \
  #                        --enable-seccomp \
