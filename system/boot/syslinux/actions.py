@@ -4,10 +4,10 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
+from pisi.actionsapi import get
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 tools = ["sha1pass", "md5pass", "mkdiskimage", "keytab-lilo", "syslinux2ansi", "lss16toppm","pxelinux-options"]
 datadir = "/usr/lib/syslinux"
@@ -18,7 +18,7 @@ def setup():
     # previously linked to probably some other glibc, better force recompile
     # shelltools.unlink("gethostip")
     # shelltools.chmod("add_crc", 0755)
-    pass
+    pisitools.cflags.remove("-fPIC")
 
 def build():
     # shelltools.export("CFLAGS", "-Werror -Wno-unused -finline-limit=2000")
