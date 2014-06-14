@@ -11,7 +11,8 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-static \
-                         --enable-introspection=yes")
+                         --enable-compile-warnings=minimum \
+                         --disable-schemas-compile ")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
