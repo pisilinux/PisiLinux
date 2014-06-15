@@ -14,11 +14,7 @@ datadir = "/usr/lib/syslinux"
 
 NoStrip = ["/sbin", "/usr/lib"]
 
-def setup():
-    # previously linked to probably some other glibc, better force recompile
-    # shelltools.unlink("gethostip")
-    # shelltools.chmod("add_crc", 0755)
-    pisitools.cflags.remove("-fPIC")
+pisitools.flags.remove("-fPIC")
 
 def build():
     # shelltools.export("CFLAGS", "-Werror -Wno-unused -finline-limit=2000")
