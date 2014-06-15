@@ -15,7 +15,6 @@ def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--with-gtk \
                          --with-pic \
-                         --with-qt \
                          --enable-pch \
                          --disable-rpath \
                          --enable-theora \
