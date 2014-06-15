@@ -9,7 +9,8 @@ from pisi.actionsapi import pisitools
 
 def setup():
     autotools.configure("--enable-printing \
-                         --enable-unicode-glyphs")
+                         --enable-unicode-glyphs \
+                         --with-wx-config=/usr/bin/wx-config-2.8")
 
 def build():
     autotools.make()
