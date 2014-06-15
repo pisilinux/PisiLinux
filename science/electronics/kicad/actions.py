@@ -15,7 +15,8 @@ def setup():
     pisitools.dosed("CMakeLists.txt", "-O2", "-O1")
     
     cmaketools.configure("-DKICAD_STABLE_VERSION=ON \
-                          -DCMAKE_INSTALL_PREFIX=/usr")
+                          -DCMAKE_INSTALL_PREFIX=/usr \
+                          --with-wx-config=/usr/bin/wx-config-2.8")
                           
     for i in ["library", "doc"]:
         shelltools.cd(i)
