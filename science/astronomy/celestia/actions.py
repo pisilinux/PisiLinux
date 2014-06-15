@@ -4,17 +4,18 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS", "%s -fsigned-char" % get.CFLAGS())
-    shelltools.export("CXXFLAGS", "%s -fsigned-char" % get.CXXFLAGS())
+    pisitools.flags.add("-fsigned-char")
+    pisitools.dosed("configure.in", "AM_CONFIG_HEADER", "AC_CONFIG_HEADERS")
     autotools.autoreconf("-fi")
     autotools.configure("--with-gtk \
                          --with-pic \
+                         --with-qt \
                          --enable-pch \
                          --disable-rpath \
                          --enable-theora \
