@@ -9,7 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure("-DCMAKE_BUILD_TYPE=release", installPrefix="/usr")
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=release \
+                          -DwxWidgets_CONFIG_EXECUTABLE=/usr/bin/wx-config-2.8\
+                          -DwxWidgets_wxrc_EXECUTABLE=/usr/bin/wxrc-2.8", installPrefix="/usr")
 
 def build():
     cmaketools.make()
