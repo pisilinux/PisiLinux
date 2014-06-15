@@ -14,9 +14,11 @@ def setup():
     pisitools.dosed("pcbnew/dialogs/dialog_fp_lib_table.cpp","wxRE_ADVANCED","wxRE_EXTENDED")
     pisitools.dosed("CMakeLists.txt", "-O2", "-O1")
     
-    cmaketools.configure("-DKICAD_STABLE_VERSION=ON \
+    cmaketools.configure("-DKICAD_STABLE_VERSION=ON    \
+                          -DCMAKE_BUILD_TYPE=Release   \
                           -DCMAKE_INSTALL_PREFIX=/usr \
-                          --with-wx-config=/usr/bin/wx-config-2.8")
+                          -DwxWidgets_CONFIG_EXECUTABLE='/usr/bin/wx-config-2.8' \
+                          -DwxWidgets_wxrc_EXECUTABLE='/usr/bin/wxrc32-2.8")
                           
     for i in ["library", "doc"]:
         shelltools.cd(i)
