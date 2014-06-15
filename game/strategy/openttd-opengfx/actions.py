@@ -19,8 +19,6 @@ lines = ["_V = ",
          "DOCDIR=%s/usr/share/doc/%s" % (get.installDIR(), get.srcNAME())]
 
 def setup():
-    # will not use gimp to regenerate the pngs
-    pisitools.dosed('scripts/Makefile.def', 'echo "gimp"', 'echo ""')
     with open("Makefile.local", 'w') as file:
         for line in lines:
             file.write("%s\n" % line)
