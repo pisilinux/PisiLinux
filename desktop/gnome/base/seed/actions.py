@@ -9,9 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
+    #https://projects.archlinux.org/svntogit/packages.git/plain/trunk/rl63.patch?h=packages/seed
+    pisitools.dosed("modules/readline/seed-readline.c", "Function *", "rl_command_func_t *")
     autotools.configure("--disable-static \
                          --with-webkit=3.0 \
                          --enable-readline-module \
