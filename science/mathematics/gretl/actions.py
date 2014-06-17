@@ -7,34 +7,12 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
-from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
-
 def setup():
-    shelltools.export("CFLAGS", "%s -fPIC" % get.CFLAGS())
-    # autoheader fails when we "autoreconf -vif -Imacros" the package.
-    #autotools.autoreconf("-vif -Imacros")
-    autotools.aclocal("--force -Imacros")
-    libtools.libtoolize("--copy --force")
-    autotools.autoconf("--force -Imacros")
-
-    autotools.configure("--with-readline \
-                         --disable-sse2 \
-                         --disable-rpath \
-                         --disable-static \
-                         --disable-openmp \
-                         --enable-gui \
-                         --without-gnome \
-                         --with-gtksourceview \
-                         --with-pic \
-                         --with-audio \
-                         --with-mpfr")
-
-                         #Disable doc for now
-                         # config.status: error: cannot find input file: `doc/commands/Makefile.in'
-                         #--enable-build-doc \
+    #https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=741767
+    pisitools.dosed("cli/complete.c", "CPPFunction *", "rl_completion_func_t *")
+    autotools.configure()
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
