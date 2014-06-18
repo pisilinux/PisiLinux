@@ -12,7 +12,8 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-debug \
                          --disable-dependency-tracking \
-                         --with-wx-version=2.8")
+                         --with-wx-config=/usr/bin/wx-config-2.8")
+    shelltools.export("WX_CONFIG", "/usr/bin/wx-config-2.8 ")
 
 def build():
     autotools.make()
