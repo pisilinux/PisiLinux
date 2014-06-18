@@ -6,10 +6,7 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
-
-#WorkDir = "acct-6.4-pre1"
 
 def setup():
     autotools.autoreconf("-ivf")
