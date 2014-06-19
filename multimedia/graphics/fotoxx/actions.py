@@ -9,6 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
+    pisitools.dosed("desktop", "GenericName=Photo Editor", "GenericName=Photo Editor\nComment[tr]=Dijital fotoğraf düzenleyici\nGenericName[tr]=Fotoğraf Düzenleyici")
     pisitools.dosed("Makefile", "/share/doc/fotoxx", "/share/doc/$(PF)")
     pisitools.dosed("Makefile", "xdg-desktop-menu", "#xdg-desktop-menu")
     autotools.make('PREFIX="/usr" \
