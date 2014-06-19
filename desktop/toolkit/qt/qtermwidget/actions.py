@@ -8,7 +8,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure("-DCMAKE_SKIP_RPATH=ON")
+    cmaketools.configure("-DCMAKE_SKIP_RPATH=ON -DCMAKE_INSTALL_LIBDIR=lib")
 
 def build():
     cmaketools.make()
@@ -16,11 +16,11 @@ def build():
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dobin("src/test")
-    pisitools.rename("/usr/bin/test", "consoleq")
+#    pisitools.dobin("src/test")
+#    pisitools.rename("/usr/bin/test", "consoleq")
 
-    pisitools.remove("/usr/include/qtermwidget.h")
-    pisitools.insinto("/usr/include/qtermwidget", "lib/*.h")
+    pisitools.remove("/usr/include/qtermwidget4/qtermwidget.h")
+    pisitools.insinto("/usr/include/qtermwidget4", "lib/*.h")
 
     pisitools.dodoc("AUTHORS", "README", "COPYING")
 
