@@ -26,6 +26,11 @@ else:
 
 
 def setup():
+    shelltools.system("wget http://sourceforge.net/p/irrlicht/code/4600/tree/trunk/source/Irrlicht/COpenGLExtensionHandler.h?format=raw --output-document COpenGLExtensionHandler.h")
+    shelltools.system("wget http://sourceforge.net/p/irrlicht/code/4600/tree/trunk/source/Irrlicht/glext.h?format=raw --output-document glext.h")
+    shelltools.system("wget http://sourceforge.net/p/irrlicht/code/4600/tree/trunk/source/Irrlicht/glxext.h?format=raw --output-document glxext.h")
+    shelltools.system("wget http://sourceforge.net/p/irrlicht/code/4600/tree/trunk/source/Irrlicht/wglext.h?format=raw --output-document wglext.h")
+    
     for i in ["jpeglib", "zlib", "libpng"]:
         unwanteddir = "%s/%s" % (mainsrcdir, i)
         if shelltools.isDirectory(unwanteddir):
@@ -42,8 +47,7 @@ def build():
 def install():
     autotools.rawInstall("-C %s INSTALL_DIR=%s/%s" % (mainsrcdir, get.installDIR(), librarydir))
 
-    for i in ["libIrrlicht",  "libIrrXML"]:
-        pisitools.dosym( "%s.so.%s" % (i, srcversionname), "/usr/lib/%s.so.%s" % (i, abiversion))
+    pisitools.dosym("/usr/lib/libIrrlicht.so.1.8.1", "/usr/lib/libIrrlicht.so.1")
 
     pisitools.dodoc("doc/*.txt", "*.txt")
     #pisitools.insinto("/usr/lib", "lib/Win32-gcc/libIrrlicht.a")
