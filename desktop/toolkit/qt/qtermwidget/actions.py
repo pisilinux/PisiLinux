@@ -21,6 +21,7 @@ def install():
 
     pisitools.remove("/usr/include/qtermwidget4/qtermwidget.h")
     pisitools.insinto("/usr/include/qtermwidget4", "lib/*.h")
+    pisitools.insinto("/usr/lib/pkgconfig", "qtermwidget4.pc")
 
     pisitools.dodoc("AUTHORS", "README", "COPYING")
 

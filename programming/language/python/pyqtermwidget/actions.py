@@ -11,6 +11,8 @@ from pisi.actionsapi import get
 def setup():
     shelltools.cd("pyqt4")
     shelltools.system("python config.py")
+    pisitools.dosed("Makefile", "^(CXXFLAGS.*)$", "\\1 -fpermissive")
+    pisitools.dosed("Makefile", "-lqtermwidget ", "-lqtermwidget4 ")
 
 def build():
     shelltools.cd("pyqt4")
