@@ -10,8 +10,8 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.copy("/usr/share/libtool/config/config.sub", "%s/libtar-1.2.11/autoconf/" % get.workDIR())
-    shelltools.copy("/usr/share/libtool/config/ltmain.sh", "%s/libtar-1.2.11/autoconf/" % get.workDIR())
+    #shelltools.copy("/usr/share/libtool/config/config.sub", "%s/libtar-1.2.11/autoconf/" % get.workDIR())
+    #shelltools.copy("/usr/share/libtool/config/ltmain.sh", "%s/libtar-1.2.11/autoconf/" % get.workDIR())
     autotools.autoreconf("-fvi")
     autotools.configure("--disable-static")
 
