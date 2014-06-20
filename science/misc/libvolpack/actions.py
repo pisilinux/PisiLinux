@@ -9,9 +9,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
-WorkDir = "volpack-%s" % get.srcVERSION().replace("_pre7","c7")
-
 def setup():
+    pisitools.ldflags.add("-lm")
     shelltools.export("CXXFLAGS", get.CXXFLAGS())
     shelltools.export("CFLAGS", get.CFLAGS())
     autotools.configure("--disable-dependency-tracking \
