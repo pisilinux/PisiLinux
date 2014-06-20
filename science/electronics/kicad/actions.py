@@ -16,7 +16,8 @@ def setup():
     
     cmaketools.configure("-DKICAD_STABLE_VERSION=ON \
                           -DCMAKE_INSTALL_PREFIX=/usr \
-                          --with-wx-config=/usr/bin/wx-config-2.8")
+                          -DwxWidgets_CONFIG_EXECUTABLE='/usr/bin/wx-config-2.8' \
+                          -DwxWidgets_wxrc_EXECUTABLE='/usr/bin/wxrc-2.8'")
                           
     for i in ["library", "doc"]:
         shelltools.cd(i)

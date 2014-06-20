@@ -6,13 +6,10 @@
 
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "kradio4-%s" % get.srcVERSION().replace("_", "-")
-shelltools.export("HOME", get.workDIR()) 
-
 def setup():
+    pisitools.dosed("CMakeLists.txt", "KDE4_INCLUDE_DIR", "KDE4_INCLUDES")
     pisitools.dosed("CMakeLists.txt", "share\/doc\/kradio4", "share/doc/kradio")
     kde4.configure()
 

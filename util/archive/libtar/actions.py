@@ -10,8 +10,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.copy("/usr/share/libtool/config/config.sub", "%s/libtar-1.2.11/autoconf/" % get.workDIR())
-    shelltools.copy("/usr/share/libtool/config/ltmain.sh", "%s/libtar-1.2.11/autoconf/" % get.workDIR())
+    #libtar-1.2.11-free.patch
+    pisitools.dosed("lib/output.c", "#ifdef STDC_HEADERS", "#ifdef STDC_HEADERS\n# include <stdlib.h>")
+    pisitools.dosed("lib/wrapper.c", "#ifdef STDC_HEADERS", "#ifdef STDC_HEADERS\n# include <stdlib.h>")
     autotools.autoreconf("-fvi")
     autotools.configure("--disable-static")
 

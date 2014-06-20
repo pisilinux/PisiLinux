@@ -8,11 +8,11 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-#WorkDir = "acct-6.4-pre1"
-
 def setup():
-    autotools.autoreconf("-fiv")
-    autotools.configure("--enable-linux-multiformat --prefix=/usr")
+    autotools.autoreconf("-ivf")
+    autotools.configure("--prefix=/usr \
+                         --sbindir=/sbin \
+                         --enable-linux-multiformat")
 
 def build():
     autotools.make()

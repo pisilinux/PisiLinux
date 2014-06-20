@@ -6,8 +6,12 @@
 from pisi.actionsapi import get
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
+
 
 def setup():
+    # llvm 3.4 compatibility
+    shelltools.system("sed -i '/JITExceptionHandling/d' src/scripting/abc.cpp")
     cmaketools.configure('-DCMAKE_BUILD_TYPE=release \
                           -DCOMPILE_PLUGIN=1 \
                           -DPLUGIN_DIRECTORY="/usr/lib/browser-plugins/" \
