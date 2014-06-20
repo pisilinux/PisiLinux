@@ -6,9 +6,12 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.configure("--disable-static")
+    shelltools.export("LDFLAGS", "%s -lm -Wl,--rpath -Wl,/usr/lib" % get.LDFLAGS())
+    autotools.configure()
 
 def build():
     autotools.make()
