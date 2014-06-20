@@ -15,28 +15,20 @@ shelltools.export("LC_ALL", "C")
 
 def setup():
     shelltools.system('export DISTRIBUTION_PATCHES="patches/fontconfig-paths.diff \
-                               patches/openjdk7_nonreparenting-wm.diff"')
+                               patches/openjdk7_nonreparenting-wm.diff\
+                               patches/giflib_5.1.diff"')
                              
     autotools.rawConfigure("\
                             --disable-tests \
                             --disable-Werror \
-                            --disable-downloading \
                             --with-parallel-jobs=%s \
-                            --enable-pulse-java \
                             --enable-nss \
                             --with-rhino \
                             --enable-bootstrap \
                             --with-ecj-jar=/usr/share/java/ecj.jar \
                             --with-jdk-home=/usr/lib/jvm/java-7-openjdk \
-                            --with-openjdk-src-zip=13970e76b784.tar.gz \
-                            --with-hotspot-src-zip=69b542696e5b.tar.gz \
-                            --with-corba-src-zip=e6ad5b912691.tar.gz \
-                            --with-jaxp-src-zip=94b7e8e0d96f.tar.gz \
-                            --with-jaxws-src-zip=bd9a50a78d04.tar.gz \
-                            --with-jdk-src-zip=9448fff93286.tar.gz \
-                            --with-langtools-src-zip=8c26a3c39128.tar.gz \
                             --with-abs-install-dir=/usr/lib/jvm/java-7-openjdk \
-                            --with-pkgversion='PisiLinux build 7.u51_2.4.6' \
+                            --with-pkgversion='PisiLinux build 7.u60_2.5.0' \
                            " % get.makeJOBS().replace("-j", ""))
 
 def build():
@@ -130,4 +122,3 @@ def install():
     
     #seems we need to add this symlink into ca-certificates-java package ?
     pisitools.dosym("/etc/ssl/certs/java/cacerts", "%s/jre/lib/security/cacerts" % jvmdir)
-    
