@@ -28,8 +28,9 @@ def setup():
                          --with-zlib=/usr \
                          --with-jikes=no \
                          --with-kwallet \
+                         --without-berkeley-db \
                          --disable-mod-activation")
-    
+
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
