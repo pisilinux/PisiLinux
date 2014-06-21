@@ -12,7 +12,7 @@ def setup():
     #fix error "Only <glib.h> can be included directly."
     for f in shelltools.ls("src/*"):
         pisitools.dosed(f, "(#include\s<glib)\/[^\.]+(\.h>)", r"\1\2")
-    autotools.configure()
+    autotools.configure("LIBS=-lm")
 
 def build():
     autotools.make()

@@ -10,6 +10,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def build():
+    # libpng15 fix    
+    shelltools.system("sed -i 's:$(ARCH_LINKS):$(ARCH_LINKS) -lpng:' Makefile")
     autotools.make()
 
 def install():
