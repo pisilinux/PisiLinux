@@ -5,14 +5,20 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
 def setup():
+    libtools.libtoolize("--force --install")
     autotools.autoreconf("-vfi")
-    autotools.configure()
+    autotools.configure("--enable-yesterday \
+                    	--enable-install-isag \
+                    	--enable-install-cron \
+                    	--enable-copy-only \
+                    	--disable-man-group")
 
 def build():
-    autotools.make()
+    autotools.make("-j1")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
