@@ -7,10 +7,12 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
+from pisi.actionsapi import shelltools
 
 def setup():
     #autotools.autoreconf("-fiv")
-    autotools.configure("--disable-static \
+    autotools.configure("--prefix=/usr \
+                         --disable-static \
                          --enable-id-check \
                          --disable-clamav \
                          --disable-zlib-vcheck \
@@ -29,5 +31,8 @@ def install():
     pisitools.dodir("/run/clamav")
     pisitools.dodir("/var/lib/clamav")
     pisitools.dodir("/var/log/clamav")
+    shelltools.touch(get.installDIR() + "/var/log/clamav/freshclam.log")
+    shelltools.chmod(get.installDIR() + "/var/log/clamav/freshclam.log", 0600)
+    shelltools.chown("%s/var/log/clamav/freshclam.log" % get.installDIR(), "clamav", "clamav")
 
     pisitools.dodoc("AUTHORS", "BUGS", "COPYING*", "NEWS", "README", "ChangeLog", "FAQ")

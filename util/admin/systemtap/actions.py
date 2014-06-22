@@ -52,4 +52,4 @@ def install():
     # Clean uprobes directory
     #autotools.make("-C %s/usr/share/systemtap/runtime/uprobes clean" % get.installDIR())
 
-    pisitools.dodoc("COPYING", "HACKING", "INTERNALS", "initscript/README.*")
+    pisitools.dodoc("COPYING", "HACKING", "INTERNALS", "README.*")

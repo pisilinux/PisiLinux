@@ -10,9 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    #shelltools.export("CXXFLAGS", "%s -lcrypto -lpthread -lssh -lz" % get.CXXFLAGS())
-    #shelltools.export("CFLAGS", get.CFLAGS())
-    shelltools.export("LDFLAGS", "%s -lcrypto -lssh -ljpeg -lz -lpthread" % get.LDFLAGS())
+    shelltools.export("LDFLAGS", "%s -lrt -lnsl -lcrypto -lssh -ljpeg -lz -lpthread" % get.LDFLAGS())
     shelltools.unlink("dcmjpls/libcharls")
     cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
                           -DCMAKE_SKIP_RPATH=OFF \
