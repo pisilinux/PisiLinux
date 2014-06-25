@@ -4,17 +4,13 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import autotools
+from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
 
-def setup():
-    autotools.autoreconf("-fiv")
-    autotools.configure()
-
 def build():
-    autotools.make()
+    pythonmodules.compile()
 
 def install():
-    autotools.install()
-    pisitools.dodoc("ChangeLog", "COPYING", "README")
+    pythonmodules.install()
 
+    pisitools.dodoc("LICENSE")
