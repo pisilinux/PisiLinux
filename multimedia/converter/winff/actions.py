@@ -16,7 +16,7 @@ def setup():
     pass
 
 def build():
-    shelltools.system("/usr/lib/lazarus/lazbuild --widgetset=qt -B winff.lpr")
+    shelltools.system("/usr/lib/lazarus/lazbuild --lazarusdir=/usr/lib/lazarus --widgetset=qt -B winff.lpr")
 #   shelltools.system("strip --strip-all winff")
    
 def install():
