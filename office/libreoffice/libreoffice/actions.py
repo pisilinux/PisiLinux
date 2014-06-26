@@ -47,6 +47,8 @@ def setup():
     shelltools.system("ulimit -c unlimited")
     #autotools.aclocal("-I m4")
     #autotools.autoconf()
+    pisitools.dosed("sysui/desktop/menus/math.desktop", "Categories=Office;Education;Science;Math;X-Red-Hat-Base;X-MandrivaLinux-Office-Other;", "Categories=Office;")
+    pisitools.dosed("sysui/desktop/menus/draw.desktop", "Categories=Office;FlowChart;Graphics;2DGraphics;VectorGraphics;X-Red-Hat-Base;X-MandrivaLinux-Office-Drawing;", "Categories=Office;")
     # avoid running autogen.sh on make
     shelltools.touch("autogen.lastrun")
     autotools.rawConfigure('--with-vendor="PisiLinux" \
