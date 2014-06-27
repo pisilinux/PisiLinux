@@ -9,6 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
+    pisitools.dosed("abiword.desktop", "Icon=abiword", "Icon=/usr/share/pixmaps/abiword.png")
     autotools.autoreconf("-vif")
     
     autotools.configure("--disable-static \
@@ -29,3 +30,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+
+    pisitools.insinto("/usr/share/pixmaps/", "abiword.png")
