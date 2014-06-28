@@ -20,9 +20,10 @@ def setup():
                          --libexecdir=/usr/libexec \
                          --sysconfdir=/etc \
                          --disable-apparmor \
- #                        --enable-seccomp \
+                         --enable-seccomp \
                          --enable-cgmanager \
                          --enable-capabilities \
+                         --with-lua-pc=lua \
                          --enable-lua")
 
 def build():
