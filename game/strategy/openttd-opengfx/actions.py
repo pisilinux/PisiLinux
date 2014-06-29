@@ -9,10 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
-#shelltools.export("XDG_CACHE_HOME",  get.workDIR())
-#shelltools.export("XDG_DATA_HOME",  get.workDIR())
-#shelltools.export("GIMP2_DIRECTORY",  get.workDIR())
-
 lines = ["_V = ",
          "_E = echo",
          "INSTALL_DIR=%s/usr/share/openttd/data/opengfx" % get.installDIR(),
@@ -30,8 +26,7 @@ def build():
     autotools.make()
 
 def install():
-    autotools.rawInstall()
-#    pisitools.dodir("/usr/share/doc/openttd-opengfx")
-#    shelltools.cd("opengfx-%s" % get.srcVERSION())
-#    for it in shelltools.ls("*.txt"):
-#        pisitools.dosym("/usr/share/openttd/data/opengfx/%s" % it,  "/usr/share/doc/openttd-opengfx/%s" % it)
+    pisitools.insinto("/usr/share/openttd/data/opengfx", "*.grf")
+    pisitools.insinto("/usr/share/openttd/data/opengfx", "*.obg")
+    
+    pisitools.dodoc("docs/changelog.txt", "docs/readme.ptxt", "docs/license.txt", "docs/readme.txt")

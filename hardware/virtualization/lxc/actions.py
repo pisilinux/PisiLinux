@@ -20,10 +20,10 @@ def setup():
                          --libexecdir=/usr/libexec \
                          --sysconfdir=/etc \
                          --enable-api-doc \
-                         --disable-apparmor \
-                         --disable-seccomp \
-                         --disable-cgmanager \
+                         --enable-seccomp \
+                         --enable-cgmanager \
                          --enable-capabilities \
+                         --with-lua-pc=lua \
                          --enable-lua")
 
 def build():

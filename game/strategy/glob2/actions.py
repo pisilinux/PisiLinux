@@ -32,8 +32,8 @@ def fixDirs(d):
                 shelltools.unlink(os.path.join(root,name))
 
 def build():
-    scons.make('CXXFLAGS="%s" \
-                LINKFLAGS="%s" \
+    scons.make('CXXFLAGS="%s " \
+                LINKFLAGS="%s " \
                 LINKFLAGS=-lboost_system \
                 INSTALLDIR="/usr/share/glob2"' % (get.CXXFLAGS(), get.LDFLAGS()))
 
