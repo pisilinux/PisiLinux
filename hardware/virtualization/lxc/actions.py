@@ -19,9 +19,10 @@ def setup():
                          --localstatedir=/var \
                          --libexecdir=/usr/libexec \
                          --sysconfdir=/etc \
+                         --enable-api-doc \
                          --disable-apparmor \
- #                        --enable-seccomp \
-                         --enable-cgmanager \
+                         --disable-seccomp \
+                         --disable-cgmanager \
                          --enable-capabilities \
                          --enable-lua")
 
@@ -38,7 +39,7 @@ def install():
     pisitools.dodir("/var/lib/lxc")
 
     # Install management tools
-    for script in shelltools.ls("lxc-management-tools/lxc-*"):
+    for script in shelltools.ls("lxc-management-tools/lxc*"):
         pisitools.dobin(script)
 
     #shelltools.move("%s/usr/lib/lxc/templates" % get.installDIR(), "%s/%s/lxc/" % (get.installDIR(), get.docDIR()))
