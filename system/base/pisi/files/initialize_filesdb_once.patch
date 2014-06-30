@@ -1,0 +1,283 @@
+diff -Naur pisi~/api.py pisi/api.py
+--- pisi~/api.py	2014-06-15 16:33:39.000000000 +0200
++++ pisi/api.py	2014-06-24 22:36:50.565227969 +0200
+@@ -401,10 +401,9 @@
+ 
+     >>> [("kvm", (["lib/modules/2.6.18.8-86/extra/kvm-amd.ko","lib/modules/2.6.18.8-86/extra/kvm-intel.ko"])),]
+     """
+-    filesdb = pisi.db.filesldb.FilesLDB()
+     if term.startswith("/"): # FIXME: why? why?
+         term = term[1:]
+-    return filesdb.search_file(term)
++    return ctx.filesdb.search_file(term)
+ 
+ def fetch(packages=[], path=os.path.curdir):
+     """
+@@ -869,7 +868,6 @@
+ # FIXME: rebuild_db is only here for filesdb and it really is ugly. we should not need any rebuild.
+ @locked
+ def rebuild_db():
+-    filesdb = pisi.db.filesldb.FilesLDB()
+ 
+     # save parameters and shutdown pisi
+     options = ctx.config.options
+@@ -877,9 +875,9 @@
+     comar = ctx.comar
+     pisi._cleanup()
+ 
+-    filesdb.close()
+-    filesdb.destroy()
+-    filesdb = pisi.db.filesldb.FilesLDB()
++    ctx.filesdb.close()
++    ctx.filesdb.destroy()
++    ctx.filesdb = pisi.db.filesldb.FilesLDB()
+ 
+     # reinitialize everything
+     set_userinterface(ui)
+diff -Naur pisi~/atomicoperations.py pisi/atomicoperations.py
+--- pisi~/atomicoperations.py   2014-06-15 16:33:39.000000000 +0200
++++ pisi/atomicoperations.py    2014-06-25 19:10:49.061679815 +0200
+@@ -120,6 +120,7 @@
+             raise Error(_("Package %s not found in any active repository.") % name)
+ 
+     def __init__(self, package_fname, ignore_dep = None, ignore_file_conflicts = None):
++        if not ctx.filesdb: ctx.filesdb = pisi.db.filesldb.FilesLDB()
+         "initialize from a file name"
+         super(Install, self).__init__(ignore_dep)
+         if not ignore_file_conflicts:
+@@ -134,14 +135,10 @@
+         self.metadata = self.package.metadata
+         self.files = self.package.files
+         self.pkginfo = self.metadata.package
+-        self.filesdb = pisi.db.filesldb.FilesLDB()
+         self.installdb = pisi.db.installdb.InstallDB()
+         self.operation = INSTALL
+         self.store_old_paths = None
+ 
+-    def __del__(self):
+-        self.filesdb.close()
+-
+     def install(self, ask_reinstall = True):
+ 
+         # Any package should remove the package it replaces before
+@@ -186,7 +183,7 @@
+     def check_replaces(self):
+         for replaced in self.pkginfo.replaces:
+             if self.installdb.has_package(replaced.package):
+-                pisi.operations.remove.remove_replaced_packages([replaced.package], filesdb=self.filesdb)
++                pisi.operations.remove.remove_replaced_packages([replaced.package])
+ 
+     def check_versioning(self, version, release):
+         try:
+@@ -215,7 +212,7 @@
+         # check file conflicts
+         file_conflicts = []
+         for f in self.files.list:
+-            pkg, existing_file = self.filesdb.get_file(f.path)
++            pkg, existing_file = ctx.filesdb.get_file(f.path)
+             if pkg:
+                 dst = pisi.util.join_path(ctx.config.dest_dir(), f.path)
+                 if pkg != self.pkginfo.name and not os.path.isdir(dst) and really_conflicts(pkg):
+@@ -282,7 +279,7 @@
+             self.old_files = self.installdb.get_files(pkg.name)
+             self.old_pkginfo = self.installdb.get_info(pkg.name)
+             self.old_path = self.installdb.pkg_dir(pkg.name, iversion_s, irelease_s)
+-            self.remove_old = Remove(pkg.name, store_old_paths = self.store_old_paths, filesdb = self.filesdb)
++            self.remove_old = Remove(pkg.name, store_old_paths = self.store_old_paths)
+             self.remove_old.run_preremove()
+             self.remove_old.run_postremove()
+ 
+@@ -454,7 +451,7 @@
+                     if os.path.samestat(new_file_stat, old_file_stat):
+                         break
+                 else:
+-                    Remove.remove_file(old_file, self.pkginfo.name, store_old_paths=self.store_old_paths, filesdb=self.filesdb)
++                    Remove.remove_file(old_file, self.pkginfo.name, store_old_paths=self.store_old_paths)
+ 
+         if self.reinstall():
+             # get 'config' typed file objects
+@@ -512,7 +509,7 @@
+     def update_databases(self):
+         "update databases"
+         if self.reinstall():
+-            self.remove_old.remove_db(filesdb=self.filesdb)
++            self.remove_old.remove_db()
+ 
+         if self.config_later:
+             self.installdb.mark_pending(self.pkginfo.name)
+@@ -531,7 +528,7 @@
+             pisi.api.add_needs_reboot(package_name)
+ 
+         # filesdb
+-        self.filesdb.add_files(self.metadata.package.name, self.files)
++        ctx.filesdb.add_files(self.metadata.package.name, self.files)
+ 
+         # installed packages
+         self.installdb.add_package(self.pkginfo)
+@@ -562,10 +559,10 @@
+ 
+ class Remove(AtomicOperation):
+ 
+-    def __init__(self, package_name, ignore_dep = None, store_old_paths = None, filesdb = None):
++    def __init__(self, package_name, ignore_dep = None, store_old_paths = None):
++        if not ctx.filesdb: ctx.filesdb = pisi.db.filesldb.FilesLDB()
+         super(Remove, self).__init__(ignore_dep)
+         self.installdb = pisi.db.installdb.InstallDB()
+-        self.filesdb = filesdb
+         self.package_name = package_name
+         self.package = self.installdb.get_package(self.package_name)
+         self.store_old_paths = store_old_paths
+@@ -577,10 +574,9 @@
+             ctx.ui.warning(_('File list could not be read for package %s, continuing removal.') % package_name)
+             self.files = pisi.files.Files()
+ 
+-    def run(self, filesdb = None):
++    def run(self):
+         """Remove a single package"""
+ 
+-        if filesdb: self.filesdb = filesdb
+         ctx.ui.status(_('Removing package %s') % self.package_name)
+         ctx.ui.notify(pisi.ui.removing, package = self.package, files = self.files)
+         if not self.installdb.has_package(self.package_name):
+@@ -591,7 +587,7 @@
+ 
+         self.run_preremove()
+         for fileinfo in self.files.list:
+-            self.remove_file(fileinfo, self.package_name, True, filesdb=filesdb)
++            self.remove_file(fileinfo, self.package_name, True)
+ 
+         self.run_postremove()
+ 
+@@ -609,7 +605,7 @@
+         # is there any package who depends on this package?
+ 
+     @staticmethod
+-    def remove_file(fileinfo, package_name, remove_permanent=False, store_old_paths=None, filesdb=None):
++    def remove_file(fileinfo, package_name, remove_permanent=False, store_old_paths=None):
+ 
+         if fileinfo.permanent and not remove_permanent:
+             return
+@@ -621,9 +617,7 @@
+         # package (this can legitimately occur while upgrading
+         # two packages such that a file has moved from one package to
+         # another as in #2911)
+-        if not filesdb:
+-            filesdb = pisi.db.filesldb.FilesLDB()
+-        pkg, existing_file = filesdb.get_file(fileinfo.path)
++        pkg, existing_file = ctx.filesdb.get_file(fileinfo.path)
+         if pkg and not pkg == package_name:
+             ctx.ui.warning(_('Not removing conflicted file : %s') % fpath)
+             return
+@@ -690,17 +684,16 @@
+     def remove_pisi_files(self):
+         util.clean_dir(self.package.pkg_dir())
+ 
+-    def remove_db(self, filesdb=None):
++    def remove_db(self):
+         self.installdb.remove_package(self.package_name)
+-        if not filesdb: self.filesdb.remove_files(self.files.list)
+-        else: filesdb.remove_files(self.files.list)
++        ctx.filesdb.remove_files(self.files.list)
+ # FIX:DB
+ #         # FIXME: something goes wrong here, if we use ctx operations ends up with segmentation fault!
+ #         pisi.db.packagedb.remove_tracking_package(self.package_name)
+ 
+ 
+-def remove_single(package_name, filesdb=None):
+-    Remove(package_name).run(filesdb=filesdb)
++def remove_single(package_name):
++    Remove(package_name).run()
+ 
+ def build(package):
+     # wrapper for build op
+diff -Naur pisi~/context.py pisi/context.py
+--- pisi~/context.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/context.py	2014-06-24 22:28:17.685246708 +0200
+@@ -62,3 +62,5 @@
+ 
+ def keyboard_interrupt_pending():
+     return sig and sig.signal_pending(signal.SIGINT)
++
++filesdb = None
+diff -Naur pisi~/operations/install.py pisi/operations/install.py
+--- pisi~/operations/install.py	2014-06-15 16:33:39.000000000 +0200
++++ pisi/operations/install.py	2014-06-24 22:40:35.901219735 +0200
+@@ -95,7 +95,6 @@
+         ctx.ui.info(util.colorize(_("Downloading %d / %d") % (order.index(x)+1, len(order)), "yellow"))
+         install_op = atomicoperations.Install.from_name(x)
+         paths.append(install_op.package_fname)
+-        install_op = None
+ 
+     # fetch to be installed packages but do not install them.
+     if ctx.get_option('fetch_only'):
+@@ -108,7 +107,6 @@
+         ctx.ui.info(util.colorize(_("Installing %d / %d") % (paths.index(path)+1, len(paths)), "yellow"))
+         install_op = atomicoperations.Install(path)
+         install_op.install(False)
+-        install_op = None
+ 
+     return True
+ 
+diff -Naur pisi~/operations/remove.py pisi/operations/remove.py
+--- pisi~/operations/remove.py	2014-06-15 16:33:39.000000000 +0200
++++ pisi/operations/remove.py	2014-06-24 22:37:47.963225871 +0200
+@@ -24,11 +24,9 @@
+ import pisi.ui as ui
+ import pisi.db
+ 
+-def remove(A, ignore_dep = False, ignore_safety = False, filesdb = None):
++def remove(A, ignore_dep = False, ignore_safety = False):
+     """remove set A of packages from system (A is a list of package names)"""
+ 
+-    if not filesdb: filesdb = pisi.db.filesldb.FilesLDB()
+-
+     componentdb = pisi.db.componentdb.ComponentDB()
+     installdb = pisi.db.installdb.InstallDB()
+ 
+@@ -82,7 +80,7 @@
+ 
+     for x in order:
+         if installdb.has_package(x):
+-            atomicoperations.remove_single(x, filesdb=filesdb)
++            atomicoperations.remove_single(x)
+         else:
+             ctx.ui.info(_('Package %s is not installed. Cannot remove.') % x)
+ 
+@@ -129,6 +127,6 @@
+         if remove(obsoletes, ignore_dep=True, ignore_safety=True):
+             raise Exception(_("Obsoleted packages remaining"))
+ 
+-def remove_replaced_packages(replaced, filesdb=None):
+-    if remove(replaced, ignore_dep=True, ignore_safety=True, filesdb=filesdb):
++def remove_replaced_packages(replaced):
++    if remove(replaced, ignore_dep=True, ignore_safety=True):
+         raise Exception(_("Replaced package remains"))
+diff -Naur pisi~/operations/upgrade.py pisi/operations/upgrade.py
+--- pisi~/operations/upgrade.py	2014-06-15 16:33:39.000000000 +0200
++++ pisi/operations/upgrade.py	2014-06-24 22:40:50.745219193 +0200
+@@ -205,7 +205,6 @@
+         ctx.ui.info(util.colorize(_("Downloading %d / %d") % (order.index(x)+1, len(order)), "yellow"))
+         install_op = atomicoperations.Install.from_name(x)
+         paths.append(install_op.package_fname)
+-        install_op = None
+ 
+     # fetch to be upgraded packages but do not install them.
+     if ctx.get_option('fetch_only'):
+@@ -220,7 +219,6 @@
+         ctx.ui.info(util.colorize(_("Installing %d / %d") % (paths.index(path)+1, len(paths)), "yellow"))
+         install_op = atomicoperations.Install(path, ignore_file_conflicts = True)
+         install_op.install(not ctx.get_option('compare_sha1sum'))
+-        install_op = None
+ 
+ def plan_upgrade(A, force_replaced=True, replaces=None):
+     # FIXME: remove force_replaced
+diff -Naur pisi-cli~ pisi-cli
+--- pisi-cli~    2011-05-26 19:17:29.000000000 +0200
++++ pisi-cli   2014-06-25 18:24:25.499781521 +0200
+@@ -79,4 +79,6 @@
+     signal.signal(signal.SIGTERM, sig_handler)
+ 
+     cli = pisicli.PisiCLI()
++    if cli.command.name[1] in "rdb sf".split():
++        ctx.filesdb = pisi.db.filesldb.FilesLDB()
+     cli.run_command()
