@@ -13,6 +13,7 @@ from pisi.actionsapi import get
 def setup():
     pisitools.dosed("clamtk", "use ClamTk::Prefs", "use lib \"/usr/lib/\";\nuse ClamTk::Prefs")
     pisitools.dosed("clamtk", "use ClamTk::GUI", "use lib \"/usr/lib/\";\nuse ClamTk::GUI")
+    pisitools.dosed("clamtk", "use ClamTk::Analysis", "use lib \"/usr/lib/\";\nuse ClamTk::Analysis")
 
 def install():
     pisitools.dobin("clamtk")
