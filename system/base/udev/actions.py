@@ -34,7 +34,6 @@ def setup():
                 --disable-pam \
                 --disable-dbus \
                 --disable-audit \
-                --disable-xattr \
                 --disable-gcrypt \
                 --disable-gnutls \
                 --disable-logind \
