@@ -56,10 +56,10 @@ def setup():
 def build():
     autotools.make()
 
-def check():
-    for v in ["XDG_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"]:
-        shelltools.export(v, get.workDIR())
-    autotools.make("check")
+#def check():
+ #   for v in ["XDG_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"]:
+  #      shelltools.export(v, get.workDIR())
+   # autotools.make("check")
 
 
 def install():
