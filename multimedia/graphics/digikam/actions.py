@@ -8,11 +8,13 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
+from pisi.actionsapi import cmaketools
 
-shelltools.export("HOME", get.workDIR())
+#shelltools.export("HOME", get.workDIR())
 
 def setup():
-    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+    kde4.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                    -DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_SKIP_RPATH=ON \
                     -DENABLE_LCMS2=ON \
                     -DImageMagick_MagickCore_LIBRARY=/usr/lib/libMagickCore-6.Q16HDRI.so \
