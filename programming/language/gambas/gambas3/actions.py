@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     # Remove bundled font
-    shelltools.unlink("gb.sdl/src/data/*.ttf")
+    #shelltools.unlink("gb.sdl/src/data/*.ttf")
     shelltools.unlink("gb.sdl/src/data/LICENSE")
 
     # Remove the directory if empty
