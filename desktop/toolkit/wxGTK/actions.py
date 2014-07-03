@@ -55,5 +55,5 @@ def install():
     autotools.install("-C contrib")
 
     pisitools.dodoc("docs/*.txt", "docs/*.htm")
-    pisitools.domove("%s/usr/bin/wxrc-2.8" % get.installDIR(),"%s/usr/bin/wxrc" % get.installDIR())
-    pisitools.domove("%s/usr/bin/wxconfig-2.8" % get.installDIR(),"%s/usr/bin/wxconfig" % get.installDIR())
+    pisitools.rename("/usr/bin/wxrc-2.8", "wxrc")
+    pisitools.rename("/usr/bin/wx-config-2.8", "wxconfig")
