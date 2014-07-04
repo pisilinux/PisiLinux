@@ -9,16 +9,18 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "tinyxml"
-
 major, minor = get.srcVERSION().split(".", 1)
 
 def setup():
-    pisitools.dosed("Makefile", "@MAJOR_V@", "%s" % major)
-    pisitools.dosed("Makefile", "@MINOR_V@", "%s" % minor)
+    shelltools.system("setconf Makefile TINYXML_USE_STL YES")
+    shelltools.system('setconf Makefile RELEASE_CFLAGS "$CXXFLAGS -fPIC"')
+    #pisitools.dosed("Makefile", "@MAJOR_V@", "%s" % major)
+    #pisitools.dosed("Makefile", "@MINOR_V@", "%s" % minor)
 
 def build():
     autotools.make()
+    shelltools.system('g++ -fPIC "$CXXFLAGS" -shared -o "libtinyxml.so.0.2.6.2" \
+      -Wl,-soname,"libtinyxml.so.0" $(ls *.o | grep -v xmltest)')
 
 def install():
     pisitools.insinto("/usr/include", "*.h")
@@ -26,6 +28,8 @@ def install():
     # pisitools.dolib("libtinyxml.so*")
     for i in shelltools.ls("libtinyxml.so*"):
         pisitools.insinto("/usr/lib/", i)
-
+    
+    pisitools.dosym("/usr/lib/libtinyxml.so.0.2.6.2", "usr/lib/libtinyxml.so.0")
+    pisitools.dosym("/usr/lib/libtinyxml.so.0.2.6.2", "usr/lib/libtinyxml.so")
     pisitools.dodoc("changes.txt", "readme.txt")
     pisitools.dohtml("docs/*")
