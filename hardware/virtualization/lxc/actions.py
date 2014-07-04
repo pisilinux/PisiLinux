@@ -20,11 +20,20 @@ def setup():
                          --libexecdir=/usr/libexec \
                          --sysconfdir=/etc \
                          --enable-api-doc \
+	                 --enable-examples \
                          --enable-seccomp \
-                         --enable-cgmanager \
+                         --enable-lua \
+	                 --enable-bash \
+	                 --enable-python \
                          --enable-capabilities \
+                         --disable-cgmanager \
+                         --disable-rpath \
+	                 --disable-apparmor \
+	                 --disable-doc \
                          --with-lua-pc=lua \
-                         --enable-lua")
+                         --with-runtime-path=/var/run \
+                         --with-config-path=/var/lib/lxc \
+	                 --with-distro=pisilinux")
 
 def build():
     autotools.make()
