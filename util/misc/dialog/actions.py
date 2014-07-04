@@ -11,7 +11,9 @@ from pisi.actionsapi import get
 WorkDir = "dialog-%s" % get.srcVERSION().replace('_','-')
 
 def setup():
-    autotools.configure("--with-ncursesw \
+    autotools.configure("--prefix=/usr \
+                         --mandir=/usr/share/man \
+                         --with-ncursesw \
                          --enable-nls")
 
 def build():
