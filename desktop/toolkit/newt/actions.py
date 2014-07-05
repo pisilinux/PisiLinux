@@ -16,6 +16,7 @@ def setup():
     pisitools.dosed("Makefile.in", "(PLDFLAGS=)`\$\$pyconfig --ldflags`", r"\1'-lpython2.7 -Xlinker -export-dynamic'")
 
     shelltools.echo("config.h.in", "#define USE_INTERP_RESULT 1")
+    shelltools.export("PYTHON", "/usr/bin/python2.7")
     autotools.configure("\
                          --with-gpm-support \
                         ")
