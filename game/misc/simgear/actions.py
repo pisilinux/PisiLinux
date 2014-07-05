@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 def setup():
     cmaketools.configure("-DCMAKE_INSTALL_LIBDIR=lib \
                           -DJPEG_FACTORY=ON \
+                          -DENABLE_TESTS=OFF \
                           -DSIMGEAR_SHARED=ON \
                           -DSYSTEM_EXPAT=ON")
 
