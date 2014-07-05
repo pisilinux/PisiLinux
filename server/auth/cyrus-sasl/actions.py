@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
+    pisitools.dosed("libsasl2.pc.in", "libdir = @libdir@", "prefix=/usr\nexec_prefix=${prefix}\nlibdir = @libdir@")
     def cleanup():
         for p in ("config.*", "ltconfig", "ltmain.sh", "libtool.m4"):
             shelltools.unlink("config/%s" % p)
