@@ -15,7 +15,7 @@ if "_" in get.srcVERSION():
     WorkDir = get.srcNAME()
 
 def setup():
-    #pisitools.dosed("configure.in", "multisound/Makefile", "")
+    pisitools.dosed("configure.in", "multisound/Makefile", "")
     pisitools.dosed("Makefile.am", "multisound", "")
 
     autotools.autoreconf("-fi")
