@@ -9,24 +9,11 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
 
-lines = ["_V = ",
-         "_E = echo",
-         "INSTALL_DIR=%s/usr/share/openttd/data/opengfx" % get.installDIR(),
-         "DOCDIR=%s/usr/share/doc/%s" % (get.installDIR(), get.srcNAME())]
-
-def setup():
-    for f in shelltools.ls("docs"):
-        if f.endswith("ptxt"): shelltools.sym(f, "docs/%s" % f.replace("ptxt", "txt"))
-
-    with open("Makefile.local", 'w') as file:
-        for line in lines:
-            file.write("%s\n" % line)
-
-def build():
-    autotools.make()
+WorkDir = "."
 
 def install():
-    pisitools.insinto("/usr/share/openttd/data/opengfx", "*.grf")
-    pisitools.insinto("/usr/share/openttd/data/opengfx", "*.obg")
+    shelltools.system("tar xvf opengfx-0.5.1.tar")
+    pisitools.insinto("/usr/share/openttd/data/opengfx", "opengfx-0.5.1/*.grf")
+    pisitools.insinto("/usr/share/openttd/data/opengfx", "opengfx-0.5.1/*.obg")
     
-    pisitools.dodoc("docs/changelog.txt", "docs/readme.ptxt", "docs/license.txt", "docs/readme.txt")
+    pisitools.dodoc("opengfx-0.5.1//changelog.txt", "opengfx-0.5.1//license.txt", "opengfx-0.5.1//readme.txt")
