@@ -7,6 +7,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import qt4
 
 def setup():
+    pisitools.dosed("h/pchs.h", "qtermwidget/qtermwidget.h", "qtermwidget4/qtermwidget.h")
+    pisitools.dosed("cpp/mainwindow.cpp", "qtermwidget/qtermwidget.h", "qtermwidget4/qtermwidget.h")
     qt4.configure()
 
 def build():
