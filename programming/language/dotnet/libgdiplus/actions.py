@@ -8,7 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    pisitools.dosed("src/gdiplus-private.h", "freetype/tttables.h", "freetype2/tttables.h")
+    pisitools.dosed("libgdiplus.pc.in", "libdir=@libdir@", "libdir=@libdir@\nlibjpeg_prefix=${exec_prefix}/lib -ljpeg -ljpeg")
     autotools.configure("--disable-static")
 
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
