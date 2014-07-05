@@ -10,16 +10,12 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--prefix=/usr \
-                         --sbindir=/sbin \
-                         --disable-xmlto \
-                         --with-udev-rules-dir=/usr/lib/udev/rules.d \
+    autotools.configure("--sbindir=/sbin \
                          --disable-alsaconf")
 
 def build():
     autotools.make()
-    shelltools.system("cd alsactl")
-    autotools.make()
+
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     
