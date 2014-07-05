@@ -14,6 +14,7 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
                          --localstatedir=/var \
+                         --libexecdir=/usr/libexec/ \
                          --enable-library \
                          --disable-systemd")
                          
