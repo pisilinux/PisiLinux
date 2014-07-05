@@ -14,6 +14,7 @@ WorkDir = "soundtouch"
 
 def setup():
     pisitools.dosed("source/SoundStretch/Makefile.*", "-O3", "")
+    shelltools.system("sed -i 's/AM_CONFIG_HEADER/AC_CONFIG_HEADER/' configure.ac")
     shelltools.system("./bootstrap")
     autotools.configure("--enable-shared \
                          --disable-dependency-tracking \
@@ -32,8 +33,9 @@ def install():
     autotools.rawInstall("DESTDIR=%s pkgdocdir=/usr/share/doc/%s" % (get.installDIR(), get.srcNAME()))
 
     # Install compat symlinks for pkgconfig files
-    pisitools.dosym("soundtouch-1.4.pc", "/usr/lib/pkgconfig/libSoundTouch.pc")
-    pisitools.dosym("soundtouch-1.4.pc", "/usr/lib/pkgconfig/soundtouch-1.0.pc")
+    pisitools.dosym("/usr/lib/pkgconfig/soundtouch.pc", "/usr/lib/pkgconfig/soundtouch-1.4.pc")
+    pisitools.dosym("/usr/lib/pkgconfig/soundtouch.pc", "/usr/lib/pkgconfig/SoundTouch-1.0.pc")
+    pisitools.dosym("/usr/lib/pkgconfig/soundtouch.pc", "/usr/lib/pkgconfig/SoundTouch-1.4.pc")
 
     # Install docs
     pisitools.dodoc("COPYING.TXT", "README.html")
