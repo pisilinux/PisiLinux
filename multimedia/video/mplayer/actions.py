@@ -16,7 +16,7 @@ def setup():
 #    for f in ["configure", "libmpdemux/demux_rtp.cpp", "libmpdemux/demux_rtp_internal.h"]:
 #        pisitools.dosed(f, "([\"<])(liveMedia|BasicUsageEnvironment)(\.hh)([\">])", "\\1\\2/\\2\\3\\4")
 #    pisitools.dosed("libmpdemux/demux_rtp.cpp", "GroupsockHelper.hh", "groupsock/GroupsockHelper.hh")
-    shelltools.copytree("../ffmpeg-2.2.3", "ffmpeg")
+    shelltools.copytree("../ffmpeg-2.2.4", "ffmpeg")
     autotools.rawConfigure(' \
                              --confdir=/usr/share/mplayer \
                              --datadir=/usr/share/mplayer \
