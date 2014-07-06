@@ -23,12 +23,6 @@ def build():
 def install():    
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.insinto("/usr/lib/systemd/system/", "sysstat.service")
-    pisitools.insinto("/usr/lib/systemd/system/", "cron/sysstat-summary.timer")
-    pisitools.insinto("/usr/lib/systemd/system/", "cron/sysstat-collect.service")
-    pisitools.insinto("/usr/lib/systemd/system/", "cron/sysstat-collect.timer")
-    pisitools.insinto("/usr/lib/systemd/system/", "cron/sysstat-summary.service")
-    
     pisitools.insinto("/etc/sysstat", "cron/sysstat.crond")
     
     pisitools.remove("sysstat*")
