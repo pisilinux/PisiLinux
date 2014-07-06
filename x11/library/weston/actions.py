@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure ("--prefix=/usr \
-                          --libexecdir=/usr/lib/weston \
+                          --libexecdir=/usr/libexec/weston \
                           --with-internal-xdg=1 \
                           --enable-demo-clients-install")
     
