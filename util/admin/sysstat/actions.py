@@ -22,9 +22,7 @@ def build():
 
 def install():    
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    shelltools.makedirs("%s/etc/cron.daily/" % get.installDIR())
-    shelltools.makedirs("%s/etc/cron.hourly/" % get.installDIR())
-    
+
     pisitools.insinto("/usr/lib/systemd/system/", "sysstat.service")
     pisitools.insinto("/usr/lib/systemd/system/", "cron/sysstat-summary.timer")
     pisitools.insinto("/usr/lib/systemd/system/", "cron/sysstat-collect.service")
