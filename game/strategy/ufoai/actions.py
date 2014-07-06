@@ -14,9 +14,8 @@ datadir = "/usr/share/ufoai"
 exefiles = ["ufo", "ufo2map", "ufoded"]
 
 def setup():
-    shelltools.export("CFLAGS", "%s -lpthread -mmmx -msse" % get.CFLAGS())
-    shelltools.export("CXXFLAGS", "%s -lpthread -mmmx -msse" % get.CXXFLAGS())
-    shelltools.export("LDFLAGS", "%s -lpthread -mmmx -msse" % get.LDFLAGS())
+    pisitools.flags.add("-lpthread", "-mmmx", "-msse")
+    pisitools.dosed("build/platforms/linux.mk", "^(SO_LIBS.*)", "\\1 -lm")
 
     shelltools.makedirs("base")
     shelltools.system("./configure --prefix=/usr \
