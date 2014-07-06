@@ -22,7 +22,6 @@ def build():
 
 def install():    
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    shelltools.makedirs("/usr/lib/systemd/system/")
     shelltools.makedirs("%s/etc/cron.daily/" % get.installDIR())
     shelltools.makedirs("%s/etc/cron.hourly/" % get.installDIR())
     
