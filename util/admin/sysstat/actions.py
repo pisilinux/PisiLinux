@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("conf_dir=/etc/conf.d --enable-yesterday \
-                        --mandir=/usr/share/man \
                         --enable-install-isag \
                         --enable-install-cron \
                         --enable-copy-only \
