@@ -12,9 +12,11 @@ from pisi.actionsapi import get
 shelltools.export("HOME", get.workDIR())
 
 def setup():
-    autotools.autoreconf("-vif")
+    #autotools.autoreconf("-vif")
     plugins = "AutoVersioning,BrowseTracker,byogames,Cccc,CppCheck,cbkoders,codesnippets,codestat,copystrings,dragscroll,envvars,headerfixup,help,hexeditor,incsearch,keybinder,MouseSap,profiler,regex,exporter,symtab,Valgrind"
-    autotools.configure("--with-contrib-plugins=%s" % plugins)
+    autotools.configure("--with-wx-config=/usr/bin/wxconfig \
+	                   --disable-debugger \
+                           --with-contrib-plugins=%s" % plugins)
 
     # Disable rpath
     pisitools.dosed("libtool", "^hardcode_libdir_flag_spec=.*", "hardcode_libdir_flag_spec=\"\"")
