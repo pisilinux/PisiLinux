@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 import os
 
-WorkDir = "cakephp-cakephp-60df687"
+WorkDir = "cakephp-%s" % get.srcVERSION()
 BASEDIR = "/usr/share/php5/cakephp"
 
 def install():
