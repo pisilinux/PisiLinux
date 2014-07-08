@@ -8,9 +8,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "winff"
+WorkDir = "."
 
-shelltools.export("HOME", get.workDIR())
+#shelltools.export("HOME", get.workDIR())
 
 def setup():
     pass
