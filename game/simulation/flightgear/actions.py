@@ -11,13 +11,8 @@ from pisi.actionsapi import get
 
 def setup():
     cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
-                          -DENABLE_FGADMIN=OFF \
-                          -DENABLE_PROFILE=OFF \
-                          -DENABLE_RTI=OFF \
-                          -DFG_DATA_DIR=/usr/share/flightgear \
-                          -DSIMGEAR_SHARED=ON \
-                          -DSP_FDMS=OFF \
-                          -DSYSTEM_SQLITE=ON")
+                          -DCMAKE_INSTALL_LIBDIR=lib \
+                          -DFG_DATA_DIR=/usr/share/flightgear")
 
 def build():
     cmaketools.make()
