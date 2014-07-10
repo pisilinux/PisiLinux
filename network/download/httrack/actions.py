@@ -11,7 +11,7 @@ def setup():
     autotools.configure("--disable-static")
 
 def build():
-    autotools.make("-j1")
+    autotools.make("-j8")
 
 def install():
     autotools.install()
