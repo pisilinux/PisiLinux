@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 def setup():
     pisitools.ldflags.add("-pthread")
     autotools.autoreconf("-vif")
-    autotools.configure("--with-wx-config=/usr/bin/wx-config \
+    autotools.configure("--with-wx-config=/usr/bin/wxconfig \
                          --disable-silent-rules \
                          --disable-dependency-tracking \
                          --disable-static")
