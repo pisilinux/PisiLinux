@@ -10,11 +10,11 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("WXRC", "/usr/bin/wxrc-2.8")
+    shelltools.export("WXRC", "/usr/bin/wxrc")
     shelltools.export("LDFLAGS", "%s -lpthread" % get.LDFLAGS())
     pisitools.dosed("data/filezilla.desktop", "Icon=filezilla", "Icon=/usr/share/pixmaps/filezilla.png")
     autotools.configure("--disable-static \
-                         --with-wx-config=/usr/bin/wx-config \
+                         --with-wx-config=/usr/bin/wxconfig \
                          --disable-manualupdatecheck \
                          --disable-autoupdatecheck \
                          --with-tinyxml=builtin")
