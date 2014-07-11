@@ -10,8 +10,6 @@ from pisi.actionsapi import shelltools
 
 def setup():
     options = "--with-glib=yes \
-               --enable-static \
-               --disable-silent-rules \
                --with-freetype=yes \
                --with-cairo=yes \
                --with-icu=yes \
@@ -32,5 +30,8 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
     shelltools.system("libtool --finish /usr/lib")
+    shelltools.system("libtool --finish /usr/lib32")
+    
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
