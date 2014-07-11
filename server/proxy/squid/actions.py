@@ -21,7 +21,7 @@ def setup():
                          --enable-ntlm-auth-helpers="smb_lm,no_check,fakeauth" \
                          --enable-digest-auth-helpers="password,ldap,eDirectory" \
                          --enable-negotiate-auth-helpers="squid_kerb_auth" \
-                         --enable-external-acl-helpers="ip_user,ldap_group,session,unix_group,wbinfo_group" \
+                         --enable-external-acl-helpers=LDAP_group,session,unix_group,wbinfo_group \
                          --enable-cache-digests \
                          --enable-cachemgr-hostname="localhost" \
                          --enable-delay-pools \
@@ -49,7 +49,7 @@ def setup():
                          --with-pidfile=/run/squid.pid \
                          --sysconfdir=/etc/squid \
                          --localstatedir=/var \
-                         --libexecdir=/usr/lib/squid \
+                         --libexecdir=/usr/libexec/squid \
                          --datadir=/usr/share/squid \
                          --with-logdir=/var/log/squid')
 
