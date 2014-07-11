@@ -4,16 +4,10 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import kde4
-from pisi.actionsapi import get
-
-#WorkDir = "partitionmanager-%s" % get.srcVERSION().replace("_", "-").upper()
 
 def setup():
-    shelltools.export("HOME", get.curDIR())
-    kde4.configure("-DPARTMAN_KCM=ON \
-                    -DPARTMAN_KPART=ON")
+    kde4.configure("-DENABLE_UDISKS2=ON ")
 
 def build():
     kde4.make()
