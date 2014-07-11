@@ -10,24 +10,27 @@ from pisi.actionsapi import shelltools
 
 def setup():
     options = "--with-glib=yes \
+               --enable-static \
+               --disable-silent-rules \
                --with-freetype=yes \
                --with-cairo=yes \
                --with-icu=yes \
+               --with-gobject=yes \
                --with-graphite2=yes"
 
     if get.buildTYPE() == "emul32":
-        options += "--with-glib=yes\
+        options += "--with-glib=yes \
                     --with-graphite2=no \
                     --with-cairo=yes \
                     --with-icu=yes"
     autotools.configure(options)
 
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
-
+    
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    shelltools.system("libtool --finish /usr/lib")
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
