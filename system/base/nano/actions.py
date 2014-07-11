@@ -22,4 +22,4 @@ def install():
     pisitools.dosym("/usr/bin/nano", "/bin/nano")
 
     pisitools.dohtml("doc/*.html")
-    pisitools.dodoc("ChangeLog*", "README", "doc/nanorc.sample", "AUTHORS", "BUGS", "NEWS", "TODO", "COPYING*", "THANKS", "UPGRADE")
+    pisitools.dodoc("ChangeLog*", "README", "doc/nanorc.sample", "AUTHORS", "NEWS", "TODO", "COPYING*", "THANKS", "UPGRADE")
