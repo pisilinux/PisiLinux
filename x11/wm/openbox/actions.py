@@ -14,7 +14,10 @@ def setup():
     shelltools.export("AUTOPOINT", "true")
     autotools.autoreconf("-fiv")
     autotools.configure("--disable-static \
+                         --with-x \
                          --enable-nls \
+                         --sysconfdir=/etc \
+                         --libexecdir=/usr/libexec/openbox \
                          --enable-startup-notification \
                          --docdir=/%s/%s" % (get.docDIR(), get.srcNAME()))
 
@@ -27,5 +30,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    pisitools.dodir("/etc/xdg/obmenu-generator/")
+    shelltools.copy("%s/obmenu-generator-0.59/obmenu-generator" % get.workDIR(), "%s/usr/bin/" % get.installDIR())
+    shelltools.copy("%s/obmenu-generator-0.59/schema.pl" % get.workDIR(), "%s/etc/xdg/obmenu-generator/schema.pl" %  get.installDIR())
     pisitools.dodoc("AUTHORS", "CHANGELOG", "COPYING", "README")
