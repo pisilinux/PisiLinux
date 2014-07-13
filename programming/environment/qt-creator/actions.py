@@ -10,7 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 from pisi.actionsapi import qt4
 
-WorkDir = "%s-%s-src" % (get.srcNAME(), get.srcVERSION().replace('_','-'))
+WorkDir = "%s-opensource-src-%s" % (get.srcNAME(), get.srcVERSION().replace('_','-'))
 
 def setup():
     qt4.configure()

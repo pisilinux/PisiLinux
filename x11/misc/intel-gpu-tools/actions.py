@@ -9,6 +9,7 @@ from pisi.actionsapi import shelltools
 
 
 shelltools.system("export LC_ALL=C")
+shelltools.export("LANG", "en_US.UTF-8")
 
 def setup():
     autotools.configure("--disable-tests \
