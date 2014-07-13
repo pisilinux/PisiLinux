@@ -12,9 +12,11 @@ shelltools.export("LC_ALL", "C")
 
 
 def setup():
+    shelltools.system("./autogen.sh")
     autotools.configure("--disable-silent-rules \
                          --disable-static \
                          --enable-plugin-devhelp \
+                         --enable-glade-catalog \
                          --enable-plugin-sourceview \
                          --enable-plugin-glade \
                          --enable-introspection \
