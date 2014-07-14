@@ -31,7 +31,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     
-    shelltools.system("libtool --finish /usr/lib")
-    shelltools.system("libtool --finish /usr/lib32")
-    
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
