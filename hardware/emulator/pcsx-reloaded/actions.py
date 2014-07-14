@@ -9,7 +9,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "pcsxr-%s" % get.srcVERSION()
 shelltools.export("CFLAGS", "%s -fno-strict-aliasing -pthread -w" % get.CFLAGS())
 
 def setup():
