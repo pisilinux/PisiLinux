@@ -15,11 +15,11 @@ def build():
     for i in ["beispiel2.tex", "beispiel.tex"]:
         shelltools.unlink(i)
 
-    shelltools.system("latex --interaction=batchmode g-brief.ins")
+    shelltools.system("/usr/bin/latex --interaction=batchmode g-brief.ins")
 
     for srcfile in shelltools.ls("."):
         if srcfile.endswith("tex"):
-            shelltools.system("texi2dvi -q -c --language=latex %s" % srcfile)
+            shelltools.system("/usr/bin/texi2dvi -q -c --language=latex %s" % srcfile)
 
 def install():
     dvidocs = []
