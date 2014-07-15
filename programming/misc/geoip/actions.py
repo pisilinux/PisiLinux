@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    pisitools.dosed("geoip.pc.in", "prefix=@prefix@", "prefix=@prefix@\nexec_prefix=${prefix}")
     autotools.configure("--enable-shared \
                          --disable-static")
 

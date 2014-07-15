@@ -14,8 +14,8 @@ WorkDir="svninfo"
 def build():
     shelltools.export("VARTEXFONTS", get.curDIR())
 
-    shelltools.system("latex --interaction=batchmode ./svninfo.ins")
-    shelltools.system("texi2dvi -q -c --language=latex ./svninfo.dtx")
+    shelltools.system("/usr/bin/latex --interaction=batchmode ./svninfo.ins")
+    shelltools.system("/usr/bin/texi2dvi -q -c --language=latex ./svninfo.dtx")
     autotools.make("-j1")
 
 def install():

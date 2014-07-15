@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (C) 2011-2013 Trizen <echo dHJpemVueEBnbWFpbC5jb20K | base64 -d>.
+# Copyright (C) 2011-2014 Daniel "Trizen" Șuteu <echo dHJpemVueEBnbWFpbC5jb20K | base64 -d>.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,23 +14,29 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
+
 # Openbox Menu Generator
 # A fast pipe/static menu generator for the Openbox Window Manager.
-# It used to be even faster about a year ago, but now it's older and wiser :)
-#
+
+# Program: obmenu-generator
 # License: GPLv3
 # Created on: 25 March 2011
-# Latest edit on: 29 August 2013
-# Website: http://trizen.googlecode.com
+# Latest edit on: 26 March 2014
 
+# Websites: http://trizen.googlecode.com
+#           http://trizenx.blogspot.com
+
+#use 5.014;
 #use strict;
 #use warnings;
 
 require Linux::DesktopFiles;
 
+$Linux::DesktopFiles::VERSION >= 0.08
+  || die "Update Linux::DesktopFiles to a newer version! (requires >=0.08)\n";
+
 my $pkgname = 'obmenu-generator';
-our $VERSION = '0.55';
+my $version = 0.59;
 
 our ($CONFIG, $SCHEMA);
 my $output_h = *STDOUT;
@@ -43,9 +49,10 @@ my $home_dir =
   || (getpwuid($<))[7]
   || `echo -n ~`;
 
-my $xdg_config_home = $ENV{XDG_CONFIG_HOME} || "$home_dir/.config";
+my $xdg_config_home = "$home_dir/.config";
 
-my $config_dir   = "$xdg_config_home/obmenu-generator";
+my $menu_id      = "root-menu";
+my $config_dir   = "$xdg_config_home/$pkgname";
 my $schema_file  = "$config_dir/schema.pl";
 my $config_file  = "$config_dir/config.pl";
 my $openbox_conf = "$xdg_config_home/openbox";
@@ -54,20 +61,22 @@ my $icons_db     = "$config_dir/icons.db";
 
 sub usage {
     print <<"HELP";
-usage: $0 [options]\n
+usage: $0 [options]
+
 Options:
     -p  : (re)generate a pipe menu
     -s  : (re)generate a static menu
-    -d  : (re)generate icons.db (with -i)
-    -r  : (re)generate config file
+    -o  : static menu file (default: ~/.config/openbox/menu.xml)
+    -m  : menu id (default: 'root-menu')
+    -r  : regenerate the config files
     -i  : use icons in menus
-    -u  : update the configuration file
+    -d  : regenerate icons.db (with -i)
+    -u  : update the config file
     -R  : reconfigure openbox
 
-Others:
+Help:
     -h  : print this message
-    -S  : print the schema file to STDOUT
-    -H  : print help message for config files
+    -v  : print the version number
 
 Examples:
    ** Static menu without icons:
@@ -79,196 +88,81 @@ Examples:
     ** Reconfigure openbox:
         $0 -R
 
-NOTE: After a pipe menu is generated, '-p' it's not needed anymore.
-
 ** Config file: $config_file
 ** Schema file: $schema_file
 HELP
     exit 0;
 }
 
-my $config_help = <<'HELP';
+my $config_help = <<"HELP";
 
-categories_case_sensitive => BOOL
+|| FILTERING
+    | skip_filename_re    : Skip a .desktop file if its name matches the regex.
+                            Name is from the last slash to the end. (filename.desktop)
+                            Example: qr/^(?:gimp|xterm)\\b/,    # skips 'gimp' and 'xterm'
 
-    - True (1) to make the categories case sensitive;
-    - By default, "XFCE-4" is equivalent with "xfce_4".
+    | skip_entry          : Skip a destkop file if the value from a given key matches the regex.
+                            Example: [
+                                {key => 'Name', re => qr/(?:about|terminal)/i},
+                                {key => 'Exec', re => qr/^xterm/},
+                            ],
 
-
-clean_command_name_re => REGEX
-
-    - Remove from every command anything matched by the regex.
-
-
-skip_app_command_re => REGEX
-
-    - Skip the application if its command matches the regex.
-
-
-skip_app_name_re => REGEX
-
-    - Skip the application if its name matches the regex.
+    | substitutions       : Substitute, by using a regex, in the values of the desktop files.
+                            Example: [
+                                {key => 'Exec', re => qr/xterm/, value => 'sakura'},
+                                {key => 'Exec', re => qr/\\\\\\\\/,  value => '\\\\', global => 1},    # for wine apps
+                            ],
 
 
-skip_file_content_re => REGEX
+|| ICON SETTINGS
+    | icon_dirs_first     : When looking for icons, look in this directories first,
+                            before looking in the directories of the current icon theme.
+                            Example: [
+                                "\$ENV{HOME}/My icons",
+                            ],
 
-    - Skip the application if the content of the *.desktop
-      file matches the regex.
+    | icon_dirs_second    : Look in this directories after looked in the directories of the
+                            current icon theme. (Before /usr/share/pixmaps)
+                            Example: [
+                                "/usr/share/icons/gnome",
+                            ],
 
+    | icon_dirs_last      : Look in this directories at the very last, after looked in
+                            /usr/share/pixmaps, /usr/share/icons/hicolor and some other
+                            directories.
+                            Example: [
+                                "/usr/share/icons/Tango",
+                            ],
 
-skip_file_name_re => REGEX
+    | strict_icon_dirs    : A true value will make the module to look only inside the directories
+                            specified by you in either one of the above three options.
 
-    - Skip the application if its file name matches the regex.
-      Name is from the last slash to the end. (example: name.desktop)
-
-
-skip_svg_icons => BOOL
-
-    - True (1) to skip the SVG icons.
-
-
-desktop_files_paths => ARRAY REF
-
-    - Paths which contains the desktop files.
-
-
-wine_desktop_files_paths => ARRAY REF
-
-    - Directories which contains desktop files generated by the wine app.
-
-
-wine_skip_exec_re => REGEX
-
-    - Skip the wine application if its command matches the regex.
+    | gtk_rc_filename     : Absolute path to the GTK configuration file.
+    | missing_image       : Use this icon for missing icons (default: gtk-missing-image)
 
 
-wine_skip_name_re => REGEX
-
-    - Skip the wine application if its name matches the regex.
-
-
-editor => STRING
-
-    - Text editor command.
+|| KEYS
+    | name_keys           : Valid keys for the item names.
+                            Example: ['Name[fr]', 'GenericName[fr]', 'Name'],   # french menu
 
 
-terminal => STRING
-
-    - Terminal command.
-
-
-gtk_rc_filename => STRING
-
-    - Absolute path to the GTK configuration file.
-
-
-icon_dirs_first => ARRAY REF
-
-    - When looking for full icon paths, look in this directories first,
-      before looking in the directories of the current icon theme.
+|| PATHS
+    | desktop_files_paths   : Absolute paths which contains .desktop files.
+                              Example: [
+                                '/usr/share/applications',
+                                "\$ENV{HOME}/.local/share/applications",
+                                glob("\$ENV{HOME}/.local/share/applications/wine/Programs/*"),
+                              ],
 
 
-icon_dirs_second => ARRAY REF
-
-    - When looking for full icon paths, look in this directories as a
-      second icon theme. (Before /usr/share/pixmaps)
-
-
-icon_dirs_last => ARRAY REF
-
-    - Look in this directories at the very last, after looked in
-      /usr/share/pixmaps, /usr/share/icons/hicolor and some other
-      directories.
-
-
-use_only_my_icon_dirs => BOOL
-
-    - True (1) to look only in directories specified in the above ARRAY REF's.
-    - False (0) to look in other directories. (example: /usr/share/pixmaps)
-
-
-missing_icon => STRING
-
-    - When an icon is not found, use this icon instead.
-
-
-VERSION => NUMBER
-
-    - The current version of obmenu-generator.
+|| NOTES
+    | Regular expressions:
+        * use qr/RE/ instead of 'RE'
+        * use qr/RE/i for case insenstive mode
 HELP
-
-my $schema_help = <<'HELP';
-
-item: add an item into the menu
-
-    {item => ["command", "label", "icon"]}
-
-
-cat: add a category into the menu
-
-    {cat => ["name", "label", "icon"]}
-
-
-begin_cat: begin of a category
-
-    {begin_cat => ["name", "icon"]}
-
-
-end_cat: end of a category
-
-    {end_cat => undef}
-
-
-sep: menu line separator
-
-    {sep => undef}
-    {sep => "label"}
-
-
-exit: default "Exit" action
-
-    {exit => ["label", "icon"]}
-
-
-raw: any valid Openbox XML string
-
-    {raw => q(xml string)},
-
-
-obgenmenu: category provided by obmenu-generator
-
-    {obgenmenu => "label"}
-
-
-scripts: executable scripts from a directory
-
-    {scripts => ["/my/dir", BOOL, "icon"]}
-
-BOOL - can be either true or false (1 or 0)
-    0 => to open the script in background
-    1 => to open the script in a new terminal
-
-
-wine_apps: windows applications installed via wine
-
-    {wine_apps => ["label", "icon"]}
-HELP
-
-sub full_help {
-    print <<"HELP";
-=>> Schema file:
-$schema_help
-====================================================
-
-=>> Config file:
-$config_help
-HELP
-
-    exit 0;
-}
 
 if (@ARGV) {
-    foreach my $arg (@ARGV) {
+    while (defined(my $arg = shift @ARGV)) {
         if ($arg eq '-i') {
             $icons = 1;
         }
@@ -287,21 +181,27 @@ if (@ARGV) {
         elsif ($arg eq '-d') {
             unlink $icons_db;
         }
-        elsif ($arg eq '-h') {
-            usage();
-        }
-        elsif ($arg eq '-H') {
-            full_help();
-        }
         elsif ($arg eq '-u') {
             $update_config = 1;
         }
         elsif ($arg eq '-v') {
-            print "$pkgname $VERSION\n";
+            print "$pkgname $version\n";
             exit 0;
         }
         elsif ($arg eq '-R') {
             exec 'openbox', '--reconfigure';
+        }
+        elsif ($arg eq '-o') {
+            $menufile = shift(@ARGV) // die "$0: option '-o' requires an argument!\n";
+        }
+        elsif ($arg eq '-m') {
+            $menu_id = shift(@ARGV) // die "$0: option '-m' requires an argument!\n";
+        }
+        elsif ($arg eq '-h') {
+            usage();
+        }
+        else {
+            die "$0: option `$arg' is invalid!\n";
         }
     }
 }
@@ -316,42 +216,44 @@ my $config_documentation = <<"EOD";
 #!/usr/bin/perl
 
 # $pkgname - configuration file
-# This file is updated automatically every time when is needed.
+# This file will be updated automatically every time when is needed.
 # Any additional comment and/or indentation will be lost.
 
 =for comment
 $config_help
 =cut
 
-# For regular expressions
-#    * is better to use qr/REGEX/ instead of 'REGEX'
-#    * for case insensitive mode, use: qr/REGEX/i
-
-# NOTE: Once an icon is found, it will *NOT* be replaced by another.
-
 EOD
 
 my %CONFIG = (
-              desktop_files_paths       => ['/usr/share/applications','/usr/share/applications/kde4'],
-              wine_desktop_files_paths  => ["$home_dir/.local/share/applications/wine"],
-              gtk_rc_filename           => undef,
-              skip_file_name_re         => undef,
-              skip_app_name_re          => undef,
-              skip_app_command_re       => undef,
-              skip_file_content_re      => undef,
-              clean_command_name_re     => undef,
-              wine_skip_name_re         => qr{^(?:Uninstall|Readme|Help|Visit|Register|Technical Support)\b}i,
-              wine_skip_exec_re         => undef,
-              icon_dirs_first           => [],
-              icon_dirs_second          => [],
-              icon_dirs_last            => [],
-              missing_icon              => 'gtk-missing-image',
-              use_only_my_icon_dirs     => 0,
-              skip_svg_icons            => 1,
-              categories_case_sensitive => 0,
-              terminal                  => $ENV{TERM} || 'lxterminal',
-              editor                    => 'leafpad',
-              VERSION                   => $VERSION,
+    'Linux::DesktopFiles' => {
+
+        keep_unknown_categories => 1,
+        unknown_category_key    => 'other',
+        gtk_rc_filename         => "$home_dir/.gtkrc-2.0",
+
+        skip_entry       => undef,
+        substitutions    => undef,
+        skip_filename_re => undef,
+
+        terminalize            => 1,
+        terminalization_format => q{%s -e '%s'},
+
+        desktop_files_paths => ['/usr/share/applications'],
+
+        icon_dirs_first  => undef,
+        icon_dirs_second => undef,
+        icon_dirs_last   => undef,
+        strict_icon_dirs => undef,
+
+        skip_svg_icons => 1,
+    },
+
+    name_keys    => ['Name'],
+    terminal     => 'xterm',
+    editor       => 'geany',
+    missing_icon => 'gtk-missing-image',
+    VERSION      => $version,
              );
 
 sub dump_configuration {
@@ -367,123 +269,68 @@ if (not -e $config_file or $reconfigure) {
     dump_configuration();
 }
 
-if (not -e $schema_file or $reconfigure or $stdout_config) {
-
-    my $schema_fh = $stdout_config ? \*STDOUT : do {
-        open my $fh, '>', $schema_file
-          or die "Can't open file '${schema_file}' for write: $!";
-        $fh;
-    };
-
-    print $schema_fh <<"SCHEMA_FILE";
-#!/usr/bin/perl
-
-# $pkgname - schema file
-
-=for comment
-$schema_help
-=cut
-
-# NOTE:
-#    * Keys and values are case sensitive. Keep all keys lowercase.
-#    * ICON can be a either a direct path to an icon or a valid icon name
-
-require '${config_file}';
-
-our \$SCHEMA = [
-    #             COMMAND             LABEL                ICON
-    {item => ['pcmanfm',         'File Manager',      'system-file-manager']},
-    {item => ['lxterminal',      'Terminal',          'lxterminal']},
-    {item => ['leafpad',         'Editor',            'leafpad']},
-    {item => ['firefox',         'Web Browser',       'firefox']},
-
-    {sep => 'Applications'},
-
-    #          NAME            LABEL                ICON
-    {cat => ['utility',     'Accessories', 'applications-utilities']},
-    {cat => ['development', 'Development', 'applications-development']},
-    {cat => ['education',   'Education',   'applications-science']},
-    {cat => ['game',        'Games',       'applications-games']},
-    {cat => ['graphics',    'Graphics',    'applications-graphics']},
-    {cat => ['audiovideo',  'Multimedia',  'applications-multimedia']},
-    {cat => ['network',     'Network',     'applications-internet']},
-    {cat => ['office',      'Office',      'applications-office']},
-    {cat => ['settings',    'Settings',    'applications-accessories']},
-    {cat => ['system',      'System',      'applications-system']},
-
-    #{cat => ['qt',          'QT Applications',    'qtlogo']},
-    #{cat => ['gtk',         'GTK Applications',   'gnome-applications']},
-    #{cat => ['x_xfce',      'XFCE Applications',  'applications-other']},
-    #{cat => ['gnome',       'GNOME Applications', 'gnome-applications']},
-    #{cat => ['consoleonly', 'CLI Applications',   'applications-utilities']},
-
-    #                  LABEL          ICON
-    #{begin_cat => ['My category',  'cat-icon']},
-    #             ... some items ...
-    #{end_cat   => undef},
-
-    #                  LABEL             ICON
-    #{wine_apps => ['Wine apps', 'applications-other']},
-
-    #                DIR     BOOL       ICON
-    #{scripts => ['/my/path', 1,  'text-x-script']},
-
-    {sep       => undef},
-    {obgenmenu => ['Openbox Settings', 'applications-engineering']},
-    {sep       => undef},
-
-    # This options uses the default OpenBox action "Exit"
-    {item => ['oblogout', 'Exit', 'exit']},
-]
-SCHEMA_FILE
-
-    exit if $stdout_config;
-    close $schema_fh;
+if (not -e $schema_file) {
+    if (-e (my $etc_schema_file = "/etc/xdg/$pkgname/schema.pl")) {
+        require File::Copy;
+        File::Copy::copy($etc_schema_file, $schema_file)
+          or die "$0: can't copy file `$etc_schema_file' to `$schema_file': $!\n";
+    }
+    else {
+        die "$0: schema file `$schema_file' does not exists!\n";
+    }
 }
 
 require $schema_file;    # Load the configuration files
 
-# Remove the user defined values
-#my @valid_keys = grep exists $CONFIG{$_}, keys %{$CONFIG};
-#@CONFIG{@valid_keys} = @{$CONFIG}{@valid_keys};
+# Remove user's defined values
+my @valid_keys = grep exists $CONFIG{$_}, keys $CONFIG;
+@CONFIG{@valid_keys} = @{$CONFIG}{@valid_keys};
 
-# Keep the user defined values
-@CONFIG{keys %{$CONFIG}} = values %{$CONFIG};
+# Keep user's defined values
+#@CONFIG{keys %{$CONFIG}} = values %{$CONFIG};
 
-if ($CONFIG{VERSION} != $VERSION) {
+if ($CONFIG{VERSION} != $version) {
     $update_config = 1;
-    $CONFIG{VERSION} = $VERSION;
+    $CONFIG{VERSION} = $version;
+}
+
+if ($icons && !$pipe) {
+
+    # Performance improvement
+    # XXX: don't do this in production code!
+    @INC{
+        qw(
+          strict.pm
+          warnings.pm
+          Tie/Hash.pm
+          Carp.pm
+          Exporter.pm
+          warnings/register.pm
+          )
+        } = ();
+
+    *{'warnings::warnif'} = sub { };
 }
 
 my $desk_obj = Linux::DesktopFiles->new(
+    %{$CONFIG{'Linux::DesktopFiles'}},
 
-    home_dir         => $home_dir,
-    terminal         => $CONFIG{terminal},
-    gtk_rc_filename  => $CONFIG{gtk_rc_filename},
-    icon_db_filename => $icons_db,
+    home_dir => $home_dir,
 
-    desktop_files_paths => $CONFIG{desktop_files_paths},
+    categories => [map $_->{cat}[0], grep exists $_->{cat}, @$SCHEMA],
+    keys_to_keep => [@{$CONFIG{name_keys}}, 'Exec', $icons ? 'Icon' : ()],
 
-    with_icons            => $icons,
-    skip_svg_icons        => $CONFIG{skip_svg_icons},
-    full_icon_paths       => 1,
-    terminalize           => 1,
-    keep_empty_categories => 1,
+    $icons
+    ? (
+       abs_icon_paths   => 1,
+       icon_db_filename => $icons_db,
+      )
+    : (),
 
-    icon_dirs_first       => $CONFIG{icon_dirs_first},
-    icon_dirs_second      => $CONFIG{icon_dirs_second},
-    icon_dirs_last        => $CONFIG{icon_dirs_last},
-    use_only_my_icon_dirs => $CONFIG{use_only_my_icon_dirs},
-
-    skip_file_name_re     => $CONFIG{skip_file_name_re},
-    skip_app_name_re      => $CONFIG{skip_app_name_re},
-    skip_app_command_re   => $CONFIG{skip_app_command_re},
-    skip_file_content_re  => $CONFIG{skip_file_content_re},
-    clean_command_name_re => $CONFIG{subst_command_name_re},
-
-    categories                => [map $_->{cat}[0], grep exists $_->{cat}, @$SCHEMA],
-    categories_case_sensitive => $CONFIG{categories_case_sensitive},
-);
+    terminal              => $CONFIG{terminal},
+    keep_empty_categories => 0,
+    case_insensitive_cats => 1,
+                                       );
 
 if ($pipe or $static) {
     my $menu_backup = $menufile . '.bak';
@@ -506,6 +353,10 @@ if ($pipe or $static) {
         require Cwd;
         my $exec_name = Cwd::abs_path($0) . ($icons ? q{ -i} : q{});
 
+        if (not -x $exec_name) {
+            $exec_name = "$^X $exec_name";
+        }
+
         open my $fh, '>', $menufile
           or die "Can't open file '${menufile}' for write: $!";
         print $fh <<"PIPE_MENU_HEADER";
@@ -513,27 +364,43 @@ if ($pipe or $static) {
 <openbox_menu xmlns="http://openbox.org/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://openbox.org/">
-    <menu id="root-menu" label="obmenu-generator" execute="$exec_name" />
+    <menu id="$menu_id" label="$pkgname" execute="$exec_name" />
 </openbox_menu>
 PIPE_MENU_HEADER
         close $fh;
+
+        print <<'EOT';
+** The pipe menu has been successfully generated!
+EOT
+
+        exec 'openbox', '--reconfigure';
     }
 }
 
 my $generated_menu = $static
-  ? <<'STATIC_MENU_HEADER'
+  ? <<"STATIC_MENU_HEADER"
 <?xml version="1.0" encoding="utf-8"?>
 <openbox_menu xmlns="http://openbox.org/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://openbox.org/">
-  <menu id="root-menu" label="Applications">
+  <menu id="$menu_id" label="Applications">
 STATIC_MENU_HEADER
   : "<openbox_pipe_menu>\n";
+
+{
+    my %cache;
+
+    sub check_icon {
+        $_[0] // return '';
+        $cache{$_[0]} //= ((chr ord($_[0]) eq '/') ? $_[0] : $desk_obj->get_icon_path($_[0])
+                           || $desk_obj->get_icon_path($CONFIG{missing_icon}));
+    }
+}
 
 sub prepare_item {
     $icons
       ? <<"ITEM_WITH_ICON"
-    <item label="$_[1]" icon="${\($desk_obj->get_icon_path($_[2]) || $desk_obj->get_icon_path($CONFIG{missing_icon}))}"><action name="Execute"><execute>$_[0]</execute></action></item>
+    <item label="$_[1]" icon="${\check_icon($_[2])}"><action name="Execute"><execute>$_[0]</execute></action></item>
 ITEM_WITH_ICON
       : <<"ITEM";
     <item label="$_[1]"><action name="Execute"><execute>$_[0]</execute></action></item>
@@ -543,7 +410,7 @@ ITEM
 sub begin_category {
     $icons
       ? <<"MENU_WITH_ICON"
-  <menu id="$_[0]" icon="${\$desk_obj->get_icon_path($_[1])}" label="$_[0]">
+  <menu id="$_[0]" icon="${\check_icon($_[1])}" label="$_[0]">
 MENU_WITH_ICON
       : <<"MENU"
   <menu id="$_[0]" label="$_[0]">
@@ -554,7 +421,7 @@ my $categories = $desk_obj->parse_desktop_files();
 
 foreach my $schema (@$SCHEMA) {
     if (exists $schema->{cat}) {
-        next unless defined $categories->{$schema->{cat}[0]};
+        exists($categories->{my $category = lc($schema->{cat}[0]) =~ tr/_a-z0-9/_/cr}) || next;
         $generated_menu .= begin_category($schema->{cat}[1], ($icons ? $schema->{cat}[2] : ())) . join(
             q{},
             (
@@ -562,18 +429,32 @@ foreach my $schema (@$SCHEMA) {
              sort { $a->[0] cmp $b->[0] }
                map [lc($_) => $_],
              map {
-                 if ($_->{Name} =~ tr/"&//) {
-                     $_->{Name} =~ s/&/&amp;/g;
-                     $_->{Name} =~ s/"/&quot;/g;
+
+                 my $name;
+                 my $exec = $_->{Exec};
+
+                 foreach my $key (@{$CONFIG{name_keys}}) {
+                     if (defined $_->{$key}) {
+                         $name = $_->{$key};
+                         last;
+                     }
                  }
+
+                 foreach my $item ($name, $exec) {
+                     if ($item =~ tr/"&//) {
+                         $item =~ s/&/&amp;/g;
+                         $item =~ s/"/&quot;/g;
+                     }
+                 }
+
                  $icons
                    ? <<"ITEM_WITH_ICON"
-    <item label="$_->{Name}" icon="$_->{Icon}"><action name="Execute"><execute>$_->{Exec}</execute></action></item>
+    <item label="$name" icon="${\check_icon($_->{Icon})}"><action name="Execute"><execute>$exec</execute></action></item>
 ITEM_WITH_ICON
                    : <<"ITEM";
-    <item label="$_->{Name}"><action name="Execute"><execute>$_->{Exec}</execute></action></item>
+    <item label="$name"><action name="Execute"><execute>$exec</execute></action></item>
 ITEM
-               } @{$categories->{$schema->{cat}[0]}}
+               } @{$categories->{$category}}
             )
           )
           . qq[  </menu>\n];
@@ -587,71 +468,6 @@ ITEM
           ? qq[  <separator label="$schema->{sep}"/>\n]
           : qq[  <separator/>\n];
     }
-    elsif (exists $schema->{wine_apps}) {
-
-        my @output;
-        my @dirs = @{$CONFIG{wine_desktop_files_paths}};
-
-        while (@dirs) {
-            my $dir = shift @dirs;
-            opendir(my $dir_h, $dir) or next;
-            while (defined(my $file = readdir $dir_h)) {
-
-                if (substr($file, -8) eq '.desktop') {
-
-                    sysopen my $fh, "$dir/$file", 0 or next;
-                    sysread $fh, $_, -s "$dir/$file";
-                    close $fh;
-
-                    my ($exec) = (/^Exec=(.+)/m ? $1 : next);
-                    my ($name) = (/^Name=(.+)/m ? $1 : "Unknown name");
-
-                    if (defined $CONFIG{wine_skip_name_re}) {
-                        next if $name =~ $CONFIG{wine_skip_name_re};
-                    }
-                    if (defined $CONFIG{wine_skip_exec_re}) {
-                        next if $exec =~ $CONFIG{wine_skip_exec_re};
-                    }
-
-                    $exec =~ s{\\(.)}{$1}g;
-
-                    if ($name =~ tr/"&//) {
-                        $name =~ s{&}{&amp;}g;
-                        $name =~ s{"}{&quot;}g;
-                    }
-
-                    push @output,
-                      scalar {item => [$exec, $name, ($icons ? (/^Icon=(.+)/m ? $1 : $CONFIG{missing_icon}) : ())]};
-                }
-                elsif ($file eq '.' or $file eq '..') {
-                    next;
-                }
-                elsif (-d "$dir/$file") {
-                    push @dirs, "$dir/$file";
-                }
-            }
-            closedir $dir_h;
-        }
-
-        $generated_menu .=
-            begin_category(@{$schema->{wine_apps}})
-          . join('', map prepare_item(@{$_->{item}}), sort { lc $a->{item}[1] cmp lc $b->{item}[1] } @output)
-          . qq[  </menu>\n];
-    }
-    elsif (exists $schema->{scripts}) {
-        my @scripts;
-        my $dir = $schema->{scripts}[0];
-
-        opendir(my $dir_h, $dir) or next;
-        foreach my $file (sort readdir $dir_h) {
-            if (-f "$dir/$file" and -x _ and not -z _) {
-                $generated_menu .=
-                  prepare_item(($schema->{scripts}[1] ? qq{$CONFIG{terminal} -e '$dir/$file'} : "$dir/$file"),
-                               $file, ($icons ? $schema->{scripts}[2] : ()));
-            }
-        }
-        closedir $dir_h;
-    }
     elsif (exists $schema->{begin_cat}) {
         $generated_menu .= begin_category(@{$schema->{begin_cat}});
     }
@@ -659,21 +475,32 @@ ITEM
         $generated_menu .= qq[  </menu>\n];
     }
     elsif (exists $schema->{exit}) {
+        my ($label, $icon) = @{$schema->{exit}};
         $generated_menu .= $icons
           ? <<"EXIT_WITH_ICON"
-    <item label="Exit" icon="${\$desk_obj->get_icon_path($schema->{exit}[1])}"><action name="Exit" /></item>
+    <item label="$label" icon="${\check_icon($icon)}"><action name="Exit"/></item>
 EXIT_WITH_ICON
-          : <<'EXIT';
-    <item label="Exit"><action name="Exit" /></item>
+          : <<"EXIT";
+    <item label="$label"><action name="Exit"/></item>
 EXIT
     }
     elsif (exists $schema->{raw}) {
         $generated_menu .= qq[    $schema->{raw}\n];
     }
+    elsif (exists $schema->{pipe}) {
+        my ($command, $label, $icon) = @{$schema->{pipe}};
+        $generated_menu .= $icons
+          ? <<"PIPE_WITH_ICON"
+    <menu id="$label" label="$label" execute="$command" icon="${\check_icon($icon)}"/>
+PIPE_WITH_ICON
+          : <<"PIPE";
+    <menu id="$label" label="$label" execute="$command"/>
+PIPE
+    }
     elsif (exists $schema->{obgenmenu}) {
-        my ($name, $icon) = ref($schema->{obgenmenu}) eq 'ARRAY' ? (@{$schema->{obgenmenu}}) : $schema->{obgenmenu};
+        my ($name, $icon) = ref($schema->{obgenmenu}) eq 'ARRAY' ? @{$schema->{obgenmenu}} : $schema->{obgenmenu};
         $generated_menu .= ($icons ? <<"CONFIG_MENU_WITH_ICON" : <<"CONFIG_MENU") . <<'RECONFIGURE';
-  <menu id="$name" label="$name" icon="${\$desk_obj->get_icon_path($icon)}">>
+  <menu id="$name" label="$name" icon="${\check_icon($icon)}">
 CONFIG_MENU_WITH_ICON
   <menu id="$name" label="$name">
 CONFIG_MENU
@@ -700,6 +527,9 @@ EOL
     <item label="Regenerate configuration file"><action name="Execute"><execute>$0 -r</execute></action></item>
   </menu>
 CONFIG_MENU
+    }
+    else {
+        warn "$0: Invalid key '", (keys %{$schema})[0], "' in schema file!\n";
     }
 }
 

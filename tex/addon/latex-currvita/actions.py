@@ -13,11 +13,11 @@ WorkDir= "currvita"
 shelltools.export("HOME", get.workDIR())
 
 def build():
-    shelltools.system("latex --interaction=batchmode currvita.ins")
+    shelltools.system("/usr/bin/latex --interaction=batchmode currvita.ins")
 
     for srcfile in shelltools.ls("."):
         if srcfile.endswith(("tex", "dtx")):
-            shelltools.system("texi2dvi -q -c --language=latex %s" % srcfile)
+            shelltools.system("/usr/bin/texi2dvi -q -c --language=latex %s" % srcfile)
 
 def install():
     for srcfile in shelltools.ls("."):

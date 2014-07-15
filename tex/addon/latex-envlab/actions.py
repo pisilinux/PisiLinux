@@ -11,11 +11,11 @@ from pisi.actionsapi import shelltools
 WorkDir= "envlab"
 
 def build():
-    shelltools.system("latex --interaction=batchmode envlab.ins")
+    shelltools.system("/usr/bin/latex --interaction=batchmode envlab.ins")
 
     for srcfile in shelltools.ls("."):
         if srcfile.endswith(("tex", "dtx")):
-            shelltools.system("texi2dvi -v -c --language=latex %s" % srcfile)
+            shelltools.system("/usr/bin/texi2dvi -v -c --language=latex %s" % srcfile)
 
 def install():
     for srcfile in shelltools.ls("."):

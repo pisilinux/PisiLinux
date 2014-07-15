@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (C) 2011-2012 Trizen <echo dHJpemVueEBnbWFpbC5jb20K | base64 -d>.
+# Copyright (C) 2011-2013 Daniel "Trizen" Șuteu <echo dHJpemVueEBnbWFpbC5jb20K | base64 -d>.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,20 +21,16 @@
 
 # License: GPLv3
 # Created on: 01 August 2010
-# Latest edit on: 27 July 2012
+# Latest edit on: 03 October 2013
 # Website: http://trizen.googlecode.com
 
-use 5.010;
-use strict;
-
-#use warnings;
-
-require Linux::DesktopFiles;
+use 5.014;
+use Linux::DesktopFiles 0.08;
 
 my $pkgname = 'fbmenugen';
-my $VERSION = '0.74';
+my $version = '0.75';
 
-my ($icons, $reconfigure, $update_config);
+my ($icons, $pipe, $reconfigure, $update_config, $stdout_config);
 
 our ($CONFIG, $SCHEMA);
 
@@ -55,95 +51,257 @@ my $menufile    = "$fluxbox_dir/menu";
 
 sub usage {
     print <<"HELP";
-usage: $0 [options]\n
-options :
-    -i  : (re)generate a menu with icons
-    -d  : (re)generate icons.db (with -i)
-    -u  : update the configuration file
-    -r  : rewrite the configuration files
+usage: $0 [options]
 
-* Menu   : $menufile
-* Config : $config_file
-* Schema : $schema_file\n
+Options :
+    -i  : use icons in menus
+    -d  : regenerate icons.db (with -i)
+    -p  : pipe menu (prints to the STDOUT)
+    -o  : menu file (default: ~/.fluxbox/menu)
+    -u  : update the config file
+    -r  : regenerate the config files
+
+Help:
+    -h  : print this message
+    -v  : print the version number
+    -S  : print the schema file to STDOUT
+    -H  : print help message for config files
+
+Example:
+    ** Generate a simple menu
+        $0
+
+    ** Generate a menu with icons
+        $0 -i
+
+** Config file: $config_file
+** Schema file: $schema_file
 HELP
     exit 0;
 }
 
-foreach my $arg (@ARGV) {
-    if ($arg eq '-i') {
-        $icons = 1;
-    }
-    elsif ($arg eq '-r') {
-        $reconfigure = 1;
-    }
-    elsif ($arg eq '-d') {
-        unlink $icons_db;
-    }
-    elsif ($arg eq '-u') {
-        $update_config = 1;
-    }
-    elsif ($arg eq '-v') {
-        print "$pkgname $VERSION\n";
-        exit;
-    }
-    elsif ($arg eq '-h') {
-        usage();
+my $config_help = <<"HELP";
+
+|| FILTERING
+    | skip_filename_re    : Skip a .desktop file if its name matches the regex.
+                            Name is from the last slash to the end. (filename.desktop)
+                            Example: qr/^(?:gimp|xterm)\\b/,    # skips 'gimp' and 'xterm'
+
+    | skip_entry          : Skip a destkop file if the value from a given key matches the regex.
+                            Example: [
+                                {key => 'Name', re => qr/(?:about|terminal)/i},
+                                {key => 'Exec', re => qr/^xterm/},
+                            ],
+
+    | substitutions       : Substitute, by using a regex, in the values of the desktop files.
+                            Example: [
+                                {key => 'Exec', re => qr/xterm/, value => 'sakura'},
+                                {key => 'Exec', re => qr/\\\\\\\\/,  value => '\\\\', global => 1},    # for wine apps
+                            ],
+
+
+|| ICON SETTINGS
+    | icon_dirs_first     : When looking for icons, look in this directories first,
+                            before looking in the directories of the current icon theme.
+                            Example: [
+                                "\$ENV{HOME}/My icons",
+                            ],
+
+    | icon_dirs_second    : Look in this directories after looked in the directories of the
+                            current icons theme. (Before /usr/share/pixmaps)
+                            Example: [
+                                "/usr/share/icons/gnome",
+                            ],
+
+    | icon_dirs_last      : Look in this directories at the very last, after looked in
+                            /usr/share/pixmaps, /usr/share/icons/hicolor and some other
+                            directories.
+                            Example: [
+                                "/usr/share/icons/Tango",
+                            ],
+
+    | strict_icon_dirs    : A true value will make the module to look only inside the directories
+                            specified by you in either one of the above tree options.
+
+    | gtk_rc_filename     : Absolute path to the GTK configuration file.
+    | missing_image       : Use this icon for a missing icons (default: gtk-missing-image)
+
+
+|| KEYS
+    | tooltip_keys        : Valid keys for the tooltip text.
+                            Example: ['Comment[es]', 'Comment'],
+
+    | name_keys           : Valid keys for the item names.
+                            Example: ['Name[fr]', 'GenericName[fr]', 'Name'],   # french menu
+
+
+|| PATHS
+    | desktop_files_paths   : Absolute paths which contains .desktop files.
+                              Example: [
+                                '/usr/share/applications',
+                                "\$ENV{HOME}/.local/share/applications",
+                                glob("\$ENV{HOME}/.local/share/applications/wine/Programs/*"),
+                              ],
+
+
+|| NOTES
+    | Regular expressions:
+        * use qr/RE/ instead of 'RE'
+        * use qr/RE/i for case insenstive mode
+HELP
+
+my $schema_help = <<"HELP";
+
+item: add an item into the menu
+
+    {item => ["command", "label", "icon"]}
+
+
+cat: add a category into the menu
+
+    {cat => ["name", "label", "icon"]}
+
+
+begin_cat: begin of a category
+
+    {begin_cat => ["name", "icon"]}
+
+
+end_cat: end of a category
+
+    {end_cat => undef}
+
+
+sep: horizontal line separator
+
+    {sep => undef}
+
+
+exit: default "Exit" action
+
+    {exit => ["label", "icon"]}
+
+
+raw: any valid fluxbox menu entry
+
+    {raw => q(...)},
+    {raw => q([exec] (Geeqie) {geeqie -r } </usr/share/pixmaps/geeqie.png>)},
+
+
+fbmenugen: category provided by $pkgname
+
+    {fbmenugen => ["label", "icon"]}
+
+
+fluxbox: the default fluxbox config menu
+
+    {fluxbox => ["label", "icon"]}
+HELP
+
+sub full_help {
+    print <<"HELP";
+=>> Schema file:
+$schema_help
+====================================================
+
+=>> Config file:
+$config_help
+HELP
+
+    exit 0;
+}
+
+if (@ARGV) {
+    while (defined(my $arg = shift @ARGV)) {
+        if ($arg eq '-i') {
+            $icons = 1;
+        }
+        elsif ($arg eq '-S') {
+            $stdout_config = 1;
+        }
+        elsif ($arg eq '-r') {
+            $reconfigure = 1;
+        }
+        elsif ($arg eq '-p') {
+            $pipe = 1;
+        }
+        elsif ($arg eq '-d') {
+            unlink $icons_db;
+        }
+        elsif ($arg eq '-u') {
+            $update_config = 1;
+        }
+        elsif ($arg eq '-v') {
+            print "$pkgname $version\n";
+            exit;
+        }
+        elsif ($arg eq '-o') {
+            $menufile = shift(@ARGV) // die "$0: option '-o' requires an argument!\n";
+        }
+        elsif ($arg eq '-h') {
+            usage();
+        }
+        elsif ($arg eq '-H') {
+            full_help();
+        }
     }
 }
 
 if (not -d $config_dir) {
     require File::Path;
     File::Path::make_path($config_dir)
-      or die "$0: Can't create directory '${config_dir}': $!";
+      or die "Can't create directory '${config_dir}': $!";
 }
 
 my $config_documentation = <<"EOD";
 #!/usr/bin/perl
 
 # $pkgname - configuration file
+# This file will be updated automatically every time when is needed.
+# Any additional comment and/or indentation will be lost.
 
-# desktop_files_paths        : Example: [ "\$ENV{'HOME'}/.local/share/applications", '/my/path' ]
-# gtk_rc_file                : File where to look for the icon theme (default: ~/.gtkrc-2.0)
-# skip_file_name_re          : Ignore desktop files if their filenames match a regex
-# skip_app_name_re           : Ignore applications if their names match a regex
-# skip_app_command_re        : Ignore applications if their commands match a regex
-# skip_file_content_re       : Ignore desktop files if their content match a regex
-# subst_command_name_re      : Remove from every command something matched by a regex (/g)
-# icon_dirs_first            : Look in this directories before icon theme (when generating icons.db)
-# icon_dirs_second           : Look in this directories after the icon theme (when generating icons.db)
-# icon_dirs_last             : Look in this directories after all directories (when generating icons.db)
-
-# For regular expressions
-#    * is better to use qr/REGEX/ instead of 'REGEX'
-
-# NOTE: Once an icon is found, it will *NOT* be replaced by another.
+=for comment
+$config_help
+=cut
 
 EOD
 
 my %CONFIG = (
-              menu_title                => 'PisiLinux',
-              desktop_files_paths       => ['/usr/share/applications','/usr/share/applications/kde4'],
-              gtk_rc_filename           => undef,
-              skip_file_name_re         => undef,
-              skip_app_name_re          => undef,
-              skip_app_command_re       => undef,
-              skip_file_content_re      => undef,
-              clean_command_name_re     => undef,
-              icon_dirs_first           => [],
-              icon_dirs_second          => [],
-              icon_dirs_last            => ['/usr/share/icons/hicolor'],
-              use_only_my_icon_dirs     => 0,
-              skip_svg_icons            => 1,
-              categories_case_sensitive => 0,
-              terminal                  => $ENV{TERM} || 'lxterminal',
-              editor                    => 'leafpad',
-              VERSION                   => $VERSION,
+    'Linux::DesktopFiles' => {
+
+        keep_unknown_categories => 1,
+        unknown_category_key    => 'other',
+        gtk_rc_filename         => "$home_dir/.gtkrc-2.0",
+
+        skip_entry       => undef,
+        substitutions    => undef,
+        skip_filename_re => undef,
+
+        terminalize            => 1,
+        terminalization_format => q{%s -e '%s'},
+
+        desktop_files_paths => ['/usr/share/applications'],
+
+        icon_dirs_first  => undef,
+        icon_dirs_second => undef,
+        icon_dirs_last   => undef,
+        strict_icon_dirs => undef,
+
+        skip_svg_icons => 1,
+    },
+
+    name_keys    => ['Name'],
+    menu_title   => 'PisiLinux',
+    terminal     => 'lxterminal',
+    editor       => 'leafpad',
+    missing_icon => 'gtk-missing-image',
+    VERSION      => $version,
              );
 
 sub dump_configuration {
     require Data::Dump;
     open my $config_fh, '>', $config_file
-      or die "$0: Can't open '${config_file}' for write: $!";
+      or die "Can't open file '${config_file}' for write: $!";
     my $dumped_config = q{our $CONFIG = } . Data::Dump::dump(\%CONFIG);
     print $config_fh $config_documentation, $dumped_config;
     close $config_fh;
@@ -153,41 +311,37 @@ if (not -e $config_file or $reconfigure) {
     dump_configuration();
 }
 
-if (not -e $schema_file or $reconfigure) {
+if (not -e $schema_file or $reconfigure or $stdout_config) {
 
-    open my $schema_fh, '>', $schema_file
-      or die "$0: Can't open '${schema_file}' for write: $!";
+    my $schema_fh = $stdout_config ? \*STDOUT : do {
+        open my $fh, '>', $schema_file
+          or die "Can't open file '${schema_file}' for write: $!";
+        $fh;
+    };
 
     print $schema_fh <<"SCHEMA_FILE";
 #!/usr/bin/perl
 
 # $pkgname - schema file
-#
-# SCHEMA supports the following keys: item, cat, exit, raw, sep,
-#                                     regenerate, fluxbox, fbgenmenu
-#
-# Posible values for each of this types are:
-# For 'item': [COMMAND, NAME, ICON]
-# For 'sep' : undef - horizontal separator
-# For 'cat' : Any of the posible categories. 'cat => [CATEGORY, NAME, ICON]'
-# For 'exit': [LABEL, ICON] - default "Exit" action
-# For 'raw' : any valid format
-#    Example: {raw => ' [exec] (Geeqie) {geeqie -r } </usr/share/pixmaps/geeqie.png>'},
+
+=for comment
+$schema_help
+=cut
 
 # NOTE:
 #    * Keys and values are case sensitive. Keep all keys lowercase.
-#    * ICON can be a either a direct path to a icon or a valid icon name
-#    * Category names are case insensitive. (ex: X-XFCE and x_xfce are equivalent)
+#    * ICON can be a either a direct path to an icon or a valid icon name
+#    * Category names are case insensitive. (X-XFCE and x_xfce are equivalent)
 
 require '${config_file}';
 
 our \$SCHEMA = [
-    #             COMMAND                 LABEL                ICON
-    {item => ['pcmanfm',              'File Manager',      'system-file-manager']},
-    {item => ['lxterminal',           'Terminal',          'lxterminal']},
-    {item => ['leafpad',              'Editor',            'leafpad']},
-    {item => ['firefox',              'Web Browser',       'firefox']},
-    {item => ['fbrun',                'Run command',       'system-run']},
+    #          COMMAND             LABEL                ICON
+    {item => ['pcmanfm',       'File Manager',      'file-manager']},
+    {item => ['lxterminal',    'Terminal',          'terminal']},
+    {item => ['leafpad',       'Editor',            'leafpad']},
+    {item => ['firefox',       'Web Browser',       'web-browser']},
+    {item => ['fbrun',         'Run command',       'system-run']},
 
     {sep => 'undef'},
 
@@ -200,13 +354,9 @@ our \$SCHEMA = [
     {cat => ['audiovideo',  'Multimedia',  'applications-multimedia']},
     {cat => ['network',     'Network',     'applications-internet']},
     {cat => ['office',      'Office',      'applications-office']},
+    {cat => ['other',       'Other',       'applications-other']},
     {cat => ['settings',    'Settings',    'applications-accessories']},
     {cat => ['system',      'System',      'applications-system']},
-
-    #                  LABEL          ICON
-    #{begin_cat => ['My category',  'cat-icon']},
-    #             ... some items ...
-    #{end_cat   => undef},
 
     #{cat => ['qt',          'QT Applications',    'qtlogo']},
     #{cat => ['gtk',         'GTK Applications',   'gnome-applications']},
@@ -214,9 +364,18 @@ our \$SCHEMA = [
     #{cat => ['gnome',       'GNOME Applications', 'gnome-applications']},
     #{cat => ['consoleonly', 'CLI Applications',   'applications-utilities']},
 
+    #                  LABEL          ICON
+    #{begin_cat => ['My category',  'cat-icon']},
+    #             ... some items ...
+    #{end_cat   => undef},
+
     #                  LABEL               ICON
-    {fluxbox    => ['Fluxbox menu',   'package_settings']},
+    {fbmenugen  => ['FBMenuConf',   'preferences-desktop']},
+    {fluxbox    => ['Fluxbox menu', 'package_settings']},
     {sep        => undef},
+    {regenerate => ['Regenerate',     'gtk-refresh']},
+
+    # This options uses the default Fluxbox action "Exit"
     {exit       => ['Logout',           'exit']},
     {item => ['oblogout', 'Exit', 'exit']},
 ]
@@ -227,47 +386,43 @@ SCHEMA_FILE
 
 require $schema_file;    # Load the configuration files
 
-my @valid_keys = grep exists $CONFIG{$_}, keys %{$CONFIG};
+# Remove user's defined values
+my @valid_keys = grep exists $CONFIG{$_}, keys $CONFIG;
 @CONFIG{@valid_keys} = @{$CONFIG}{@valid_keys};
 
-if ($CONFIG{VERSION} != $VERSION) {
+# Keep user's defined values
+#@CONFIG{keys %{$CONFIG}} = values %{$CONFIG};
+
+if ($CONFIG{VERSION} != $version) {
     $update_config = 1;
-    $CONFIG{VERSION} = $VERSION;
+    $CONFIG{VERSION} = $version;
 }
 
 my $desk_obj = Linux::DesktopFiles->new(
+    %{$CONFIG{'Linux::DesktopFiles'}},
 
-    home_dir         => $home_dir,
-    terminal         => $CONFIG{terminal},
-    gtk_rc_filename  => $CONFIG{gtk_rc_filename},
-    icon_db_filename => $icons_db,
+    home_dir => $home_dir,
 
-    desktop_files_paths => $CONFIG{desktop_files_paths},
+    categories => [map $_->{cat}[0], grep exists $_->{cat}, @$SCHEMA],
+    keys_to_keep => [@{$CONFIG{name_keys}}, 'Exec', $icons ? 'Icon' : ()],
 
-    with_icons            => $icons,
-    skip_svg_icons        => $CONFIG{skip_svg_icons},
-    full_icon_paths       => 1,
-    terminalize           => 1,
-    keep_empty_categories => 1,
+    $icons
+    ? (
+       abs_icon_paths   => 1,
+       icon_db_filename => $icons_db,
+      )
+    : (),
 
-    icon_dirs_first       => $CONFIG{icon_dirs_first},
-    icon_dirs_second      => $CONFIG{icon_dirs_second},
-    icon_dirs_last        => $CONFIG{icon_dirs_last},
-    use_only_my_icon_dirs => $CONFIG{use_only_my_icon_dirs},
-
-    skip_file_name_re     => $CONFIG{skip_file_name_re},
-    skip_app_name_re      => $CONFIG{skip_app_name_re},
-    skip_app_command_re   => $CONFIG{skip_app_command_re},
-    skip_file_content_re  => $CONFIG{skip_file_content_re},
-    clean_command_name_re => $CONFIG{subst_command_name_re},
-
-    categories                => [map $_->{cat}[0], grep exists $_->{cat}, @$SCHEMA],
-    categories_case_sensitive => $CONFIG{categories_case_sensitive},
-);
+    terminal              => $CONFIG{terminal},
+    keep_empty_categories => 0,
+    case_insensitive_cats => 1,
+                                       );
 
 my $generated_menu = <<"HEADER";
-# Right-click menu for the Fluxbox Window Manager,
-# Generated by $pkgname v$VERSION (Fluxbox Menu Generator)\n
+#
+## File generated by $pkgname v$version
+#
+
 [begin] ($CONFIG{menu_title})
 [encoding] {UTF-8}
 HEADER
@@ -280,23 +435,19 @@ HEADER
     }
 }
 
-sub escape_name {
-    $_[0] =~ s/\)/\\)/g;
-}
-
-sub escape_command {
-    $_[0] =~ s/\}/\\}/g;
+sub check_icon {
+    defined($_[0]) && (chr ord($_[0]) eq '/') ? $_[0] : $desk_obj->get_icon_path($_[0])
+      || $desk_obj->get_icon_path($CONFIG{missing_icon});
 }
 
 sub prepare_item {
-    my ($command, $name, $icon) = @_;
-
-    escape_command($command);
-    escape_name($name);
+    my $command = shift() =~ s/\}/\\}/gr;
+    my $name    = shift() =~ s/\)/\\)/gr;
+    my $icon    = shift();
 
     $icons
       ? <<"ITEM_WITH_ICON"
-  [exec] ($name) {$command} <${\$desk_obj->get_icon_path($icon)}>
+  [exec] ($name) {$command} <${\check_icon($icon)}>
 ITEM_WITH_ICON
       : <<"ITEM";
   [exec] ($name) {$command}
@@ -306,35 +457,37 @@ ITEM
 sub begin_category {
     $icons
       ? <<"MENU_WITH_ICON"
-[submenu] ($_[0]) <${\$desk_obj->get_icon_path($_[1])}>
+[submenu] ($_[0]) <${\check_icon($_[1])}>
 MENU_WITH_ICON
       : <<"MENU"
 [submenu] ($_[0])
 MENU
 }
 
-my %categories = %{$desk_obj->parse_desktop_files};
+my $categories = $desk_obj->parse_desktop_files();
 
 foreach my $schema (@$SCHEMA) {
     if (exists $schema->{cat}) {
-        next unless defined $categories{$schema->{cat}[0]};
-        $generated_menu .= begin_category($schema->{cat}[1], ($icons && $schema->{cat}[2])) . join(
+        exists($categories->{my $category = lc($schema->{cat}[0]) =~ tr/_a-z0-9/_/cr}) || next;
+        $generated_menu .= begin_category($schema->{cat}[1], ($icons ? $schema->{cat}[2] : ())) . join(
             q{},
             (
              map $_->[1],
              sort { $a->[0] cmp $b->[0] }
                map [lc($_) => $_],
              map {
-                 escape_name($_->{Name});
-                 escape_command($_->{Exec});
-                 $icons
-                   ? <<"ITEM_WITH_ICON"
-  [exec] ($_->{Name}) {$_->{Exec}} <$_->{Icon}>
-ITEM_WITH_ICON
-                   : <<"ITEM";
-  [exec] ($_->{Name}) {$_->{Exec}}
-ITEM
-               } @{$categories{$schema->{cat}[0]}}
+                 my $name;
+                 my $exec = $_->{Exec};
+
+                 foreach my $key (@{$CONFIG{name_keys}}) {
+                     if (defined $_->{$key}) {
+                         $name = $_->{$key};
+                         last;
+                     }
+                 }
+
+                 prepare_item($exec, $name, $icons ? $_->{Icon} : ());
+               } @{$categories->{$category}}
             )
           )
           . "[end]\n";
@@ -357,11 +510,9 @@ ITEM
     elsif (exists $schema->{fbmenugen}) {
         $generated_menu .= begin_category(@{$schema->{fbmenugen}});
         foreach my $item (
-                          ["$CONFIG{editor} $fluxbox_dir/init", q[Edit fluxbox's init file]],
-                          ["$CONFIG{editor} $fluxbox_dir/keys", q[Edit fluxbox's keys file]],
-                          ["$CONFIG{editor} $menufile",         "Edit ${pkgname}'s menu"],
-                          ["$CONFIG{editor} $config_file",      "Edit ${pkgname}'s config"],
-                          ["$CONFIG{editor} $schema_file",      "Edit ${pkgname}'s schema"],
+                          ["$CONFIG{editor} $menufile",    'Open the menu file'],
+                          ["$CONFIG{editor} $config_file", 'Open the config file'],
+                          ["$CONFIG{editor} $schema_file", 'Open the schema file'],
           ) {
             $generated_menu .= prepare_item(@$item, $schema->{fbmenugen}[1]);
         }
@@ -371,7 +522,7 @@ ITEM
         my ($name, $icon) = @{$schema->{exit}};
         $generated_menu .= $icons
           ? <<EXIT_WITH_ICON
-[exit] ($name) <${\$desk_obj->get_icon_path($icon)}>
+[exit] ($name) <${\check_icon($icon)}>
 EXIT_WITH_ICON
           : <<EXIT;
 [exit] ($name)
@@ -421,11 +572,11 @@ FOOTER
 
 $generated_menu .= "\n[endencoding]\n[end]\n";
 
-open my $menu_fh, '>', $menufile or die "$0: Can't open '${menufile}' for write: $!";
-print $menu_fh $generated_menu;
-close $menu_fh;
+my $out_fh = $pipe ? \*STDOUT : do {
+    open my $fh, '>', $menufile
+      or die "Can't open '${menufile}' for write: $!";
+    $fh;
+};
 
+print $out_fh $generated_menu;
 dump_configuration() if $update_config;
-
-print "\n* Menu successfully generated !\n\n";
-exit 0;
