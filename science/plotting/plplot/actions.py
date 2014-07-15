@@ -21,7 +21,15 @@ def setup():
                           -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
                           -DENABLE_d=OFF      \
                           -DENABLE_octave=OFF \
-                          -DENABLE_java=OFF \
+                          -DENABLE_pyqt4=OFF \
+                          -DENABLE_java=ON \
+                          -DJAR_DIR=/usr/share/plplot/java \
+                          -DENABLE_lua=ON \
+                          -DENABLE_tcl=ON \
+                          -DENABLE_qt=ON \
+                          -DENABLE_wxwidgets=ON \
+                          -DwxWidgets_CONFIG_EXECUTABLE=/usr/bin/wxconfig \
+                          -DFREETYPE_INCLUDE_DIR=/usr/include/freetype2 \
                           -DTEST_DYNDRIVERS=OFF \
                          ")
 
