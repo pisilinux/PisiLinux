@@ -9,8 +9,10 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import kde4
 
 def setup():
-    shelltools.system("git pull origin master")
-    kde4.configure()
+    #shelltools.system("git pull origin master")
+    kde4.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                    -DKDE4_BUILD_TESTS=OFF \
+                    -DCMAKE_BUILD_TYPE=Release")
 
 def build():
     kde4.make()
