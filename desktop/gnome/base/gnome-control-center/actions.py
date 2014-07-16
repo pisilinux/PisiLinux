@@ -13,8 +13,7 @@ def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
                          --disable-update-mimedb \
-                         --libexecdir=/usr/lib/gnome-control-center \
-                         --with-libsocialweb=no")
+                         --with-libsocialweb=yes")
 
     pisitools.dosed("libtool", "( -shared )", " -Wl,-O1,--as-needed\\1")
     pisitools.dosed("libtool", '(    if test "\$export_dynamic" = yes && test -n "\$export_dynamic_flag_spec"; then)', '      func_append compile_command " -Wl,-O1,--as-needed"\n      func_append finalize_command " -Wl,-O1,--as-needed"\n\\1')
