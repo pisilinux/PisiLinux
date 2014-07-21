@@ -17,9 +17,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("COPYING*", "NEWS") 
-    pisitools.removeDir("/usr/share/appdata/")
-    pisitools.removeDir("/usr/share/gnome-clocks/")
-    pisitools.removeDir("/usr/share/icons/")
-    pisitools.removeDir("/usr/share/help/")
+    pisitools.dodoc("COPYING*", "NEWS")
     
+    pisitools.insinto("/usr/share/pixmaps", "data/icons/hicolor/32x32/apps/gnome-clocks.png")  
