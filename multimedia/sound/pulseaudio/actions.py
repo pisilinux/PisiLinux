@@ -28,11 +28,8 @@ def setup():
                --disable-jack \
                --disable-systemd \
                --disable-bluez4 \
-               --enable-oss-output \
-               --enable-bluez5 \
+               --disable-oss-output \
                --enable-largefile \
-               --enable-alsa \
-               --enable-dbus \
                --with-system-user=pulse \
                --with-system-group=pulse \
                --with-access-group=pulse-access \
@@ -86,7 +83,7 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # Disable autospawn by default
-    shelltools.system("sed -e '/autospawn/iautospawn=no' -i '%s/etc/pulse/client.conf'" % get.installDIR())
+    shelltools.system("sed -e '/autospawn/iautospawn=yes' -i '%s/etc/pulse/client.conf'" % get.installDIR())
     # Speed up pulseaudio shutdown
     # Lower resample quality, saves CPU
     shelltools.system("sed -e '/exit-idle-time/iexit-idle-time=0' \
