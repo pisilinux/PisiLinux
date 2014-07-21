@@ -18,17 +18,27 @@ emul32_libs = "libpulsecommon-%s.la \
               " % get.srcVERSION()
 
 def setup():
-    options = "--disable-dependency-tracking \
+    options = "--prefix=/usr         \
+               --sysconfdir=/etc     \
+               --localstatedir=/var  \
+               --libexecdir=/usr/libexec \
+               --disable-dependency-tracking \
                --disable-static \
                --disable-rpath \
                --disable-jack \
-               --disable-oss-output \
-               --enable-largefile \
+               --disable-systemd \
+               --disable-bluez4 \
+               --enable-oss-output \
                --enable-bluez5 \
+               --enable-largefile \
+               --enable-alsa \
+               --enable-dbus \
                --with-system-user=pulse \
                --with-system-group=pulse \
                --with-access-group=pulse-access \
-               --with-database=tdb"
+               --with-database=tdb \
+               --with-module-dir=/usr/lib/pulse/modules \
+               --with-udev-rules-dir=/usr/lib/udev/rules.d"
 
     if get.buildTYPE() == "emul32":
         options += " --libdir=/usr/lib32 \
