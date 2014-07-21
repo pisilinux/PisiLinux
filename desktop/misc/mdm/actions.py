@@ -25,7 +25,7 @@ def setup():
                     --disable-scrollkeeper \
                     --enable-compile-warnings=no \
                     --sbindir=/usr/sbin")
-    
+
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 
@@ -34,22 +34,25 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-   
+
+    #install Pisi Linux theme
+    pisitools.insinto("/usr/share/mdm/themes", "PisiLinux")
+
     #remove empty folders
     pisitools.removeDir("/usr/share/xsessions/")
     pisitools.removeDir("/etc/dm/")
-    
+
     #move conflict files
     pisitools.domove("/usr/share/pixmaps","/usr/share/mdm")
-    
+
     #move .desktop files
     pisitools.domove("/usr/share/mdm/applications/*.desktop","/usr/share/applications")
     pisitools.remove("/usr/share/applications/mdmflexiserver.desktop")
     pisitools.removeDir("/usr/share/mdm/applications/")
-    
-           
+
+
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")
 
-    
+
 
