@@ -12,6 +12,7 @@ def setup():
     qt4.configure()
 
 def build():
+    pisitools.dosed("Makefile", "-lqtermwidget", "-lqtermwidget4")
     qt4.make()
 
 def install():
