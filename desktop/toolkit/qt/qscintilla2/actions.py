@@ -44,7 +44,7 @@ def build():
     autotools.make()
     shelltools.cd("../Python3")
     pythonmodules.run("configure.py -p 4 -n ../Qt4Qt5 -o ../Qt4Qt5", pyVer = "3")
-    pisitools.dosed("Makefile", "-lpython3.3", "-lpython3.3m")
+    pisitools.dosed("Makefile", "-lpython3.4", "-lpython3")
     autotools.make()
 
 def install():
