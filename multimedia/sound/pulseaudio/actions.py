@@ -18,17 +18,24 @@ emul32_libs = "libpulsecommon-%s.la \
               " % get.srcVERSION()
 
 def setup():
-    options = "--disable-dependency-tracking \
+    options = "--prefix=/usr         \
+               --sysconfdir=/etc     \
+               --localstatedir=/var  \
+               --libexecdir=/usr/libexec \
+               --disable-dependency-tracking \
                --disable-static \
                --disable-rpath \
                --disable-jack \
+               --disable-systemd \
+               --disable-bluez4 \
                --disable-oss-output \
                --enable-largefile \
-               --enable-bluez5 \
                --with-system-user=pulse \
                --with-system-group=pulse \
                --with-access-group=pulse-access \
-               --with-database=tdb"
+               --with-database=tdb \
+               --with-module-dir=/usr/lib/pulse/modules \
+               --with-udev-rules-dir=/usr/lib/udev/rules.d"
 
     if get.buildTYPE() == "emul32":
         options += " --libdir=/usr/lib32 \
@@ -76,7 +83,7 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # Disable autospawn by default
-    shelltools.system("sed -e '/autospawn/iautospawn=no' -i '%s/etc/pulse/client.conf'" % get.installDIR())
+    shelltools.system("sed -e '/autospawn/iautospawn=yes' -i '%s/etc/pulse/client.conf'" % get.installDIR())
     # Speed up pulseaudio shutdown
     # Lower resample quality, saves CPU
     shelltools.system("sed -e '/exit-idle-time/iexit-idle-time=0' \

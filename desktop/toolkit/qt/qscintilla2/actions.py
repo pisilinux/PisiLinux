@@ -23,7 +23,7 @@ def setup():
     pisitools.dosed("Makefile", "^CXXFLAGS.*\\$\\(DEFINES\\)", "CXXFLAGS   = %s -fPIC $(DEFINES)" % get.CXXFLAGS())
 
     # Get designer plugin's Makefile
-    shelltools.cd("../designer-Qt4Qt5/")
+    shelltools.cd("../designer-Qt4/")
     qt4.configure()
 
     # Change C/XXFLAGS of designer plugin's makefile
@@ -35,25 +35,23 @@ def build():
     shelltools.cd("Qt4Qt5")
     autotools.make("all staticlib CC=\"%s\" CXX=\"%s\" LINK=\"%s\"" % (get.CC(), get.CXX(), get.CXX()))
 
-    shelltools.cd("../designer-Qt4Qt5")
+    shelltools.cd("../designer-Qt4/")
     autotools.make("DESTDIR=\"%s/%s/designer\"" % (get.installDIR(), qt4.plugindir))
 
     # Get Makefile of qscintilla-python via sip
-    print "Building python"
     shelltools.cd("../Python")
-    pythonmodules.run("configure.py -n ../Qt4Qt5 -o ../Qt4Qt5")
+    pythonmodules.run("configure.py -p 4 -n ../Qt4Qt5 -o ../Qt4Qt5")
     autotools.make()
-    print "Building python3"
     shelltools.cd("../Python3")
-    pythonmodules.run("configure.py -n ../Qt4Qt5 -o ../Qt4Qt5", pyVer = "3.4")
-    pisitools.dosed("Makefile", "-lpython3.3", "-lpython3.3m")
+    pythonmodules.run("configure.py -p 4 -n ../Qt4Qt5 -o ../Qt4Qt5", pyVer = "3")
+    pisitools.dosed("Makefile", "-lpython3.4", "-lpython3")
     autotools.make()
 
 def install():
     shelltools.cd("Qt4Qt5")
     qt4.install()
 
-    shelltools.cd("../designer-Qt4Qt5/")
+    shelltools.cd("../designer-Qt4/")
     qt4.install()
 
     #build and install qscintilla-python
