@@ -35,7 +35,7 @@ def setup():
                --with-access-group=pulse-access \
                --with-database=tdb \
                --with-module-dir=/usr/lib/pulse/modules \
-               --with-udev-rules-dir=/usr/lib/udev/rules.d"
+               --with-udev-rules-dir=/lib/udev/rules.d"
 
     if get.buildTYPE() == "emul32":
         options += " --libdir=/usr/lib32 \
