@@ -19,11 +19,15 @@ def setup():
                          --enable-pam-module \
                          --localstatedir=/var \
                          --with-pid-file=/run/ConsoleKit/pid")
+#                         --with-systemdsystemunitdir=/lib/systemd/system \
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s/" % get.installDIR())
+
+    # pam_console-compat
+    pisitools.dodir("/run/console")
 
     pisitools.dodoc("AUTHORS","ChangeLog","README", "COPYING", "HACKING", "NEWS", "TODO")
