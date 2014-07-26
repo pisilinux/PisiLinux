@@ -8,6 +8,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
+    pisitools.dosed("pisi/__init__.py", "2.4", "2.6")
     pythonmodules.compile()
 
 def install():
