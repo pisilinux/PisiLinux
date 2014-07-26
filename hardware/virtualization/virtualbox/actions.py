@@ -8,9 +8,11 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import pythonmodules
+from pisi.actionsapi import kerneltools
 
 VBoxLibDir = "/usr/lib/virtualbox"
 VBoxDataDir = "/usr/share/virtualbox"
+KDIR = kerneltools.getKernelVersion()
 
 def setup():
     #pisitools.dosed("LocalConfig.kmk", "__VBOXLIBDIR__", VBoxLibDir)
@@ -25,9 +27,10 @@ def setup():
                              --enable-vde \
                              --enable-vnc \
                              --enable-webservice \
+                             --with-linux=/usr/src/linux-headers-%s \
                              --with-gcc=%s \
                              --with-g++=%s \
-                           " % (get.CC(), get.CXX()))
+                           " % (KDIR, get.CC(), get.CXX()))
 
 def build():
     shelltools.system("source %s/env.sh && kmk" % get.curDIR())
