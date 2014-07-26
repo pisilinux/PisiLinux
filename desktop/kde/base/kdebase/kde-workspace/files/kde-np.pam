@@ -8,6 +8,3 @@ account    include      system-auth
 password   include      system-auth
 
 session    include      system-auth
-
-session    optional     pam_console.so
-session    optional     pam_polkit_console.so
