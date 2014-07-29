@@ -11,8 +11,7 @@ from pisi.actionsapi import get
 WorkDir = "./"
 
 def install():
-  
-    shelltools.chmod("%s/pacifica-icon-theme-master/Pacifica/*" % get.workDIR())
+    
     pisitools.insinto("/usr/share/icons", "pacifica-icon-theme-master/Pacifica")
     
-#    pisitools.dodoc("AUTHORS", "LICENSE")
+    pisitools.dodoc("pacifica-icon-theme-master/CREDITS", "pacifica-icon-theme-master/README.md")
