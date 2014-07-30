@@ -8,16 +8,16 @@ from pisi.actionsapi import pisitools
 
 
 def install():
-    prefix = "/usr/share/icons/"
+    path = "/usr/share/icons"
     klasor = ("Faenza", "Faenza-Ambiance", "Faenza-Dark", "Faenza-Darker", "Faenza-Darkest", "Faenza-Radiance")
     boyut = ("16", "22", "24", "32", "48", "64", "96", "128", "256")
     isim = ("distributor-logo-pisilinux.png", "pisilinux-logo.png", "start-here-kde.png", "start-here-pisilinux.png")
 
     for dosya in klasor:
-        pisitools.insinto("/usr/share/icons", "%s" % dosya)
+        pisitools.insinto("/usr/share/icons", dosya)
 
-    for size in boyut:
-        pisitools.dosym("%s%s/actions/%s/application-exit.png", "%s%s/actions/%s/cancel.png"% (prefix, dosya, size))
+        for size in boyut:
+            pisitools.dosym("application-exit.png", "%s/%s/actions/%s/cancel.png"% (path, dosya, size))
 
-    for ad in isim:
-        pisitools.dosym("/usr/share/icons/Faenza/places/% boyut/start-here.png", "%s%s/places/%s/%s"% (prefix, dosya, size, ad))
+            for ad in isim:
+                pisitools.dosym("start-here.png", "%s/%s/places/%s/%s"% (path, dosya, size, ad))
