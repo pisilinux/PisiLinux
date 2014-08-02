@@ -7,11 +7,6 @@
 WorkDir = "."
 
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
-
-def setup():
-    shelltools.unlink("%s/NITRUX-KDE/apps/scalable/linuxdcpp.sv*" % get.workDIR())
 
 def install():
     pisitools.insinto("/usr/share/icons", "NITRUX-KDE")
