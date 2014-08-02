@@ -15,19 +15,19 @@ def setup():
 
     autotools.autoreconf("-fi")
 
-    autotools.configure("--disable-static \
+    autotools.configure("\
+                         --with-pid-file=/run/ConsoleKit/pid \
+                         --with-systemdsystemunitdir=no \
+                         --disable-static \
                          --enable-pam-module \
-                         --localstatedir=/var \
-                         --with-pid-file=/run/ConsoleKit/pid")
-#                         --with-systemdsystemunitdir=/lib/systemd/system \
+                         --enable-udev-acl \
+                        ")
 
 def build():
     autotools.make()
 
 def install():
     autotools.rawInstall("DESTDIR=%s/" % get.installDIR())
-
-    # pam_console-compat
     pisitools.dodir("/run/console")
 
     pisitools.dodoc("AUTHORS","ChangeLog","README", "COPYING", "HACKING", "NEWS", "TODO")
