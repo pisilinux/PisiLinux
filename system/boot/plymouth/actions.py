@@ -34,9 +34,9 @@ def setup():
                          --disable-libdrm_nouveau \
                          --disable-tests \
                          --disable-static \
-                         --disable-gdm-transition \
+                         --enable-gdm-transition \
                          --without-rhgb-compat-link \
-                         --without-gdm-autostart-file" % LOGO_FILE)
+                         --with-gdm-autostart-file" % LOGO_FILE)
 
 def build():
     autotools.make()
