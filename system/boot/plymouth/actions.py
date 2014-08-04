@@ -36,7 +36,7 @@ def setup():
                          --disable-static \
                          --enable-gdm-transition \
                          --without-rhgb-compat-link \
-                         --with-gdm-autostart-file" % LOGO_FILE)
+                         --without-gdm-autostart-file" % LOGO_FILE)
 
 def build():
     autotools.make()
