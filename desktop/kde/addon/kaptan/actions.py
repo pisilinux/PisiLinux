@@ -8,6 +8,6 @@ from pisi.actionsapi import pisitools
 
 def install():
     pythonmodules.install()
-    
+
     pisitools.insinto("/usr/share/pixmaps/", "data/pixmap/cr64-app-kaptan.png", "kaptan.png")
-    
+
