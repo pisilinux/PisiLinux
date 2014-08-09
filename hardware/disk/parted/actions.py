@@ -11,9 +11,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    # FIXME: device-mapper is not in system.base discuss it
-    autotools.configure("--disable-device-mapper \
-                         --disable-static \
+    autotools.configure("--disable-static \
                          --without-readline \
                          --enable-Werror=no")
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
@@ -27,4 +25,3 @@ def install():
     pisitools.dodoc("AUTHORS", "BUGS", "ChangeLog", "NEWS", "README", "THANKS", "TODO")
     pisitools.dodoc("doc/API", "doc/USER.jp", "doc/FAT")
 
-    #pisitools.removeDir("/usr/bin")
