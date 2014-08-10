@@ -19,6 +19,6 @@ def build():
 
 def install():
     pythonmodules.install()
-    
+
     pisitools.domove("/usr/share/applications/yali.desktop", "/usr/share/display-managers/")
     pisitools.removeDir("usr/share/applications")
