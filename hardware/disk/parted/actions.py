@@ -11,14 +11,18 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.flags.add("-Wno-unused-but-set-variable")
+    autotools.autoreconf()
+    autotools.autoconf()
+
     autotools.configure("--disable-static \
-                         --without-readline \
-                         --enable-Werror=no")
+                         --disable-gcc-warnings")
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+    pisitools.dosed("libtool", "^(runpath_var=)LD_RUN_PATH", "\\1DIE_RPATH_DIE")
+
 
 def build():
-    autotools.make('CFLAGS="%s" CXXFLAGS="%s" CC="%s" CXX="%s"' %
-            (get.CFLAGS(), get.CXXFLAGS(), get.CC(), get.CXX()))
+    autotools.make("V=1")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
