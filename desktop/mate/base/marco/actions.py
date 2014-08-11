@@ -11,6 +11,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
+    autotools.autoreconf("-if")
     autotools.configure("--disable-static           \
                          --disable-scrollkeeper     \
                          --disable-schemas-compile  \
