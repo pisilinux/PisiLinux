@@ -6,8 +6,12 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
+    # https://bugs.freedesktop.org/show_bug.cgi?id=70366
+    shelltools.export("ac_cv_func_fdatasync", "no")
+
     autotools.configure("--disable-update-mimedb")
 
 def build():
