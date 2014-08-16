@@ -6,6 +6,7 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
+from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
@@ -19,6 +20,6 @@ def install():
     shelltools.system("mkdir -p %s/usr/share/man" % get.installDIR())
     shelltools.system("mkdir -p %s/usr/include" % get.installDIR())
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    shelltools.move("src/lib/*.o", "%s/usr/lib/" % get.installDIR())
-    shelltools.move("src/man/*", "%s/usr/share/man/" % get.installDIR())
-    shelltools.move("src/include/*.h", "%s/usr/include/" % get.installDIR())
+    pisitools.insinto("/usr/lib", "src/lib/*.o")
+    pisitools.insinto("/usr/share/man", "src/man/*")
+    pisitools.insinto("/usr/include", "src/include/*.h")
