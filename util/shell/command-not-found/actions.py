@@ -10,9 +10,9 @@ from pisi.actionsapi import get
 def install():
     pisitools.dobin("src/command-not-found")
 
-    pisitools.insinto("/var/db/command-not-found", "data/packages-%s.db" % get.ARCH(), "packages.db")
+    pisitools.insinto("/var/db/command-not-found", "data/packages.db")
 
-    for lang in ["da", "de", "es", "fr", "hu", "it", "nl", "ru", "sv", "tr"]:
+    for lang in ["da", "de", "es", "fr", "hr", "hu", "it", "nl", "pl", "pt_BR", "ru", "sv", "tr"]:
         pisitools.domo("po/%s.po" % lang, lang, "command-not-found.mo")
 
     pisitools.dodoc("AUTHORS", "COPYING", "README")
