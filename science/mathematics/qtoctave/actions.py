@@ -8,7 +8,7 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "qtoctave-0.9.1"
+WorkDir = "qtoctave-0.10.1"
 
 def setup():
     cmaketools.configure("-DCMAKE_SKIP_RPATH:STRING=ON")
