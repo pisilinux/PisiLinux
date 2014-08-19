@@ -15,7 +15,7 @@ if "_" in get.srcVERSION():
     WorkDir = get.srcNAME()
 
 def setup():
-    pisitools.dosed("configure.in", "multisound/Makefile", "")
+    pisitools.dosed("configure.ac", "multisound/Makefile", "")
     pisitools.dosed("Makefile.am", "multisound", "")
 
     autotools.autoreconf("-fi")
@@ -26,12 +26,10 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    #there is no /usr/bin directory (obsoleteman)
-    #pisitools.removeDir("/usr/bin")
-    
+
     #Remove conflicted file, it is in linux-firmware package
     pisitools.remove("lib/firmware/ctefx.bin")
-    
+
     # Install additional readme files
     for d in ["hdsploader", "mixartloader", "pcxhrloader", "usx2yloader", "vxloader"]:
         pisitools.newdoc("%s/README" % d, "README.%s" % d)
