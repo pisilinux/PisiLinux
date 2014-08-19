@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    pisitools.dosed("data/caja.desktop.in*", "Exec=caja", "Exec=caja -n --sync")
     autotools.configure("--disable-static \
                          --enable-unique \
                          --disable-schemas-compile \
