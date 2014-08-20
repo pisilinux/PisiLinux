@@ -17,9 +17,7 @@ def install():
     # Arch removes this lib, Pardus libgcc package provides libstdc++.so.6
     #pisitools.remove("/opt/dropbox/libstdc++.so.6")
 
-    pisitools.dodoc("ACKNOWLEDGEMENTS", "README", "VERSION")
-    pisitools.remove("/opt/dropbox/ACKNOWLEDGEMENTS")
-    pisitools.remove("/opt/dropbox/README")
+    pisitools.dodoc("VERSION")        
     pisitools.remove("/opt/dropbox/VERSION")
 
     # you can remove these lines if u don't like monochromatic systemtry icons
