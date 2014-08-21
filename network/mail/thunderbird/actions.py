@@ -9,7 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-WorkDir = "comm-esr24"
+WorkDir = "comm-esr31"
 MOZAPPDIR= "/usr/lib/thunderbird"
 
 locales = "be  ca  da  de  el  en-US  es-AR  es-ES  fi  fr  hr  hu  it  lt nl  pl  pt-BR  pt-PT  ro  ru  sr  sv-SE  tr  uk".split()
@@ -20,11 +20,11 @@ ver = ".".join(get.srcVERSION().split(".")[:3])
 def setup():
     pisitools.flags.sub("-ggdb3", "-g")
     pisitools.ldflags.add("-Wl,-rpath,/usr/lib/thunderbird")
-    
+
     # configure script misdetects the preprocessor without an optimization level
     # https://bugs.archlinux.org/task/34644
     shelltools.system("sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' mozilla/configure")
-  
+
     # LOCALE
     shelltools.system("rm -rf langpack-tb/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
@@ -38,16 +38,16 @@ def setup():
 
 def build():
     autotools.make("-f client.mk build")
-    
-def install():    
-    autotools.rawInstall("-f client.mk DESTDIR=%s" % get.installDIR())    
-    
+
+def install():
+    autotools.rawInstall("-f client.mk DESTDIR=%s" % get.installDIR())
+
     # Install fix language packs
     pisitools.insinto("/usr/lib/thunderbird/extensions", "./langpack-tb/*")
-   
+
    # Install default-prefs.js
     pisitools.insinto("%s/defaults/pref" % MOZAPPDIR, ".pisilinux-default-prefs.js", "all-pisilinux.js")
-    
+
     # Empty fake files to get Turkish spell check support working
     pisitools.dodir("%s/extensions/langpack-tr@thunderbird.mozilla.org/dictionaries" % MOZAPPDIR)
     shelltools.touch("%s/%s/%s/dictionaries/tr-TR.aff" % (get.installDIR(), MOZAPPDIR, "extensions/langpack-tr@thunderbird.mozilla.org"))
@@ -59,7 +59,7 @@ def install():
 
     for s in (16, 22, 24, 32, 48, 256):
         pisitools.insinto("/usr/share/icons/hicolor/%dx%d/apps" % (s,s), "other-licenses/branding/thunderbird/mailicon%d.png" % s, "thunderbird.png")
-    
+
     # We don't want the development stuff
     pisitools.removeDir("/usr/lib/thunderbird-devel*")
     pisitools.removeDir("/usr/share/idl")
