@@ -8,7 +8,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 
 def setup():
-    kde4.configure()
+    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
+                    -DKDE4_BUILD_TESTS=OFF")
 
 def build():
     kde4.make()
@@ -16,6 +17,6 @@ def build():
 def install():
     kde4.install()
 
-    pisitools.dodoc("AUTHORS", "COPYING*", "README")
+    pisitools.dodoc("AUTHORS", "COPYING*")
     
     pisitools.insinto("/usr/share/pixmaps/", "icons/hi32-apps-artikulate.png", "artikulate.png")
