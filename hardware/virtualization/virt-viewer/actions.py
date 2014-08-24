@@ -6,11 +6,16 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--disable-static \
-                         --disable-plugin")
+    autotools.aclocal("-I m4")
+    libtools.libtoolize("--force --copy")
+    autotools.autoreconf()
+    autotools.configure("--with-gtk=2.0 \
+                        PYTHON=/usr/bin/python2.7 \
+                        --with-python")
 
 def build():
     autotools.make()
