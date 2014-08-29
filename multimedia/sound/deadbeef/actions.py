@@ -8,7 +8,8 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--disable-static --disable-rpath")
+    #if compile against gtk3=yes then a libtool compile error, so now build against gtk2
+    autotools.configure("--enable-gtk3=no --enable-staticlink=no")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
