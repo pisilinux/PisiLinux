@@ -17,7 +17,6 @@ def setup():
                     -DBUILD_cstester=OFF \
                     -DKDE4_BUILD_TESTS=OFF \
                     -DBUILD_mobile=OFF \
-                    -DWITH_Soprano=OFF \
                     -DCMAKE_INSTALL_PREFIX=/usr ")
 
 def build():
