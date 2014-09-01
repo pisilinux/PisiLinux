@@ -10,6 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.configure("--disable-static \
+                         --enable-introspection \
                          --with-python=/usr/bin/python2.7")
 
 def build():
