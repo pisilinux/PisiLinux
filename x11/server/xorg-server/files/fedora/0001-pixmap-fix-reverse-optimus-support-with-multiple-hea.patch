@@ -1,0 +1,99 @@
+From 4b281c11423b7bac8f0265e650a3e7ff890081bc Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@gmail.com>
+Date: Tue, 30 Jul 2013 13:48:04 +1000
+Subject: [PATCH] pixmap: fix reverse optimus support with multiple heads
+
+For doing reverese optimus to multiple outputs on a secondary GPU
+the GPU can store the blits into a large screen pixmap, unfortunately
+this means we need a destination offset into the dirty code, so
+add a new API that just adds this interface.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+---
+ dix/pixmap.c        | 18 ++++++++++++++----
+ include/pixmap.h    |  6 ++++++
+ include/pixmapstr.h |  1 +
+ 3 files changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/dix/pixmap.c b/dix/pixmap.c
+index fe92147..e01d961 100644
+--- a/dix/pixmap.c
++++ b/dix/pixmap.c
+@@ -164,9 +164,9 @@ PixmapPtr PixmapShareToSlave(PixmapPtr pixmap, ScreenPtr slave)
+ }
+ 
+ Bool
+-PixmapStartDirtyTracking(PixmapPtr src,
+-                         PixmapPtr slave_dst,
+-                         int x, int y)
++PixmapStartDirtyTracking2(PixmapPtr src,
++			  PixmapPtr slave_dst,
++			  int x, int y, int dst_x, int dst_y)
+ {
+     ScreenPtr screen = src->drawable.pScreen;
+     PixmapDirtyUpdatePtr dirty_update;
+@@ -179,6 +179,8 @@ PixmapStartDirtyTracking(PixmapPtr src,
+     dirty_update->slave_dst = slave_dst;
+     dirty_update->x = x;
+     dirty_update->y = y;
++    dirty_update->dst_x = dst_x;
++    dirty_update->dst_y = dst_y;
+ 
+     dirty_update->damage = DamageCreate(NULL, NULL,
+                                         DamageReportNone,
+@@ -195,6 +197,14 @@ PixmapStartDirtyTracking(PixmapPtr src,
+ }
+ 
+ Bool
++PixmapStartDirtyTracking(PixmapPtr src,
++			 PixmapPtr slave_dst,
++			 int x, int y)
++{
++   return PixmapStartDirtyTracking2(src, slave_dst, x, y, 0, 0);
++}
++
++Bool
+ PixmapStopDirtyTracking(PixmapPtr src, PixmapPtr slave_dst)
+ {
+     ScreenPtr screen = src->drawable.pScreen;
+@@ -262,7 +272,7 @@ Bool PixmapSyncDirtyHelper(PixmapDirtyUpdatePtr dirty, RegionPtr dirty_region)
+         h = dst_box.y2 - dst_box.y1;
+ 
+         pGC->ops->CopyArea(&dirty->src->drawable, &dst->drawable, pGC,
+-                           dirty->x + dst_box.x1, dirty->y + dst_box.y1, w, h, dst_box.x1, dst_box.y1);
++                           dirty->x + dst_box.x1, dirty->y + dst_box.y1, w, h, dirty->dst_x + dst_box.x1, dirty->dst_y + dst_box.y1);
+         b++;
+     }
+     FreeScratchGC(pGC);
+diff --git a/include/pixmap.h b/include/pixmap.h
+index 921a94d..d7d0a5e 100644
+--- a/include/pixmap.h
++++ b/include/pixmap.h
+@@ -120,6 +120,12 @@ PixmapStartDirtyTracking(PixmapPtr src,
+                          PixmapPtr slave_dst,
+                          int x, int y);
+ 
++#define HAS_DIRTYTRACKING2 1
++extern _X_EXPORT Bool
++PixmapStartDirtyTracking2(PixmapPtr src,
++			  PixmapPtr slave_dst,
++			  int x, int y, int dst_x, int dst_y);
++
+ extern _X_EXPORT Bool
+ PixmapStopDirtyTracking(PixmapPtr src, PixmapPtr slave_dst);
+ 
+diff --git a/include/pixmapstr.h b/include/pixmapstr.h
+index 2a1ef9b..2bdff98 100644
+--- a/include/pixmapstr.h
++++ b/include/pixmapstr.h
+@@ -90,6 +90,7 @@ typedef struct _PixmapDirtyUpdate {
+     int x, y;
+     DamagePtr damage;
+     struct xorg_list ent;
++    int dst_x, dst_y;
+ } PixmapDirtyUpdateRec;
+ 
+ static inline void
+-- 
+1.8.2.1
+
