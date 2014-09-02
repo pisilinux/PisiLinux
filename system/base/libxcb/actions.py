@@ -9,7 +9,7 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.flags.add("-DNDEBUG")
-    
+
     autotools.autoreconf("-vif")
     autotools.configure("--disable-static \
                          --enable-xevie \
@@ -17,7 +17,7 @@ def setup():
                          --enable-xinput \
                          --enable-xkb \
                          --without-doxygen")
-    
+
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ") 
 
 def build():
