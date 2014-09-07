@@ -11,16 +11,10 @@ from pisi.actionsapi import get
 
 
 def setup():
-    options = "--enable-cxx \
-               --enable-mpbsd \
-               --enable-fft"
+    options = "--enable-cxx"
 
     if get.buildTYPE() == "emul32":
-        shelltools.export("CC", "%s -m32" % get.CC())
-        shelltools.export("CXX", "%s -m32" % get.CXX())
         shelltools.export("ABI", "32")
-    else:
-        shelltools.export("CCAS","%s -c -Wa,--noexecstack" % get.CC())
 
     autotools.configure(options)
 
