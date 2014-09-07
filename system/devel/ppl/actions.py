@@ -10,9 +10,7 @@ from pisi.actionsapi import get
 
 
 def setup():
-    autotools.configure('--enable-shared \
-                         --enable-interfaces="c,cxx" \
-                         --with-pic')
+    autotools.configure('--enable-interfaces="c,cxx"')
 def build():
     autotools.make()
 
