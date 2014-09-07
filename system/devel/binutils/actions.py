@@ -72,12 +72,12 @@ def install():
     # Remove libtool files, which reference the .so libs
     pisitools.remove("/usr/lib/libopcodes.la")
     pisitools.remove("/usr/lib/libbfd.la")
-    
+
     # Remove unneded man , info
     unneeded_man={"dlltool.1","nlmconv.1","windres.1","windmc.1"}
     for i in unneeded_man:
         pisitools.remove("/usr/share/man/man1/%s" %i)
-        
+
     pisitools.remove("/usr/share/info/configure.info")
     pisitools.remove("/usr/share/info/standards.info")
 
