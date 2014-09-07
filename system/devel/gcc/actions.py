@@ -93,7 +93,7 @@ def setup():
                        --build=%s \
                                %s \
                                %s ' % ( verMajor , get.HOST(), opt_arch, opt_multilib))
-      
+
 def build():
     exportFlags()
 
