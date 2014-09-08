@@ -6,20 +6,10 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "libusbx-%s" % get.srcVERSION()
-
 def setup():
-    options = "--disable-static"
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CC", "%s -m32" % get.CC())
-        shelltools.export("CXX", "%s -m32" % get.CXX())
-
-    autotools.configure(options)
+    autotools.configure("--disable-static")
 
 def build():
     autotools.make()
