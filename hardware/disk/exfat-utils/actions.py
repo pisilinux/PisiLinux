@@ -9,7 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
-    scons.make()
+    scons.make('CCFLAGS="%s -std=c99"'
+                % get.CFLAGS())
+                
 
 def install():
     pisitools.dobin("mkfs/mkexfatfs")
