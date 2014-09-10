@@ -17,28 +17,30 @@ def setup():
               --with-gallium-drivers=r300,r600,nouveau,svga,swrast \
               --with-dri-drivers=i915,i965,r200,radeon,nouveau,swrast \
               --with-egl-platforms=x11,drm,wayland \
-              --enable-gallium-llvm \
-              --enable-egl \
-              --enable-gallium-egl \
-              --enable-shared-glapi \
-              --enable-gbm \
-              --enable-glx-tls \
+              --enable-xa \
               --enable-dri \
+              --enable-egl \
+              --enable-gbm \
               --enable-glx \
-              --enable-osmesa \
+              --enable-dri3 \
               --enable-gles1 \
               --enable-gles2 \
-              --enable-texture-float \
-              --enable-xa \
               --enable-vdpau \
-              --enable-dri3 \
+              --enable-openvg \
+              --enable-osmesa \
+              --enable-glx-tls \
+              --enable-gallium-egl \
+              --enable-gallium-gbm \
+              --enable-gallium-llvm \
+              --enable-shared-glapi \
+              --enable-texture-float \
              "
 
     if get.buildTYPE() == "emul32":
         # compile with llvm doesn't work for now, test it later
         options += " --with-dri-driverdir=/usr/lib32/xorg/modules/dri \
-                     --disable-gallium-llvm \
                      --with-gallium-drivers=r600,nouveau,swrast \
+                     --disable-gallium-llvm \
                      --enable-32-bit"
 
     autotools.configure(options)

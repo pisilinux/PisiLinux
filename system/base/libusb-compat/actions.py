@@ -7,18 +7,10 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
-from pisi.actionsapi import shelltools
 
 def setup():
-    options = "--disable-static \
-               --disable-build-docs"
-
-    if get.buildTYPE() == "emul32":
-        options += " --libdir=/usr/lib32"
-        shelltools.export("CC", "%s -m32" % get.CC())
-        shelltools.export("CXX", "%s -m32" % get.CXX())
-
-    autotools.configure(options)
+    autotools.configure("--disable-static \
+                         --disable-build-docs")
 
 def build():
     autotools.make()

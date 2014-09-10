@@ -9,14 +9,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--prefix=/usr")
+    autotools.configure("--prefix=/usr \
+                         --disable-static")
 
 def build():
     autotools.make()
 
 def install():
     autotools.install()
-    
-    pisitools.dosym("xapian-config-1.3", "/usr/bin/xapian-config")
 
     pisitools.dodoc("AUTHORS", "ChangeLog*", "COPYING", "HACKING", "README", "NEWS")

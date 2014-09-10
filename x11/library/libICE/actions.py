@@ -10,7 +10,8 @@ from pisi.actionsapi import get
 def setup():
     autotools.autoreconf("-vif")
     autotools.configure("--disable-static \
-               --without-fop")
+                         --enable-ipv6 \
+                         --without-fop")
 
 def build():
     autotools.make()

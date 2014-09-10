@@ -1,0 +1,111 @@
+From 37d51acb3b6a38af1717bfaa7925043c35bfb447 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 17 Aug 2012 09:49:24 +1000
+Subject: [PATCH] autobind GPUs to the screen, (v3)
+
+this is racy and really not what we want for hotplug going forward,
+but until DE support is in GNOME its probably for the best.
+
+v2: fix if config or slave config is NULL
+v3: fix multi useful slaves
+DO NOT UPSTREAM.
+---
+ hw/xfree86/common/xf86Init.c        | 12 ++++++++++++
+ hw/xfree86/common/xf86platformBus.c |  3 +++
+ hw/xfree86/modes/xf86Crtc.c         | 32 ++++++++++++++++++++++++++++++++
+ 3 files changed, 47 insertions(+), 0 deletions(-)
+
+diff --git a/hw/xfree86/common/xf86Init.c b/hw/xfree86/common/xf86Init.c
+index d231ced..89629c1 100644
+--- a/hw/xfree86/common/xf86Init.c
++++ b/hw/xfree86/common/xf86Init.c
+@@ -361,6 +361,16 @@ xf86CreateRootWindow(WindowPtr pWin)
+     return ret;
+ }
+ 
++extern void xf86AutoConfigOutputDevice(ScrnInfoPtr pScrn, ScrnInfoPtr master);                              
++static void
++xf86AutoConfigOutputDevices(void)
++{
++    int i;
++
++    for (i = 0; i < xf86NumGPUScreens; i++)
++        xf86AutoConfigOutputDevice(xf86GPUScreens[i], xf86Screens[0]);
++}
++
+ static void
+ InstallSignalHandlers(void)
+ {
+@@ -926,6 +936,8 @@ InitOutput(ScreenInfo * pScreenInfo, int argc, char **argv)
+     for (i = 0; i < xf86NumGPUScreens; i++)
+         AttachUnboundGPU(xf86Screens[0]->pScreen, xf86GPUScreens[i]->pScreen);
+ 
++    xf86AutoConfigOutputDevices();
++
+     xf86VGAarbiterWrapFunctions();
+     if (sigio_blocked)
+         OsReleaseSIGIO();
+diff --git a/hw/xfree86/common/xf86platformBus.c b/hw/xfree86/common/xf86platformBus.c
+index 0525e39..82fef32 100644
+--- a/hw/xfree86/common/xf86platformBus.c
++++ b/hw/xfree86/common/xf86platformBus.c
+@@ -387,6 +387,8 @@ xf86platformProbeDev(DriverPtr drvp)
+     return foundScreen;
+ }
+ 
++extern void xf86AutoConfigOutputDevice(ScrnInfoPtr pScrn, ScrnInfoPtr master);
++
+ int
+ xf86platformAddDevice(int index)
+ {
+@@ -446,6 +448,7 @@ xf86platformAddDevice(int index)
+ 
+    /* attach unbound to 0 protocol screen */
+    AttachUnboundGPU(xf86Screens[0]->pScreen, xf86GPUScreens[i]->pScreen);
++   xf86AutoConfigOutputDevice(xf86GPUScreens[i], xf86Screens[0]);
+ 
+    return 0;
+ }
+diff --git a/hw/xfree86/modes/xf86Crtc.c b/hw/xfree86/modes/xf86Crtc.c
+index 3011f13..34c1848 100644
+--- a/hw/xfree86/modes/xf86Crtc.c
++++ b/hw/xfree86/modes/xf86Crtc.c
+@@ -3323,3 +3323,35 @@ xf86DetachAllCrtc(ScrnInfoPtr scrn)
+             crtc->x = crtc->y = 0;
+         }
+ }
++
++
++void xf86AutoConfigOutputDevice(ScrnInfoPtr pScrn, ScrnInfoPtr master)
++{
++    RRProviderPtr master_provider;
++    xf86CrtcConfigPtr config = XF86_CRTC_CONFIG_PTR(master);
++    xf86CrtcConfigPtr slave_config = XF86_CRTC_CONFIG_PTR(pScrn);
++    Bool unbound = FALSE;
++
++    if (!config || !slave_config)
++        return;
++
++    master_provider = config->randr_provider;
++
++    if ((master->capabilities & RR_Capability_SinkOffload) &&
++        pScrn->capabilities & RR_Capability_SourceOffload) {
++            /* source offload */
++            
++        DetachUnboundGPU(pScrn->pScreen);
++        unbound = TRUE;
++        AttachOffloadGPU(master->pScreen, pScrn->pScreen);
++        slave_config->randr_provider->offload_sink = master_provider;
++    }
++    if ((master->capabilities & RR_Capability_SourceOutput) &&
++               pScrn->capabilities & RR_Capability_SinkOutput) {
++        /* sink offload */
++        if (!unbound)
++            DetachUnboundGPU(pScrn->pScreen);
++        AttachOutputGPU(master->pScreen, pScrn->pScreen);
++        slave_config->randr_provider->output_source = master_provider;
++    }
++}
+-- 
+1.8.1
+
