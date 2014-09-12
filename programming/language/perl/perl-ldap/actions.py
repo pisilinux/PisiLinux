@@ -6,17 +6,18 @@
 
 from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
     perlmodules.configure()
 
 def build():
-    perlmodules.make()
+    perlmodules.make("PERL_MM_USE_DEFAULT=1")
 
 def check():
     perlmodules.make("test")
 
 def install():
-    perlmodules.install()
+    perlmodules.install("DESTDIR=%s" % get.installDIR())
 
