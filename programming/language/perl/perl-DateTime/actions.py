@@ -8,7 +8,6 @@ from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = ""
 
 def setup():
     perlmodules.configure()
@@ -22,4 +21,4 @@ def check():
 def install():
     perlmodules.install()
 
-    pisitools.dodoc("Changes", "README")
+    pisitools.dodoc("Changes")
