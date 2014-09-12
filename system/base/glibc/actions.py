@@ -11,39 +11,13 @@ from pisi.actionsapi import get
 
 import os
 
-WorkDir = "glibc-2.19"
+WorkDir = "glibc-2.20"
 
-defaultflags = "-O3 -g -fasynchronous-unwind-tables"
+arch = "x86-64" if get.ARCH() == "x86_64" and not get.buildTYPE() == "emul32" else "i686"
+defaultflags = "-O3 -g -fasynchronous-unwind-tables -mtune=generic -march=%s" % arch
+if get.buildTYPE() == "emul32": defaultflags += " -m32"
 # this is getting ridiculous, also gdb3 breaks resulting binary
-#sysflags = get.CFLAGS().replace("-fstack-protector", "").replace("-D_FORTIFY_SOURCE=2", "").replace("-funwind-tables", "").replace("-fasynchronous-unwind-tables", "")
-sysflags = "-mtune=generic -march=x86-64" if get.ARCH() == "x86_64" else "-mtune=generic -march=i686"
-
-multibuild = (get.ARCH() == "x86_64")
-pkgworkdir = "%s/%s" % (get.workDIR(), WorkDir)
-
-config = {"multiarch": {
-                "multi": True,
-                "extraconfig": "--build=i686-pc-linux-gnu --enable-multi-arch",
-                "coreflags":   "-m32",
-                "libdir":      "lib32",
-                "buildflags":  "-mtune=generic -march=i686 %s" % defaultflags,
-                "builddir":    "%s/build32" % pkgworkdir
-            },
-           "system": {
-                "multi": False,
-                "extraconfig": "--build=%s" % get.HOST(),
-                "coreflags":   "",
-                "libdir":      "lib",
-                "buildflags":  "%s %s" % (sysflags, defaultflags),
-                "builddir":    "%s/build" % pkgworkdir
-            }
-}
-
-ldconf32bit = """/lib32
-/usr/lib32
-"""
-#/usr/local/lib32
-
+#sysflags = "-mtune=generic -march=x86-64" if get.ARCH() == "x86_64" else "-mtune=generic -march=i686"
 
 ### helper functions ###
 def removePisiLinuxSection(_dir):
@@ -55,117 +29,105 @@ def removePisiLinuxSection(_dir):
                 i = os.path.join(root, name)
                 shelltools.system('objcopy -R ".comment.PISILINUX.OPTs" -R ".note.gnu.build-id" %s' % i)
 
+ldconf32bit = """/lib32
+/usr/lib32
+"""
 
-def set_variables(cfg):
+def setup():
     shelltools.export("LANGUAGE","C")
     shelltools.export("LANG","C")
     shelltools.export("LC_ALL","C")
 
-    shelltools.export("CC", "gcc %s" % cfg["coreflags"])
-    shelltools.export("CXX", "g++ %s" % cfg["coreflags"])
+    shelltools.export("CC", "gcc %s " % defaultflags)
+    shelltools.export("CXX", "g++ %s " % defaultflags)
 
-    shelltools.export("CFLAGS", cfg["buildflags"])
-    shelltools.export("CXXFLAGS", cfg["buildflags"])
+    shelltools.export("CFLAGS", defaultflags)
+    shelltools.export("CXXFLAGS", defaultflags)
 
+    shelltools.makedirs("build")
+    shelltools.cd("build")
+    options = "--prefix=/usr \
+               --libdir=/usr/lib \
+               --mandir=/usr/share/man \
+               --infodir=/usr/share/info \
+               --libexecdir=/usr/lib/misc \
+               --with-bugurl=https://bugs.pisilinux.org \
+               --enable-add-ons \
+               --enable-bind-now \
+               --enable-kernel=2.6.32 \
+               --enable-stackguard-randomization \
+               --without-selinux \
+               --without-gd \
+               --disable-profile \
+               --enable-obsolete-rpc \
+               --enable-lock-elision \
+               --enable-multi-arch \
+               --with-tls"
+    if get.buildTYPE() == "emul32":
+        options += "\
+                    --libdir=/usr/lib32 \
+                    --enable-multi-arch i686-pc-linux-gnu \
+                   "
 
-### functionize repetetive tasks ###
-def libcSetup(cfg):
-    set_variables(cfg)
-
-    if not os.path.exists(cfg["builddir"]):
-        shelltools.makedirs(cfg["builddir"])
-
-    shelltools.cd(cfg["builddir"])
-    shelltools.system("../configure \
-                       --prefix=/usr \
-                       --mandir=/usr/share/man \
-                       --infodir=/usr/share/info \
-                       --libexecdir=/usr/lib/misc \
-                       --with-bugurl=https://bugs.pisilinux.org/ \
-                       --enable-add-ons=nptl,libidn \
-                       --enable-bind-now \
-                       --enable-kernel=2.6.32 \
-                       --enable-stackguard-randomization \
-                       --without-selinux \
-                       --without-gd \
-                       --disable-profile \
-                       --enable-obsolete-rpc \
-                       --enable-lock-elision \
-                       --with-tls \
-                       %s " % cfg["extraconfig"])
-
-def libcBuild(cfg):
-    set_variables(cfg)
-
-    shelltools.cd(cfg["builddir"])
-    autotools.make()
-
-def libcInstall(cfg):
-    # not to bork locale/zone stuff
-    set_variables(cfg)
-
-    # install glibc/glibc-locale files
-    shelltools.cd(cfg["builddir"])
-    autotools.rawInstall("install_root=%s" % get.installDIR())
-
-    # Some things want this, notably ash
-    #pisitools.dosym("libbsd-compat.a", "/usr/%s/libbsd.a" % cfg["libdir"])
-
-    # Remove our options section from crt stuff
-    removePisiLinuxSection("%s/usr/%s/" % (get.installDIR(), cfg["libdir"]))
-
-
-### real actions start here ###
-def setup():
-    if multibuild:
-        libcSetup(config["multiarch"])
-
-    libcSetup(config["system"])
-
+    shelltools.system("../configure %s" % options)
 
 def build():
-    if multibuild:
-        libcBuild(config["multiarch"])
+    shelltools.cd("build")
+    if get.buildTYPE() == "emul32":
+        shelltools.echo("configparms","build-programs=no")
+        shelltools.echo("configparms", "slibdir=/lib32")
+        shelltools.echo("configparms", "rtlddir=/lib32")
+        shelltools.echo("configparms", "bindir=/tmp32")
+        shelltools.echo("configparms", "sbindir=/tmp32")
+        shelltools.echo("configparms", "rootsbindir=/tmp32")
+        shelltools.echo("configparms", "datarootdir=/tmp32/share")
 
-    libcBuild(config["system"])
+        autotools.make()
 
+        pisitools.dosed("configparms", "=no", "=yes")
+        shelltools.echo("configparms", "CC += -fstack-protector-strong -D_FORTIFY_SOURCE=2")
+        shelltools.echo("configparms", "CXX += -fstack-protector-strong -D_FORTIFY_SOURCE=2")
 
-# FIXME: yes fix me
-#def check():
-#    set_variables(cfg)
-#    shelltools.chmod("scripts/begin-end-check.pl")
-#
-#    shelltools.cd("build")
-#
-#    shelltools.export("TIMEOUTFACTOR", "16")
-#    autotools.make("-k check 2>error.log")
+    else:
+        shelltools.echo("configparms", "slibdir=/lib")
+        shelltools.echo("configparms", "rtlddir=/lib")
+
+    autotools.make()
+
+def check():
+     shelltools.cd("build")
+     autotools.make("check || true")
 
 
 def install():
-    # we do second arch first, to allow first arch to overwrite headers, etc.
-    # stubs-32.h, elf.h, vm86.h comes only with 32bit
-    if multibuild:
-        libcInstall(config["multiarch"])
-        pisitools.dosym("../lib32/ld-linux.so.2", "/lib/ld-linux.so.2")
-        # FIXME: these should be added as additional file, when we can define pkg per arch
-        pisitools.dodir("/etc/ld.so.conf.d")
+    shelltools.cd("build")
+
+    autotools.rawInstall("install_root=%s" % get.installDIR())
+
+    pisitools.dodir("/etc/ld.so.conf.d")
+
+    if get.buildTYPE() != "emul32":
+        #Install locales once.
+        autotools.rawInstall("install_root=%s localedata/install-locales" % get.installDIR())
+
+        # Remove our options section from crt stuff
+        removePisiLinuxSection("%s/usr/lib/" % get.installDIR())
+
+
+    if get.buildTYPE() == "emul32":
+        pisitools.dosym("/lib32/ld-linux.so.2", "/lib/ld-linux.so.2")
+
         shelltools.echo("%s/etc/ld.so.conf.d/60-glibc-32bit.conf" % get.installDIR(), ldconf32bit)
 
-    libcInstall(config["system"])
+        # Remove our options section from crt stuff
+        removePisiLinuxSection("%s/usr/lib32/" % get.installDIR())
 
-    # localedata can be shared between archs
-    shelltools.cd(config["system"]["builddir"])
-    autotools.rawInstall("install_root=%s localedata/install-locales" % get.installDIR())
+        pisitools.removeDir("/tmp32")
 
-    # now we do generic stuff
-    shelltools.cd(pkgworkdir)
 
     # We'll take care of the cache ourselves
     if shelltools.isFile("%s/etc/ld.so.cache" % get.installDIR()):
         pisitools.remove("/etc/ld.so.cache")
-
-    # It previously has 0755 perms which was killing things
-    #shelltools.chmod("%s/usr/%s/misc/pt_chown" % (get.installDIR(), config["system"]["libdir"]), 04711)
 
     # Prevent overwriting of the /etc/localtime symlink
     if shelltools.isFile("%s/etc/localtime" % get.installDIR()):
@@ -185,6 +147,6 @@ def install():
         #if shelltools.isFile("%s/usr/sbin/%s" % (get.installDIR(), i)):
             #pisitools.remove("/usr/sbin/%s" % i)
 
-
+    shelltools.cd("..")
     pisitools.dodoc("BUGS", "ChangeLog*", "CONFORMANCE", "NAMESPACE", "NEWS", "PROJECTS", "README*", "LICENSES")
 
