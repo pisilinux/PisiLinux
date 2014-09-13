@@ -23,9 +23,9 @@ def install():
 
     pisitools.dodir("/etc/italc")
     
-    pisitools.domove("/usr/lib64/libItalcCore.so", "usr/lib/")
+    pisitools.domove("/usr/lib/libItalcCore.so", "usr/lib/")
 
-    pisitools.removeDir("/usr/lib64")
+    #pisitools.removeDir("/usr/lib64")
     #pisitools.removeDir("/usr/share/icons")
     #pisitools.removeDir("/usr/share/italc")
 
