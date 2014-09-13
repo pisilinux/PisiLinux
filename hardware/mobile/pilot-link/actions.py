@@ -34,6 +34,8 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
+    perlmodules.removePodfiles()
+
     shelltools.copy("%s/usr/share/%s/udev*" % (get.installDIR(), get.srcNAME()), "%s/etc/udev/rules.d/" % get.installDIR())
 
     pisitools.dodoc("ChangeLog", "README", "doc/README*", "doc/TODO", "NEWS", "AUTHORS")
