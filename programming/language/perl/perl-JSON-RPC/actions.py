@@ -6,17 +6,18 @@
 
 from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
 def setup():
-    perlmodules.configure()
+    shelltools.system("perl Build.PL")
 
 def build():
-    perlmodules.make()
+    shelltools.system("perl Build")
 
 def check():
-    perlmodules.make("test")
+    shelltools.system("perl Build test")
 
 def install():
-    perlmodules.install()
-
-    pisitools.dodoc("README", "Changes")
+    pisitools.insinto("/usr/lib/perl5/site_perl/5.20.0/", "lib/*")
+    
+    perlmodules.removePodfiles()
