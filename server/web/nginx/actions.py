@@ -77,4 +77,6 @@ def install():
     pisitools.dodir(NGINX_HOME + "/fastcgi")
     pisitools.dodir(NGINX_HOME + "/proxy")
 
+    pisitools.remove("/usr/lib/perl5/site_perl/*/*/*/*/.packlist")
+
     pisitools.dodoc("README", "LICENSE")
