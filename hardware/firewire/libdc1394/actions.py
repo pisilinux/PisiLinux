@@ -21,5 +21,5 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     # FIXME: enable it when we swich to libusb 1.0
-    pisitools.removeDir("/usr/share/man/man3")
+    #pisitools.removeDir("/usr/share/man/man3")
     pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "README")
