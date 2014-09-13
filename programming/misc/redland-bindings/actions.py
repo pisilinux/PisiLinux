@@ -10,6 +10,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    # Force swig to regenerate the wrapper
+    shelltools.system("rm -f php/redland_wrap.c")
+    shelltools.system("rm -f perl/CORE_wrap.c")
+    
     shelltools.export("LDFLAGS", "")
 
     autotools.configure("--disable-dependency-tracking \
@@ -29,5 +33,5 @@ def install():
     pisitools.dodoc("AUTHORS", "ChangeLog*", "COPYING*", "NEWS", "README", "TODO")
     pisitools.dohtml("*.html")
 
-    pisitools.remove("/usr/lib/perl5/5.18.2/x86_64-linux-thread-multi/perllocal.pod")
+    pisitools.remove("/usr/lib/perl5/5.20.0/x86_64-linux-thread-multi/perllocal.pod")
 
