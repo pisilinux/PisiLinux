@@ -15,10 +15,9 @@ def build():
 def install():
     # PREFIX for perl script, DESTDIR for c_stuff
     autotools.rawInstall("DESTDIR=%s PREFIX=/usr" % get.installDIR())
-    
-    #pisitools.remove("/usr/lib/perl5/5.18.1/x86_64-linux-thread-multi/perllocal.pod")
+
+    perlmodules.removePodfiles()
 
     pisitools.insinto("/usr/share/pixmaps", "icons/frozen-bubble-icon-48x48.png", "frozen-bubble.png")
 
     pisitools.dodoc("AUTHORS", "COPYING", "README", "NEWS", "TODO", "TIPS")
-
