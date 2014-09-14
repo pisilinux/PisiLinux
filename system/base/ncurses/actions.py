@@ -38,16 +38,15 @@ def setup():
 
     global CONFIGPARAMS
 
-    if get.buildTYPE() == "emul32":
+    if get.buildTYPE() == "_emul32":
         pisitools.flags.add("-m32")
-        pisitools.cxxflags.add("-m32")
         pisitools.ldflags.add("-m32")
-        CONFIGPARAMS += " --prefix=/emul32 \
+        CONFIGPARAMS += " --prefix=/_emul32 \
                           --libdir=/usr/lib32 \
-                          --libexecdir=/emul32/lib \
-                          --bindir=/emul32/bin \
-                          --sbindir=/emul32/sbin \
-                          --mandir=/emul32/share/man"
+                          --libexecdir=/_emul32/lib \
+                          --bindir=/_emul32/bin \
+                          --sbindir=/_emul32/sbin \
+                          --mandir=/_emul32/share/man"
     else:
         CONFIGPARAMS += " --prefix=/usr \
                           --libdir=/usr/lib \
@@ -63,8 +62,7 @@ def build():
     global CONFIGPARAMS
     shelltools.cd(NCURSESW)
     autotools.make()
-    if not get.buildTYPE() == "emul32" and get.ARCH() == "x86_64": 
-        CONFIGPARAMS += " --with-chtype=long"
+    if not get.buildTYPE() == "_emul32" and get.ARCH() == "x86_64": CONFIGPARAMS += " --with-chtype=long"
     shelltools.cd("../%s" % NCURSES)
     shelltools.system("%s/configure %s" % (WORKDIR, CONFIGPARAMS))
     autotools.make()
@@ -72,31 +70,29 @@ def build():
 def install():
     shelltools.cd(NCURSESW)
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    if get.buildTYPE() == "emul32":
-        LIB = "/usr/lib32" 
-    else:
-        LIB = "/usr/lib"
+    LIB = "/usr/lib32" if get.buildTYPE() == "_emul32" else "/usr/lib"
+    print LIB
     for lib in ["ncurses", "form", "panel", "menu"]:
         shelltools.echo("lib%s.so" % lib, "INPUT(-l%sw)" % lib)
         pisitools.dolib_so("lib%s.so" % lib, destinationDirectory = LIB)
-        #pisitools.dosym("lib%sw.a" % lib, "%s/lib%s.a" % (LIB, lib))
-        #pisitools.dosym("libncurses++w.a", "%s/libncurses++.a" % LIB)
-    #for lib in ["ncurses", "ncurses++", "form", "panel", "menu"]:
-        #pisitools.dosym("%sw.pc" % lib, "%s/pkgconfig/%s.pc" % (LIB, lib))
+        pisitools.dosym("lib%sw.a" % lib, "%s/lib%s.a" % (LIB, lib))
+    pisitools.dosym("libncurses++w.a", "%s/libncurses++.a" % LIB)
+    for lib in ["ncurses", "ncurses++", "form", "panel", "menu"]:
+        pisitools.dosym("%sw.pc" % lib, "%s/pkgconfig/%s.pc" % (LIB, lib))
 
     shelltools.echo("libcursesw.so", "INPUT(-lncursesw)")
     pisitools.dolib_so("libcursesw.so", destinationDirectory = LIB)
-    #pisitools.dosym("libncurses.so", "%s/libcurses.so" % LIB)
-    #pisitools.dosym("libncursesw.a", "%s/libcursesw.a" % LIB)
-    #pisitools.dosym("libncurses.a", "%s/libcurses.a" % LIB)
+    pisitools.dosym("libncurses.so", "%s/libcurses.so" % LIB)
+    pisitools.dosym("libncursesw.a", "%s/libcursesw.a" % LIB)
+    pisitools.dosym("libncurses.a", "%s/libcurses.a" % LIB)
 
     shelltools.cd("../%s" % NCURSES)
     for lib in ["ncurses", "form", "panel", "menu"]:
         pisitools.dolib_so("lib/lib%s.so.%s" % (lib, get.srcVERSION()), destinationDirectory = LIB)
-        #pisitools.dosym("lib%s.so.%s" % (lib, get.srcVERSION()), "%s/lib%s.so.5" % (LIB, lib))
+        pisitools.dosym("lib%s.so.%s" % (lib, get.srcVERSION()), "%s/lib%s.so.5" % (LIB, lib))
 
-    if get.buildTYPE() == "emul32":
-        pisitools.removeDir("/emul32")
+    if get.buildTYPE() == "_emul32":
+        pisitools.removeDir("/_emul32")
         return
 
     shelltools.cd(WORKDIR)
