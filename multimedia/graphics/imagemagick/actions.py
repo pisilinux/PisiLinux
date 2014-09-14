@@ -14,7 +14,7 @@ KeepSpecial=["libtool"]
 
 def setup():
     pisitools.dosed("configure.ac", "AC_PATH_XTRA")
-    autotools.autoreconf("-vif")
+    autotools.autoreconf("-fi")
 
     pisitools.dosed("configure", "DOCUMENTATION_RELATIVE_PATH=.*", "DOCUMENTATION_RELATIVE_PATH=%s/html" % get.srcNAME())
     autotools.configure("--with-gs-font-dir=/usr/share/fonts/default/ghostscript \
@@ -51,10 +51,10 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+
     pisitools.dodoc("AUTHORS.txt", "ChangeLog", "LICENSE", "NEWS.txt")
 
-    shelltools.chmod("%s/usr/lib/perl5/vendor_perl/%s/%s-linux-thread-multi/auto/Image/Magick/Magick.so" % (get.installDIR(), get.curPERL(), get.HOST().split("-")[0]))
-
     pisitools.remove("/usr/lib/*.la")
+
     perlmodules.removePacklist()
     perlmodules.removePodfiles()
