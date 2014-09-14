@@ -5,9 +5,6 @@
 # See the file http://www.gnu.org/licenses/gpl.txt
 
 from pisi.actionsapi import perlmodules
-from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 
 def setup():
     perlmodules.configure()
@@ -19,5 +16,5 @@ def check():
     perlmodules.make("test")
 
 def install():
-    perlmodules.install("DESTDIR=%s" % get.installDIR())
+    perlmodules.install()
 
