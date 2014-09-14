@@ -41,6 +41,8 @@ def setup():
     if get.buildTYPE() == "_emul32":
         pisitools.flags.add("-m32")
         pisitools.ldflags.add("-m32")
+        shelltools.export("PKG_CONFIG_LIBDIR", "/usr/lib32/pkgconfig")
+        pisitools.dosed("%s/misc/gen-pkgconfig.in" % WORKDIR, "^(show_prefix=).*", "\\1'/usr'")
         CONFIGPARAMS += " --prefix=/_emul32 \
                           --libdir=/usr/lib32 \
                           --libexecdir=/_emul32/lib \
