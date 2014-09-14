@@ -10,6 +10,6 @@ from pisi.actionsapi import pisitools
 
 def build():
     pythonmodules.compile()
-    
+
 def install():
     pythonmodules.install()
