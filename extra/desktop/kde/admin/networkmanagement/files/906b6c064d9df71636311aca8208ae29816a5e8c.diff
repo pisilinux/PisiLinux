@@ -1,0 +1,301 @@
+commit 906b6c064d9df71636311aca8208ae29816a5e8c
+Author: Lamarque V. Souza <lamarque@gmail.com>
+Date:   Fri Aug 19 22:20:37 2011 -0300
+
+    Make shared connections easier to setup: the "add" button in wired and
+    wireless tabs in Manage Connection widget is now a menu button with two
+    options: Wired / Shared and Wireless / Shared. Also, unneeded widgets
+    are hidden in wireless dialog when adding a shared wireless connection.
+
+diff --git a/libs/ui/802_11_wirelesswidget.cpp b/libs/ui/802_11_wirelesswidget.cpp
+index 041f053..69322f9 100644
+--- a/libs/ui/802_11_wirelesswidget.cpp
++++ b/libs/ui/802_11_wirelesswidget.cpp
+@@ -48,7 +48,7 @@ public:
+     enum ModeIndex { InfrastructureIndex = 0, AdhocIndex};
+ };
+ 
+-Wireless80211Widget::Wireless80211Widget(Knm::Connection* connection, const QString &ssid, QWidget * parent)
++Wireless80211Widget::Wireless80211Widget(Knm::Connection* connection, const QString &ssid, bool shared, QWidget * parent)
+     : SettingWidget(*new Wireless80211WidgetPrivate, connection, parent)
+ {
+     Q_D(Wireless80211Widget);
+@@ -70,10 +70,25 @@ Wireless80211Widget::Wireless80211Widget(Knm::Connection* connection, const QStr
+         }
+     }
+ 
+-    modeChanged(d->ui.cmbMode->currentIndex());
+     connect(d->ui.cmbMode,SIGNAL(currentIndexChanged(int)),SLOT(modeChanged(int)));
+     connect(d->ui.band,SIGNAL(currentIndexChanged(int)),SLOT(bandChanged(int)));
+     connect(d->ui.btnSelectBssid,SIGNAL(clicked()),SLOT(copyToBssid()));
++
++    if (shared) {
++        d->ui.btnScan->hide();
++        d->ui.label_2->hide();
++        d->ui.cmbMode->hide();
++        d->ui.label_5->hide();
++        d->ui.bssid->hide();
++        d->ui.btnSelectBssid->hide();
++        d->ui.cmbMode->setCurrentIndex(1); // Ad-hoc mode
++
++        // To prevent Wireless80211Widget::readConfig() to change the mode
++        // back to infrastructure.
++        d->setting->setMode(Knm::WirelessSetting::EnumMode::adhoc);
++    } else {
++        modeChanged(d->ui.cmbMode->currentIndex());
++    }
+ }
+ 
+ Wireless80211Widget::~Wireless80211Widget()
+diff --git a/libs/ui/802_11_wirelesswidget.h b/libs/ui/802_11_wirelesswidget.h
+index d57253f..e88d16d 100644
+--- a/libs/ui/802_11_wirelesswidget.h
++++ b/libs/ui/802_11_wirelesswidget.h
+@@ -36,7 +36,7 @@ class KNM_EXPORT Wireless80211Widget : public SettingWidget
+ Q_OBJECT
+ Q_DECLARE_PRIVATE(Wireless80211Widget)
+ public:
+-    Wireless80211Widget(Knm::Connection * connection, const QString &ssid = QString(), QWidget * parent = 0 );
++    Wireless80211Widget(Knm::Connection * connection, const QString &ssid = QString(), bool shared = false, QWidget * parent = 0);
+     virtual ~Wireless80211Widget();
+     QString settingName() const;
+     void readConfig();
+diff --git a/libs/ui/ipv4widget.cpp b/libs/ui/ipv4widget.cpp
+index 71c840e..b2b4a90 100644
+--- a/libs/ui/ipv4widget.cpp
++++ b/libs/ui/ipv4widget.cpp
+@@ -115,7 +115,11 @@ IpV4Widget::IpV4Widget(Knm::Connection * connection, QWidget * parent)
+     kDebug() << "Method is" << d->setting->method() << d->setting->dhcpclientid();
+ 
+     connect(d->ui.method, SIGNAL(currentIndexChanged(int)), this, SLOT(methodChanged(int)));
+-    methodChanged(d->AutomaticMethodIndex);
++    if (d->setting->method() == Knm::Ipv4Setting::EnumMethod::Shared) {
++        methodChanged(d->SharedMethodIndex);
++    } else {
++        methodChanged(d->AutomaticMethodIndex);
++    }
+ }
+ 
+ IpV4Widget::~IpV4Widget()
+diff --git a/libs/ui/wiredpreferences.cpp b/libs/ui/wiredpreferences.cpp
+index 96a3540..54f6396 100644
+--- a/libs/ui/wiredpreferences.cpp
++++ b/libs/ui/wiredpreferences.cpp
+@@ -34,6 +34,7 @@ License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ #include "ipv6widget.h"
+ #include "connectionwidget.h"
+ #include "security/securitywired8021x.h"
++#include "settings/ipv4.h"
+ 
+ #include "connection.h"
+ 
+@@ -43,8 +44,14 @@ WiredPreferences::WiredPreferences(const QVariantList &args, QWidget *parent)
+     QString connectionId = args[0].toString();
+     m_connection = new Knm::Connection(QUuid(connectionId), Knm::Connection::Wired);
+ 
+-    m_contents->setConnection(m_connection);
+-    m_contents->setDefaultName(i18n("New Wired Connection"));
++    if (args.count() > 1 && args[1].toString() == QLatin1String("shared")) {
++        static_cast<Knm::Ipv4Setting *>(m_connection->setting(Knm::Setting::Ipv4))->setMethod(Knm::Ipv4Setting::EnumMethod::Shared);
++        m_contents->setConnection(m_connection);
++        m_contents->setDefaultName(i18n("Shared Wired Connection"));
++    } else {
++        m_contents->setConnection(m_connection);
++        m_contents->setDefaultName(i18n("New Wired Connection"));
++    }
+ 
+     prepareSettings();
+ }
+diff --git a/libs/ui/wirelesspreferences.cpp b/libs/ui/wirelesspreferences.cpp
+index 40571a2..304b053 100644
+--- a/libs/ui/wirelesspreferences.cpp
++++ b/libs/ui/wirelesspreferences.cpp
+@@ -39,6 +39,7 @@ License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ #include "connection.h"
+ #include "settings/802-11-wireless-security.h"
+ #include "settings/802-11-wireless.h"
++#include "settings/ipv4.h"
+ 
+ #include <nm-setting-connection.h>
+ #include <nm-setting-wireless.h>
+@@ -58,11 +59,18 @@ WirelessPreferences::WirelessPreferences(bool setDefaults, const QVariantList &a
+     QString ssid;
+     QString deviceUni;
+     QString apUni;
++    bool shared = false;
+ 
+     if (args.count() >= 3) {
+         deviceUni = args[1].toString();
+         apUni = args[2].toString();
+         kDebug() << "DeviceUni" << deviceUni << "AP UNI" << apUni;
++
++        if (args.count() > 3 && args[3].toString() == QLatin1String("shared")) {
++            static_cast<Knm::Ipv4Setting *>(m_connection->setting(Knm::Setting::Ipv4))->setMethod(Knm::Ipv4Setting::EnumMethod::Shared);
++            shared = true;
++            ssid = i18n("Shared_Wifi");
++        }
+     } else {
+         kWarning() << "Could not find deviceUni or AP UNI in args:" << args;
+     }
+@@ -83,9 +91,13 @@ WirelessPreferences::WirelessPreferences(bool setDefaults, const QVariantList &a
+     }
+ 
+     m_contents->setConnection(m_connection);
+-    m_contents->setDefaultName(ssid.isEmpty() ? i18n("New Wireless Connection") : ssid);
++    if (shared) {
++        m_contents->setDefaultName(i18n("Shared Wireless Connection"));
++    } else {
++        m_contents->setDefaultName(ssid.isEmpty() ? i18n("New Wireless Connection") : ssid);
++    }
+ 
+-    m_wirelessWidget = new Wireless80211Widget(m_connection, ssid, this);
++    m_wirelessWidget = new Wireless80211Widget(m_connection, ssid, shared, this);
+     connect(m_wirelessWidget, SIGNAL(ssidSelected(Solid::Control::WirelessNetworkInterface*,Solid::Control::AccessPoint*)),
+             this, SLOT(setDefaultName(Solid::Control::WirelessNetworkInterface*,Solid::Control::AccessPoint*)));
+ 
+@@ -97,7 +109,6 @@ WirelessPreferences::WirelessPreferences(bool setDefaults, const QVariantList &a
+     IpV6Widget * ipv6Widget = new IpV6Widget(m_connection, this);
+ 
+     connect (m_contents->connectionSettingsWidget(), SIGNAL(currentChanged(int)), this, SLOT(tabChanged(int)));
+-
+     addToTabWidget(m_wirelessWidget);
+     m_securityTabIndex = addToTabWidget(m_securityWidget);
+     addToTabWidget(ipv4Widget);
+@@ -129,7 +140,7 @@ WirelessPreferences::WirelessPreferences(Knm::Connection *con, QWidget *parent)
+     QString connectionId = m_connection->uuid().toString();
+     m_contents->setConnection(m_connection);
+ 
+-    m_wirelessWidget = new Wireless80211Widget(m_connection, NULL, this);
++    m_wirelessWidget = new Wireless80211Widget(m_connection, NULL, false, this);
+     connect(m_wirelessWidget, SIGNAL(ssidSelected(Solid::Control::WirelessNetworkInterface*,Solid::Control::AccessPoint*)),
+             this, SLOT(setDefaultName(Solid::Control::WirelessNetworkInterface*,Solid::Control::AccessPoint*)));
+ 
+diff --git a/settings/config/manageconnectionwidget.cpp b/settings/config/manageconnectionwidget.cpp
+index fa9b1fa..a956a4b 100644
+--- a/settings/config/manageconnectionwidget.cpp
++++ b/settings/config/manageconnectionwidget.cpp
+@@ -72,7 +72,7 @@ K_PLUGIN_FACTORY( ManageConnectionWidgetFactory, registerPlugin<ManageConnection
+ K_EXPORT_PLUGIN( ManageConnectionWidgetFactory( "kcm_networkmanagement", "libknetworkmanager" ) )
+ 
+ ManageConnectionWidget::ManageConnectionWidget(QWidget *parent, const QVariantList &args)
+-: KCModule( ManageConnectionWidgetFactory::componentData(), parent, args ), mCellularMenu(0), mVpnMenu(0), mEditor(new ConnectionEditor(this)), mEditConnection(0)
++: KCModule( ManageConnectionWidgetFactory::componentData(), parent, args ), mWiredMenu(0), mWirelessMenu(0), mCellularMenu(0), mVpnMenu(0), mEditor(new ConnectionEditor(this)), mEditConnection(0)
+ {
+     connect(mEditor, SIGNAL(connectionsChanged()), this, SLOT(restoreConnections()));
+ 
+@@ -97,7 +97,27 @@ ManageConnectionWidget::ManageConnectionWidget(QWidget *parent, const QVariantLi
+     connect(mSystemSettings, SIGNAL(connectionsChanged()), this, SLOT(restoreConnections()));
+ 
+     connectButtonSet(mConnEditUi.buttonSetWired, mConnEditUi.listWired);
++    mWiredMenu = new QMenu(this);
++    QAction * action = new QAction(i18nc("Like in 'add wired connection'", "Wired"), this);
++    action->setData(false);
++    mWiredMenu->addAction(action);
++    action = new QAction(i18nc("Like in 'add shared connection'", "Shared"), this);
++    action->setData(true);
++    mWiredMenu->addAction(action);
++    connect(mWiredMenu, SIGNAL(triggered(QAction*)), SLOT(connectionTypeMenuTriggered(QAction*)));
++    mConnEditUi.buttonSetWired->addButton()->setMenu(mWiredMenu);
++
+     connectButtonSet(mConnEditUi.buttonSetWireless, mConnEditUi.listWireless);
++    mWirelessMenu = new QMenu(this);
++    action = new QAction(i18nc("Like in 'add wireless connection'", "Wireless"), this);
++    action->setData(false);
++    mWirelessMenu->addAction(action);
++    action = new QAction(i18nc("Like in 'add shared connection'", "Shared"), this);
++    action->setData(true);
++    mWirelessMenu->addAction(action);
++    connect(mWirelessMenu, SIGNAL(triggered(QAction*)), SLOT(connectionTypeMenuTriggered(QAction*)));
++    mConnEditUi.buttonSetWireless->addButton()->setMenu(mWirelessMenu);
++
+     connectButtonSet(mConnEditUi.buttonSetCellular, mConnEditUi.listCellular);
+     connectButtonSet(mConnEditUi.buttonSetVpn, mConnEditUi.listVpn);
+     connectButtonSet(mConnEditUi.buttonSetPppoe, mConnEditUi.listPppoe);
+@@ -452,7 +472,7 @@ void ManageConnectionWidget::addClicked()
+     kDebug() << "Add clicked, currentIndex is " << connectionTypeForCurrentIndex();
+ 
+     if (connectionTypeForCurrentIndex() == Knm::Connection::Gsm) {
+-        kDebug() << "GSM tab selected, connection wizard will be shown.";
++        kDebug() << "GSM tab selected, launching mobile connection wizard...";
+ 
+         delete mMobileConnectionWizard;
+         mMobileConnectionWizard = new MobileConnectionWizard();
+@@ -485,7 +505,6 @@ void ManageConnectionWidget::addClicked()
+     }
+     else
+         kDebug() << "Connection pointer is not set, connection will not be added!";
+-
+ }
+ 
+ void ManageConnectionWidget::importClicked()
+@@ -909,32 +928,40 @@ void ManageConnectionWidget::tabChanged(int index)
+ 
+ void ManageConnectionWidget::connectionTypeMenuTriggered(QAction* action)
+ {
+-    // HACK - tab 2 always reports GSM, tab 3 always reports VPN.
+-    // NM uses plugins to handle different VPN types but has hardcoded different mobile broadband
+-    // types.  However we don't want to blow up the UI so we merge GSM and VPN into one tab.
+-    // Because of the inconsistent handling of sub-types, we need a hack here to figure out what to
+-    // pass to the editor widget.
+-
+-    // If it is a cellular type, check the data() on the action for the real type
+-    // If it is a VPN type, keep Vpn, but use the data() on the action for the plugin
+     Knm::Connection::Type tabType = connectionTypeForCurrentIndex();
+-    Knm::Connection *con = NULL;
+-    if (tabType == Knm::Connection::Gsm) {
+-        con = mEditor->createConnection(false, (Knm::Connection::Type)action->data().toUInt());
+-    } else if (tabType == Knm::Connection::Vpn) {
+-        QVariantList vl;
+-        vl << action->data();
+-        con = mEditor->createConnection(false, tabType, vl);
++    QVariantList args;
++
++    switch(tabType) {
++    case Knm::Connection::Wired:
++        if (action->data().toBool()) { // shared connection
++            args << QLatin1String("shared");
++        }
++        break;
++    case Knm::Connection::Wireless:
++        if (action->data().toBool()) { // shared connection
++            args << QString() << QString() << QLatin1String("shared");
++        }
++        break;
++    case Knm::Connection::Vpn:
++        // NM uses plugins to handle different VPN types, use the data() on the action to select
++        // the correct plugin
++        args << action->data();
++        break;
++    default:
++        return;
+     }
++
++    Knm::Connection *con = mEditor->createConnection(false, tabType, args);
++
+     if (con) {
+         kDebug() << "Connection pointer is set, connection will be added.";
+-
+         if (con->scope() == Knm::Connection::User)
+             saveConnection(con);
+         else
+             mSystemSettings->addConnection(con);
+-
+         updateServiceAndUi(con);
++    } else {
++        kDebug() << "Connection pointer is not set, connection will not be added!";
+     }
+ }
+ 
+diff --git a/settings/config/manageconnectionwidget.h b/settings/config/manageconnectionwidget.h
+index 03a8721..4f0e3f0 100644
+--- a/settings/config/manageconnectionwidget.h
++++ b/settings/config/manageconnectionwidget.h
+@@ -129,6 +129,8 @@ private:
+ 
+     Ui_ManageConnectionWidget mConnEditUi;
+     QTreeWidget * mWiredList;
++    QMenu * mWiredMenu;
++    QMenu * mWirelessMenu;
+     QMenu * mCellularMenu;
+     QMenu * mVpnMenu;
+     ConnectionEditor * mEditor;

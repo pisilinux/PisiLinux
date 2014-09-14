@@ -1,0 +1,156 @@
+--- src/mainwidget.cpp.sav	2008-10-12 22:33:26.000000000 +0200
++++ src/mainwidget.cpp	2009-06-29 13:01:17.000000000 +0200
+@@ -938,6 +938,23 @@ void MainWidget::setupKeyboard()
+     connect(min, SIGNAL(keyClick(unsigned int)), this, SLOT(keyPress(unsigned int)));
+ }
+ 
++MainWidget::EventsHelper::EventsHelper( MainWidget* parent )
++    : QWidget( parent )
++{
++}
++    
++// update keyboard mapping when it's changed by xmodmap/setxkbmap
++bool MainWidget::EventsHelper::x11Event(XEvent *event)
++{
++    if (event->type == MappingNotify) {
++        XMappingEvent *e = (XMappingEvent *)event;
++        if (e->request == MappingKeyboard) {
++            static_cast< MainWidget* >( parent())->mappingNotify(e);
++        }
++    }
++    return false;
++}
++
+ // TODO: find a way to hide the widget before asking for quit
+ // FIXME: clicking on the tray icon to hide/show the widget only work for showinButtong it
+ KbdTray::KbdTray(MainWidget* parent) : KSystemTrayIcon(parent)
+--- src/main.h.sav	2008-09-10 09:30:14.000000000 +0200
++++ src/main.h	1970-01-01 01:00:00.000000000 +0100
+@@ -1,35 +0,0 @@
+-/*
+- * This file is part of the Kvkbd project.
+- * Copyright (C) 2008 Guillaume Martres <smarter@ubuntu.com>
+- *
+- * This program is free software; you can redistribute it and/or
+- * modify it under the terms of the GNU General Public License
+- * as published by the Free Software Foundation; either version 2
+- * of the License, or (at your option) any later version.
+- *
+- * This program is distributed in the hope that it will be useful,
+- * but WITHOUT ANY WARRANTY; without even the implied warranty of
+- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+- * GNU General Public License for more details.
+- *
+- * You should have received a copy of the GNU General Public License
+- * along with this program; see the file COPYING.  If not, write to
+- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+- * Boston, MA 02110-1301, USA.
+- */
+-
+-#ifndef MAIN_H
+-#define MAIN_H
+-
+-#include <KUniqueApplication>
+-
+-
+-class KvkbdApp : public KUniqueApplication
+-{
+-public:
+-    explicit KvkbdApp();
+-    virtual ~KvkbdApp();
+-    virtual bool x11EventFilter(XEvent *event);
+-};
+-
+-#endif //MAIN_H
+--- src/main.cpp.sav	2008-10-21 18:37:09.000000000 +0200
++++ src/main.cpp	2009-06-29 13:06:37.000000000 +0200
+@@ -19,8 +19,6 @@
+  * Boston, MA 02110-1301, USA.
+  */
+ 
+-#include "main.h"
+-
+ #include <KDebug>
+ 
+ #include "mainwidget.h"
+@@ -71,44 +69,15 @@ int main(int argc, char **argv)
+         kError() << "LoginHelper mode can only be launched from a display manager!";
+         return -1;
+     }
++    if (!alone && !KUniqueApplication::start())
++	return 1;
+ 
+-    KvkbdApp app;
++    // no KUniqueApplication for kdm mode, forking into background changes the PID,
++    // and also dbus server is launched unnecessarily
++    KApplication* app = alone ? new KApplication : new KUniqueApplication;
+     MainWidget *widget = new MainWidget(&about, alone, 0);
+-    app.setActiveWindow(widget);
+-    return app.exec();
+-}
+-
+-KvkbdApp::KvkbdApp() : KUniqueApplication()
+-{
+-}
+-
+-KvkbdApp::~KvkbdApp()
+-{
++    app->setActiveWindow(widget);
++    int ret = app->exec();
++    delete app;
++    return ret;
+ }
+-
+-// update keyboard mapping when it's changed by xmodmap/setxkbmap
+-bool KvkbdApp::x11EventFilter(XEvent *event)
+-{
+-    MainWidget *main = (MainWidget *)activeWindow();
+-
+-    if (main) { //FIXME: is this check really necessary?
+-        if (event->type == MappingNotify) {
+-            XMappingEvent *e = (XMappingEvent *)event;
+-            if (e->request == MappingKeyboard) {
+-                main->mappingNotify(e);
+-            }
+-        }
+-    }
+-    return false;
+-}
+-
+-// FIXME: What's this for?
+-//  int newInstance(){
+-//   MainWidget *main = (MainWidget *)mainWidget();
+-//   if (!main)
+-//   {
+-//    main = new MainWidget(const_cast<KAboutData *>(aboutData()),false, 0, "kvkbd");
+-//    setMainWidget(main);
+-//   }
+-//   return 0;
+-//  };
+--- src/mainwidget.h.sav	2008-10-11 15:01:35.000000000 +0200
++++ src/mainwidget.h	2009-06-29 13:02:38.000000000 +0200
+@@ -29,6 +29,7 @@
+ #include "resizabledragwidget.h"
+ 
+ #include <X11/Xlib.h>
++#include <fixx11h.h>
+ 
+ class KAction;
+ class KAboutData;
+@@ -143,6 +144,16 @@ private:
+     bool autoResize;
+     bool alone;
+ 
++    class EventsHelper;
++    EventsHelper* eventsHelper;
++};
++
++class MainWidget::EventsHelper : public QWidget
++{
++public:
++    EventsHelper( MainWidget* parent );
++protected:
++    virtual bool x11Event( XEvent* e );
+ };
+ 
+ class KbdTray : public KSystemTrayIcon

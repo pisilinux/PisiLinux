@@ -1,0 +1,939 @@
+--- a/src/container.cpp
++++ b/src/container.cpp
+@@ -59,6 +59,7 @@
+ #include "WebService.h"
+ #include "WebService/Request.h"
+ #include "StationUrl.h"
++#include "dbusinterface.h"
+ 
+ #include <QShortcut>
+ #include <QLabel>
+@@ -67,6 +68,10 @@
+ #include <QDesktopServices>
+ #include <QFileDialog>
+ 
++#ifdef LINUX
++    #include <QDBusConnection>
++#endif
++
+ #ifndef Q_WS_MAC
+     #include "winstyleoverrides.h"
+ #else
+@@ -90,6 +95,12 @@
+     m_shareDialog = new ShareDialog( this );
+     m_diagnosticsDialog = new DiagnosticsDialog( this );
+     m_updater = new CAutoUpdater( this );
++  #ifdef LINUX
++    QDBusConnection::sessionBus().registerService( "fm.Last.client" );
++    m_dbusCurrentTrack = new DBusCurrentTrack( qApp );
++    m_dbusCurrentUser = new DBusCurrentUser( qApp );
++    m_dbusPlayer = new DBusPlayer( qApp );
++  #endif
+ 
+     setupUi();
+     setupTimeBar();
+@@ -1231,6 +1242,10 @@
+ void
+ Container::play()
+ {
++    // Don't let dbus play when it's not supposed to
++    if ( !ui.actionPlay->isEnabled() )
++        return;
++
+     The::radio().resumeStation();
+ }
+ 
+@@ -1238,6 +1253,10 @@
+ void
+ Container::stop()
+ {
++    // Don't let dbus stop when it's not supposed to
++    if ( !ui.actionStop->isEnabled() )
++        return;
++
+     The::radio().stop();
+ }
+ 
+@@ -1298,6 +1317,10 @@
+ void
+ Container::love()
+ {
++    // Don't let dbus love when it's not supposed to
++    if ( !ui.actionLove->isEnabled() )
++        return;
++
+     // Make copy in case dialog stays on screen across track change
+     MetaData track = The::app().currentTrack();
+ 
+@@ -1318,6 +1341,10 @@
+ void
+ Container::ban()
+ {
++    // Don't let dbus ban when it's not supposed to
++    if ( !ui.actionBan->isEnabled() )
++        return;
++
+     // Make copy in case dialog stays on screen across track change
+     MetaData track = The::app().currentTrack();
+ 
+@@ -1351,6 +1378,10 @@
+ void
+ Container::skip()
+ {
++    // Don't let dbus skip when it's not supposed to
++    if ( !ui.actionSkip->isEnabled() )
++        return;
++
+     ui.actionSkip->setEnabled( false );
+     ui.actionLove->setEnabled( false );
+     ui.actionBan->setEnabled( false );
+@@ -1817,6 +1848,9 @@
+ 
+             updateWindowTitle( metadata );
+             ui.metaDataWidget->setTrackMetaData( metadata );
++#ifdef LINUX
++            m_dbusCurrentTrack->setNewTrack( metadata );
++#endif
+ 
+             LOGL( 4, "Event::TrackMetaDataAvailable " << metadata.toString() << " " << metadata.durationString() );
+             ui.songTimeBar->setTrack( metadata );
+@@ -1826,6 +1860,9 @@
+         case Event::ArtistMetaDataAvailable:
+         {
+             ui.metaDataWidget->setArtistMetaData( data.value<MetaData>() );
++#ifdef LINUX
++            m_dbusCurrentTrack->setNewArtist( data.value<MetaData>() );
++#endif
+         }
+         break;
+ 
+@@ -2047,6 +2084,25 @@
+ }
+ 
+ 
++//  This is used by the dbus interface
++void
++Container::dbusUserSelected( QString username )
++{
++    The::settings().currentUser().setSidebarEnabled( m_sidebarEnabled );
++
++    LOGL( 3, "Switching user to: " << username );
++
++    if (!The::settings().user( username ).rememberPass())
++    {
++        LoginWidget( this, LoginWidget::LOGIN, username ).createDialog().exec();
++    }
++    else
++    {
++        The::app().setUser( username );
++    }
++}
++
++
+ ///////////////////////////////////////////////////////////////////////////////>
+ ScrobbleLabel::ScrobbleLabel()
+ {
+--- a/src/container.h
++++ b/src/container.h
+@@ -40,6 +40,11 @@
+ 
+         static Container* s_instance;
+         friend class TrayIcon;
++      #ifdef LINUX
++        friend class DBusCurrentTrack;
++        friend class DBusCurrentUser;
++        friend class DBusPlayer;
++      #endif
+ 
+     public:
+         Container();
+@@ -102,6 +107,12 @@
+ 
+         class TrayIcon* m_trayIcon;
+         class CAutoUpdater *m_updater;
++      #ifdef LINUX
++        class DBusCurrentTrack* m_dbusCurrentTrack;
++        class DBusCurrentUser* m_dbusCurrentUser;
++        class DBusPlayer* m_dbusPlayer;
++        void dbusUserSelected( QString user );
++      #endif
+ 
+         /** having a persistent copy means whatever the user entered last time
+           * into the input widgets and that, stays, and load time is quicker too */
+--- /dev/null
++++ b/src/dbusinterface.cpp
+@@ -0,0 +1,552 @@
++/***************************************************************************
++ *   Copyright (C) 2007 by                                                 *
++ *      İsmail Dönmez <ismail@pardus.org.tr>                               *
++ *      John Stamp <jstamp@users.sourceforge.net>                          *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   51 Franklin Steet, Fifth Floor, Boston, MA  02111-1307, USA.          *
++ ***************************************************************************/
++
++#include <QDBusConnection>
++#include <QDBusMessage>
++
++#include "dbusinterface.h"
++#include "container.h"
++#include "Radio.h"
++#include "Station.h"
++#include "Settings.h"
++#include "SideBarView.h"
++#include "UnicornCommon.h"
++#include "WebService/Request.h"
++
++DBusCurrentTrack::DBusCurrentTrack( QApplication* application )
++  : QDBusAbstractAdaptor( application ),
++    m_duration( 0 ),
++    m_numTracks( 0 ),
++    m_numListeners( 0 ),
++    m_numPlays( 0 )
++{
++    QDBusConnection::sessionBus().registerObject( "/currentTrack", this,
++                                                  QDBusConnection::ExportScriptableSlots );
++}
++
++void DBusCurrentTrack::setNewArtist(const MetaData& metaData )
++{
++    m_artist = metaData.artist();
++    m_artistPageUrl = metaData.artistPageUrl();
++    m_artistPicUrl = metaData.artistPicUrl();
++    m_numListeners = metaData.numListeners();
++    m_numPlays = metaData.numPlays();
++    m_wiki = metaData.wiki();
++    m_wikiPageUrl = metaData.wikiPageUrl();
++    m_artistTags = metaData.artistTags();
++    m_similarArtists = metaData.similarArtists();
++    m_topFans = metaData.topFans();
++
++    QDBusMessage msg = QDBusMessage::createSignal( "/currentTrack", "fm.Last.client", "artistDataChanged" );
++    QDBusConnection::sessionBus().send(msg);
++}
++
++void DBusCurrentTrack::setNewTrack(const MetaData& metaData )
++{
++    m_album  = metaData.album();
++    m_albumPageUrl = metaData.albumPageUrl();
++    m_albumPicUrl = metaData.albumPicUrl();
++    m_buyAlbumString  = metaData.buyAlbumString();
++    m_buyAlbumUrl  = metaData.buyAlbumUrl();
++    m_buyTrackString  = metaData.buyTrackString();
++    m_buyTrackUrl  = metaData.buyTrackUrl();
++    m_duration = metaData.duration();
++    m_isAlbumBuyable = metaData.isAlbumBuyable();
++    m_isTrackBuyable = metaData.isTrackBuyable();
++    m_label = metaData.label();
++    m_numTracks = metaData.numTracks();
++    m_releaseDate = metaData.releaseDate();
++    m_track  = metaData.track();
++    m_trackPageUrl = metaData.trackPageUrl();
++    m_trackTags = metaData.trackTags();
++
++    QDBusMessage msg = QDBusMessage::createSignal( "/currentTrack", "fm.Last.client", "trackDataChanged" );
++    QDBusConnection::sessionBus().send(msg);
++}
++
++QString DBusCurrentTrack::album()
++{
++    return m_album;
++}
++
++QString DBusCurrentTrack::albumPageUrl()
++{
++    return m_albumPageUrl.toString();
++}
++
++QString DBusCurrentTrack::albumPicUrl()
++{
++    return m_albumPicUrl.toString();
++}
++
++QString DBusCurrentTrack::artist()
++{
++    return m_artist;
++}
++
++QString DBusCurrentTrack::artistPageUrl()
++{
++    return m_artistPageUrl.toString();
++}
++
++QString DBusCurrentTrack::artistPicUrl()
++{
++    return m_artistPicUrl.toString();
++}
++
++QStringList DBusCurrentTrack::artistTags()
++{
++    return m_artistTags;
++}
++
++QString DBusCurrentTrack::buyAlbumString()
++{
++    return m_buyAlbumString;
++}
++
++QString DBusCurrentTrack::buyAlbumUrl()
++{
++    return m_buyAlbumUrl.toString();
++}
++
++QString DBusCurrentTrack::buyTrackString()
++{
++    return m_buyTrackString;
++}
++
++QString DBusCurrentTrack::buyTrackUrl()
++{
++    return m_buyTrackUrl.toString();
++}
++
++bool DBusCurrentTrack::isAlbumBuyable()
++{
++    return m_isAlbumBuyable;
++}
++
++bool DBusCurrentTrack::isTrackBuyable()
++{
++    return m_isTrackBuyable;
++}
++
++QString DBusCurrentTrack:: label()
++{
++    return m_label;
++}
++
++int DBusCurrentTrack::numListeners()
++{
++    return m_numListeners;
++}
++
++int DBusCurrentTrack::numPlays()
++{
++    return m_numPlays;
++}
++
++int DBusCurrentTrack::numTracks()
++{
++    return m_numTracks;
++}
++
++QString DBusCurrentTrack::releaseDate()
++{
++    return m_releaseDate.toString( "yyyy-MM-dd" );
++}
++
++QStringList DBusCurrentTrack::similarArtists()
++{
++    return m_similarArtists;
++}
++
++QStringList DBusCurrentTrack::topFans()
++{
++    return m_topFans;
++}
++
++QString DBusCurrentTrack::track()
++{
++    return m_track;
++}
++
++int DBusCurrentTrack::trackLength()
++{
++    return m_duration;
++}
++
++QString DBusCurrentTrack::trackPageUrl()
++{
++    return m_trackPageUrl.toString();
++}
++
++int DBusCurrentTrack::trackProgress()
++{
++    return Container::instance().ui.songTimeBar->value();
++}
++
++QStringList DBusCurrentTrack::trackTags()
++{
++    return m_trackTags;
++}
++
++QString DBusCurrentTrack::wiki()
++{
++    return m_wiki;
++}
++
++QString DBusCurrentTrack::wikiPageUrl()
++{
++    return m_wikiPageUrl.toString();
++}
++
++
++
++
++////////////////////////
++
++DBusCurrentUser::DBusCurrentUser( QApplication* application )
++  : QDBusAbstractAdaptor( application )
++{
++    QDBusConnection::sessionBus().registerObject( "/currentUser", this,
++                                                  QDBusConnection::ExportScriptableSlots );
++}
++
++void DBusCurrentUser::banRecentItem( int item )
++{
++    QList<Track> recentTracks = The::container().ui.sidebar->getRecentlyPlayed();
++    if ( ( 0 <= item ) && ( item < recentTracks.size() ) )
++    {
++        (new BanRequest( recentTracks[ item ]))->start();
++    }
++}
++
++QStringList DBusCurrentUser::friends()
++{
++    return The::container().ui.sidebar->getFriends();
++}
++
++QStringList DBusCurrentUser::history()
++{
++    QList<Station> stations = The::currentUser().recentStations();
++    QStringList historyList;
++    for ( int i = 0; i < stations.size(); i++ )
++    {
++        historyList << stations.value( i ).url();
++    }
++    return historyList;
++}
++
++void DBusCurrentUser::loveRecentItem( int item )
++{
++    QList<Track> recentTracks = The::container().ui.sidebar->getRecentlyPlayed();
++    if ( ( 0 <= item ) && ( item < recentTracks.size() ) )
++    {
++        (new LoveRequest( recentTracks[ item ]))->start();
++    }
++}
++
++QString DBusCurrentUser::name()
++{
++    return The::currentUsername();
++}
++
++QStringList DBusCurrentUser::neighbours()
++{
++    return The::container().ui.sidebar->getNeighbours();
++}
++
++QStringList DBusCurrentUser::recentlyBanned()
++{
++    QList<Track> bannedTracks = The::container().ui.sidebar->getRecentlyBanned();
++    QStringList trackList;
++    for ( int i = 0; i < bannedTracks.size(); i++ )
++    {
++        trackList << bannedTracks.value( i );
++    }
++    return trackList;
++}
++
++QStringList DBusCurrentUser::recentlyLoved()
++{
++    QList<Track> lovedTracks = The::container().ui.sidebar->getRecentlyLoved();
++    QStringList trackList;
++    for ( int i = 0; i < lovedTracks.size(); i++ )
++    {
++        trackList << lovedTracks.value( i );
++    }
++    return trackList;
++}
++
++QStringList DBusCurrentUser::recentlyPlayed()
++{
++    QList<Track> recentTracks = The::container().ui.sidebar->getRecentlyPlayed();
++    QStringList trackList;
++    for ( int i = 0; i < recentTracks.size(); i++ )
++    {
++        trackList << recentTracks.value( i );
++    }
++    return trackList;
++}
++
++void DBusCurrentUser::removeHistoryItem( int index )
++{
++    QList<Station> stations = The::settings().currentUser().recentStations();
++    if ( ( 0 <= index ) && ( index < stations.size() ) )
++        The::currentUser().removeRecentStation( index );
++}
++
++QStringList DBusCurrentUser::tags()
++{
++    return The::container().ui.sidebar->getTags();
++}
++
++void DBusCurrentUser::unbanItem( int item )
++{
++    QList<Track> bannedTracks = The::container().ui.sidebar->getRecentlyBanned();
++    if ( ( 0 <= item ) && ( item < bannedTracks.size() ) )
++    {
++        (new UnBanRequest( bannedTracks[ item ]))->start();
++    }
++}
++
++void DBusCurrentUser::unloveItem( int item )
++{
++    QList<Track> lovedTracks = The::container().ui.sidebar->getRecentlyLoved();
++    if ( ( 0 <= item ) && ( item < lovedTracks.size() ) )
++    {
++        (new UnLoveRequest( lovedTracks[ item ]))->start();
++    }
++}
++
++
++
++
++
++////////////////////////
++
++DBusPlayer::DBusPlayer( QApplication* application )
++  : QDBusAbstractAdaptor( application )
++{
++    QDBusConnection::sessionBus().registerService( "fm.Last.client" );
++    QDBusConnection::sessionBus().registerObject( "/player", this,
++                                                  QDBusConnection::ExportScriptableSlots );
++}
++
++void DBusPlayer::ban()
++{
++    The::container().ban();
++}
++
++void DBusPlayer::changeUser( QString userName )
++{
++    foreach ( QString const aUser, The::settings().allUsers() )
++    {
++        if ( userName == aUser )
++        {
++            The::container().dbusUserSelected( userName );
++            break;
++        }
++    }
++}
++
++bool DBusPlayer::isDiscoveryMode()
++{
++    return The::settings().currentUser().isDiscovery();
++}
++
++bool DBusPlayer::isMuted()
++{
++    if ( ( The::container().ui.playcontrols.volume->value() == 0 ) && ( The::container().m_lastVolume > 0 ) )
++    {
++        return true;
++    }
++    else
++    {
++        return false;
++    }
++}
++
++bool DBusPlayer::isScrobbling()
++{
++    return The::settings().currentUser().isLogToProfile();
++}
++
++bool DBusPlayer::isWindowVisible()
++{
++    if ( The::container().isVisible() && The::container().isActiveWindow() )
++    {
++        return true;
++    }
++    else
++    {
++        return false;
++    }
++}
++
++QString DBusPlayer::trimArgument( QString argument )
++{
++    QString trimmedArg = argument.trimmed();
++    return trimmedArg;
++}
++
++void DBusPlayer::love()
++{
++    The::container().love();
++}
++
++void DBusPlayer::playGlobalTag( QString tag )
++{
++    QString const m_tag = tag.remove( QRegExp(" \\(\\d*\\)$") );
++    playStationUrl( "lastfm://globaltags/" + m_tag );
++}
++
++void DBusPlayer::playGroup( QString group )
++{
++    QString trimmedGroup = trimArgument( group );
++    if ( trimmedGroup != "" )
++        playStationUrl( "lastfm://group/" + UnicornUtils::urlEncodeItem( trimmedGroup ) );
++}
++
++void DBusPlayer::playSimilarArtists( QString artist )
++{
++    QString trimmedArtist = trimArgument( artist );
++    if ( trimmedArtist != "" )
++        playStationUrl( "lastfm://artist/" + UnicornUtils::urlEncodeItem( trimmedArtist ) + "/similarartists" );
++}
++
++void DBusPlayer::playStationUrl( QString station )
++{
++    QString trimmedStation = trimArgument( station );
++    if ( trimmedStation != "" && station.startsWith( "lastfm://" ) )
++        The::radio().playStation( StationUrl( station ) );
++}
++
++void DBusPlayer::playUserLoved( QString userName )
++{
++    QString trimmedName = trimArgument( userName );
++    if ( trimmedName == "" )
++        trimmedName = The::currentUsername();
++    if ( trimmedName != "" )
++        playStationUrl( "lastfm://user/" + UnicornUtils::urlEncodeItem( trimmedName ) + "/loved" );
++}
++
++void DBusPlayer::playUserNeighbourhood( QString userName )
++{
++    QString trimmedName = trimArgument( userName );
++    if ( trimmedName == "" )
++        trimmedName = The::currentUsername();
++    if ( trimmedName != "" )
++        playStationUrl( "lastfm://user/" + UnicornUtils::urlEncodeItem( trimmedName ) + "/neighbours" );
++}
++
++void DBusPlayer::playUserPersonal( QString userName )
++{
++    QString trimmedName = trimArgument( userName );
++    if ( trimmedName == "" )
++        trimmedName = The::currentUsername();
++    if ( trimmedName != "" )
++        playStationUrl( "lastfm://user/" + UnicornUtils::urlEncodeItem( trimmedName ) + "/personal" );
++}
++
++void DBusPlayer::playUserRecommendations( QString userName )
++{
++    QString trimmedName = trimArgument( userName );
++    if ( trimmedName == "" )
++        trimmedName = The::currentUsername();
++    if ( trimmedName != "" )
++        playStationUrl( "lastfm://user/" + UnicornUtils::urlEncodeItem( trimmedName ) + "/recommended" );
++}
++
++void DBusPlayer::playUserTag( QString userName, QString tag )
++{
++    QString trimmedName = trimArgument( userName );
++    QString const m_tag = tag.remove( QRegExp(" \\(\\d*\\)$") );
++    if ( trimmedName == "" )
++        trimmedName = The::currentUsername();
++    if ( trimmedName != "" && m_tag != "" )
++        playStationUrl( "lastfm://usertags/" + UnicornUtils::urlEncodeItem( trimmedName ) + "/" + m_tag );
++}
++
++void DBusPlayer::quit()
++{
++    The::container().quit();
++}
++
++void DBusPlayer::resume()
++{
++    The::container().play();
++}
++
++void DBusPlayer::skip()
++{
++    The::container().skip();
++}
++
++void DBusPlayer::stop()
++{
++    The::container().stop();
++}
++
++void DBusPlayer::toggleDiscoveryMode()
++{
++    if ( The::container().ui.actionToggleDiscoveryMode->isCheckable() )
++    {
++        The::container().ui.actionToggleDiscoveryMode->trigger();
++    }
++}
++
++void DBusPlayer::toggleMute()
++{
++    The::container().mute();
++}
++
++void DBusPlayer::toggleScrobbling()
++{
++    if ( The::container().ui.actionToggleScrobbling->isCheckable() )
++    {
++        The::container().ui.actionToggleScrobbling->trigger();
++    }
++}
++
++void DBusPlayer::toggleWindowVisibility()
++{
++    The::container().toggleWindowVisibility();
++}
++
++QStringList DBusPlayer::users()
++{
++    QStringList users;
++    foreach ( QString const user, The::settings().allUsers() )
++    {
++        users << user;
++    }
++    return users;
++}
++
++void DBusPlayer::volumeDown()
++{
++    The::container().volumeDown();
++}
++
++void DBusPlayer::volumeUp()
++{
++    The::container().volumeUp();
++}
+--- /dev/null
++++ b/src/dbusinterface.h
+@@ -0,0 +1,155 @@
++/***************************************************************************
++ *   Copyright (C) 2007 by                                                 *
++ *      İsmail Dönmez <ismail@pardus.org.tr>                               *
++ *      John Stamp <jstamp@users.sourceforge.net>                          *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   51 Franklin Steet, Fifth Floor, Boston, MA  02111-1307, USA.          *
++ ***************************************************************************/
++
++#ifndef DBUSINTERFACE_H
++#define DBUSINTERFACE_H
++
++#ifdef LINUX
++
++#include <QDBusAbstractAdaptor>
++#include "metadata.h"
++#include "container.h"
++
++class DBusCurrentTrack: public QDBusAbstractAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO( "D-Bus Interface", "fm.Last.client" );
++
++    public:
++        DBusCurrentTrack( QApplication* application );
++        void setNewArtist(const MetaData& );
++        void setNewTrack(const MetaData& );
++
++    public slots:
++        // Keep these alphabetized.  D-Bus will display them in the order that
++        // they're listed here.
++        Q_SCRIPTABLE QString album();
++        Q_SCRIPTABLE QString albumPageUrl();
++        Q_SCRIPTABLE QString albumPicUrl();
++        Q_SCRIPTABLE QString artist();
++        Q_SCRIPTABLE QString artistPageUrl();
++        Q_SCRIPTABLE QString artistPicUrl();
++        Q_SCRIPTABLE QStringList artistTags();
++        Q_SCRIPTABLE QString buyAlbumString();
++        Q_SCRIPTABLE QString buyAlbumUrl();
++        Q_SCRIPTABLE QString buyTrackString();
++        Q_SCRIPTABLE QString buyTrackUrl();
++        Q_SCRIPTABLE bool isAlbumBuyable();
++        Q_SCRIPTABLE bool isTrackBuyable();
++        Q_SCRIPTABLE QString label();
++        Q_SCRIPTABLE int numListeners();
++        Q_SCRIPTABLE int numPlays();
++        Q_SCRIPTABLE int numTracks();
++        Q_SCRIPTABLE QString releaseDate();
++        Q_SCRIPTABLE QStringList similarArtists();
++        Q_SCRIPTABLE QStringList topFans();
++        Q_SCRIPTABLE QString track();
++        Q_SCRIPTABLE int trackLength();
++        Q_SCRIPTABLE QString trackPageUrl();
++        Q_SCRIPTABLE int trackProgress();
++        Q_SCRIPTABLE QStringList trackTags();
++        Q_SCRIPTABLE QString wiki();
++        Q_SCRIPTABLE QString wikiPageUrl();
++
++    private:
++        int m_duration, m_numTracks, m_numListeners, m_numPlays;
++        bool m_isAlbumBuyable, m_isTrackBuyable;
++        QDate m_releaseDate;
++        QString m_artist, m_album, m_buyAlbumString, m_buyTrackString, m_label, m_track, m_wiki;
++        QStringList m_trackTags, m_artistTags, m_similarArtists, m_topFans;
++        QUrl m_albumPageUrl, m_albumPicUrl, m_artistPageUrl, m_artistPicUrl,
++            m_buyAlbumUrl, m_buyTrackUrl, m_trackPageUrl, m_wikiPageUrl;
++};
++
++
++class DBusCurrentUser: public QDBusAbstractAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO( "D-Bus Interface", "fm.Last.client" );
++
++    public:
++        DBusCurrentUser( QApplication* application );
++
++    public slots:
++        // Keep these alphabetized.  D-Bus will display them in the order that
++        // they're listed here.
++        Q_SCRIPTABLE void banRecentItem( int item );
++        Q_SCRIPTABLE QStringList friends();
++        Q_SCRIPTABLE QStringList history();
++        Q_SCRIPTABLE void loveRecentItem( int item );
++        Q_SCRIPTABLE QString name();
++        Q_SCRIPTABLE QStringList neighbours();
++        Q_SCRIPTABLE QStringList recentlyBanned();
++        Q_SCRIPTABLE QStringList recentlyLoved();
++        Q_SCRIPTABLE QStringList recentlyPlayed();
++        Q_SCRIPTABLE void removeHistoryItem( int index );
++        Q_SCRIPTABLE QStringList tags();
++        Q_SCRIPTABLE void unbanItem( int item );
++        Q_SCRIPTABLE void unloveItem( int item );
++};
++
++
++class DBusPlayer: public QDBusAbstractAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO( "D-Bus Interface", "fm.Last.client" );
++
++    public:
++        DBusPlayer( QApplication* application );
++
++    public slots:
++        // Keep these alphabetized.  D-Bus will display them in the order that
++        // they're listed here.
++        Q_SCRIPTABLE void ban();
++        Q_SCRIPTABLE void changeUser( QString user );
++        Q_SCRIPTABLE bool isDiscoveryMode();
++        Q_SCRIPTABLE bool isMuted();
++        Q_SCRIPTABLE bool isScrobbling();
++        Q_SCRIPTABLE bool isWindowVisible();
++        Q_SCRIPTABLE void love();
++        Q_SCRIPTABLE void playGlobalTag( QString tag );
++        Q_SCRIPTABLE void playGroup( QString group );
++        Q_SCRIPTABLE void playSimilarArtists( QString artist );
++        Q_SCRIPTABLE void playStationUrl( QString station );
++        Q_SCRIPTABLE void playUserLoved( QString userName );
++        Q_SCRIPTABLE void playUserNeighbourhood( QString userName );
++        Q_SCRIPTABLE void playUserPersonal( QString userName );
++        Q_SCRIPTABLE void playUserRecommendations( QString userName );
++        Q_SCRIPTABLE void playUserTag( QString userName, QString tag );
++        Q_SCRIPTABLE void quit();
++        Q_SCRIPTABLE void resume();
++        Q_SCRIPTABLE void skip();
++        Q_SCRIPTABLE void stop();
++        Q_SCRIPTABLE void toggleDiscoveryMode();
++        Q_SCRIPTABLE void toggleMute();
++        Q_SCRIPTABLE void toggleScrobbling();
++        Q_SCRIPTABLE void toggleWindowVisibility();
++        Q_SCRIPTABLE QStringList users();
++        Q_SCRIPTABLE void volumeDown();
++        Q_SCRIPTABLE void volumeUp();
++
++    private:
++        QString trimArgument( QString argument );
++};
++
++#endif // LINUX
++
++#endif // DBUSINTERFACE_H
+--- a/src/src.pro
++++ b/src/src.pro
+@@ -201,14 +201,18 @@
+ 
+ 
+ unix:!mac {
++    CONFIG += qdbus
++
+     FORMS += wizarddialog_mac.ui \
+              wizardshell_mac.ui
+ 
+     HEADERS += simplewizard_mac.h \
+-               winstyleoverrides.h
++               winstyleoverrides.h \
++               dbusinterface.h
+ 
+     SOURCES += simplewizard_mac.cpp \
+-               winstyleoverrides.cpp
++               winstyleoverrides.cpp \
++               dbusinterface.cpp
+ 
+     LIBS += -lX11 -lz
+ 
+--- a/src/SideBarModel.h
++++ b/src/SideBarModel.h
+@@ -153,6 +153,13 @@
+ public slots:
+     void removeLovedTracks();
+     
++    QStringList getFriends() { return m_friends; }
++    QStringList getNeighbours() { return m_neighboursBySimilarity; }
++    QList<Track> getRecentlyBanned() { return m_banned; }
++    QList<Track> getRecentlyLoved() { return m_loved; }
++    QList<Track> getRecentlyPlayed() { return m_played; }
++    QStringList getTags() { return m_tags; }
++
+ private slots:
+     void onResult( Request* );
+     void onAvatarDownloaded( QByteArray );
+--- a/src/SideBarView.h
++++ b/src/SideBarView.h
+@@ -39,6 +39,12 @@
+ 
+     //////
+         void addRecentlyPlayedTrack( Track );
++        QStringList getFriends() { return m_model->getFriends(); }
++        QStringList getNeighbours() { return m_model->getNeighbours(); }
++        QList<Track> getRecentlyBanned() { return m_model->getRecentlyBanned(); }
++        QList<Track> getRecentlyLoved() { return m_model->getRecentlyLoved(); }
++        QList<Track> getRecentlyPlayed() { return m_model->getRecentlyPlayed(); }
++        QStringList getTags() { return m_model->getTags(); }
+ 
+     signals:
+         void statusMessage( const QString& message );
+--- a/src/lastfmapplication.cpp
++++ b/src/lastfmapplication.cpp
+@@ -938,6 +938,7 @@
+             // Copy new stuff into our own m_currentTrack
+             m_currentTrack.setArtist( metadata.artist() );
+             m_currentTrack.setTrack( metadata.track() );
++            m_currentTrack.setTrackTags( metadata.trackTags() );
+             m_currentTrack.setTrackPageUrl( metadata.trackPageUrl() );
+             if ( !metadata.album().isEmpty() )
+             {

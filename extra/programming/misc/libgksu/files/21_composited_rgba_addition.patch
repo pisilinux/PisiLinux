@@ -1,0 +1,489 @@
+diff -Nur -x '*.orig' -x '*~' libgksu-2.0.7/libgksuui/gksuui-dialog.c libgksu-2.0.7.new/libgksuui/gksuui-dialog.c
+--- libgksu-2.0.7/libgksuui/gksuui-dialog.c	2008-05-09 19:39:54.000000000 +0200
++++ libgksu-2.0.7.new/libgksuui/gksuui-dialog.c	2008-10-17 14:15:36.000000000 +0200
+@@ -19,6 +19,7 @@
+  */
+ 
+ #include <string.h>
++#include <math.h>
+ 
+ #include <gtk/gtk.h>
+ #include <gdk/gdkx.h>
+@@ -259,11 +260,416 @@
+   return TRUE;
+ }
+ 
++void
++_round_rect (cairo_t* cr,
++             gdouble  aspect,
++             gdouble  x,
++             gdouble  y,
++             gdouble  corner,
++             gdouble  width,
++             gdouble  height)
++{
++  gdouble radius = corner / aspect;
++
++  /* top-left, right of the corner */
++  cairo_move_to (cr, x + radius, y);
++
++  /* top-right, left of the corner */
++  cairo_line_to (cr,
++                 x + width - radius,
++                 y);
++
++  /* top-right, below the corner */
++  cairo_arc (cr,
++             x + width - radius,
++             y + radius,
++             radius,
++             -90.0f * G_PI / 180.0f,
++             0.0f * G_PI / 180.0f);
++
++  /* bottom-right, above the corner */
++  cairo_line_to (cr,
++                 x + width,
++                 y + height - radius);
++
++  /* bottom-right, left of the corner */
++  cairo_arc (cr,
++             x + width - radius,
++             y + height - radius,
++             radius,
++             0.0f * G_PI / 180.0f,
++             90.0f * G_PI / 180.0f);
++
++  /* bottom-left, right of the corner */
++  cairo_line_to (cr,
++                 x + radius,
++                 y + height);
++
++  /* bottom-left, above the corner */
++  cairo_arc (cr,
++             x + radius,
++             y + height - radius,
++             radius,
++             90.0f * G_PI / 180.0f,
++             180.0f * G_PI / 180.0f);
++
++  /* top-left, below the corner */
++  cairo_line_to (cr,
++                 x,
++                 y + radius);
++
++  /* top-left, right of the corner */
++  cairo_arc (cr,
++             x + radius,
++             y + radius,
++             radius,
++             180.0f * G_PI / 180.0f,
++             270.0f * G_PI / 180.0f);
++}
++
++gdouble*
++_kernel_1d_new (gint    radius,
++                gdouble deviation /* pass 0.0f to calculate automatically */)
++{
++  gdouble* kernel = NULL;
++  gdouble  sum    = 0.0f;
++  gdouble  value  = 0.0f;
++  gint     i;
++  gint     size = 2 * radius + 1;
++  gdouble  radiusf;
++
++  /* sanity check */
++  if (radius <= 0)
++    return NULL;
++
++  /* get memory-chunk to hold blur-kernel */
++  kernel = (gdouble*) g_malloc0 ((size + 1) * sizeof (gdouble));
++  if (!kernel)
++    return NULL;
++
++  /* determine deviation */
++  radiusf = fabs (radius) + 1.0f;
++  if (deviation == 0.0f)
++    deviation = sqrt (-(radiusf * radiusf) / (2.0f * log (1.0f / 255.0f)));
++
++  /* fill blur-kernel */
++  kernel[0] = size;
++  value = (gdouble) -radius;
++  for (i = 0; i < size; i++)
++    {
++    kernel[1 + i] = 1.0f / (2.506628275f * deviation) *
++                    expf (-((value * value) /
++                    (2.0f * deviation * deviation)));
++    sum += kernel[1 + i];
++    value += 1.0f;
++    }
++
++  /* normalize values */
++  for (i = 0; i < size; i++)
++    kernel[1 + i] /= sum;
++
++  return kernel;
++}
++
++void
++_kernel_1d_delete (gdouble* kernel)
++{
++  g_assert (kernel != NULL);
++  g_free ((gpointer) kernel);
++}
++
++static void
++_image_surface_blur (cairo_surface_t* surface,
++                     gint             horz_radius,
++                     gint             vert_radius)
++{
++  gint     iX;
++  gint     iY;
++  gint     i;
++  gint     x;
++  gint     y;
++  gint     stride;
++  gint     offset;
++  gint     base_offset;
++  gdouble* horz_blur;
++  gdouble* vert_blur;
++  gdouble* horz_kernel;
++  gdouble* vert_kernel;
++  guchar*  src;
++  gint     width;
++  gint     height;
++  gint     channels;
++
++  /* sanity checks */
++  if (!surface || horz_radius == 0 || vert_radius == 0)
++    return;
++
++  if (cairo_surface_get_type (surface) != CAIRO_SURFACE_TYPE_IMAGE)
++    return;
++
++  cairo_surface_flush (surface);
++
++  src  = cairo_image_surface_get_data (surface);
++  width  = cairo_image_surface_get_width (surface);
++  height = cairo_image_surface_get_height (surface);
++
++  /* only handle RGB- or RGBA-surfaces */
++  if (cairo_image_surface_get_format (surface) != CAIRO_FORMAT_ARGB32 &&
++      cairo_image_surface_get_format (surface) != CAIRO_FORMAT_RGB24)
++    return;
++
++  channels = 4;
++  stride = width * channels;
++
++  /* create buffers to hold the blur-passes */
++  horz_blur = (gdouble*) g_malloc0 (height * stride * sizeof (gdouble));
++  vert_blur = (gdouble*) g_malloc0 (height * stride * sizeof (gdouble));
++  if (!horz_blur || !vert_blur)
++    {
++      if (horz_blur)
++        g_free ((gpointer) horz_blur);
++
++      if (vert_blur)
++        g_free ((gpointer) vert_blur);
++
++      return;
++    }
++
++  horz_kernel = _kernel_1d_new (horz_radius, 0.0f);
++  vert_kernel = _kernel_1d_new (vert_radius, 0.0f);
++
++  if (!horz_kernel || !vert_kernel)
++    {
++
++      g_free ((gpointer) horz_blur);
++      g_free ((gpointer) vert_blur);
++
++      if (horz_kernel)
++        _kernel_1d_delete (horz_kernel);
++
++      if (vert_kernel)
++        _kernel_1d_delete (vert_kernel);
++
++      return;
++    }
++
++  /* horizontal pass */
++  for (iY = 0; iY < height; iY++)
++    {
++      for (iX = 0; iX < width; iX++)
++        {
++          gdouble red   = 0.0f;
++          gdouble green = 0.0f;
++          gdouble blue  = 0.0f;
++          gdouble alpha = 0.0f;
++
++          offset = ((gint) horz_kernel[0]) / -2;
++          for (i = 0; i < (gint) horz_kernel[0]; i++)
++            {
++              x = iX + offset;
++              if (x >= 0 && x < width)
++                {
++                  base_offset = iY * stride + x * channels;
++
++                  if (channels == 4)
++                    alpha += (horz_kernel[1+i] * (gdouble) src[base_offset + 3]);
++
++                  red   += (horz_kernel[1+i] * (gdouble) src[base_offset + 2]);
++                  green += (horz_kernel[1+i] * (gdouble) src[base_offset + 1]);
++                  blue  += (horz_kernel[1+i] * (gdouble) src[base_offset + 0]);
++                }
++
++              offset++;
++            }
++
++          base_offset = iY * stride + iX * channels;
++
++          if (channels == 4)
++            horz_blur[base_offset + 3] = alpha;
++
++          horz_blur[base_offset + 2] = red;
++          horz_blur[base_offset + 1] = green;
++          horz_blur[base_offset + 0] = blue;
++        }
++    }
++
++  /* vertical pass */
++  for (iY = 0; iY < height; iY++)
++    {
++      for (iX = 0; iX < width; iX++)
++        {
++          gdouble red   = 0.0f;
++          gdouble green = 0.0f;
++          gdouble blue  = 0.0f;
++          gdouble alpha = 0.0f;
++
++          offset = ((gint) vert_kernel[0]) / -2;
++          for (i = 0; i < (gint) vert_kernel[0]; i++)
++            {
++              y = iY + offset;
++              if (y >= 0 && y < height)
++                {
++                  base_offset = y * stride + iX * channels;
++
++                  if (channels == 4)
++                    alpha += (vert_kernel[1+i] * horz_blur[base_offset + 3]);
++
++                  red   += (vert_kernel[1+i] * horz_blur[base_offset + 2]);
++                  green += (vert_kernel[1+i] * horz_blur[base_offset + 1]);
++                  blue  += (vert_kernel[1+i] * horz_blur[base_offset + 0]);
++                }
++
++              offset++;
++            }
++
++          base_offset = iY * stride + iX * channels;
++
++          if (channels == 4)
++            vert_blur[base_offset + 3] = alpha;
++
++          vert_blur[base_offset + 2] = red;
++          vert_blur[base_offset + 1] = green;
++          vert_blur[base_offset + 0] = blue;
++        }
++    }
++
++  _kernel_1d_delete (horz_kernel);
++  _kernel_1d_delete (vert_kernel);
++
++  for (iY = 0; iY < height; iY++)
++    {
++      for (iX = 0; iX < width; iX++)
++        {
++          offset = iY * stride + iX * channels;
++
++          if (channels == 4)
++            src[offset + 3] = (guchar) vert_blur[offset + 3];
++
++          src[offset + 2] = (guchar) vert_blur[offset + 2];
++          src[offset + 1] = (guchar) vert_blur[offset + 1];
++          src[offset + 0] = (guchar) vert_blur[offset + 0];
++        }
++    }
++
++  cairo_surface_mark_dirty (surface);
++
++  g_free ((gpointer) horz_blur);
++  g_free ((gpointer) vert_blur);
++}
++
++static cairo_surface_t*
++_create_shadow_surface (gint    width,
++                        gint    height,
++                        gdouble corner_radius,
++                        gint    blur_radius)
++{
++  cairo_surface_t* surface;
++  cairo_t*         cr;
++
++  /* create image-surface and context */
++  surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, width, height);
++  cr = cairo_create (surface);
++
++  /* clear context */
++  cairo_set_operator (cr, CAIRO_OPERATOR_CLEAR);
++  cairo_paint (cr);
++
++  /* draw semi-transparent black rectangle with rounded corners */
++  cairo_set_source_rgba (cr, 0.0f, 0.0f, 0.0f, 0.65f);
++  cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
++  _round_rect (cr,
++               1.0f,
++               (gdouble) blur_radius,
++               (gdouble) blur_radius,
++               corner_radius,
++               (gdouble) width - 2 * blur_radius,
++               (gdouble) height - 2 * blur_radius);
++  cairo_fill (cr);
++
++  /* blur twice with half the blur-radius, looks nicer */
++  _image_surface_blur (surface, blur_radius / 2, blur_radius / 2);
++  _image_surface_blur (surface, blur_radius / 2, blur_radius / 2);
++
++  /* clean up */
++  cairo_destroy (cr);
++
++  return surface;
++}
++
++static gboolean
++_transparent_clear_cb (GtkWidget      *widget,
++                       GdkEventExpose *event,
++                       GksuuiDialog   *gksuui_dialog)
++{
++  cairo_t  *cr;
++  GtkStyle *style;
++  gdouble  opacity       = 0.85f;
++  gdouble  corner_radius = 3.75f;
++
++  /* create context */
++  cr = gdk_cairo_create (widget->window);
++
++  /* clear the background */
++  cairo_set_operator (cr, CAIRO_OPERATOR_CLEAR);
++  cairo_paint (cr);
++
++  /* draw shadow */
++  if (cairo_surface_status (gksuui_dialog->shadow) == CAIRO_STATUS_SUCCESS)
++    {
++      cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
++      cairo_set_source_surface (cr, gksuui_dialog->shadow, 0, 0);
++      cairo_paint (cr);
++    }
++
++  /* create linear gradient from themes normal background-color */
++  style = gtk_widget_get_style (widget);
++  cairo_set_source_rgba (
++    cr,
++    (gdouble) style->bg[GTK_STATE_NORMAL].red / (gdouble) 0xFFFF,
++    (gdouble) style->bg[GTK_STATE_NORMAL].green / (gdouble) 0xFFFF,
++    (gdouble) style->bg[GTK_STATE_NORMAL].blue / (gdouble) 0xFFFF,
++    opacity);
++
++  /* draw a filled rounded rectangle */
++  cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
++  _round_rect (cr,
++               1.0f, 
++               (gdouble) widget->allocation.x + 13.0f,
++               (gdouble) widget->allocation.y + 13.0f,
++               corner_radius,
++               (gdouble) widget->allocation.width - 30.0f,
++               (gdouble) widget->allocation.height - 30.0f);
++  cairo_fill (cr);
++
++  /* clean up afterwards */
++  cairo_destroy (cr);
++
++  return FALSE;
++}
++
++static void
++_unrealize_cb (GtkWidget    *widget,
++               GksuuiDialog *gksuui_dialog)
++{
++  cairo_surface_destroy (gksuui_dialog->shadow);
++}
++
++static void 
++_realize_cb (GtkWidget    *widget,
++             GksuuiDialog *gksuui_dialog)
++{
++  gksuui_dialog->shadow = _create_shadow_surface (widget->allocation.width,
++                                                  widget->allocation.height,
++                                                  3.75f,
++                                                  15);
++}
++
+ static void
+ gksuui_dialog_init (GksuuiDialog *gksuui_dialog)
+ {
+   GtkDialog *dialog;
+   GtkWidget *hbox; /* aditional hbox for 'password: entry' label */
++  gint      border_width = 6;
+ 
+   /*
+      make sure we're using UTF-8 and getting our locale files
+@@ -272,6 +678,37 @@
+   bindtextdomain(PACKAGE_NAME, LOCALEDIR);
+   bind_textdomain_codeset (PACKAGE_NAME, "UTF-8");
+ 
++  gksuui_dialog->composited = gdk_screen_is_composited (
++                                gtk_widget_get_screen (
++                                  GTK_WIDGET (gksuui_dialog)));
++
++  if (gksuui_dialog->composited)
++    {
++      GdkColormap *colormap;
++      GtkWidget   *main_dialog = GTK_WIDGET (gksuui_dialog);
++
++      colormap = gdk_screen_get_rgba_colormap (
++                   gtk_widget_get_screen (main_dialog));
++      if (colormap)
++        {
++          gtk_widget_set_colormap (main_dialog, colormap);
++          gtk_widget_set_app_paintable (main_dialog, TRUE);
++          g_signal_connect (G_OBJECT (main_dialog),
++                            "expose-event",
++                            G_CALLBACK (_transparent_clear_cb),
++                            (gpointer) gksuui_dialog);
++          g_signal_connect (G_OBJECT (main_dialog),
++                            "realize",
++                            G_CALLBACK (_realize_cb),
++                            (gpointer) gksuui_dialog);
++          g_signal_connect (G_OBJECT (main_dialog),
++                            "unrealize",
++                            G_CALLBACK (_unrealize_cb),
++                            (gpointer) gksuui_dialog);
++          border_width = 20;
++        }
++    }
++
+   gtk_widget_push_composite_child ();
+ 
+   /* dialog window */
+@@ -285,7 +722,7 @@
+ 
+   gtk_window_set_title (GTK_WINDOW(gksuui_dialog), "");
+   gtk_dialog_set_has_separator (GTK_DIALOG(gksuui_dialog), FALSE);
+-  gtk_container_set_border_width (GTK_CONTAINER(gksuui_dialog), 6);
++  gtk_container_set_border_width (GTK_CONTAINER(gksuui_dialog), border_width);
+   gtk_box_set_spacing (GTK_BOX(gksuui_dialog->main_vbox), 12);
+   gtk_window_set_resizable (GTK_WINDOW(gksuui_dialog), FALSE);
+ 
+diff -Nur -x '*.orig' -x '*~' libgksu-2.0.7/libgksuui/gksuui-dialog.h libgksu-2.0.7.new/libgksuui/gksuui-dialog.h
+--- libgksu-2.0.7/libgksuui/gksuui-dialog.h	2008-05-09 19:39:54.000000000 +0200
++++ libgksu-2.0.7.new/libgksuui/gksuui-dialog.h	2008-10-17 14:07:57.000000000 +0200
+@@ -72,7 +72,9 @@
+   GtkWidget *prompt_label;
+ 
+   /* private */
+-  gboolean sudo_mode;
++  gboolean        sudo_mode;
++  gboolean        composited;
++  cairo_surface_t *shadow;
+ };
+ 
+ GType

@@ -1,0 +1,714 @@
+diff -x .git -Nur php-suhosin-0.9.33/Changelog suhosin/Changelog
+--- php-suhosin-0.9.33/Changelog	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/Changelog	2012-05-21 21:54:03.076420909 +0200
+@@ -1,3 +1,11 @@
++2012-02-12 - 0.9.34
++
++    - Added initial support for PHP 5.4.0
++    - Fix include whitelist and blacklist to support shemes with dots in their names
++    - Fix read after efree() that lets function_exists() malfunction
++    - Fix build with clang compiler
++    - Added a request variable drop statistic log message
++
+ 2012-01-19 - 0.9.33
+ 
+     - Make clear that suhosin is incompatible to mbstring.encoding_translation=On
+diff -x .git -Nur php-suhosin-0.9.33/execute.c suhosin/execute.c
+--- php-suhosin-0.9.33/execute.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/execute.c	2012-05-21 21:28:34.848342088 +0200
+@@ -152,7 +152,7 @@
+ 			t = h = (h == NULL) ? h2 : ( (h2 == NULL) ? h : ( (h < h2) ? h : h2 ) );
+ 			if (h == NULL) break;
+ 							
+-			while (t > s && (isalnum(t[-1]) || t[-1]=='_')) {
++			while (t > s && (isalnum(t[-1]) || t[-1]=='_' || t[-1]=='.')) {
+ 				t--;
+ 			}
+ 			
+@@ -195,7 +195,7 @@
+ 			t = h = (h == NULL) ? h2 : ( (h2 == NULL) ? h : ( (h < h2) ? h : h2 ) );
+ 			if (h == NULL) break;
+ 							
+-			while (t > s && (isalnum(t[-1]) || t[-1]=='_')) {
++			while (t > s && (isalnum(t[-1]) || t[-1]=='_' || t[-1]=='.')) {
+ 				t--;
+ 			}
+ 
+@@ -364,6 +364,15 @@
+ 	zend_uint orig_code_type;
+ 	unsigned long *suhosin_flags = NULL;
+ 	
++	/* log variable dropping statistics */
++	if (SUHOSIN_G(abort_request) && (SUHOSIN_G(att_request_variables)-SUHOSIN_G(cur_request_variables) > 0)) {
++		suhosin_log(S_VARS, "dropped %u request variables - (%u in GET, %u in POST, %u in COOKIE)",
++		SUHOSIN_G(att_request_variables)-SUHOSIN_G(cur_request_variables),
++		SUHOSIN_G(att_get_vars)-SUHOSIN_G(cur_get_vars),
++		SUHOSIN_G(att_post_vars)-SUHOSIN_G(cur_post_vars),
++		SUHOSIN_G(att_cookie_vars)-SUHOSIN_G(cur_cookie_vars));
++	}
++	
+ 	if (SUHOSIN_G(abort_request) && !SUHOSIN_G(simulation) && SUHOSIN_G(filter_action)) {
+ 	
+ 		char *action = SUHOSIN_G(filter_action);
+@@ -1022,50 +1031,6 @@
+ 	return (0);
+ }
+ 
+-static int suhosin_php_body_write(const char *str, uint str_length TSRMLS_DC)
+-{
+-#define P_META_ROBOTS "<meta name=\"ROBOTS\" content=\"NOINDEX,NOFOLLOW,NOARCHIVE\" />"
+-#define S_META_ROBOTS "<meta name=\"ROBOTS\" content=\"NOINDEX,FOLLOW,NOARCHIVE\" />"
+-
+-    SDEBUG("bw: %s", str);
+-
+-	if ((str_length == sizeof("</head>\n")-1) && (strcmp(str, "</head>\n")==0)) {
+-		SUHOSIN_G(old_php_body_write)(S_META_ROBOTS, sizeof(S_META_ROBOTS)-1 TSRMLS_CC);
+-		OG(php_body_write) = SUHOSIN_G(old_php_body_write);
+-		return SUHOSIN_G(old_php_body_write)(str, str_length TSRMLS_CC);
+-	} else if ((str_length == sizeof(P_META_ROBOTS)-1) && (strcmp(str, P_META_ROBOTS)==0)) {
+-		return str_length;
+-	}
+-	return SUHOSIN_G(old_php_body_write)(str, str_length TSRMLS_CC);	
+-}
+-
+-static int ih_phpinfo(IH_HANDLER_PARAMS)
+-{
+-    int argc = ZEND_NUM_ARGS();
+-	long flag;
+-
+-	if (zend_parse_parameters(argc TSRMLS_CC, "|l", &flag) == FAILURE) {
+-        RETVAL_FALSE;
+-		return (1);
+-	}
+-
+-	if(!argc) {
+-		flag = PHP_INFO_ALL;
+-	}
+-
+-	/* Andale!  Andale!  Yee-Hah! */
+-	php_start_ob_buffer(NULL, 4096, 0 TSRMLS_CC);
+-	if (!sapi_module.phpinfo_as_text) {
+-		SUHOSIN_G(old_php_body_write) = OG(php_body_write);
+-		OG(php_body_write) = suhosin_php_body_write;
+-	}
+-	php_print_info(flag TSRMLS_CC);
+-	php_end_ob_buffer(1, 0 TSRMLS_CC);
+-
+-	RETVAL_TRUE;
+-	return (1);
+-}
+-
+ 
+ static int ih_function_exists(IH_HANDLER_PARAMS)
+ {
+@@ -1087,11 +1052,11 @@
+ 	zend_str_tolower(lcname, func_name_len);
+ #else
+ 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &lcname, &func_name_len) == FAILURE) {
+-		return;
++		return (1);
+ 	}
+ 
+ 	/* Ignore leading "\" */
+-	if (lcname[0] == '\\') {
++	if (func_name_len > 0 && lcname[0] == '\\') {
+ 		lcname = &lcname[1];
+ 		func_name_len--;
+ 	}
+@@ -1100,8 +1065,6 @@
+ 
+ 	retval = (zend_hash_find(EG(function_table), lcname, func_name_len+1, (void **)&func) == SUCCESS);
+ 	
+-	efree(lcname);
+-
+ 	/*
+ 	 * A bit of a hack, but not a bad one: we see if the handler of the function
+ 	 * is actually one that displays "function is disabled" message.
+@@ -1134,6 +1097,8 @@
+ 		}
+ 	}
+ 
++	efree(lcname);
++
+ 	RETVAL_BOOL(retval);
+ 	return (1);
+ }
+@@ -1344,7 +1309,7 @@
+ 
+     suhosin_SHA256Init(&context);
+ 	suhosin_SHA256Update(&context, (void *) seedbuf, sizeof(php_uint32) * 8);
+-	suhosin_SHA256Final(seedbuf, &context);
++	suhosin_SHA256Final((void *)seedbuf, &context);
+ }
+ /* }}} */
+ 
+@@ -1501,7 +1466,7 @@
+ {
+ #ifdef PHP_ATLEAST_5_3
+ 	if (zend_parse_parameters_none() == FAILURE) {
+-		return;
++		return(0);
+ 	}
+ #else
+         int argc = ZEND_NUM_ARGS();
+@@ -1518,7 +1483,6 @@
+     { "preg_replace", ih_preg_replace, NULL, NULL, NULL },
+     { "mail", ih_mail, NULL, NULL, NULL },
+     { "symlink", ih_symlink, NULL, NULL, NULL },
+-    { "phpinfo", ih_phpinfo, NULL, NULL, NULL },
+ 	
+ 	{ "srand", ih_srand, NULL, NULL, NULL },
+ 	{ "mt_srand", ih_mt_srand, NULL, NULL, NULL },
+@@ -1606,7 +1570,11 @@
+ 	}
+ 	
+ #ifdef ZEND_ENGINE_2  
++# if PHP_VERSION_ID < 50400
+ 	return_value = (*(temp_variable *)((char *) execute_data_ptr->Ts + execute_data_ptr->opline->result.u.var)).var.ptr;
++# else
++	return_value = (*(temp_variable *)((char *) execute_data_ptr->Ts + execute_data_ptr->opline->result.var)).var.ptr;
++# endif
+ #else
+         return_value = execute_data_ptr->Ts[execute_data_ptr->opline->result.u.var].var.ptr;
+ #endif
+diff -x .git -Nur php-suhosin-0.9.33/ex_imp.c suhosin/ex_imp.c
+--- php-suhosin-0.9.33/ex_imp.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/ex_imp.c	2012-05-21 21:28:34.844342088 +0200
+@@ -727,14 +727,13 @@
+ 
+ /* {{{ suhosin_ex_imp_functions[]
+  */
+-function_entry suhosin_ex_imp_functions[] = {
++zend_function_entry suhosin_ex_imp_functions[] = {
+ 	PHP_NAMED_FE(extract, PHP_FN(suhosin_extract), suhosin_arginfo_extract)
+ 	PHP_NAMED_FE(import_request_variables, PHP_FN(suhosin_import_request_variables), suhosin_arginfo_import_request_variables)
+ 	{NULL, NULL, NULL}
+ };
+ /* }}} */
+ 
+-
+ void suhosin_hook_ex_imp()
+ {
+ 	TSRMLS_FETCH();
+diff -x .git -Nur php-suhosin-0.9.33/ifilter.c suhosin/ifilter.c
+--- php-suhosin-0.9.33/ifilter.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/ifilter.c	2012-05-21 21:28:34.848342088 +0200
+@@ -146,7 +146,7 @@
+ 	if (zend_hash_find(arr, key, klen, (void **) &tzval) == SUCCESS &&
+ 			Z_TYPE_PP(tzval) == IS_STRING) {
+ 		
+-		s = t = Z_STRVAL_PP(tzval);
++		s = t = (unsigned char *)Z_STRVAL_PP(tzval);
+ 		for (; *t; t++) {
+ 			if (suhosin_is_dangerous_char[*t]) {
+ 				*t = '?';
+@@ -168,7 +168,7 @@
+ 	if (zend_hash_find(arr, key, klen, (void **) &tzval) == SUCCESS &&
+ 			Z_TYPE_PP(tzval) == IS_STRING) {
+ 		
+-		temp = Z_STRVAL_PP(tzval);
++		temp = (unsigned char *)Z_STRVAL_PP(tzval);
+ 		
+ 		t = temp;
+ 		for (t = temp; *t; t++) {
+@@ -195,7 +195,8 @@
+ 		}
+ 		*n = 0;
+ 		
+-		Z_STRVAL_PP(tzval) = newv;
++		/* XXX: we leak memory here, but only for the duration of the request */
++		Z_STRVAL_PP(tzval) = (char *)newv;
+ 		Z_STRLEN_PP(tzval) = n-newv;
+ 	}
+ }
+@@ -325,16 +326,22 @@
+ 	/* Drop this variable if the limit was reached */
+         switch (arg) {
+             case PARSE_GET:
++                        SUHOSIN_G(att_get_vars)++;
++                        SUHOSIN_G(att_request_variables)++;
+                         if (SUHOSIN_G(no_more_get_variables)) {
+                                 return 0;
+                         }
+                         break;
+             case PARSE_POST:
++                        SUHOSIN_G(att_post_vars)++;
++                        SUHOSIN_G(att_request_variables)++;
+                         if (SUHOSIN_G(no_more_post_variables)) {
+                                 return 0;
+                         }
+                         break;
+             case PARSE_COOKIE:
++                        SUHOSIN_G(att_cookie_vars)++;
++                        SUHOSIN_G(att_request_variables)++;
+                         if (SUHOSIN_G(no_more_cookie_variables)) {
+                                 return 0;
+                         }
+@@ -350,7 +357,7 @@
+ 	switch (arg) {
+ 	    case PARSE_GET:
+ 			if (SUHOSIN_G(max_get_vars) && SUHOSIN_G(max_get_vars) <= SUHOSIN_G(cur_get_vars)) {
+-				suhosin_log(S_VARS, "configured GET variable limit exceeded - dropped variable '%s'", var);
++				suhosin_log(S_VARS, "configured GET variable limit exceeded - dropped variable '%s' - all further GET variables are dropped", var);
+ 				if (!SUHOSIN_G(simulation)) {
+                             		SUHOSIN_G(no_more_get_variables) = 1;
+ 					return 0;
+@@ -359,7 +366,7 @@
+ 			break;
+ 	    case PARSE_COOKIE:
+ 			if (SUHOSIN_G(max_cookie_vars) && SUHOSIN_G(max_cookie_vars) <= SUHOSIN_G(cur_cookie_vars)) {
+-				suhosin_log(S_VARS, "configured COOKIE variable limit exceeded - dropped variable '%s'", var);
++				suhosin_log(S_VARS, "configured COOKIE variable limit exceeded - dropped variable '%s' - all further COOKIE variables are dropped", var);
+ 				if (!SUHOSIN_G(simulation)) {
+                             		SUHOSIN_G(no_more_cookie_variables) = 1;
+ 					return 0;
+@@ -368,7 +375,7 @@
+ 			break;
+ 	    case PARSE_POST:
+ 			if (SUHOSIN_G(max_post_vars) && SUHOSIN_G(max_post_vars) <= SUHOSIN_G(cur_post_vars)) {
+-				suhosin_log(S_VARS, "configured POST variable limit exceeded - dropped variable '%s'", var);
++				suhosin_log(S_VARS, "configured POST variable limit exceeded - dropped variable '%s' - all further POST variables are dropped", var);
+ 				if (!SUHOSIN_G(simulation)) {
+                             		SUHOSIN_G(no_more_post_variables) = 1;
+                             		return 0;
+diff -x .git -Nur php-suhosin-0.9.33/log.c suhosin/log.c
+--- php-suhosin-0.9.33/log.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/log.c	2012-05-21 21:28:34.848342088 +0200
+@@ -36,6 +36,12 @@
+ #include <sys/socket.h>
+ #endif
+ 
++#ifdef HAVE_SYS_TIME_H
++#include <sys/time.h>
++#elif defined(PHP_WIN32)
++#include "win32/time.h"
++#endif
++
+ #if defined(PHP_WIN32) || defined(__riscos__) || defined(NETWARE)
+ #undef AF_UNIX
+ #endif
+@@ -261,7 +267,11 @@
+ 	/* SAPI Logging activated? */
+ 	SDEBUG("(suhosin_log) log_syslog: %u - log_sapi: %u - log_script: %u - log_phpscript: %u", SUHOSIN_G(log_syslog), SUHOSIN_G(log_sapi), SUHOSIN_G(log_script), SUHOSIN_G(log_phpscript));
+ 	if (((SUHOSIN_G(log_sapi)|S_INTERNAL) & loglevel)!=0) {
++#if PHP_VERSION_ID < 50400
+ 		sapi_module.log_message(buf);
++#else
++		sapi_module.log_message(buf TSRMLS_CC);
++#endif
+ 	}
+ 
+ /*log_script:*/
+@@ -317,7 +327,9 @@
+ 		zval *result = NULL;
+ 		
+ 		long orig_execution_depth = SUHOSIN_G(execution_depth);
++#if PHP_VERSION_ID < 50400
+ 		zend_bool orig_safe_mode = PG(safe_mode);
++#endif
+ 		char *orig_basedir = PG(open_basedir);
+ 		
+ 		char *phpscript = SUHOSIN_G(log_phpscriptname);
+@@ -354,14 +366,18 @@
+ 				
+ 				SUHOSIN_G(execution_depth) = 0;
+ 				if (SUHOSIN_G(log_phpscript_is_safe)) {
++#if PHP_VERSION_ID < 50400
+ 					PG(safe_mode) = 0;
++#endif
+ 					PG(open_basedir) = NULL;
+ 				}
+ 				
+ 				zend_execute(new_op_array TSRMLS_CC);
+ 				
+ 				SUHOSIN_G(execution_depth) = orig_execution_depth;
++#if PHP_VERSION_ID < 50400				
+ 				PG(safe_mode) = orig_safe_mode;
++#endif
+ 				PG(open_basedir) = orig_basedir;
+ 				
+ #ifdef ZEND_ENGINE_2
+diff -x .git -Nur php-suhosin-0.9.33/php_suhosin.h suhosin/php_suhosin.h
+--- php-suhosin-0.9.33/php_suhosin.h	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/php_suhosin.h	2012-03-18 16:46:46.946834768 +0100
+@@ -22,7 +22,7 @@
+ #ifndef PHP_SUHOSIN_H
+ #define PHP_SUHOSIN_H
+ 
+-#define SUHOSIN_EXT_VERSION  "0.9.33"
++#define SUHOSIN_EXT_VERSION  "0.9.34-dev"
+ 
+ /*#define SUHOSIN_DEBUG*/
+ #define SUHOSIN_LOG "/tmp/suhosin_log.txt"
+@@ -102,6 +102,7 @@
+ /*	request variables */
+ 	long  max_request_variables;
+ 	long  cur_request_variables;
++	long  att_request_variables;
+ 	long  max_varname_length;
+ 	long  max_totalname_length;
+ 	long  max_value_length;
+@@ -112,6 +113,7 @@
+ /*	cookie variables */
+ 	long  max_cookie_vars;
+ 	long  cur_cookie_vars;
++	long  att_cookie_vars;
+ 	long  max_cookie_name_length;
+ 	long  max_cookie_totalname_length;
+ 	long  max_cookie_value_length;
+@@ -122,6 +124,7 @@
+ /*	get variables */
+ 	long  max_get_vars;
+ 	long  cur_get_vars;
++	long  att_get_vars;
+ 	long  max_get_name_length;
+ 	long  max_get_totalname_length;
+ 	long  max_get_value_length;
+@@ -132,6 +135,7 @@
+ /*	post variables */
+ 	long  max_post_vars;
+ 	long  cur_post_vars;
++	long  att_post_vars;
+ 	long  max_post_name_length;
+ 	long  max_post_totalname_length;
+ 	long  max_post_value_length;
+@@ -308,7 +312,7 @@
+ char *suhosin_cookie_decryptor(TSRMLS_D);
+ char *suhosin_getenv(char *name, size_t name_len TSRMLS_DC);
+ void suhosin_hook_post_handlers(TSRMLS_D);
+-void suhosin_unhook_post_handlers();
++void suhosin_unhook_post_handlers(TSRMLS_D);
+ void suhosin_hook_register_server_variables();
+ void suhosin_hook_header_handler();
+ void suhosin_unhook_header_handler();
+diff -x .git -Nur php-suhosin-0.9.33/post_handler.c suhosin/post_handler.c
+--- php-suhosin-0.9.33/post_handler.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/post_handler.c	2012-03-18 16:46:46.946834768 +0100
+@@ -148,10 +148,10 @@
+ 
+ 	/* we need to tell suhosin patch that there is a new valid destructor */
+ 	/* therefore we have create HashTable that has this destructor */
+-	zend_hash_init(&tempht, 0, NULL, suhosin_post_handler_modification, 0);
++	zend_hash_init(&tempht, 0, NULL, (dtor_func_t)suhosin_post_handler_modification, 0);
+ 	zend_hash_destroy(&tempht);
+ 	/* And now we can overwrite the destructor for post entries */
+-	SG(known_post_content_types).pDestructor = suhosin_post_handler_modification;
++	SG(known_post_content_types).pDestructor = (dtor_func_t)suhosin_post_handler_modification;
+ 	
+ 	/* we have to stop mbstring from replacing our post handler */
+ 	if (zend_hash_find(EG(ini_directives), "mbstring.encoding_translation", sizeof("mbstring.encoding_translation"), (void **) &ini_entry) == FAILURE) {
+@@ -162,7 +162,7 @@
+ 	ini_entry->on_modify = suhosin_OnUpdate_mbstring_encoding_translation;
+ }
+ 
+-void suhosin_unhook_post_handlers()
++void suhosin_unhook_post_handlers(TSRMLS_D)
+ {
+ 	zend_ini_entry *ini_entry;
+ 
+diff -x .git -Nur php-suhosin-0.9.33/rfc1867.c suhosin/rfc1867.c
+--- php-suhosin-0.9.33/rfc1867.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/rfc1867.c	2012-05-21 21:28:34.848342088 +0200
+@@ -244,21 +244,29 @@
+ 
+ static void register_http_post_files_variable(char *strvar, char *val, zval *http_post_files, zend_bool override_protection TSRMLS_DC)
+ {
++#if PHP_VERSION_ID < 50400
+ 	int register_globals = PG(register_globals);
+ 
+ 	PG(register_globals) = 0;
++#endif
+ 	safe_php_register_variable(strvar, val, http_post_files, override_protection TSRMLS_CC);
++#if PHP_VERSION_ID < 50400
+ 	PG(register_globals) = register_globals;
++#endif
+ }
+ 
+ 
+ static void register_http_post_files_variable_ex(char *var, zval *val, zval *http_post_files, zend_bool override_protection TSRMLS_DC)
+ {
++#if PHP_VERSION_ID < 50400
+ 	int register_globals = PG(register_globals);
+ 
+ 	PG(register_globals) = 0;
++#endif
+ 	safe_php_register_variable_ex(var, val, http_post_files, override_protection TSRMLS_CC);
++#if PHP_VERSION_ID < 50400
+ 	PG(register_globals) = register_globals;
++#endif
+ }
+ 
+ /*
+diff -x .git -Nur php-suhosin-0.9.33/session.c suhosin/session.c
+--- php-suhosin-0.9.33/session.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/session.c	2012-05-21 21:28:34.848342088 +0200
+@@ -233,9 +233,94 @@
+     zend_bool invalid_session_id;   /* allows the driver to report about an invalid session id and request id regeneration */
+ } php_ps_globals_53;
+ 
++#if PHP_VERSION_ID >= 50400
++typedef struct _php_session_rfc1867_progress_54 {
++
++	size_t    sname_len;
++	zval      sid;
++	smart_str key;
++
++	long      update_step;
++	long      next_update;
++	double    next_update_time;
++	zend_bool cancel_upload;
++	zend_bool apply_trans_sid;
++	size_t    content_length;
++
++	zval      *data;                 /* the array exported to session data */
++	zval      *post_bytes_processed; /* data["bytes_processed"] */
++	zval      *files;                /* data["files"] array */
++	zval      *current_file;         /* array of currently uploading file */
++	zval      *current_file_bytes_processed;
++} php_session_rfc1867_progress_54;
++
++typedef struct _php_ps_globals_54 {
++    char *save_path;
++    char *session_name;
++    char *id;
++    char *extern_referer_chk;
++    char *entropy_file;
++    char *cache_limiter;
++    long entropy_length;
++    long cookie_lifetime;
++    char *cookie_path;
++    char *cookie_domain;
++    zend_bool  cookie_secure;
++    zend_bool  cookie_httponly;
++    ps_module *mod;
++    ps_module *default_mod;
++    void *mod_data;
++    php_session_status session_status;
++    long gc_probability;
++    long gc_divisor;
++    long gc_maxlifetime;
++    int module_number;
++    long cache_expire;
++    union {
++        zval *names[6];
++        struct {
++            zval *ps_open;
++            zval *ps_close;
++            zval *ps_read;
++            zval *ps_write;
++            zval *ps_destroy;
++            zval *ps_gc;
++        } name;
++    } mod_user_names;
++    int mod_user_implemented;
++    int mod_user_is_open;
++    const struct ps_serializer_struct *serializer;
++    zval *http_session_vars;
++    zend_bool auto_start;
++    zend_bool use_cookies;
++    zend_bool use_only_cookies;
++    zend_bool use_trans_sid;    /* contains the INI value of whether to use trans-sid */
++    zend_bool apply_trans_sid;  /* whether or not to enable trans-sid for the current request */
++
++    long hash_func;
++#if defined(HAVE_HASH_EXT) && !defined(COMPILE_DL_HASH)
++    php_hash_ops *hash_ops;
++#endif
++    long hash_bits_per_character;
++    int send_cookie;
++    int define_sid;
++    zend_bool invalid_session_id;   /* allows the driver to report about an invalid session id and request id regeneration */
++
++    php_session_rfc1867_progress_54 *rfc1867_progress;
++    zend_bool rfc1867_enabled; /* session.upload_progress.enabled */
++    zend_bool rfc1867_cleanup; /* session.upload_progress.cleanup */
++    smart_str rfc1867_prefix;  /* session.upload_progress.prefix */
++    smart_str rfc1867_name;    /* session.upload_progress.name */
++    long rfc1867_freq;         /* session.upload_progress.freq */
++    double rfc1867_min_freq;   /* session.upload_progress.min_freq */
++} php_ps_globals_54;
++#endif
++
+ #ifdef ZTS
+ static ts_rsrc_id session_globals_id = 0;
+-# if (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION >= 3)
++# if (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION >= 4)
++#  define SESSION_G(v) TSRMG(session_globals_id, php_ps_globals_54 *, v)
++# elif (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION >= 3)
+ #  define SESSION_G(v) TSRMG(session_globals_id, php_ps_globals_53 *, v)
+ # elif (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION >= 2)
+ #  define SESSION_G(v) TSRMG(session_globals_id, php_ps_globals_52 *, v)
+@@ -247,7 +332,9 @@
+     UNSUPPORTED PHP VERSION
+ # endif
+ #else
+-# if (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION >= 3)
++# if (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION >= 4)
++static php_ps_globals_54 *session_globals = NULL;
++# elif (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION >= 3)
+ static php_ps_globals_53 *session_globals = NULL;
+ # elif (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION >= 2)
+ static php_ps_globals_52 *session_globals = NULL;
+@@ -294,6 +381,7 @@
+     if (SESSION_G(http_session_vars) && SESSION_G(http_session_vars)->type == IS_ARRAY) {
+         ret = zend_hash_find(Z_ARRVAL_P(SESSION_G(http_session_vars)), name, namelen + 1, (void **) state_var);
+ 
++#if PHP_VERSION_ID < 50400
+         /* If register_globals is enabled, and
+          * if there is an entry for the slot in $_SESSION, and
+          * if that entry is still set to NULL, and
+@@ -307,6 +395,7 @@
+                 *state_var = tmp;
+             }
+         }
++#endif
+     }
+     return ret;
+ }
+@@ -426,7 +515,7 @@
+     }
+     
+     /* store ip value */
+-    suhosin_get_ipv4(crypted+4 TSRMLS_CC);
++    suhosin_get_ipv4((char *)crypted+4 TSRMLS_CC);
+     
+     /* store check value */
+     crypted[8] = check & 0xff;
+@@ -544,7 +633,7 @@
+         if (check_ra > 4) {
+             check_ra = 4;
+         }
+-        suhosin_get_ipv4(&buf TSRMLS_CC);
++        suhosin_get_ipv4(&buf[0] TSRMLS_CC);
+         if (memcmp(buf, decrypted+4, check_ra) != 0) {
+             goto error_out;
+         }
+diff -x .git -Nur php-suhosin-0.9.33/sha256.c suhosin/sha256.c
+--- php-suhosin-0.9.33/sha256.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/sha256.c	2012-05-21 21:28:34.848342088 +0200
+@@ -86,9 +86,11 @@
+ 		return;
+ 	}
+ 
++#if PHP_VERSION_ID < 50400
+ 	if (PG(safe_mode) && (!php_checkuid(arg, NULL, CHECKUID_CHECK_FILE_AND_DIR))) {
+ 		RETURN_FALSE;
+ 	}
++#endif
+ 
+ 	if (php_check_open_basedir(arg TSRMLS_CC)) {
+ 		RETURN_FALSE;
+@@ -392,7 +394,7 @@
+ 
+ /* {{{ suhosin_sha256_functions[]
+  */
+-static function_entry suhosin_sha256_functions[] = {
++static zend_function_entry suhosin_sha256_functions[] = {
+ 	PHP_NAMED_FE(sha256, PHP_FN(suhosin_sha256), NULL)
+ 	PHP_NAMED_FE(sha256_file, PHP_FN(suhosin_sha256_file), NULL)
+ 	{NULL, NULL, NULL}
+diff -x .git -Nur php-suhosin-0.9.33/suhosin.c suhosin/suhosin.c
+--- php-suhosin-0.9.33/suhosin.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/suhosin.c	2012-05-21 21:28:34.848342088 +0200
+@@ -189,9 +189,12 @@
+ 
+ static void suhosin_shutdown(zend_extension *extension)
+ {
++	TSRMLS_FETCH();
++
+ 	suhosin_unhook_execute();
+ 	suhosin_unhook_header_handler();
+-	suhosin_unhook_post_handlers();
++	suhosin_unhook_post_handlers(TSRMLS_C);
++	/* suhosin_unhook_session(); - enabling this causes compability problems */
+     
+     if (ze != NULL) {
+ 	    ze->startup = orig_module_startup;
+@@ -646,12 +649,16 @@
+ 				array_init(gpc_element);
+ 				zend_hash_next_index_insert(symtable1, &gpc_element, sizeof(zval *), (void **) &gpc_element_p);
+ 			} else {
++#if PHP_VERSION_ID < 50400
+ 				if (PG(magic_quotes_gpc) && (index != var)) {
+ 					/* no need to addslashes() the index if it's the main variable name */
+ 					escaped_index = php_addslashes(index, index_len, &index_len, 0 TSRMLS_CC);
+ 				} else {
++#endif
+ 					escaped_index = index;
++#if PHP_VERSION_ID < 50400
+ 				}
++#endif
+ 				if (zend_symtable_find(symtable1, escaped_index, index_len + 1, (void **) &gpc_element_p) == FAILURE
+ 					|| Z_TYPE_PP(gpc_element_p) != IS_ARRAY) {
+ 					MAKE_STD_ZVAL(gpc_element);
+@@ -683,11 +690,15 @@
+ 		if (!index) {
+ 			zend_hash_next_index_insert(symtable1, &gpc_element, sizeof(zval *), (void **) &gpc_element_p);
+ 		} else {
++#if PHP_VERSION_ID < 50400
+ 			if (PG(magic_quotes_gpc)) { 
+ 				escaped_index = php_addslashes(index, index_len, &index_len, 0 TSRMLS_CC);
+ 			} else {
++#endif
+ 				escaped_index = index;
++#if PHP_VERSION_ID < 50400
+ 			}
++#endif
+ 			/* 
+ 			 * According to rfc2965, more specific paths are listed above the less specific ones.
+ 			 * If we encounter a duplicate cookie name, we should skip it, since it is not possible
+@@ -714,11 +725,15 @@
+ 	
+ 	/* Prepare value */
+ 	Z_STRLEN(new_entry) = str_len;
++#if PHP_VERSION_ID < 50400
+ 	if (PG(magic_quotes_gpc)) {
+ 		Z_STRVAL(new_entry) = php_addslashes(strval, Z_STRLEN(new_entry), &Z_STRLEN(new_entry), 0 TSRMLS_CC);
+ 	} else {
++#endif
+ 		Z_STRVAL(new_entry) = estrndup(strval, Z_STRLEN(new_entry));
++#if PHP_VERSION_ID < 50400
+ 	}
++#endif
+ 	Z_TYPE(new_entry) = IS_STRING;
+ 
+ 	suhosin_register_cookie_variable(var, &new_entry, track_vars_array TSRMLS_CC);
+@@ -1153,6 +1168,10 @@
+ 	SUHOSIN_G(cur_cookie_vars) = 0;
+ 	SUHOSIN_G(cur_get_vars) = 0;
+ 	SUHOSIN_G(cur_post_vars) = 0;
++	SUHOSIN_G(att_request_variables) = 0;
++	SUHOSIN_G(att_cookie_vars) = 0;
++	SUHOSIN_G(att_get_vars) = 0;
++	SUHOSIN_G(att_post_vars) = 0;
+ 	SUHOSIN_G(num_uploads) = 0;
+ 
+         SUHOSIN_G(no_more_variables) = 0;
+diff -x .git -Nur php-suhosin-0.9.33/tests/executor/negative_memory_limit.phpt suhosin/tests/executor/negative_memory_limit.phpt
+--- php-suhosin-0.9.33/tests/executor/negative_memory_limit.phpt	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/tests/executor/negative_memory_limit.phpt	2012-05-21 21:28:34.848342088 +0200
+@@ -13,6 +13,6 @@
+     ini_set("memory_limit", "-200000"); echo ini_get("memory_limit"), "\n";
+ ?>
+ --EXPECTF--
+-ALERT - script tried to increase memory_limit to %d bytes which is above the allowed value (attacker 'REMOTE_ADDR not set', file '%s', line 2)
++ALERT - script tried to disable memory_limit by setting it to a negative value -%d bytes which is not allowed (attacker 'REMOTE_ADDR not set', file '%s', line 2)
+ 16M
+ 
+diff -x .git -Nur php-suhosin-0.9.33/treat_data.c suhosin/treat_data.c
+--- php-suhosin-0.9.33/treat_data.c	2012-01-19 16:49:18.000000000 +0100
++++ suhosin/treat_data.c	2012-05-21 21:28:34.848342088 +0200
+@@ -194,7 +194,13 @@
+ 
+ void suhosin_hook_treat_data()
+ {
++#if PHP_VERSION_ID < 50400
+ 	sapi_register_treat_data(suhosin_treat_data);
++#else
++	TSRMLS_FETCH();
++
++	sapi_register_treat_data(suhosin_treat_data TSRMLS_CC);
++#endif
+ #ifdef ZEND_ENGINE_2
+ 	if (old_input_filter == NULL) {
+ 		old_input_filter = sapi_module.input_filter;

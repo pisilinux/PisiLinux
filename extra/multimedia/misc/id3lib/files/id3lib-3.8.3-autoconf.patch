@@ -1,0 +1,289 @@
+--- Makefile.am.orig
++++ Makefile.am
+@@ -11,6 +11,7 @@
+ 
+ # require automake 1.5
+ AUTOMAKE_OPTIONS = 1.5
++ACLOCAL_AMFLAGS = -I m4
+ 
+ EXTRA_DIST =                    \
+         HISTORY                 \
+@@ -21,11 +22,6 @@ EXTRA_DIST =                    \
+         reconf			\
+ 	makefile.win32		\
+ 	makewin32.bat
+-if ID3_NEEDZLIB
+-zlib_subdir = zlib
+-else
+-zlib_subdir = 
+-endif
+ 
+ SUBDIRS =  . m4 $(zlib_subdir) doc include id3com src examples
+ DIST_SUBDIRS = . m4 zlib doc include id3com src examples prj libprj
+--- configure.in.orig
++++ configure.in
+@@ -11,14 +11,82 @@
+ # WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
+ # implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ 
+-# require autoconf 2.13
+-AC_PREREQ(2.13)
++# require autoconf 2.53
++AC_PREREQ(2.53)
+ 
+ # init autoconf (and check for presence fo reconf)
+ AC_INIT(reconf)
+ 
+ ID3LIB_NAME=id3lib
+ 
++AH_TOP([
++/*
++** Copyright (C) 1988 Eleftherios Gkioulekas <lf@amath.washington.edu>
++**  
++** This file is free software; as a special exception the author gives
++** unlimited permission to copy and/or distribute it, with or without 
++** modifications, as long as this notice is preserved.
++** 
++** This program is distributed in the hope that it will be useful, but
++** WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
++** implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
++*/
++])
++
++AH_BOTTOM([
++/* This is the bottom section */
++
++// This file defines portability work-arounds for various proprietory
++// C++ compilers
++
++// Workaround for compilers with buggy for-loop scoping
++// That's quite a few compilers actually including recent versions of
++// Dec Alpha cxx, HP-UX CC and SGI CC.
++// The trivial "if" statement provides the correct scoping to the 
++// for loop
++
++#ifdef CXX_HAS_BUGGY_FOR_LOOPS
++#undef for
++#define for if(1) for
++#endif
++
++//
++// If the C++ compiler we use doesn't have bool, then
++// the following is a near-perfect work-around. 
++// You must make sure your code does not depend on "int" and "bool"
++// being two different types, in overloading for instance.
++//
++
++#ifdef CXX_HAS_NO_BOOL
++#define bool int
++#define true 1
++#define false 0
++#endif
++   
++#if defined (ID3_ENABLE_DEBUG) && defined (HAVE_LIBCW_SYS_H) && defined (__cplusplus)
++
++#define DEBUG
++
++#include <libcw/sys.h>
++#include <libcw/debug.h>
++
++#define ID3D_INIT_DOUT()    Debug( libcw_do.on() )
++#define ID3D_INIT_WARNING() Debug( dc::warning.on() )
++#define ID3D_INIT_NOTICE()  Debug( dc::notice.on() )
++#define ID3D_NOTICE(x)      Dout( dc::notice, x )
++#define ID3D_WARNING(x)     Dout( dc::warning, x )
++
++#else
++
++#  define ID3D_INIT_DOUT()
++#  define ID3D_INIT_WARNING()
++#  define ID3D_INIT_NOTICE()
++#  define ID3D_NOTICE(x)
++#  define ID3D_WARNING(x)
++
++#endif /* defined (ID3_ENABLE_DEBUG) && defined (HAVE_LIBCW_SYS_H) */
++])
++
+ dnl The following has been adapted from glib (http://www.gtk.org)
+ dnl
+ dnl we need to AC_DIVERT_PUSH/AC_DIVERT_POP these variable definitions so they
+@@ -83,14 +151,10 @@ ID3LIB_FULLNAME=$ID3LIB_NAME-$ID3LIB_VER
+ 
+ AC_SUBST(ID3LIB_FULLNAME)
+ 
+-AM_CONFIG_HEADER(config.h)
++AC_CONFIG_HEADERS(config.h)
+ 
+ AM_INIT_AUTOMAKE($PACKAGE,$VERSION)
+ 
+-AC_ISC_POSIX
+-
+-dnl Initialize libtool
+-AM_PROG_LIBTOOL
+ 
+ dnl Initialize maintainer mode
+ AM_MAINTAINER_MODE
+@@ -114,19 +178,24 @@ dnl
+ AC_SUBST(ID3LIB_DEBUG_FLAGS)
+ 
+ dnl Checks for programs
+-AC_PROG_CC
++AC_PROG_CC_STDC
++AC_USE_SYSTEM_EXTENSIONS
++AC_SYS_LARGEFILE
+ AC_PROG_CXX
+ AC_PROG_CXXCPP
+ AC_PROG_INSTALL
+ 
++dnl Initialize libtool
++CC=$CXX
++AM_PROG_LIBTOOL
++
+ dnl for executable extensions
+ AC_EXEEXT
+ 
+-dnl Checks for libraries.
+-AC_CHECK_LIB(z,uncompress,AC_DEFINE_UNQUOTED(HAVE_ZLIB))#,,
++AC_SEARCH_LIBS([uncompress],[z], [AC_DEFINE_UNQUOTED(HAVE_ZLIB,1,[Define if you have zlib])])
+ #  AC_MSG_ERROR([id3lib requires zlib to process compressed frames]))
+ 
+-AM_CONDITIONAL(ID3_NEEDZLIB, test x$ac_cv_lib_z_uncompress = xno)
++AM_CONDITIONAL(ID3_NEEDZLIB, 0)
+ AM_CONDITIONAL(ID3_NEEDDEBUG, test x$enable_debug = xyes)
+ 
+ dnl Checks for header files.
+@@ -161,14 +230,23 @@ if test $has_iconv = 1; then
+   fi
+   #we have iconv at this moment, better check which call to use
+   AC_MSG_CHECKING(whether iconv takes const char ** or char **)
+-  AC_TRY_COMPILE([#include <iconv.h>],[
+-		{
+-		size_t iconv (iconv_t a, const char ** b, size_t *c, char **d, size_t *e);
+-		}],
++  AC_TRY_COMPILE([
++#include <stdlib.h>
++#include <iconv.h>
++extern
++#ifdef __cplusplus
++"C"
++#endif
++#if defined(__STDC__) || defined(__cplusplus)
++size_t iconv (iconv_t cd, const char * *inbuf, size_t *inbytesleft, char * *outbuf, size_t *outbytesleft);
++#else
++size_t iconv();
++#endif
++],[],
+ 		iconv_oldstyle=1, iconv_oldstyle=0)
+   if test $iconv_oldstyle = 1; then
+     AC_MSG_RESULT(const char **)
+-    AC_DEFINE(ID3LIB_ICONV_OLDSTYLE)
++    AC_DEFINE(ID3LIB_ICONV_OLDSTYLE,1,[Define if iconv takes old style parameters.])
+     #we'll check out the need of
+     #typecast in the call of iconv_open
+     AC_MSG_CHECKING(whether to typecast in iconv)
+@@ -184,7 +262,7 @@ if test $has_iconv = 1; then
+                    iconv_cast=0, iconv_cast=1)
+     if test $iconv_cast = 1; then
+       AC_MSG_RESULT(yes)
+-      AC_DEFINE(ID3LIB_ICONV_CAST_OK)
++      AC_DEFINE(ID3LIB_ICONV_CAST_OK,1,[Define if argument to iconv needs casting])
+     else
+       AC_MSG_RESULT(no)
+     fi
+@@ -206,7 +284,7 @@ if test $has_iconv = 1; then
+                    iconv_cast=0, iconv_cast=1)
+     if test $iconv_cast = 1; then
+       AC_MSG_RESULT(yes)
+-      AC_DEFINE(ID3LIB_ICONV_CAST_OK)
++      AC_DEFINE(ID3LIB_ICONV_CAST_OK,1,[Define if argument to iconv needs casting])
+     else
+       AC_MSG_RESULT(no)
+     fi
+@@ -286,21 +364,16 @@ dnl #undef _ID3_COMPILED_WITH_DEBUGGING
+ dnl /* */
+ dnl END ACCONFIG
+ 
+-AC_DEFINE_UNQUOTED(_ID3LIB_NAME,                 "$ID3LIB_NAME")
+-AC_DEFINE_UNQUOTED(_ID3LIB_VERSION,              "$ID3LIB_VERSION")
+-AC_DEFINE_UNQUOTED(_ID3LIB_FULLNAME,             "$ID3LIB_FULLNAME")
+-AC_DEFINE_UNQUOTED(_ID3LIB_MAJOR_VERSION,         $ID3LIB_MAJOR_VERSION)
+-AC_DEFINE_UNQUOTED(_ID3LIB_MINOR_VERSION,         $ID3LIB_MINOR_VERSION)
+-AC_DEFINE_UNQUOTED(_ID3LIB_PATCH_VERSION,         $ID3LIB_PATCH_VERSION)
+-AC_DEFINE_UNQUOTED(_ID3LIB_INTERFACE_AGE,         $ID3LIB_INTERFACE_AGE)
+-AC_DEFINE_UNQUOTED(_ID3LIB_BINARY_AGE,            $ID3LIB_BINARY_AGE)
+-AC_DEFINE_UNQUOTED(_ID3_COMPILED_WITH_DEBUGGING, "${enable_debug}")
+-
+-CONDITIONAL_SUBDIRS=
+-if test "x$ac_cv_lib_z_uncompress" = "xno"; then
+-  CONDITIONAL_SUBDIRS="$CONDITIONAL_SUBDIRS zlib"
+-fi
+-AC_CONFIG_SUBDIRS(zlib)
++AC_DEFINE_UNQUOTED(_ID3LIB_NAME,                 "$ID3LIB_NAME", [id3lib name])
++AC_DEFINE_UNQUOTED(_ID3LIB_VERSION,              "$ID3LIB_VERSION", [id3lib version])
++AC_DEFINE_UNQUOTED(_ID3LIB_FULLNAME,             "$ID3LIB_FULLNAME", [full name of id3lib])
++AC_DEFINE_UNQUOTED(_ID3LIB_MAJOR_VERSION,         $ID3LIB_MAJOR_VERSION, [id3lib major version])
++AC_DEFINE_UNQUOTED(_ID3LIB_MINOR_VERSION,         $ID3LIB_MINOR_VERSION, [id3lib minor version])
++AC_DEFINE_UNQUOTED(_ID3LIB_PATCH_VERSION,         $ID3LIB_PATCH_VERSION, [id3lib patchlevel])
++AC_DEFINE_UNQUOTED(_ID3LIB_INTERFACE_AGE,         $ID3LIB_INTERFACE_AGE, [id3lib interface age])
++AC_DEFINE_UNQUOTED(_ID3LIB_BINARY_AGE,            $ID3LIB_BINARY_AGE, [id3lib binary age])
++AC_DEFINE_UNQUOTED(_ID3_COMPILED_WITH_DEBUGGING, "${enable_debug}", [Define if compiled with debugging])
++
+ 
+ CFLAGS="$CFLAGS -Wall"
+ 
+--- m4/id3_cxx.m4.orig
++++ m4/id3_cxx.m4
+@@ -84,18 +84,18 @@ AC_DEFUN(ID3_CXX_PORTABILITY,[
+   AC_TRY_RUN([main() { bool b1=true; bool b2=false; }],
+              [ AC_MSG_RESULT(yes) ],
+              [ AC_MSG_RESULT(no)
+-               AC_DEFINE(CXX_HAS_NO_BOOL) ],
++               AC_DEFINE(CXX_HAS_NO_BOOL, 1, [Define if C++ compiler doesn't support bool]) ],
+              [ AC_MSG_WARN(Don't cross-compile)]
+             )
+ 
+   dnl Test whether C++ has buggy for-loops
+   AC_MSG_CHECKING(whether C++ has correct scoping in for-loops)
+-  AC_TRY_COMPILE([#include <iostream.h>], [
++  AC_TRY_COMPILE(, [
+    for (int i=0;i<10;i++) { }
+    for (int i=0;i<10;i++) { }
+ ], [ AC_MSG_RESULT(yes) ],
+    [ AC_MSG_RESULT(no)
+-     AC_DEFINE(CXX_HAS_BUGGY_FOR_LOOPS) ])
++     AC_DEFINE(CXX_HAS_BUGGY_FOR_LOOPS, 1, [Define if C++ compiler has buggy scoping in for-loops]) ])
+ 
+   dnl Done with the portability checks
+   AC_LANG_RESTORE
+--- m4/id3_debug.m4.orig
++++ m4/id3_debug.m4
+@@ -3,11 +3,11 @@ AC_DEFUN([ID3_DEBUG],[
+ 
+   if test "x$enable_debug" = "xyes"; then
+     test "$cflags_set" = set || CFLAGS="$CFLAGS -g"
+-    AC_DEFINE(ID3_ENABLE_DEBUG)
++    AC_DEFINE(ID3_ENABLE_DEBUG, 1, [Define if debugging should be enabled])
+   else
+     if test "x$enable_debug" = "xno"; then
+-      AC_DEFINE(ID3_DISABLE_ASSERT)
+-      AC_DEFINE(ID3_DISABLE_CHECKS)
++      AC_DEFINE(ID3_DISABLE_ASSERT, 1, [Define to disable asserts])
++      AC_DEFINE(ID3_DISABLE_CHECKS, 1, [Define to disable checks])
+     fi
+   fi
+ ])
+--- m4/id3_unicode.m4.orig
++++ m4/id3_unicode.m4
+@@ -9,10 +9,10 @@ AC_DEFUN(ID3_CHECK_ICONV_FORMAT,[
+   if eval "test \"x\$$1\" = \"xno\""; then
+     AC_MSG_CHECKING(whether iconv supports $2)
+     AC_TRY_RUN([#include <iconv.h>
+-        int main() { return iconv_open("$2", "$2") == -1; } ],
++        int main() { return iconv_open("$2", "$2") == (iconv_t) -1; } ],
+       [ eval $1=yes
+         AC_MSG_RESULT(yes)
+-        AC_DEFINE_UNQUOTED($1, "$2") ],
++        AC_DEFINE_UNQUOTED($1, "$2", [Define if iconv supports $2]) ],
+       [ AC_MSG_RESULT(no) ],
+       [ AC_MSG_WARN(Don't cross-compile) ])
+   fi

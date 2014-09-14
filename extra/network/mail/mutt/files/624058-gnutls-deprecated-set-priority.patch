@@ -1,0 +1,76 @@
+Replace the deprecated gnutls_protocol_set_priority() with
+gnutls_priority_set_direct()
+
+Reported on http://bugs.debian.org/624058
+Report upstream on http://bugs.mutt.org/3515
+
+--- a/mutt_ssl_gnutls.c
++++ b/mutt_ssl_gnutls.c
+@@ -238,8 +238,6 @@
+   gnutls_x509_crt_deinit (clientcrt);
+ }
+ 
+-static int protocol_priority[] = {GNUTLS_TLS1, GNUTLS_SSL3, 0};
+-
+ /* tls_negotiate: After TLS state has been initialised, attempt to negotiate
+  *   TLS over the wire, including certificate checks. */
+ static int tls_negotiate (CONNECTION * conn)
+@@ -247,6 +245,18 @@
+   tlssockdata *data;
+   int err;
+ 
++#if GNUTLS_VERSION_MAJOR >= 2 && GNUTLS_VERSION_MINOR >= 12
++  char *force_sslv3_str = "NORMAL:-VERS-TLS-ALL:+VERS-SSL3.0";
++  char *force_tls_str = "NORMAL:-VERS-SSL3.0:+VERS-TLS-ALL";
++#else
++  char *force_sslv3_str =
++        "NORMAL:-VERS-TLS1.2:-VERS-TLS1.1:-VERS-TLS1.0:+VERS-SSL3.0";
++  char *force_tls_str = "NORMAL:-VERS-SSL3.0:+VERS-TLS-1.2:+VERS-TLS1.1:+VERS-TLS1.0";
++#endif
++  char *priority_str = "NORMAL";
++  const char *error_pos;
++  int error_code;
++
+   data = (tlssockdata *) safe_calloc (1, sizeof (tlssockdata));
+   conn->sockdata = data;
+   err = gnutls_certificate_allocate_credentials (&data->xcred);
+@@ -294,13 +304,11 @@
+   }
+   else if (!option(OPTTLSV1))
+   {
+-    protocol_priority[0] = GNUTLS_SSL3;
+-    protocol_priority[1] = 0;
++    priority_str = force_sslv3_str;
+   }
+   else if (!option(OPTSSLV3))
+   {
+-    protocol_priority[0] = GNUTLS_TLS1;
+-    protocol_priority[1] = 0;
++    priority_str = force_tls_str;
+   }
+   /*
+   else
+@@ -309,8 +317,21 @@
+ 
+   /* We use default priorities (see gnutls documentation),
+      except for protocol version */
+-  gnutls_set_default_priority (data->state);
+-  gnutls_protocol_set_priority (data->state, protocol_priority);
++  error_pos = NULL;
++  if ( (error_code = gnutls_priority_set_direct (data->state, priority_str,
++                   &error_pos)) != 0 )
++  {
++    if ( error_pos )
++    {
++      mutt_error("gnutls_priority_set_direct(%s) pos %s", priority_str, error_pos);
++    }
++    else
++    {
++      mutt_error("gnutls_priority_set_direct(%s)", priority_str);
++    }
++    mutt_sleep(2);
++    goto fail;
++  }
+ 
+   if (SslDHPrimeBits > 0)
+   {

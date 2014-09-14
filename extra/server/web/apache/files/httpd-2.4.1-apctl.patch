@@ -1,0 +1,83 @@
+
+- fail gracefully if links is not installed on target system
+- source sysconfig/httpd for custom env. vars etc.
+- make httpd -t work even in SELinux
+- pass $OPTIONS to all $HTTPD invocation
+
+Upstream-HEAD: vendor
+Upstream-2.0: vendor
+Upstream-Status: Vendor-specific changes for better initscript integration
+
+--- httpd-2.4.1/support/apachectl.in.apctl
++++ httpd-2.4.1/support/apachectl.in
+@@ -44,19 +44,25 @@
+ # the path to your httpd binary, including options if necessary
+ HTTPD='@exp_sbindir@/@progname@'
+ #
+-# pick up any necessary environment variables
+-if test -f @exp_sbindir@/envvars; then
+-  . @exp_sbindir@/envvars
+-fi
+ #
+ # a command that outputs a formatted text version of the HTML at the
+ # url given on the command line.  Designed for lynx, however other
+ # programs may work.  
+-LYNX="@LYNX_PATH@ -dump"
++if [ -x "@LYNX_PATH@" ]; then
++  LYNX="@LYNX_PATH@ -dump"
++else
++  LYNX=none
++fi
+ #
+ # the URL to your server's mod_status status page.  If you do not
+ # have one, then status and fullstatus will not work.
+ STATUSURL="http://localhost:@PORT@/server-status"
++
++# Source /etc/conf.d/apache2 for $HTTPD setting, etc.
++if [ -r /etc/conf.d/apache2 ]; then
++   . /etc/conf.d/apache2
++fi
++
+ #
+ # Set this variable to a command that increases the maximum
+ # number of file descriptors allowed per child process. This is
+@@ -76,9 +82,16 @@
+     ARGV="-h"
+ fi
+ 
++function checklynx() {
++if [ "$LYNX" = "none" ]; then
++   echo "The 'links' package is required for this functionality."
++   exit 8
++fi
++}
++
+ case $ACMD in
+ start|stop|restart|graceful|graceful-stop)
+-    $HTTPD -k $ARGV
++    $HTTPD $OPTIONS -k $ARGV
+     ERROR=$?
+     ;;
+ startssl|sslstart|start-SSL)
+@@ -88,17 +101,18 @@
+     ERROR=2
+     ;;
+ configtest)
+-    $HTTPD -t
+-    ERROR=$?
++    testconfig
+     ;;
+ status)
++    checklynx
+     $LYNX $STATUSURL | awk ' /process$/ { print; exit } { print } '
+     ;;
+ fullstatus)
++    checklynx
+     $LYNX $STATUSURL
+     ;;
+ *)
+-    $HTTPD "$@"
++    $HTTPD $OPTIONS "$@"
+     ERROR=$?
+ esac
+ 

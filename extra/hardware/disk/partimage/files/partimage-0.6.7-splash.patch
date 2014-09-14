@@ -1,0 +1,102 @@
+diff -p -up partimage-0.6.7/src/client/gui_text.cpp.splash partimage-0.6.7/src/client/gui_text.cpp
+--- partimage-0.6.7/src/client/gui_text.cpp.splash	2008-11-05 13:51:58.000000000 +0100
++++ partimage-0.6.7/src/client/gui_text.cpp	2008-11-05 13:51:58.000000000 +0100
+@@ -28,6 +28,11 @@
+ #include <string.h>
+ #include <stdlib.h>
+ #include <errno.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <termio.h>
++#include <unistd.h>
+ 
+ #define __STDC_FORMAT_MACROS
+ #include <inttypes.h>
+@@ -784,6 +789,15 @@ void CRestoringWindow::showStats(const t
+   char szTemp2[1024];
+   char szTemp3[1024];
+ 
++  char szTempSplash[1024];
++  char szTempSilent[256];
++  char c=0;
++  int ref=65534/100;
++  struct termios oldT, newT;
++  int notify;
++  int silent;
++  FILE *splash;
++  
+   time_t timeElapsed, timeRemaining;
+   QWORD qwBytesPerMin;
+   float fMinElapsed;
+@@ -844,6 +858,50 @@ void CRestoringWindow::showStats(const t
+       }
+     }
+ 
++  /* bootsplash hack */
++
++  splash = fopen("/proc/splash","r+");
++  if (splash != NULL) {
++    silent = 1;
++    if (fgets(szTempSilent, 255, splash)) {
++      rewind(splash);
++      if (strstr(szTempSilent, "silent") == NULL)
++	silent = 0;
++    }
++
++    notify = open("/tmp/partimage.tmp", O_CREAT | O_TRUNC | O_WRONLY, 0644);
++    if (notify) {
++      if (silent) {
++        sprintf(szTempSplash, "%d\n", (int)qwPercent * ref);
++        write(notify, szTempSplash, strlen(szTempSplash));
++      } else {
++        write(notify, "x\n", 2);
++      }
++      close(notify);
++    }
++
++    if (!silent) {
++      // nonblocking read -- use that instead of select() because we're
++      // also putting the terminal in noncanonical mode
++
++      fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK);
++      ioctl(0, TCGETS, &oldT); 
++      newT = oldT;
++      newT.c_lflag &= ~(ECHO | ICANON); 
++      ioctl(0, TCSETS, &newT);
++
++      fscanf(stdin, "%c", &c);
++
++      if (c == 'v') {
++        silent = 1;
++        fprintf(splash, "silent\n");
++      }
++
++      ioctl(0, TCSETS, &oldT);
++    }
++    fclose(splash);
++  }
++
+   newtRefresh();
+   RETURN;
+ }
+diff -p -up partimage-0.6.7/src/client/main.cpp.splash partimage-0.6.7/src/client/main.cpp
+--- partimage-0.6.7/src/client/main.cpp.splash	2008-11-05 13:51:58.000000000 +0100
++++ partimage-0.6.7/src/client/main.cpp	2008-11-05 13:53:37.000000000 +0100
+@@ -620,6 +620,16 @@ int main(int argc, char *argv[])
+       break;
+       
+     case OPERATION_RESTORE:
++      FILE *splash;
++      char szTempSplash[1024];
++      splash=fopen("/proc/splash","w");
++      if(splash!=NULL)
++      {
++           sprintf(szTempSplash, "%s\n", "silent");
++           fprintf(splash,"%s",szTempSplash);
++           fclose(splash);
++      }
++
+       showDebug(1, "action=RESTORE\n");
+       try { restorePartition(szDevice, szImageFile, &options); }
+       catch (CExceptions *excep)

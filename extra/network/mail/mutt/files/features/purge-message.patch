@@ -1,0 +1,211 @@
+# vim:ft=diff:
+This is the purge message patch by Cedric Duval <cedricduval@free.fr>.
+
+(requires trash folder patch)
+
+This patch adds the purge-message function, which, unlike delete-message, will
+bypass the trash folder and really delete the mail.
+
+You can bind this function to <esc>D, for instance, by adding the following
+lines to your muttrc:
+
+bind index \eD purge-message
+bind pager \eD purge-message
+
+Please be very careful with this function, and try to use it as less as
+possible. The risk resides in getting into the habit of always using
+purge-message instead of delete-message, which would really defeat the purpose
+of having a trash folder feature.
+
+* Patch last synced with upstream:
+  - Date: 2007-02-15
+  - File: http://cedricduval.free.fr/mutt/patches/download/patch-1.5.5.1.cd.purge_message.3.4
+
+* Changes made:
+  - Updated to 1.5.13
+  - Fixed indentation of "purged" in mutt.h.
+
+== END PATCH
+--- a/OPS
++++ b/OPS
+@@ -142,6 +142,7 @@
+ OP_PREV_LINE "scroll up one line"
+ OP_PREV_PAGE "move to the previous page"
+ OP_PRINT "print the current entry"
++OP_PURGE_MESSAGE "really delete the current entry, bypassing the trash folder"
+ OP_QUERY "query external program for addresses"
+ OP_QUERY_APPEND "append new query results to current results"
+ OP_QUIT "save changes to mailbox and quit"
+--- a/curs_main.c
++++ b/curs_main.c
+@@ -1843,6 +1843,7 @@
+ 	MAYBE_REDRAW (menu->redraw);
+ 	break;
+ 
++      case OP_PURGE_MESSAGE:
+       case OP_DELETE:
+ 
+ 	CHECK_MSGCOUNT;
+@@ -1853,6 +1854,7 @@
+ 	if (tag)
+ 	{
+ 	  mutt_tag_set_flag (M_DELETE, 1);
++	  mutt_tag_set_flag (M_PURGED, (op != OP_PURGE_MESSAGE) ? 0 : 1);
+ 	  if (option (OPTDELETEUNTAG))
+ 	    mutt_tag_set_flag (M_TAG, 0);
+ 	  menu->redraw = REDRAW_INDEX;
+@@ -1860,6 +1862,8 @@
+ 	else
+ 	{
+ 	  mutt_set_flag (Context, CURHDR, M_DELETE, 1);
++	  mutt_set_flag (Context, CURHDR, M_PURGED,
++			 (op != OP_PURGE_MESSAGE) ? 0 : 1);
+ 	  if (option (OPTDELETEUNTAG))
+ 	    mutt_set_flag (Context, CURHDR, M_TAG, 0);
+ 	  if (option (OPTRESOLVE))
+@@ -2161,11 +2165,13 @@
+ 	if (tag)
+ 	{
+ 	  mutt_tag_set_flag (M_DELETE, 0);
++	  mutt_tag_set_flag (M_PURGED, 0);
+ 	  menu->redraw = REDRAW_INDEX;
+ 	}
+ 	else
+ 	{
+ 	  mutt_set_flag (Context, CURHDR, M_DELETE, 0);
++	  mutt_set_flag (Context, CURHDR, M_PURGED, 0);
+ 	  if (option (OPTRESOLVE) && menu->current < Context->vcount - 1)
+ 	  {
+ 	    menu->current++;
+@@ -2186,9 +2192,11 @@
+ 	CHECK_ACL(M_ACL_DELETE, _("undelete message(s)"));
+ 
+ 	rc = mutt_thread_set_flag (CURHDR, M_DELETE, 0,
+-				   op == OP_UNDELETE_THREAD ? 0 : 1);
++				   op == OP_UNDELETE_THREAD ? 0 : 1)
++	  + mutt_thread_set_flag (CURHDR, M_PURGED, 0,
++				  op == OP_UNDELETE_THREAD ? 0 : 1);
+ 
+-	if (rc != -1)
++	if (rc > -1)
+ 	{
+ 	  if (option (OPTRESOLVE))
+ 	  {
+--- a/flags.c
++++ b/flags.c
+@@ -104,6 +104,16 @@
+       }
+       break;
+ 
++    case M_PURGED:
++      if (bf)
++      {
++	if (!h->purged)
++	  h->purged = 1;
++      }
++      else if (h->purged)
++	h->purged = 0;
++      break;
++
+     case M_NEW:
+ 
+       if (!mutt_bit_isset(ctx->rights,M_ACL_SEEN))
+--- a/functions.h
++++ b/functions.h
+@@ -121,6 +121,7 @@
+   { "toggle-write",		OP_TOGGLE_WRITE,		"%" },
+   { "next-thread",		OP_MAIN_NEXT_THREAD,		"\016" },
+   { "next-subthread",		OP_MAIN_NEXT_SUBTHREAD,		"\033n" },
++  { "purge-message",		OP_PURGE_MESSAGE,		NULL },
+   { "query",			OP_QUERY,			"Q" },
+   { "quit",			OP_QUIT,			"q" },
+   { "reply",			OP_REPLY,			"r" },
+@@ -213,6 +214,7 @@
+   { "print-message",	OP_PRINT,			"p" },
+   { "previous-thread",	OP_MAIN_PREV_THREAD,		"\020" },
+   { "previous-subthread",OP_MAIN_PREV_SUBTHREAD,	"\033p" },
++  { "purge-message",	OP_PURGE_MESSAGE,		NULL },
+   { "quit",		OP_QUIT,			"Q" },
+   { "exit",		OP_EXIT,			"q" },
+   { "reply",		OP_REPLY,			"r" },
+--- a/mutt.h
++++ b/mutt.h
+@@ -188,6 +188,7 @@
+   M_UNDELETE,
+   M_DELETED,
+   M_APPENDED,
++  M_PURGED,
+   M_FLAG,
+   M_TAG,
+   M_UNTAG,
+@@ -709,6 +710,7 @@
+   unsigned int flagged : 1; 		/* marked important? */
+   unsigned int tagged : 1;
+   unsigned int appended : 1;		/* has been saved */
++  unsigned int purged : 1;		/* bypassing the trash folder */
+   unsigned int deleted : 1;
+   unsigned int changed : 1;
+   unsigned int attach_del : 1; 		/* has an attachment marked for deletion */
+--- a/mx.c
++++ b/mx.c
+@@ -806,6 +806,7 @@
+     {
+       for (i = 0 ; i < ctx->msgcount ; i++)
+ 	if (ctx->hdrs[i]->deleted && !ctx->hdrs[i]->appended
++	    && !ctx->hdrs[i]->purged
+ 	    && mutt_append_message (ctx_trash, ctx, ctx->hdrs[i], 0, 0) == -1)
+ 	  {
+ 	    mx_close_mailbox (ctx_trash, NULL);
+--- a/pager.c
++++ b/pager.c
+@@ -2343,12 +2343,15 @@
+ 	MAYBE_REDRAW (redraw);
+ 	break;
+ 
++      case OP_PURGE_MESSAGE:
+       case OP_DELETE:
+ 	CHECK_MODE(IsHeader (extra));
+ 	CHECK_READONLY;
+ 	CHECK_ACL(M_ACL_DELETE, _("delete message"));
+ 
+ 	mutt_set_flag (Context, extra->hdr, M_DELETE, 1);
++	mutt_set_flag (Context, extra->hdr, M_PURGED,
++		       ch != OP_PURGE_MESSAGE ? 0 : 1);
+         if (option (OPTDELETEUNTAG))
+ 	  mutt_set_flag (Context, extra->hdr, M_TAG, 0);
+ 	redraw = REDRAW_STATUS | REDRAW_INDEX;
+@@ -2675,6 +2678,7 @@
+ 	CHECK_ACL(M_ACL_DELETE, _("undelete message"));
+ 
+ 	mutt_set_flag (Context, extra->hdr, M_DELETE, 0);
++	mutt_set_flag (Context, extra->hdr, M_PURGED, 0);
+ 	redraw = REDRAW_STATUS | REDRAW_INDEX;
+ 	if (option (OPTRESOLVE))
+ 	{
+@@ -2690,9 +2694,11 @@
+ 	CHECK_ACL(M_ACL_DELETE, _("undelete message(s)"));
+ 
+ 	r = mutt_thread_set_flag (extra->hdr, M_DELETE, 0,
++				  ch == OP_UNDELETE_THREAD ? 0 : 1)
++	  + mutt_thread_set_flag (extra->hdr, M_PURGED, 0,
+ 				  ch == OP_UNDELETE_THREAD ? 0 : 1);
+ 
+-	if (r != -1)
++	if (r > -1)
+ 	{
+ 	  if (option (OPTRESOLVE))
+ 	  {
+--- a/pattern.c
++++ b/pattern.c
+@@ -1357,8 +1357,10 @@
+       {
+ 	switch (op)
+ 	{
+-	  case M_DELETE:
+ 	  case M_UNDELETE:
++	    mutt_set_flag (Context, Context->hdrs[Context->v2r[i]], M_PURGED,
++			   0);
++	  case M_DELETE:
+ 	    mutt_set_flag (Context, Context->hdrs[Context->v2r[i]], M_DELETE, 
+ 			  (op == M_DELETE));
+ 	    break;

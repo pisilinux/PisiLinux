@@ -1,0 +1,79 @@
+Index: b/suspend.c
+===================================================================
+--- a/suspend.c
++++ b/suspend.c
+@@ -1772,11 +1772,10 @@ int suspend_system(int snapshot_fd, int
+ 				if (error)
+ 					goto Shutdown;
+ 				reset_signature(resume_fd);
+ 				free_swap_pages(snapshot_fd);
+ 				free_snapshot(snapshot_fd);
+-				s2ram_resume();
+ 				goto Unfreeze;
+ 			}
+ Shutdown:
+ #endif
+ 			close(resume_fd);
+@@ -2268,11 +2267,11 @@ int main(int argc, char *argv[])
+ 	struct stat stat_buf;
+ 	int resume_fd, snapshot_fd, vt_fd, orig_vc = -1, suspend_vc = -1;
+ 	int test_fd = -1;
+ 	dev_t resume_dev;
+ 	int orig_loglevel, orig_swappiness, ret;
+-	struct rlimit rlim;
++	struct rlimit rlim, rlim_saved;
+ 	static char chroot_path[MAX_STR_LEN];
+ 
+ 	my_name = basename(argv[0]);
+ 
+ 	/* Make sure the 0, 1, 2 descriptors are open before opening the
+@@ -2500,19 +2499,19 @@ int main(int argc, char *argv[])
+ 		goto Restore_console;
+ 	}
+ 
+ 	splash.progress(5);
+ 
++#ifdef CONFIG_ENCRYPT
++        if (do_encrypt && ! use_RSA)
++                splash.read_password(password, 1);
++#endif
+ #ifdef CONFIG_BOTH
+ 	/* If s2ram_hacks returns != 0, better not try to suspend to RAM */
+ 	if (s2ram) 
+ 		s2ram = !s2ram_hacks();
+ #endif
+-#ifdef CONFIG_ENCRYPT
+-        if (do_encrypt && ! use_RSA)
+-                splash.read_password(password, 1);
+-#endif
+ 
+ 	open_printk();
+ 	orig_loglevel = get_kernel_console_loglevel();
+ 	set_kernel_console_loglevel(suspend_loglevel);
+ 
+@@ -2522,18 +2521,25 @@ int main(int argc, char *argv[])
+ 
+ 	sync();
+ 
+ 	splash.progress(10);
+ 
++	getrlimit(RLIMIT_NOFILE, &rlim_saved);
+ 	rlim.rlim_cur = 0;
+ 	rlim.rlim_max = 0;
+ 	setrlimit(RLIMIT_NOFILE, &rlim);
+ 	setrlimit(RLIMIT_NPROC, &rlim);
+ 	setrlimit(RLIMIT_CORE, &rlim);
+ 
+ 	ret = suspend_system(snapshot_fd, resume_fd, test_fd);
+ 
++	setrlimit(RLIMIT_NOFILE, &rlim_saved);
++#ifdef CONFIG_BOTH
++	if (s2ram)
++		s2ram_resume();
++#endif
++
+ 	if (orig_loglevel >= 0)
+ 		set_kernel_console_loglevel(orig_loglevel);
+ 
+ 	close_printk();
+ 

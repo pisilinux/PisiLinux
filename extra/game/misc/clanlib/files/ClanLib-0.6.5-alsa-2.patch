@@ -1,0 +1,381 @@
+diff -up /dev/null ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/alsa.cpp
+--- /dev/null	2008-03-02 13:00:58.162258534 +0100
++++ ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/alsa.cpp	2008-03-02 13:32:17.000000000 +0100
+@@ -0,0 +1,167 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2008 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    Hans de Goede
++**    (if your name is missing here, please add it)
++*/
++
++#include "alsa.h"
++#include "API/Core/System/error.h"
++#include "API/Core/System/cl_assert.h"
++#include "API/Core/System/system.h"
++#include <iostream>
++
++#ifdef USE_CLANSOUND
++#ifdef __linux__
++
++/////////////////////////////////////////////////////////////////////////////
++// CL_SoundOutput_alsa construction:
++
++CL_SoundOutput_alsa::CL_SoundOutput_alsa() :
++	frames_in_buffer(2048), frames_in_period(512)
++{
++	int rc;
++	snd_pcm_hw_params_t *hwparams;
++	unsigned int mixing_frequency = 22050;
++	
++	rc = snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
++	if (rc < 0)
++	{
++		std::cout <<  "ClanSound: Warning, Couldn't open sound device, disabling sound\n";
++		handle = NULL;
++		return;
++	}
++
++	snd_pcm_hw_params_alloca(&hwparams);
++	snd_pcm_hw_params_any(handle, hwparams);
++	snd_pcm_hw_params_set_access(handle, hwparams, SND_PCM_ACCESS_RW_INTERLEAVED);
++	snd_pcm_hw_params_set_format(handle, hwparams, SND_PCM_FORMAT_S16);
++	snd_pcm_hw_params_set_channels(handle, hwparams, 2);
++	snd_pcm_hw_params_set_rate_near(handle, hwparams, &mixing_frequency, 0);
++	snd_pcm_hw_params_set_buffer_size_near(handle, hwparams, &frames_in_buffer);
++	frames_in_period = frames_in_buffer / 4;
++	snd_pcm_hw_params_set_period_size_near(handle, hwparams, &frames_in_period, 0);
++	
++	rc = snd_pcm_hw_params(handle, hwparams);
++	if (rc < 0)
++	{
++		std::cout << "ClanSound: Warning, Couldn't initialize sound device, disabling sound\n";
++		snd_pcm_close(handle);
++		handle = NULL;
++		return;
++	}
++	
++	snd_pcm_hw_params_get_period_size(hwparams, &frames_in_period, 0);
++	snd_pcm_hw_params_get_rate(hwparams, &mixing_frequency, 0);
++
++	float percent_wrong = mixing_frequency / (float) 22050;
++	if (percent_wrong < 0.90 || percent_wrong > 1.10)
++	{
++		snd_pcm_close(handle);
++		/* Taken from oss driver, maybe make this a warning too? */
++		throw CL_Error("ClanSound: Mixing rate (22.05 kHz) not supported by soundcard.");
++	}
++}
++
++CL_SoundOutput_alsa::~CL_SoundOutput_alsa()
++{
++	if (handle) {
++		snd_pcm_close(handle);
++		handle = NULL;
++	}
++}
++
++/////////////////////////////////////////////////////////////////////////////
++// CL_SoundOutput_alsa operations:
++
++void CL_SoundOutput_alsa::silence()
++{
++	/* Note: not supported by all hardware! */
++	if (handle)
++		snd_pcm_pause(handle, 1);
++}
++
++bool CL_SoundOutput_alsa::is_full()
++{
++	int rc;
++	snd_pcm_sframes_t delay;
++	
++	if (handle == NULL) return false;
++	
++	rc = snd_pcm_delay(handle, &delay);
++	if (rc < 0) {
++		std::cout << "ClanSound: Warning, snd_pcm_delay() failed!?\n";
++		return false;
++	}
++
++	/* See if there is more then one period free in the buffer */
++	return delay > (snd_pcm_sframes_t)(frames_in_buffer - frames_in_period);
++}
++
++int CL_SoundOutput_alsa::get_frag_size()
++{
++	return frames_in_period;
++}
++
++void CL_SoundOutput_alsa::write_fragment(short *data)
++{
++	snd_pcm_sframes_t rc;
++
++	if (handle == NULL) return;
++
++	switch(snd_pcm_state(handle)) {
++		case SND_PCM_STATE_XRUN:
++		case SND_PCM_STATE_SUSPENDED:
++			snd_pcm_prepare(handle);
++			break;
++		case SND_PCM_STATE_PAUSED:
++			snd_pcm_pause(handle, 0);
++			break;
++		default:
++			break;
++	}
++
++	rc = snd_pcm_writei(handle, data, frames_in_period);
++	if (rc < 0)
++		std::cout << "ClanSound: Warning, snd_pcm_writei() failed!\n";
++}
++
++void CL_SoundOutput_alsa::wait()
++{
++	if(handle == NULL)
++	{
++		CL_System::sleep(100);
++		return;
++	}
++	/* wait upto 1 second */
++	snd_pcm_wait(handle, 1000);
++}
++
++/////////////////////////////////////////////////////////////////////////////
++// CL_SoundOutput_alsa implementation:
++
++#endif
++#endif
+diff -up ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/oss.h.alsa ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/oss.h
+--- ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/oss.h.alsa	2001-09-08 21:24:21.000000000 +0200
++++ ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/oss.h	2008-03-02 13:18:19.000000000 +0100
+@@ -10,6 +10,8 @@
+ #ifndef header_oss
+ #define header_oss
+ 
++#include "alsa.h"
++
+ class CL_CSOutput
+ {
+ public:
+@@ -35,6 +37,9 @@ public:
+ private:
+ 	int dev_dsp_fd;
+ 	int frag_size;
++#ifdef __linux__
++	CL_SoundOutput_alsa *alsa;
++#endif
+ };
+ 
+ #endif
+diff -up ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/oss.cpp.alsa ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/oss.cpp
+--- ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/oss.cpp.alsa	2002-07-02 22:56:33.000000000 +0200
++++ ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/oss.cpp	2008-03-02 13:18:19.000000000 +0100
+@@ -37,6 +37,14 @@ bool has_sound = true;
+ 
+ CL_CSOutput::CL_CSOutput()
+ {
++#ifdef __linux__
++	alsa = new CL_SoundOutput_alsa();
++	if (!alsa->handle) {
++		delete alsa;
++		alsa = NULL;
++	} else
++		return;
++#endif	
+ 	dev_dsp_fd = open(DSP_DEVICE, O_WRONLY|O_NONBLOCK);
+ 	if (dev_dsp_fd == -1)
+ 	{
+@@ -99,6 +107,13 @@ CL_CSOutput::CL_CSOutput()
+ 
+ CL_CSOutput::~CL_CSOutput()
+ {
++#ifdef __linux__
++	if (alsa) {
++		delete alsa;
++		alsa = NULL;
++		return;
++	}
++#endif
+ 	if (dev_dsp_fd != -1) close(dev_dsp_fd);
+ }
+ 
+@@ -106,12 +121,22 @@ void CL_CSOutput::silence()
+ // Called when we have no samples to play - and wants to tell the soundcard
+ // about this possible event.
+ {
++#ifdef __linux__
++	if (alsa) {
++		alsa->silence();
++		return;
++	}
++#endif
+ 	ioctl(dev_dsp_fd, SNDCTL_DSP_POST, 0);
+ }
+ 
+ bool CL_CSOutput::is_full()
+ // Returns true if all fragments are filled with data.
+ {
++#ifdef __linux__
++	if (alsa)
++		return alsa->is_full();
++#endif
+ 	if (!has_sound) return false;
+ 	audio_buf_info info;
+ 	int err = ioctl(dev_dsp_fd, SNDCTL_DSP_GETOSPACE, &info);
+@@ -128,17 +153,33 @@ bool CL_CSOutput::is_full()
+ int CL_CSOutput::get_frag_size()
+ // Returns the buffer size used by device (returned as num [stereo] samples).
+ {
++#ifdef __linux__
++	if (alsa)
++		return alsa->get_frag_size();
++#endif
+ 	return frag_size/4;
+ }
+ 
+ void CL_CSOutput::write_fragment(short *data)
+ // Writes a fragment to the soundcard.
+ {
++#ifdef __linux__
++	if (alsa) {
++		alsa->write_fragment(data);
++		return;
++	}
++#endif
+ 	write(dev_dsp_fd, data, frag_size);
+ }
+ 
+ void CL_CSOutput::wait()
+ {
++#ifdef __linux__
++	if (alsa) {
++		alsa->wait();
++		return;
++	}
++#endif
+ 	if(!has_sound)
+ 	{
+ 		CL_System::sleep(100);
+diff -up /dev/null ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/alsa.h
+--- /dev/null	2008-03-02 13:00:58.162258534 +0100
++++ ClanLib-0.6.5/Sources/Sound/Sound/ClanSound/alsa.h	2008-03-02 13:23:03.000000000 +0100
+@@ -0,0 +1,75 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2008 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    Hans de Goede
++**    (if your name is missing here, please add it)
++*/
++
++#ifndef header_soundoutput_alsa
++#define header_soundoutput_alsa
++
++#ifdef __linux__
++
++#include <alsa/asoundlib.h> 
++
++class CL_SoundOutput_alsa
++{
++//! Construction:
++public:
++	CL_SoundOutput_alsa();
++	
++	~CL_SoundOutput_alsa();
++
++//! Attributes:
++public:
++	snd_pcm_t *handle;
++	snd_pcm_uframes_t frames_in_buffer;
++	snd_pcm_uframes_t frames_in_period;
++
++//! Operations:
++public:
++	//: Called when we have no samples to play - and wants to tell the soundcard
++	//: about this possible event.
++	void silence();
++
++	//: Returns true if all fragments are filled with data.
++	bool is_full();
++
++	//: Returns the buffer size used by device (returned as num [stereo] samples).
++	int get_frag_size();
++
++	//: Writes a fragment to the soundcard.
++	void write_fragment(short *data);
++
++	//: Waits until output source isn't full anymore.
++	void wait();
++
++//! Implementation:
++private:
++};
++
++#endif
++#endif
+diff -up ClanLib-0.6.5/Setup/Unix/Makefile.sound.in.alsa ClanLib-0.6.5/Setup/Unix/Makefile.sound.in
+--- ClanLib-0.6.5/Setup/Unix/Makefile.sound.in.alsa	2008-03-02 13:18:19.000000000 +0100
++++ ClanLib-0.6.5/Setup/Unix/Makefile.sound.in	2008-03-02 13:30:35.000000000 +0100
+@@ -42,6 +42,7 @@ OBJF_SOUND_CLANSOUND = \
+ 	Libs/Intermediate/cardplayback_clan.o \
+ 	Libs/Intermediate/mixer.o \
+ 	Libs/Intermediate/oss.o \
++	Libs/Intermediate/alsa.o \
+ 	Libs/Intermediate/cdaudio_linux.o
+ 
+ OBJF_SOUND_INTEL_ASM = \
+@@ -51,8 +52,8 @@ OBJF_SOUND_ALL = $(OBJF_SOUND_GENERIC) $
+ 
+ Libs/libclanSound.so: Libs/libclanCore.so $(OBJF_SOUND_ALL)
+ 	@echo "Building Libs/libclanSound.so"
+-	@$(LINK_COMMAND) -Wl,-soname=libclanSound.so.$(D_VERSION_MAJOR) -o Libs/libclanSound.so.$(D_VERSION_MINOR) $(OBJF_SOUND_ALL) -L Libs -lclanCore
++	@$(LINK_COMMAND) -Wl,-soname=libclanSound.so.$(D_VERSION_MAJOR) -o Libs/libclanSound.so.$(D_VERSION_MINOR) $(OBJF_SOUND_ALL) -L Libs -lclanCore -lasound
+ 	@ln -s -f libclanSound.so.$(D_VERSION_MINOR) Libs/libclanSound.so.$(D_VERSION_MAJOR)
+ 	@ln -s -f libclanSound.so.$(D_VERSION_MAJOR) Libs/libclanSound.so
+ 

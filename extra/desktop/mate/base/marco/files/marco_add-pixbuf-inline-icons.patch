@@ -1,0 +1,150 @@
+diff -upr marco-1.7.0-orig/src/Makefile.am marco-1.7.0/src/Makefile.am
+--- marco-1.7.0-orig/src/Makefile.am	2014-01-25 11:38:54.000000000 +0100
++++ marco-1.7.0/src/Makefile.am	2014-02-10 19:16:21.430872812 +0100
+@@ -191,14 +191,27 @@ xml_in_files = \
+ 	50-marco-global-key.xml.in
+ xml_DATA = $(xml_in_files:.xml.in=.xml)
+ 
+-BUILT_SOURCES =
++@INTLTOOL_SCHEMAS_RULE@
++
++IMAGES=stock_maximize.png stock_minimize.png stock_delete.png window.png mini-window.png
++VARIABLES=stock_maximize_data $(srcdir)/stock_maximize.png \
++          stock_minimize_data $(srcdir)/stock_minimize.png \
++          stock_delete_data $(srcdir)/stock_delete.png \
++          mini_window_data $(srcdir)/mini-window.png \
++          window_data $(srcdir)/window.png
++
++BUILT_SOURCES = inlinepixbufs.h
+ CLEANFILES = \
++	inlinepixbufs.h \
+ 	marco.desktop \
+ 	marco-wm.desktop \
+ 	50-marco-desktop-key.xml \
+ 	50-marco-global-key.xml \
+ 	50-marco-window-key.xml
+ 
++inlinepixbufs.h: $(IMAGES)
++	$(AM_V_GEN)$(GDK_PIXBUF_CSOURCE) --raw --build-list $(VARIABLES) >$(srcdir)/inlinepixbufs.h
++
+ pkgconfigdir = $(libdir)/pkgconfig
+ 
+ pkgconfig_DATA = libmarco-private.pc
+diff -upr marco-1.7.0-orig/src/ui/ui.c marco-1.7.0/src/ui/ui.c
+--- marco-1.7.0-orig/src/ui/ui.c	2014-01-25 11:38:54.000000000 +0100
++++ marco-1.7.0/src/ui/ui.c	2014-02-10 19:30:19.805185197 +0100
+@@ -28,6 +28,8 @@
+ #include "core.h"
+ #include "theme.h"
+ 
++#include "inlinepixbufs.h"
++
+ #include <string.h>
+ #include <stdlib.h>
+ 
+@@ -35,6 +37,7 @@
+ #include <cairo-xlib.h>
+ #endif
+ 
++static void meta_stock_icons_init (void);
+ static void meta_ui_accelerator_parse(const char* accel, guint* keysym, guint* keycode, GdkModifierType* keymask);
+ 
+ struct _MetaUI {
+@@ -55,6 +58,7 @@ void meta_ui_init(int* argc, char*** arg
+ 	if (!gtk_init_check (argc, argv))
+ 	{
+ 		meta_fatal ("Unable to open X display %s\n", XDisplayName (NULL));
++		meta_stock_icons_init ();
+ 	}
+ }
+ 
+@@ -626,6 +630,7 @@ meta_image_window_set (MetaImageWindow *
+                        int              x,
+                        int              y)
+ {
++  GdkWindow *window;
+ #if GTK_CHECK_VERSION (3, 0, 0)
+   cairo_t *cr;
+ #endif
+@@ -652,7 +657,8 @@ meta_image_window_set (MetaImageWindow *
+   cairo_destroy (cr);
+ #endif
+ 
+-  gdk_window_set_back_pixmap (gtk_widget_get_window (iw->window),
++  window = gtk_widget_get_window (iw->window);
++  gdk_window_set_back_pixmap (window,
+                               iw->pixmap,
+                               FALSE);
+ 
+@@ -845,11 +851,9 @@ meta_ui_get_default_window_icon (MetaUI
+                                                    0,
+                                                    NULL);
+       else
+-          default_icon = gtk_icon_theme_load_icon (theme,
+-                                                   "gtk-missing-image",
+-                                                   META_ICON_WIDTH,
+-                                                   0,
+-                                                   NULL);
++          default_icon = gdk_pixbuf_new_from_inline (-1, window_data,
++                                                     FALSE,
++                                                     NULL);
+ 
+       g_assert (default_icon);
+     }
+@@ -880,11 +884,9 @@ meta_ui_get_default_mini_icon (MetaUI *u
+                                                    0,
+                                                    NULL);
+       else
+-          default_icon = gtk_icon_theme_load_icon (theme,
+-                                                   "gtk-missing-image",
+-                                                   META_MINI_ICON_WIDTH,
+-                                                   0,
+-                                                   NULL);
++          default_icon = gdk_pixbuf_new_from_inline (-1, window_data,
++                                                     FALSE,
++                                                     NULL);
+ 
+       g_assert (default_icon);
+     }
+@@ -1194,6 +1196,41 @@ typedef struct {
+ 	const guint8* icon_data;
+ } MetaStockIcon;
+ 
++static void
++meta_stock_icons_init (void)
++{
++  GtkIconFactory *factory;
++  int i;
++
++  MetaStockIcon items[] =
++  {
++    { MARCO_STOCK_DELETE,   stock_delete_data   },
++    { MARCO_STOCK_MINIMIZE, stock_minimize_data },
++    { MARCO_STOCK_MAXIMIZE, stock_maximize_data }
++  };
++
++  factory = gtk_icon_factory_new ();
++  gtk_icon_factory_add_default (factory);
++
++  for (i = 0; i < (gint) G_N_ELEMENTS (items); i++)
++    {
++      GtkIconSet *icon_set;
++      GdkPixbuf *pixbuf;
++
++      pixbuf = gdk_pixbuf_new_from_inline (-1, items[i].icon_data,
++					   FALSE,
++					   NULL);
++
++      icon_set = gtk_icon_set_new_from_pixbuf (pixbuf);
++      gtk_icon_factory_add (factory, items[i].stock_id, icon_set);
++      gtk_icon_set_unref (icon_set);
++      
++      g_object_unref (G_OBJECT (pixbuf));
++    }
++
++  g_object_unref (G_OBJECT (factory));
++}
++
+ int meta_ui_get_drag_threshold(MetaUI* ui)
+ {
+ 	int threshold = 8;

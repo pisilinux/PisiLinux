@@ -1,0 +1,136 @@
+diff -Naur xvidcap-1.1.7.orig/src/codecs.c xvidcap-1.1.7/src/codecs.c
+--- xvidcap-1.1.7.orig/src/codecs.c	2012-02-07 23:54:17.000000000 +0100
++++ xvidcap-1.1.7/src/codecs.c	2012-02-08 00:08:57.908972307 +0100
+@@ -43,8 +43,8 @@
+ #include <locale.h>
+ 
+ #ifdef USE_FFMPEG
+-#include <avcodec.h>
+-#include <avformat.h>
++#include <libavcodec/avcodec.h>
++#include <libavformat/avformat.h>
+ #endif     // USE_FFMPEG
+ 
+ #include "app_data.h"
+diff -Naur xvidcap-1.1.7.orig/src/main.c xvidcap-1.1.7/src/main.c
+--- xvidcap-1.1.7.orig/src/main.c	2012-02-07 23:54:17.000000000 +0100
++++ xvidcap-1.1.7/src/main.c	2012-02-08 00:10:01.768341770 +0100
+@@ -45,7 +45,7 @@
+ #include <locale.h>
+ 
+ #ifdef USE_FFMPEG
+-#include <avcodec.h>
++#include <libavcodec/avcodec.h>
+ #endif     // USE_FFMPEG
+ 
+ #include "control.h"
+diff -Naur xvidcap-1.1.7.orig/src/xtoffmpeg.c xvidcap-1.1.7/src/xtoffmpeg.c
+--- xvidcap-1.1.7.orig/src/xtoffmpeg.c	2012-02-07 23:54:17.000000000 +0100
++++ xvidcap-1.1.7/src/xtoffmpeg.c	2012-02-08 00:43:47.667062790 +0100
+@@ -56,13 +56,13 @@
+ #include "xvidcap-intl.h"
+ 
+ // ffmpeg stuff
+-#include <avcodec.h>
+-#include <avformat.h>
+-#include <avdevice.h>
++#include <libavcodec/avcodec.h>
++#include <libavformat/avformat.h>
++#include <libavdevice/avdevice.h>
+ //#include <ffmpeg/dsputil.h>
+-#include <swscale.h>
+-#include <rgb2rgb.h>
+-#include <fifo.h>
++#include <libswscale/swscale.h>
++/*#include <libswscale/rgb2rgb.h>*/
++/*#include <fifo.h>*/
+ #define swscale_isRGB(x) ((x)==PIX_FMT_BGR32 || (x)==PIX_FMT_RGB24 \
+                         || (x)==PIX_FMT_RGB565 || (x)==PIX_FMT_RGB555 \
+                         || (x)==PIX_FMT_RGB8 || (x)==PIX_FMT_RGB4 \
+@@ -905,7 +905,7 @@
+                               ost->time_base);
+         }
+         if (enc->coded_frame->key_frame)
+-            pkt.flags |= PKT_FLAG_KEY;
++            pkt.flags |= AV_PKT_FLAG_KEY;
+     }
+ 
+     pkt.stream_index = ost->index;
+@@ -1157,7 +1157,7 @@
+     }
+ 
+     st->codec->codec_id = codec_id;
+-    st->codec->codec_type = CODEC_TYPE_VIDEO;
++    st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
+ 
+     // find the video encoder
+     codec = avcodec_find_encoder (st->codec->codec_id);
+@@ -1247,8 +1247,9 @@
+     // flags
+     st->codec->flags |= CODEC_FLAG2_FAST;
+     // there is no trellis quantiser in libav* for mjpeg
+-    if (st->codec->codec_id != CODEC_ID_MJPEG)
++/*    if (st->codec->codec_id != CODEC_ID_MJPEG)
+         st->codec->flags |= CODEC_FLAG_TRELLIS_QUANT;
++*/
+     st->codec->flags &= ~CODEC_FLAG_OBMC;
+     // some formats want stream headers to be seperate
+     if (oc->oformat->flags & AVFMT_GLOBALHEADER)
+@@ -1346,7 +1347,7 @@
+             // Solaris/SPARC, but need to do the conversion
+             // for every frame we do it outside of this loop, cf.
+             // below this matches both ARGB32 and ABGR32
+-            input_pixfmt = PIX_FMT_ARGB32;
++            input_pixfmt = PIX_FMT_RGB32;
+         } else {
+             fprintf (stderr,
+                      _
+@@ -1707,7 +1708,7 @@
+ 
+     /** \todo test if the special image conversion for Solaris is still
+      *      necessary */
+-    if (input_pixfmt == PIX_FMT_ARGB32 && job->c_info->alpha_mask == 0xFF000000
++    if (input_pixfmt == PIX_FMT_RGB32 && job->c_info->alpha_mask == 0xFF000000
+         && image->red_mask == 0xFF && image->green_mask == 0xFF00
+         && image->blue_mask == 0xFF0000) {
+         myABGR32toARGB32 (image);
+diff -Naur xvidcap-1.1.7.orig/src/xtoffmpeg.c xvidcap-1.1.7/src/xtoffmpeg.c
+--- xvidcap-1.1.7.orig/src/xtoffmpeg.c	2012-02-08 01:01:24.000000000 +0100
++++ xvidcap-1.1.7/src/xtoffmpeg.c	2012-02-08 01:08:04.082488983 +0100
+@@ -1440,13 +1440,13 @@
+         // guess AVOutputFormat
+         if (job->target >= CAP_MF)
+             file_oformat =
+-                guess_format (xvc_formats[job->target].ffmpeg_name, NULL, NULL);
++                av_guess_format (xvc_formats[job->target].ffmpeg_name, NULL, NULL);
+         else {
+             char tmp_fn[30];
+ 
+             snprintf (tmp_fn, 29, "test-%%d.%s",
+                       xvc_formats[job->target].extensions[0]);
+-            file_oformat = guess_format (NULL, tmp_fn, NULL);
++            file_oformat = av_guess_format (NULL, tmp_fn, NULL);
+         }
+         if (!file_oformat) {
+             fprintf (stderr,
+@@ -1467,7 +1467,7 @@
+ #endif     // DEBUG
+ 
+         // prepare AVFormatContext
+-        output_file = av_alloc_format_context ();
++        output_file = avformat_alloc_context ();
+         if (!output_file) {
+             fprintf (stderr,
+                      _
+diff -Naur xvidcap-1.1.7.orig/src/main.c xvidcap-1.1.7/src/main.c
+--- xvidcap-1.1.7.orig/src/main.c	2012-02-08 00:55:07.000000000 +0100
++++ xvidcap-1.1.7/src/main.c	2012-02-08 01:00:02.852704784 +0100
+@@ -218,7 +218,7 @@
+     if (app)
+         xvc_appdata_free (app);
+ #ifdef USE_FFMPEG
+-    av_free_static ();
++/*    av_free_static ();*/
+ #endif
+ }
+ 

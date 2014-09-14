@@ -1,0 +1,90 @@
+diff -Nur gksu-2.0.0-1ubuntu1/gksu/gksu.c gksu-2.0.0-1ubuntu1.new/gksu/gksu.c
+--- gksu-2.0.0-1ubuntu1/gksu/gksu.c	2006-10-30 13:23:42.000000000 +0100
++++ gksu-2.0.0-1ubuntu1.new/gksu/gksu.c	2006-11-22 16:48:16.000000000 +0100
+@@ -22,6 +22,7 @@
+ #include "../config.h"
+ 
+ #define BASE_PATH "/apps/gksu/"
++#define HTTP_PROXY_DIR "/system/http_proxy"
+ 
+ /* GLOBALS */
+ gboolean print_pass = FALSE;
+@@ -450,6 +451,64 @@
+ }
+ /* gksuexec */
+ 
++void
++set_http_proxy_env(GConfClient *conf)
++{
++   gchar *host;
++   gint port;
++   GSList *ignore;
++
++   host = gconf_client_get_string (conf, HTTP_PROXY_DIR "/host", NULL);
++   port = gconf_client_get_int (conf, HTTP_PROXY_DIR "/port", NULL);
++   ignore = gconf_client_get_list (conf, HTTP_PROXY_DIR "/ignore_hosts",
++                                   GCONF_VALUE_STRING, NULL);
++
++   if (host && port)
++      {
++         putenv(g_strdup_printf ("http_proxy=http://%s:%d/", host, port));
++         g_free (host);
++      }
++
++   if (ignore)
++      {
++         /* code distantly based on gconf's */
++         gchar *buf = NULL;
++         guint bufsize = 64;
++         guint cur = 0;
++
++         buf = g_malloc (bufsize + 3);
++         while (ignore != NULL)
++            {
++               guint len = strlen (ignore->data);
++
++               if ((cur + len + 2) >= bufsize) /* +2 for '\0' and comma */
++                  {
++                     bufsize = MAX(bufsize * 2, bufsize + len + 4);
++                     buf = g_realloc (buf, bufsize + 3);
++                  }
++
++               g_assert (cur < bufsize);
++
++               strcpy (&buf[cur], ignore->data);
++               cur += len;
++
++               g_assert(cur < bufsize);
++
++               buf[cur] = ',';
++               ++cur;
++
++               g_assert(cur < bufsize);
++
++               ignore = g_slist_next (ignore);
++            }
++
++         buf[cur-1] = '\0'; /* overwrites last comma */
++
++         putenv(g_strdup_printf ("no_proxy=%s", buf));
++         g_free (buf);
++      }
++}
++
+ int
+ main (int argc, char **argv)
+ {
+@@ -714,6 +773,13 @@
+ 	    g_error_free (error);
+ 	    error = NULL;
+ 	  }
++	
++	// export the http proxy env
++	GConfClient* gconf_client = gconf_client_get_default();
++	if(gconf_client_get_bool (gconf_client, "/system/http_proxy/use_http_proxy", NULL) && !getenv("http_proxy") )
++	     {
++		set_http_proxy_env(gconf_client);
++	     }
+ 
+ 	if (run_mode == SUDO_MODE)
+ 	  gksu_sudo_full (context,

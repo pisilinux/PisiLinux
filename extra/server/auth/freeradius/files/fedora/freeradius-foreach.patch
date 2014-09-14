@@ -1,0 +1,107 @@
+commit c0f670c233e9562118648af641d4f8d182350f31
+Author: Arran Cudbard-Bell <a.cudbardb@freeradius.org>
+Date:   Fri May 16 11:38:22 2014 +0100
+
+    Make the foreach code slightly more sane. Reliably reproduces the issue described by #639
+
+diff --git a/src/main/modcall.c b/src/main/modcall.c
+index 3dd0828..7a44bf2 100644
+--- a/src/main/modcall.c
++++ b/src/main/modcall.c
+@@ -608,9 +608,9 @@ redo:
+ 	 */
+ 	if (c->type == MOD_FOREACH) {
+ 		int i, foreach_depth = -1;
+-		VALUE_PAIR *vps, **tail, *vp;
++		VALUE_PAIR *vps, *vp;
+ 		modcall_stack_entry_t *next = NULL;
+-		vp_cursor_t cursor;
++		vp_cursor_t cursor, copy;
+ 		modgroup *g = mod_callabletogroup(c);
+ 
+ 		if (depth >= MODCALL_STACK_MAX) {
+@@ -645,31 +645,35 @@ redo:
+ 		}
+ 
+ 		/*
+-		 *	Copy the VPs from the original request.
++		 *	Copy the VPs from the original request, this ensures deterministic
++		 *	behaviour if someone decides to add or remove VPs in the set were
++		 *	iterating over.
+ 		 */
+-		fr_cursor_init(&cursor, &vp);
+-		/* Prime the cursor. */
+-		cursor.found = cursor.current;
+-
+ 		vps = NULL;
+-		tail = &vps;
+ 
+-		while (vp) {
+-			*tail = paircopyvp(request, vp);
+-			if (!*tail) break;
++		fr_cursor_init(&cursor, &vp);
+ 
+-			tail = &((*tail)->next); /* really should be using cursors... */
++		/* Prime the cursor. */
++		cursor.found = cursor.current;
++		for (fr_cursor_init(&copy, &vps);
++		     vp;
++		     vp = fr_cursor_next_by_da(&cursor, vp->da, g->vpt->attribute.tag)) {
++		     VALUE_PAIR *tmp;
+ 
+-			vp = fr_cursor_next_by_da(&cursor, vp->da, g->vpt->attribute.tag);
++		     MEM(tmp = paircopyvp(request, vp));
++		     fr_cursor_insert(&copy, tmp);
+ 		}
+ 
+-		RDEBUG2("%.*sforeach %s ", depth + 1, modcall_spaces,
+-			c->name);
++		RDEBUG2("%.*sforeach %s ", depth + 1, modcall_spaces, c->name);
++
+ 		rad_assert(vps != NULL);
+ 
+-		for (vp = fr_cursor_init(&cursor, &vps);
++		/*
++		 *	This is the actual body of the foreach loop
++		 */
++		for (vp = fr_cursor_first(&copy);
+ 		     vp != NULL;
+-		     vp = fr_cursor_next(&cursor)) {
++		     vp = fr_cursor_next(&copy)) {
+ #ifndef NDEBUG
+ 			if (fr_debug_flag >= 2) {
+ 				char buffer[1024];
+@@ -709,7 +713,7 @@ redo:
+ 			}
+ 		} /* loop over VPs */
+ 
+-		talloc_free(vps);
++		pairfree(&vps);
+ 
+ 		rad_assert(next != NULL);
+ 		result = next->result;
+
+commit 860f645668b9604c897c4ee1338ecfeb88cdd75a
+Author: Arran Cudbard-Bell <a.cudbardb@freeradius.org>
+Date:   Fri May 16 12:32:12 2014 +0100
+
+    Don't free foreach VPs on break #639
+    
+    Wwe go back up the stack in an orderly way and don't need this hack anymore
+
+diff --git a/src/main/modcall.c b/src/main/modcall.c
+index 7a44bf2..5785643 100644
+--- a/src/main/modcall.c
++++ b/src/main/modcall.c
+@@ -732,9 +732,7 @@ redo:
+ 		for (i = 8; i >= 0; i--) {
+ 			copy_p = request_data_get(request, radius_get_vp, i);
+ 			if (copy_p) {
+-				RDEBUG2("%.*s # break Foreach-Variable-%d", depth + 1,
+-					modcall_spaces, i);
+-				pairfree(copy_p);
++				RDEBUG2("%.*s # break Foreach-Variable-%d", depth + 1, modcall_spaces, i);
+ 				break;
+ 			}
+ 		}
+

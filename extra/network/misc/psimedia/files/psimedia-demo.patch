@@ -1,0 +1,123 @@
+--- psimedia-1.0.3/configure	2009-06-11 08:45:53.000000000 +0300
++++ psimedia-1.0.3/configure	2009-07-16 17:18:05.000000000 +0300
+@@ -15,6 +15,8 @@
+   --help            This help text.
+ 
+ Project options:
++  --prefix=[path]             Base path for build/install.  Default: /usr/local
++  --libdir=[path]             Directory for libraries.  Default: PREFIX/lib
+   --release                   Build with debugging turned off (default).
+   --debug                     Build with debugging turned on.
+   --debug-and-release         Build two versions, with and without debugging
+@@ -121,6 +123,16 @@
+ while [ $# -gt 0 ]; do
+ 	optarg=`expr "x$1" : 'x[^=]*=\(.*\)'`
+ 	case "$1" in
++		--prefix=*)
++			PREFIX=$optarg
++			shift
++			;;
++
++		--libdir=*)
++			LIBDIR=$optarg
++			shift
++			;;
++
+ 		--qtdir=*)
+ 			EX_QTDIR=$optarg
+ 			shift
+@@ -170,11 +182,15 @@
+ 	esac
+ done
+ 
++PREFIX=${PREFIX:-/usr/local}
++LIBDIR=${LIBDIR:-$PREFIX/lib}
+ 
+ echo "Configuring PsiMedia ..."
+ 
+ if [ "$QC_VERBOSE" = "Y" ]; then
+ echo
++echo PREFIX=$PREFIX
++echo LIBDIR=$LIBDIR
+ echo EX_QTDIR=$EX_QTDIR
+ echo QC_RELEASE=$QC_RELEASE
+ echo QC_DEBUG=$QC_DEBUG
+@@ -527,6 +543,32 @@
+ 	}
+ };
+ 
++//----------------------------------------------------------------------------
++// qc_conf
++//----------------------------------------------------------------------------
++class qc_conf : public ConfObj
++{
++public:
++	qc_conf(Conf *c) : ConfObj(c) {}
++	QString name() const { return "Psi Configuration"; }
++	QString shortname() const { return "conf"; }
++	QString checkString() const { return QString(); }
++	bool exec()
++	{
++		conf->addExtra(QString("PSI_PLUGINS_DIR=%1/psi/plugins").arg(conf->getenv("LIBDIR")));
++
++		QFile file("demo/config.h");
++		if ( file.open(QIODevice::WriteOnly | QIODevice::Text) ) {
++			QTextStream stream( &file );
++			stream << "#define PSI_PLUGINS_DIR \"" << conf->getenv("LIBDIR") << "/psi/plugins\"" << endl;
++		}
++
++		conf->addDefine("HAVE_CONFIG");
++
++		return true;
++	}
++};
++
+ EOT
+ cat >$1/modules_new.cpp <<EOT
+     o = new qc_qt4(conf);
+@@ -574,6 +616,9 @@
+     o = new qc_internal_pkgconfig(conf, "speexdsp", "speexdsp >= 1.2rc1", VersionMin, "1.2rc1");
+     o->required = true;
+     o->disabled = false;
++    o = new qc_conf(conf);
++    o->required = true;
++    o->disabled = false;
+ 
+ EOT
+ cat >$1/conf4.h <<EOT
+@@ -1565,6 +1610,8 @@
+ EOT
+ }
+ 
++export PREFIX
++export LIBDIR
+ export EX_QTDIR
+ export QC_RELEASE
+ export QC_DEBUG
+--- psimedia-1.0.3/demo/main.cpp	2009-05-13 10:03:42.000000000 +0300
++++ psimedia-1.0.3/demo/main.cpp	2009-07-16 17:18:25.000000000 +0300
+@@ -32,6 +32,7 @@
+ #include "psimedia.h"
+ #include "ui_mainwin.h"
+ #include "ui_config.h"
++#include "config.h"
+ 
+ #define BASE_PORT_MIN 1
+ #define BASE_PORT_MAX 65534
+@@ -1354,7 +1355,7 @@
+ #endif
+ 
+ 		if(pluginFile.isEmpty())
+-			pluginFile = findPlugin("../gstprovider", "gstprovider");
++			pluginFile = findPlugin(PSI_PLUGINS_DIR , "gstprovider");
+ 	}
+ 
+ 	PsiMedia::loadPlugin(pluginFile, resourcePath);
+--- psimedia-1.0.3/psimedia.pro	2009-03-05 04:01:58.000000000 +0200
++++ psimedia-1.0.3/psimedia.pro	2009-07-16 17:18:55.000000000 +0300
+@@ -1,4 +1,5 @@
+ TEMPLATE = subdirs
++CONFIG += ordered
+ 
+ SUBDIRS += gstprovider/gstelements/static
+ SUBDIRS += demo

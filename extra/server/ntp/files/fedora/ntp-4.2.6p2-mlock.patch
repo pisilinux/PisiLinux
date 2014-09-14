@@ -1,0 +1,146 @@
+diff -up ntp-4.2.6p2/html/ntpd.html.mlock ntp-4.2.6p2/html/ntpd.html
+--- ntp-4.2.6p2/html/ntpd.html.mlock	2010-07-12 16:36:09.000000000 +0200
++++ ntp-4.2.6p2/html/ntpd.html	2010-07-12 16:36:09.000000000 +0200
+@@ -32,7 +32,7 @@
+ 		</ul>
+ 		<hr>
+ 		<h4 id="synop">Synopsis</h4>
+-		<tt>ntpd [ -46aAbdDgLnNqx ] [ -c <i>conffile</i> ] [ -f <i>driftfile</i> ] [ -i <i>jaildir</i> ] [ -I <i>iface</i> ] [ -k <i>keyfile</i> ] [ -l <i>logfile</i> ] [ -p <i>pidfile</i> ] [ -P <i>priority</i> ] [ -r <i>broadcastdelay</i> ] [ -s <i>statsdir</i> ] [ -t <i>key</i> ] [ -u <i>user</i>[:<i>group</i>] ] [ -U <i>interface_update_interval</i> ] [ -v <i>variable</i> ] [ -V <i>variable</i> ]</tt>
++		<tt>ntpd [ -46aAbdDgLmnNqx ] [ -c <i>conffile</i> ] [ -f <i>driftfile</i> ] [ -i <i>jaildir</i> ] [ -I <i>iface</i> ] [ -k <i>keyfile</i> ] [ -l <i>logfile</i> ] [ -p <i>pidfile</i> ] [ -P <i>priority</i> ] [ -r <i>broadcastdelay</i> ] [ -s <i>statsdir</i> ] [ -t <i>key</i> ] [ -u <i>user</i>[:<i>group</i>] ] [ -U <i>interface_update_interval</i> ] [ -v <i>variable</i> ] [ -V <i>variable</i> ]</tt>
+ 		<h4 id="descr">Description</h4>
+ 		<p>The <tt>ntpd</tt> program is an operating system daemon that synchronises the system clock with remote NTP&nbsp;time servers or local reference clocks. It is a complete implementation of the Network Time Protocol (NTP) version 4, but also retains compatibility with version 3, as defined by RFC-1305, and version 1 and 2, as defined by RFC-1059 and RFC-1119, respectively. The program can operate in any of several modes, as described on the <a href="assoc.html">Association Management</a> page, and with both symmetric key and public key cryptography, as described on the <a href="manyopt.html">Authentication Options</a> page.</p>
+ 		<p>The <tt>ntpd</tt> program ordinarily requires a configuration file as desccribe on the Configuration Commands and Options collection above. However a client can discover remote servers and configure them automatically. This makes it possible to deploy a fleet of workstations without specifying configuration details specific to the local environment. Further details are on the <a href="manyopt.html">Automatic Server Discovery</a> page.</p>
+@@ -123,6 +123,8 @@
+ 			<dd>Do not listen to virtual interfaces, defined as those with names containing a colon. This option is deprecated. Please consider using the configuration file <a href="miscopt.html#interface">interface</a> command, which is more versatile.</dd>
+ 			<dt><tt>-M</tt></dt>
+ 			<dd>Raise scheduler precision to its maximum (1 msec) using timeBeginPeriod. (Windows only)</dd>
++			<dt><tt>-m</tt>
++			<dd>Lock memory.
+ 			<dt><tt>-n</tt></dt>
+ 			<dd>Don't fork.</dd>
+ 			<dt><tt>-N</tt></dt>
+diff -up ntp-4.2.6p2/ntpd/ntpd-opts.c.mlock ntp-4.2.6p2/ntpd/ntpd-opts.c
+--- ntp-4.2.6p2/ntpd/ntpd-opts.c.mlock	2010-07-09 04:23:28.000000000 +0200
++++ ntp-4.2.6p2/ntpd/ntpd-opts.c	2010-07-12 16:36:09.000000000 +0200
+@@ -284,6 +284,15 @@ tSCC    zNice_Name[]               = "ni
+ #define NICE_FLAGS       (OPTST_DISABLED)
+ 
+ /*
++ *  Mlock option description:
++ */
++tSCC    zMlockText[] =
++        "Lock memory";
++tSCC    zMlock_NAME[]               = "MLOCK";
++tSCC    zMlock_Name[]               = "mlock";
++#define MLOCK_FLAGS       (OPTST_DISABLED)
++
++/*
+  *  Pidfile option description:
+  */
+ tSCC    zPidfileText[] =
+@@ -911,6 +920,18 @@ static tOptDesc optDesc[ OPTION_CT ] = {
+      /* desc, NAME, name */ zPccfreqText, zPccfreq_NAME, zPccfreq_Name,
+      /* disablement strs */ NULL, NULL },
+ 
++  {  /* entry idx, value */ 32, VALUE_OPT_MLOCK,
++     /* equiv idx, value */ 32, VALUE_OPT_MLOCK,
++     /* equivalenced to  */ NO_EQUIVALENT,
++     /* min, max, act ct */ 0, 1, 0,
++     /* opt state flags  */ MLOCK_FLAGS, 0,
++     /* last opt argumnt */ { NULL },
++     /* arg list/cookie  */ NULL,
++     /* must/cannot opts */ NULL, NULL,
++     /* option proc      */ NULL,
++     /* desc, NAME, name */ zMlockText, zMlock_NAME, zMlock_Name,
++     /* disablement strs */ NULL, NULL },
++
+   {  /* entry idx, value */ INDEX_OPT_VERSION, VALUE_OPT_VERSION,
+      /* equiv idx value  */ NO_EQUIVALENT, 0,
+      /* equivalenced to  */ NO_EQUIVALENT,
+@@ -1005,7 +1026,7 @@ tOptions ntpdOptions = {
+       NO_EQUIVALENT, /* '-#' option index */
+       NO_EQUIVALENT /* index of default opt */
+     },
+-    35 /* full option count */, 32 /* user option count */,
++    36 /* full option count */, 33 /* user option count */,
+     ntpd_full_usage, ntpd_short_usage,
+     NULL, NULL
+ };
+diff -up ntp-4.2.6p2/ntpd/ntpd-opts.h.mlock ntp-4.2.6p2/ntpd/ntpd-opts.h
+--- ntp-4.2.6p2/ntpd/ntpd-opts.h.mlock	2010-07-09 04:23:28.000000000 +0200
++++ ntp-4.2.6p2/ntpd/ntpd-opts.h	2010-07-12 16:36:09.000000000 +0200
+@@ -84,12 +84,13 @@ typedef enum {
+     INDEX_OPT_SLEW              = 29,
+     INDEX_OPT_USEPCC            = 30,
+     INDEX_OPT_PCCFREQ           = 31,
+-    INDEX_OPT_VERSION           = 32,
+-    INDEX_OPT_HELP              = 33,
+-    INDEX_OPT_MORE_HELP         = 34
++    INDEX_OPT_MLOCK             = 32,
++    INDEX_OPT_VERSION           = 33,
++    INDEX_OPT_HELP              = 34,
++    INDEX_OPT_MORE_HELP         = 35
+ } teOptIndex;
+ 
+-#define OPTION_CT    35
++#define OPTION_CT    36
+ #define NTPD_VERSION       "4.2.6p2"
+ #define NTPD_FULL_VERSION  "ntpd - NTP daemon program - Ver. 4.2.6p2"
+ 
+@@ -182,6 +183,10 @@ typedef enum {
+ #  warning undefining MODIFYMMTIMER due to option name conflict
+ #  undef   MODIFYMMTIMER
+ # endif
++# ifdef    MLOCK
++#  warning undefining MLOCK due to option name conflict
++#  undef   MLOCK
++# endif
+ # ifdef    NOFORK
+ #  warning undefining NOFORK due to option name conflict
+ #  undef   NOFORK
+@@ -263,6 +268,7 @@ typedef enum {
+ # undef LOGFILE
+ # undef NOVIRTUALIPS
+ # undef MODIFYMMTIMER
++# undef MLOCK
+ # undef NOFORK
+ # undef NICE
+ # undef PIDFILE
+@@ -301,6 +307,7 @@ typedef enum {
+ #define VALUE_OPT_LOGFILE        'l'
+ #define VALUE_OPT_NOVIRTUALIPS   'L'
+ #define VALUE_OPT_MODIFYMMTIMER  'M'
++#define VALUE_OPT_MLOCK          'm'
+ #define VALUE_OPT_NOFORK         'n'
+ #define VALUE_OPT_NICE           'N'
+ #define VALUE_OPT_PIDFILE        'p'
+diff -up ntp-4.2.6p2/ntpd/ntpd.c.mlock ntp-4.2.6p2/ntpd/ntpd.c
+--- ntp-4.2.6p2/ntpd/ntpd.c.mlock	2010-07-12 16:36:09.000000000 +0200
++++ ntp-4.2.6p2/ntpd/ntpd.c	2010-07-12 16:36:09.000000000 +0200
+@@ -722,7 +722,8 @@ ntpdmain(
+ 	}
+ #endif
+ 
+-#if defined(HAVE_MLOCKALL) && defined(MCL_CURRENT) && defined(MCL_FUTURE)
++#if defined(MCL_CURRENT) && defined(MCL_FUTURE)
++    if (HAVE_OPT( MLOCK )) {
+ # ifdef HAVE_SETRLIMIT
+ 	/*
+ 	 * Set the stack limit to something smaller, so that we don't lock a lot
+@@ -748,7 +749,7 @@ ntpdmain(
+ 	     * fail if we drop root privlege.  To be useful the value
+ 	     * has to be larger than the largest ntpd resident set size.
+ 	     */
+-	    rl.rlim_cur = rl.rlim_max = 32*1024*1024;
++	    rl.rlim_cur = rl.rlim_max = 64*1024*1024;
+ 	    if (setrlimit(RLIMIT_MEMLOCK, &rl) == -1) {
+ 		msyslog(LOG_ERR, "Cannot set RLIMIT_MEMLOCK: %m");
+ 	    }
+@@ -760,6 +761,7 @@ ntpdmain(
+ 	 */
+ 	if (mlockall(MCL_CURRENT|MCL_FUTURE) < 0)
+ 		msyslog(LOG_ERR, "mlockall(): %m");
++    }
+ #else /* not (HAVE_MLOCKALL && MCL_CURRENT && MCL_FUTURE) */
+ # ifdef HAVE_PLOCK
+ #  ifdef PROCLOCK

@@ -1,0 +1,99 @@
+--- rp-pppoe-3.8/src/pppoe.c.CAN	2006-04-02 16:29:42.000000000 +0200
++++ rp-pppoe-3.8/src/pppoe.c	2009-04-11 13:19:15.000000000 +0200
+@@ -67,6 +67,48 @@
+ 				   USED FOR STRESS-TESTING ONLY.  DO NOT
+ 				   USE THE -F OPTION AGAINST A REAL ISP */
+ 
++#ifdef AUTO_IFUP
++/* for interface activation, based on stripped down source source of ifconfig*/
++#include <linux/if.h>
++/*#include <sys/socket.h> */
++#include <sys/types.h>
++#include <sys/socket.h>
++#include "config.h"
++int skfd = -1;			/* generic raw socket desc.     */
++int sockets_open(int family)
++{
++  int sfd = -1;
++  sfd = socket(AF_INET, SOCK_DGRAM, 0);
++  return sfd;
++}
++/* Like strncpy but make sure the resulting string is always 0 terminated.
++ * Ripped from util.c (net-tools package) */  
++char *safe_strncpy(char *dst, const char *src, size_t size)
++{   
++    dst[size-1] = '\0';
++    return strncpy(dst,src,size-1);   
++}
++/* Set a certain interface flag. Ripped from ifconfig.c */
++static int set_flag(char *ifname, short flag)
++{
++    struct ifreq ifr;
++
++    safe_strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
++    if (ioctl(skfd, SIOCGIFFLAGS, &ifr) < 0) {
++	fprintf(stderr, "%s: unknown interface: %s\n", 
++		ifname,	strerror(errno));
++	return (-1);
++    }
++    safe_strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
++    ifr.ifr_flags |= flag;
++    if (ioctl(skfd, SIOCSIFFLAGS, &ifr) < 0) {
++	perror("SIOCSIFFLAGS");
++	return -1;
++    }
++    return (0);
++}
++#endif
++
+ PPPoEConnection *Connection = NULL; /* Must be global -- used
+ 				       in signal handler */
+ 
+@@ -508,6 +550,7 @@
+ 	    break;
+ 
+ 	case 'p':
++	  if (getuid() == 0) {
+ 	    switchToRealID();
+ 	    pidfile = fopen(optarg, "w");
+ 	    if (pidfile) {
+@@ -515,6 +558,7 @@
+ 		fclose(pidfile);
+ 	    }
+ 	    switchToEffectiveID();
++          }
+ 	    break;
+ 	case 'S':
+ 	    SET_STRING(conn.serviceName, optarg);
+@@ -530,6 +574,7 @@
+ 	    break;
+ #ifdef DEBUGGING_ENABLED
+ 	case 'D':
++	if (getuid() == 0) {
+ 	    switchToRealID();
+ 	    conn.debugFile = fopen(optarg, "w");
+ 	    switchToEffectiveID();
+@@ -540,6 +585,7 @@
+ 	    }
+ 	    fprintf(conn.debugFile, "rp-pppoe-%s\n", VERSION);
+ 	    fflush(conn.debugFile);
++	  }
+ 	    break;
+ #endif
+ 	case 'T':
+@@ -637,6 +683,15 @@
+ 	exit(EXIT_SUCCESS);
+     }
+ 
++#ifdef AUTO_IFUP
++    /* Create a channel to the NET kernel. */
++    if ((skfd = sockets_open(0)) < 0) {
++       perror("socket");
++       exit(1);
++    }
++
++    set_flag(conn.ifName, (IFF_UP | IFF_RUNNING));
++#endif
+     /* Set signal handlers: send PADT on HUP; ignore TERM and INT */
+     signal(SIGTERM, SIG_IGN);
+     signal(SIGINT, SIG_IGN);

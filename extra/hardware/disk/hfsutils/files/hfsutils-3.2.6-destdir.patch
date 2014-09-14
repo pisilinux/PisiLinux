@@ -1,0 +1,610 @@
+--- Makefile.in
++++ Makefile.in	2000/11/03 09:01:23
+@@ -111,43 +111,43 @@
+ install :: @INSTALL_TARGETS@
+ 
+ install_cli :: all_cli
+-	$(BININSTALL) $(HFSUTIL) "$(BINDEST)/."
++	$(BININSTALL) $(HFSUTIL) $(DESTDIR)"$(BINDEST)/."
+ 
+ 	for file in $(CLITARGETS); do  \
+-		$(HARDLINK) "$(BINDEST)/$(HFSUTIL)" "$(BINDEST)/$$file";  \
++		$(HARDLINK) $(DESTDIR)"$(BINDEST)/$(HFSUTIL)" $(DESTDIR)"$(BINDEST)/$$file";  \
+ 	done
+ 
+-	rm -f "$(BINDEST)/$(HFSUTIL)"
++	rm -f $(DESTDIR)"$(BINDEST)/$(HFSUTIL)"
+ 
+ 	for file in $(GENERALDOCS) $(CLIDOCS); do  \
+ 		$(LIBINSTALL) doc/man/$$file  \
+-		"$(MANDEST)/man$(MANEXT)/`basename $$file .1`.$(MANEXT)";  \
++		$(DESTDIR)"$(MANDEST)/man$(MANEXT)/`basename $$file .1`.$(MANEXT)";  \
+ 	done
+ 
+ install_tcl :: all_tcl
+ 	for file in $(TCLTARGETS); do  \
+-		$(BININSTALL) $$file "$(BINDEST)/.";  \
++		$(BININSTALL) $$file $(DESTDIR)"$(BINDEST)/.";  \
+ 	done
+ 
+-	if [ -f "$(BINDEST)/hfs" ]; then  \
+-		sed -e '1d' "$(BINDEST)/hfs" > "$(BINDEST)/hfs.new";  \
+-		$(BININSTALL) "$(BINDEST)/hfs.new" "$(BINDEST)/hfs";  \
+-		rm -f "$(BINDEST)/hfs.new";  \
++	if [ -f $(DESTDIR)"$(BINDEST)/hfs" ]; then  \
++		sed -e '1d' $(DESTDIR)"$(BINDEST)/hfs" > $(DESTDIR)"$(BINDEST)/hfs.new";  \
++		$(BININSTALL) $(DESTDIR)"$(BINDEST)/hfs.new" $(DESTDIR)"$(BINDEST)/hfs";  \
++		rm -f $(DESTDIR)"$(BINDEST)/hfs.new";  \
+ 	fi
+ 
+ 	for file in $(TCLDOCS); do  \
+ 		$(LIBINSTALL) doc/man/$$file  \
+-		"$(MANDEST)/man$(MANEXT)/`basename $$file .1`.$(MANEXT)";  \
++		$(DESTDIR)"$(MANDEST)/man$(MANEXT)/`basename $$file .1`.$(MANEXT)";  \
+ 	done
+ 
+ install_tk :: all_tk
+ 	for file in $(TKTARGETS); do  \
+-		$(BININSTALL) $$file "$(BINDEST)/.";  \
++		$(BININSTALL) $$file $(DESTDIR)"$(BINDEST)/.";  \
+ 	done
+ 
+ 	for file in $(TKDOCS); do  \
+ 		$(LIBINSTALL) doc/man/$$file  \
+-		"$(MANDEST)/man$(MANEXT)/`basename $$file .1`.$(MANEXT)";  \
++		$(DESTDIR)"$(MANDEST)/man$(MANEXT)/`basename $$file .1`.$(MANEXT)";  \
+ 	done
+ 
+ install_lib :: all_lib
+--- copyin.c
++++ copyin.c	2000/11/03 08:57:59
+@@ -67,7 +67,7 @@
+  * DESCRIPTION:	copy a single fork for MacBinary II
+  */
+ static
+-int fork_macb(int ifile, hfsfile *ofile, unsigned long size)
++int fork_macb(const char *srcname, const char *dstname, int ifile, hfsfile *ofile, unsigned long size)
+ {
+   char buf[HFS_BLOCKSZ * 4];
+   unsigned long chunk, bytes;
+@@ -81,11 +81,13 @@
+       if (bytes == (unsigned long) -1)
+ 	{
+ 	  ERROR(errno, "error reading data");
++	  hfs_error_path = srcname;
+ 	  return -1;
+ 	}
+       else if (bytes != chunk)
+ 	{
+ 	  ERROR(EIO, "read incomplete chunk");
++	  hfs_error_path = srcname;
+ 	  return -1;
+ 	}
+ 
+@@ -95,11 +97,13 @@
+       if (bytes == (unsigned long) -1)
+ 	{
+ 	  ERROR(errno, hfs_error);
++	  hfs_error_path = dstname;
+ 	  return -1;
+ 	}
+       else if (bytes != chunk)
+ 	{
+ 	  ERROR(EIO, "wrote incomplete chunk");
++	  hfs_error_path = dstname;
+ 	  return -1;
+ 	}
+ 
+@@ -114,26 +118,28 @@
+  * DESCRIPTION:	perform copy using MacBinary II translation
+  */
+ static
+-int do_macb(int ifile, hfsfile *ofile,
++int do_macb(const char *srcname, const char *dstname, int ifile, hfsfile *ofile,
+ 	    unsigned long dsize, unsigned long rsize)
+ {
+   if (hfs_setfork(ofile, 0) == -1)
+     {
+       ERROR(errno, hfs_error);
++      hfs_error_path = dstname;
+       return -1;
+     }
+ 
+-  if (fork_macb(ifile, ofile, dsize) == -1)
++  if (fork_macb(srcname, dstname, ifile, ofile, dsize) == -1)
+     return -1;
+ 
+   if (hfs_setfork(ofile, 1) == -1)
+     {
+       ERROR(errno, hfs_error);
++      hfs_error_path = dstname;
+       return -1;
+     }
+ 
+-  if (fork_macb(ifile, ofile, rsize) == -1)
+-    return -1;
++  if (fork_macb(srcname, dstname, ifile, ofile, rsize) == -1)
++      return -1;
+ 
+   return 0;
+ }
+@@ -221,7 +227,7 @@
+  * DESCRIPTION:	perform copy using text translation
+  */
+ static
+-int do_text(int ifile, hfsfile *ofile)
++int do_text(const char *srcname, const char *dstname, int ifile, hfsfile *ofile)
+ {
+   char buf[HFS_BLOCKSZ * 4], *ptr;
+   long chunk, bytes;
+@@ -233,6 +239,7 @@
+       if (chunk == -1)
+ 	{
+ 	  ERROR(errno, "error reading source file");
++	  hfs_error_path = srcname;
+ 	  return -1;
+ 	}
+       else if (chunk == 0)
+@@ -249,6 +256,7 @@
+       if (ptr == 0)
+ 	{
+ 	  ERROR(ENOMEM, 0);
++	  hfs_error_path = srcname;
+ 	  return -1;
+ 	}
+ 
+@@ -258,11 +266,13 @@
+       if (bytes == -1)
+ 	{
+ 	  ERROR(errno, hfs_error);
++	  hfs_error_path = dstname;
+ 	  return -1;
+ 	}
+       else if (bytes != len)
+ 	{
+ 	  ERROR(EIO, "wrote incomplete chunk");
++	  hfs_error_path = dstname;
+ 	  return -1;
+ 	}
+     }
+@@ -275,7 +285,7 @@
+  * DESCRIPTION:	perform copy using no translation
+  */
+ static
+-int do_raw(int ifile, hfsfile *ofile)
++int do_raw(const char *srcname, const char *dstname, int ifile, hfsfile *ofile)
+ {
+   char buf[HFS_BLOCKSZ * 4];
+   long chunk, bytes;
+@@ -286,6 +296,7 @@
+       if (chunk == -1)
+ 	{
+ 	  ERROR(errno, "error reading source file");
++	  hfs_error_path = srcname;
+ 	  return -1;
+ 	}
+       else if (chunk == 0)
+@@ -295,11 +306,13 @@
+       if (bytes == -1)
+ 	{
+ 	  ERROR(errno, hfs_error);
++	  hfs_error_path = dstname;
+ 	  return -1;
+ 	}
+       else if (bytes != chunk)
+ 	{
+ 	  ERROR(EIO, "wrote incomplete chunk");
++	  hfs_error_path = dstname;
+ 	  return -1;
+ 	}
+     }
+@@ -436,17 +449,19 @@
+  * DESCRIPTION:	close source and destination files
+  */
+ static
+-void closefiles(int ifile, hfsfile *ofile, int *result)
++void closefiles(const char *srcname, const char *dstname, int ifile, hfsfile *ofile, int *result)
+ {
+   if (ofile && hfs_close(ofile) == -1 && *result == 0)
+     {
+       ERROR(errno, hfs_error);
++      hfs_error_path = dstname;
+       *result = -1;
+     }
+ 
+   if (close(ifile) == -1 && *result == 0)
+     {
+       ERROR(errno, "error closing source file");
++      hfs_error_path = srcname;
+       *result = -1;
+     }
+ }
+@@ -470,13 +485,17 @@
+ 
+   ifile = opensrc(srcname, &dsthint, ".bin", 1);
+   if (ifile == -1)
+-    return -1;
++    {
++      hfs_error_path = srcname;
++      return -1;
++    }
+ 
+   if (read(ifile, buf, MACB_BLOCKSZ) < MACB_BLOCKSZ)
+     {
+       ERROR(errno, "error reading MacBinary file header");
+ 
+       close(ifile);
++      hfs_error_path = srcname;
+       return -1;
+     }
+ 
+@@ -485,6 +504,7 @@
+       ERROR(EINVAL, "invalid MacBinary file header");
+ 
+       close(ifile);
++      hfs_error_path = srcname;
+       return -1;
+     }
+ 
+@@ -497,6 +517,7 @@
+       ERROR(EINVAL, "unknown, unsupported, or corrupt MacBinary file");
+ 
+       close(ifile);
++      hfs_error_path = srcname;
+       return -1;
+     }
+ 
+@@ -505,6 +526,7 @@
+       ERROR(EINVAL, "unsupported MacBinary file version");
+ 
+       close(ifile);
++      hfs_error_path = srcname;
+       return -1;
+     }
+ 
+@@ -514,6 +536,7 @@
+       ERROR(EINVAL, "invalid MacBinary file header (bad file name)");
+ 
+       close(ifile);
++      hfs_error_path = srcname;
+       return -1;
+     }
+ 
+@@ -525,6 +548,7 @@
+       ERROR(EINVAL, "invalid MacBinary file header (bad file length)");
+ 
+       close(ifile);
++      hfs_error_path = srcname;
+       return -1;
+     }
+ 
+@@ -538,10 +562,11 @@
+   if (ofile == 0)
+     {
+       close(ifile);
++      hfs_error_path = dstname;
+       return -1;
+     }
+ 
+-  result = do_macb(ifile, ofile, dsize, rsize);
++  result = do_macb(srcname, dstname, ifile, ofile, dsize, rsize);
+ 
+   if (result == 0 && hfs_fstat(ofile, &ent) == -1)
+     {
+@@ -561,7 +586,7 @@
+       result = -1;
+     }
+ 
+-  closefiles(ifile, ofile, &result);
++  closefiles(srcname, dstname, ifile, ofile, &result);
+ 
+   return result;
+ }
+@@ -657,13 +682,17 @@
+ 
+   ifile = opensrc(srcname, &dsthint, ".hqx", 0);
+   if (ifile == -1)
+-    return -1;
++    {
++      hfs_error_path = srcname;
++      return -1;
++    }
+ 
+   if (bh_open(ifile) == -1)
+     {
+       ERROR(errno, bh_error);
+ 
+       close(ifile);
++      hfs_error_path = srcname;
+       return -1;
+     }
+ 
+@@ -671,6 +700,7 @@
+     {
+       bh_close();
+       close(ifile);
++      hfs_error_path = srcname;
+       return -1;
+     }
+ 
+@@ -681,20 +711,26 @@
+     {
+       bh_close();
+       close(ifile);
++      hfs_error_path = dstname;
+       return -1;
+     }
+ 
+   result = do_binh(ofile, dsize, rsize);
++  if (result == -1)
++    hfs_error_path = dstname;
++
+ 
+   if (bh_close() == -1 && result == 0)
+     {
+       ERROR(errno, bh_error);
++      hfs_error_path = srcname;
+       result = -1;
+     }
+ 
+   if (result == 0 && hfs_fstat(ofile, &ent) == -1)
+     {
+       ERROR(errno, hfs_error);
++      hfs_error_path = dstname;
+       result = -1;
+     }
+ 
+@@ -704,10 +740,11 @@
+   if (result == 0 && hfs_fsetattr(ofile, &ent) == -1)
+     {
+       ERROR(errno, hfs_error);
++      hfs_error_path = dstname;
+       result = -1;
+     }
+ 
+-  closefiles(ifile, ofile, &result);
++  closefiles(srcname, dstname, ifile, ofile, &result);
+ 
+   return result;
+ }
+@@ -724,18 +761,22 @@
+ 
+   ifile = opensrc(srcname, &dsthint, ".txt", 0);
+   if (ifile == -1)
+-    return -1;
++    {
++      hfs_error_path = srcname;
++      return -1;
++    }
+ 
+   ofile = opendst(vol, dstname, dsthint, TEXT_TYPE, TEXT_CREA);
+   if (ofile == 0)
+     {
+       close(ifile);
++      hfs_error_path = dstname;
+       return -1;
+     }
+ 
+-  result = do_text(ifile, ofile);
++  result = do_text(srcname, dstname, ifile, ofile);
+ 
+-  closefiles(ifile, ofile, &result);
++  closefiles(srcname, dstname, ifile, ofile, &result);
+ 
+   return result;
+ }
+@@ -752,18 +793,22 @@
+ 
+   ifile = opensrc(srcname, &dsthint, 0, 1);
+   if (ifile == -1)
+-    return -1;
++    {
++      hfs_error_path = srcname;
++      return -1;
++    }
+ 
+   ofile = opendst(vol, dstname, dsthint, RAW_TYPE, RAW_CREA);
+   if (ofile == 0)
+     {
+       close(ifile);
++      hfs_error_path = dstname;
+       return -1;
+     }
+ 
+-  result = do_raw(ifile, ofile);
++  result = do_raw(srcname, dstname, ifile, ofile);
+ 
+-  closefiles(ifile, ofile, &result);
++  closefiles(srcname, dstname, ifile, ofile, &result);
+ 
+   return result;
+ }
+--- copyout.c
++++ copyout.c	2000/11/03 08:57:59
+@@ -537,12 +537,16 @@
+ 
+   *ifile = opensrc(vol, srcname, &dsthint, ext);
+   if (*ifile == 0)
+-    return -1;
++    {
++      hfs_error_path = srcname;
++      return -1;
++    }
+ 
+   *ofile = opendst(dstname, dsthint);
+   if (*ofile == -1)
+     {
+       hfs_close(*ifile);
++      hfs_error_path = dstname;
+       return -1;
+     }
+ 
+@@ -554,17 +558,19 @@
+  * DESCRIPTION:	close source and destination files
+  */
+ static
+-void closefiles(hfsfile *ifile, int ofile, int *result)
++void closefiles(const char *srcname, const char *dstname, hfsfile *ifile, int ofile, int *result)
+ {
+   if (close(ofile) == -1 && *result == 0)
+     {
+       ERROR(errno, "error closing destination file");
++      hfs_error_path = dstname;
+       *result = -1;
+     }
+ 
+   if (hfs_close(ifile) == -1 && *result == 0)
+     {
+       ERROR(errno, hfs_error);
++      hfs_error_path = srcname;
+       *result = -1;
+     }
+ }
+@@ -585,7 +591,7 @@
+ 
+   result = do_macb(ifile, ofile);
+ 
+-  closefiles(ifile, ofile, &result);
++  closefiles(srcname, dstname, ifile, ofile, &result);
+ 
+   return result;
+ }
+@@ -604,7 +610,7 @@
+ 
+   result = do_binh(ifile, ofile);
+ 
+-  closefiles(ifile, ofile, &result);
++  closefiles(srcname, dstname, ifile, ofile, &result);
+ 
+   return result;
+ }
+@@ -627,7 +633,7 @@
+ 
+   result = do_text(ifile, ofile);
+ 
+-  closefiles(ifile, ofile, &result);
++  closefiles(srcname, dstname, ifile, ofile, &result);
+ 
+   return result;
+ }
+@@ -646,7 +652,7 @@
+ 
+   result = do_raw(ifile, ofile);
+ 
+-  closefiles(ifile, ofile, &result);
++  closefiles(srcname, dstname, ifile, ofile, &result);
+ 
+   return result;
+ }
+--- hcopy.c
++++ hcopy.c	2000/11/03 08:57:59
+@@ -93,7 +93,8 @@
+   if (argc > 1 && (hfs_stat(vol, dest, &ent) == -1 ||
+ 		   ! (ent.flags & HFS_ISDIR)))
+     {
+-      ERROR(ENOTDIR, 0);
++      if (errno == 0 ) 
++	ERROR(ENOTDIR, 0);
+       hfsutil_perrorp(dest);
+ 
+       return 1;
+@@ -123,7 +124,8 @@
+       if (stat(argv[i], &sbuf) != -1 &&
+ 	  S_ISDIR(sbuf.st_mode))
+ 	{
+-	  ERROR(EISDIR, 0);
++	  if (errno == 0 ) 
++	    ERROR(EISDIR, 0);
+ 	  hfsutil_perrorp(argv[i]);
+ 
+ 	  result = 1;
+@@ -135,8 +137,9 @@
+ 
+ 	  if (copyfile(argv[i], vol, dest) == -1)
+ 	    {
+-	      ERROR(errno, cpi_error);
+-	      hfsutil_perrorp(argv[i]);
++	      if (errno == 0 )
++		ERROR(errno, cpi_error);
++	      hfsutil_perrorp(hfs_error_path);
+ 
+ 	      result = 1;
+ 	    }
+@@ -182,7 +185,8 @@
+   if (argc > 1 && (stat(dest, &sbuf) == -1 ||
+ 		   ! S_ISDIR(sbuf.st_mode)))
+     {
+-      ERROR(ENOTDIR, 0);
++      if (errno == 0 ) 
++	ERROR(ENOTDIR, 0);
+       hfsutil_perrorp(dest);
+ 
+       return 1;
+@@ -212,7 +216,8 @@
+       if (hfs_stat(vol, argv[i], &ent) != -1 &&
+ 	  (ent.flags & HFS_ISDIR))
+ 	{
+-	  ERROR(EISDIR, 0);
++	  if (errno == 0 ) 
++	    ERROR(EISDIR, 0);
+ 	  hfsutil_perrorp(argv[i]);
+ 
+ 	  result = 1;
+@@ -225,7 +230,7 @@
+ 	  if (copyfile(vol, argv[i], dest) == -1)
+ 	    {
+ 	      ERROR(errno, cpo_error);
+-	      hfsutil_perrorp(argv[i]);
++	      hfsutil_perrorp(hfs_error_path);
+ 
+ 	      result = 1;
+ 	    }
+--- libhfs/Makefile.in
++++ libhfs/Makefile.in	2000/11/03 09:01:53
+@@ -72,8 +72,8 @@
+ 	@echo "No self-tests available."
+ 
+ install ::
+-	$(LIBINSTALL) libhfs.a "$(LIBDEST)/."
+-	$(LIBINSTALL) hfs.h "$(INCDEST)/."
++	$(LIBINSTALL) libhfs.a $(DESTDIR)"$(LIBDEST)/."
++	$(LIBINSTALL) hfs.h $(DESTDIR)"$(INCDEST)/."
+ 
+ again :: clean all
+ 
+--- libhfs/hfs.h
++++ libhfs/hfs.h	2000/11/03 08:57:59
+@@ -115,6 +115,7 @@
+ # define HFS_FNDR_ISALIAS		(1 << 15)
+ 
+ extern const char *hfs_error;
++char *hfs_error_path;
+ extern const unsigned char hfs_charorder[];
+ 
+ # define HFS_MODE_RDONLY	0
+--- librsrc/Makefile.in
++++ librsrc/Makefile.in	2000/11/03 09:02:19
+@@ -68,8 +68,8 @@
+ 	@echo "No self-tests available."
+ 
+ install ::
+-	$(LIBINSTALL) librsrc.a "$(LIBDEST)/."
+-	$(LIBINSTALL) rsrc.h "$(INCDEST)/."
++	$(LIBINSTALL) librsrc.a $(DESTDIR)"$(LIBDEST)/."
++	$(LIBINSTALL) rsrc.h $(DESTDIR)"$(INCDEST)/."
+ 
+ again :: clean all
+ 
+--- strerror.c
++++ strerror.c	2000/11/03 08:57:59
+@@ -64,6 +64,10 @@
+     case EROFS:		return "Read-only file system";
+     case ENAMETOOLONG:	return "File name too long";
+     case ENOTEMPTY:	return "Directory not empty";
++    case EBADF:         return "Bad file number";
++    case ELOOP:         return "Too many symbolic links encountered";
++    case EFAULT:        return "Bad address";
++    case EACCES:        return "Permission denied";
+     }
+ 
+ # endif

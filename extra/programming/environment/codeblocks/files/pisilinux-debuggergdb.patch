@@ -1,0 +1,127 @@
+--- codeblocks-12.11release8629-orig/src/plugins/debuggergdb/gdb_driver.cpp	2012-11-23 20:58:15.000000000 +0200
++++ codeblocks-12.11release8629/src/plugins/debuggergdb/gdb_driver.cpp	2013-01-23 00:16:51.780265717 +0200
+@@ -213,105 +213,6 @@
+     m_pTarget = target;
+ }
+ 
+-void GDB_driver::Prepare(bool isConsole, int printElements)
+-{
+-    // default initialization
+-
+-    // for the possibility that the program to be debugged is compiled under Cygwin
+-    if (platform::windows)
+-        DetectCygwinMount();
+-
+-    // make sure we 're using the prompt that we know and trust ;)
+-    QueueCommand(new DebuggerCmd(this, wxString(_T("set prompt ")) + FULL_GDB_PROMPT));
+-
+-    // debugger version
+-    QueueCommand(new DebuggerCmd(this, _T("show version")));
+-    // no confirmation
+-    QueueCommand(new DebuggerCmd(this, _T("set confirm off")));
+-    // no wrapping lines
+-    QueueCommand(new DebuggerCmd(this, _T("set width 0")));
+-    // no pagination
+-    QueueCommand(new DebuggerCmd(this, _T("set height 0")));
+-    // allow pending breakpoints
+-    QueueCommand(new DebuggerCmd(this, _T("set breakpoint pending on")));
+-    // show pretty function names in disassembly
+-    QueueCommand(new DebuggerCmd(this, _T("set print asm-demangle on")));
+-    // unwind stack on signal
+-    QueueCommand(new DebuggerCmd(this, _T("set unwindonsignal on")));
+-    // disalbe result string truncations
+-    QueueCommand(new DebuggerCmd(this, wxString::Format(wxT("set print elements %d"), printElements)));
+-
+-    if (platform::windows && isConsole)
+-        QueueCommand(new DebuggerCmd(this, _T("set new-console on")));
+-
+-    flavour = m_pDBG->GetActiveConfigEx().GetDisassemblyFlavorCommand();
+-    QueueCommand(new DebuggerCmd(this, flavour));
+-
+-    if (m_pDBG->GetActiveConfigEx().GetFlag(DebuggerConfiguration::CatchExceptions))
+-    {
+-        m_catchThrowIndex = -1;
+-        // catch exceptions
+-        QueueCommand(new GdbCmd_SetCatch(this, wxT("throw"), &m_catchThrowIndex));
+-    }
+-
+-    // define all scripted types
+-    m_Types.Clear();
+-    InitializeScripting();
+-
+-    // pass user init-commands
+-    wxString init = m_pDBG->GetActiveConfigEx().GetInitCommands();
+-    Manager::Get()->GetMacrosManager()->ReplaceMacros(init);
+-    // commands are passed in one go, in case the user defines functions in there
+-    // or else it would lock up...
+-    QueueCommand(new DebuggerCmd(this, init));
+-//    wxArrayString initCmds = GetArrayFromString(init, _T('\n'));
+-//    for (unsigned int i = 0; i < initCmds.GetCount(); ++i)
+-//    {
+-//        QueueCommand(new DebuggerCmd(this, initCmds[i]));
+-//    }
+-
+-    // add search dirs
+-    for (unsigned int i = 0; i < m_Dirs.GetCount(); ++i)
+-        QueueCommand(new GdbCmd_AddSourceDir(this, m_Dirs[i]));
+-
+-    // set arguments
+-    if (!m_Args.IsEmpty())
+-        QueueCommand(new DebuggerCmd(this, _T("set args ") + m_Args));
+-
+-    RemoteDebugging* rd = GetRemoteDebuggingInfo();
+-
+-    // send additional gdb commands before establishing remote connection
+-    if (rd)
+-    {
+-        if (!rd->additionalCmdsBefore.IsEmpty())
+-        {
+-            wxArrayString initCmds = GetArrayFromString(rd->additionalCmdsBefore, _T('\n'));
+-            for (unsigned int i = 0; i < initCmds.GetCount(); ++i)
+-                QueueCommand(new DebuggerCmd(this, initCmds[i]));
+-        }
+-    }
+-
+-    // if performing remote debugging, now is a good time to try and connect to the target :)
+-    if (rd && rd->IsOk())
+-    {
+-        if (rd->connType == RemoteDebugging::Serial)
+-            QueueCommand(new GdbCmd_RemoteBaud(this, rd->serialBaud));
+-        QueueCommand(new GdbCmd_RemoteTarget(this, rd));
+-    }
+-
+-    // run per-target additional commands (remote debugging)
+-    // moved after connection to remote target (if any)
+-    if (rd)
+-    {
+-        if (!rd->additionalCmds.IsEmpty())
+-        {
+-            wxArrayString initCmds = GetArrayFromString(rd->additionalCmds, _T('\n'));
+-            for (unsigned int i = 0; i < initCmds.GetCount(); ++i)
+-                QueueCommand(new DebuggerCmd(this, initCmds[i]));
+-        }
+-    }
+-}
+-
+ // remote debugging
+ RemoteDebugging* GDB_driver::GetRemoteDebuggingInfo()
+ {
+@@ -629,17 +530,6 @@
+     QueueCommand(new DebuggerInfoCmd(this, _T("info signals"), _("Signals handling")));
+ }
+ 
+-void GDB_driver::EnableCatchingThrow(bool enable)
+-{
+-    if (enable)
+-        QueueCommand(new GdbCmd_SetCatch(this, wxT("throw"), &m_catchThrowIndex));
+-    else if (m_catchThrowIndex != -1)
+-    {
+-        QueueCommand(new DebuggerCmd(this, wxString::Format(wxT("delete %d"), m_catchThrowIndex)));
+-        m_catchThrowIndex = -1;
+-    }
+-}
+-
+ void GDB_driver::SwitchThread(size_t threadIndex)
+ {
+     ResetCursor();
+ 
