@@ -1,0 +1,277 @@
+diff -Naur pisi~/cli/pisicli.py pisi/cli/pisicli.py
+--- pisi~/cli/pisicli.py	2011-05-26 19:17:29.000000000 +0200
++++ pisi/cli/pisicli.py	2014-07-05 20:01:49.432333678 +0200
+@@ -39,6 +39,7 @@
+ import pisi.cli.listavailable
+ import pisi.cli.listcomponents
+ import pisi.cli.listinstalled
++import pisi.cli.listorphaned
+ import pisi.cli.listpending
+ import pisi.cli.listrepo
+ import pisi.cli.listsources
+@@ -46,6 +47,7 @@
+ import pisi.cli.rebuilddb
+ import pisi.cli.remove
+ import pisi.cli.removerepo
++import pisi.cli.removeorphaned
+ import pisi.cli.enablerepo
+ import pisi.cli.disablerepo
+ import pisi.cli.searchfile
+diff -Naur pisi~/cli/listorphaned.py pisi/cli/listorphaned.py
+--- pisi~/cli/listorphaned.py	1970-01-01 01:00:00.000000000 +0100
++++ pisi/cli/listorphaned.py	2014-09-15 22:22:18.827459865 +0200
+@@ -0,0 +1,59 @@
++# -*- coding:utf-8 -*-
++#
++# Copyright (C) 2014, marcin.bojara (at) gmail.com
++#
++# This program is free software; you can redistribute it and/or modify it under
++# the terms of the GNU General Public License as published by the Free
++# Software Foundation; either version 2 of the License, or (at your option)
++# any later version.
++#
++# Please read the COPYING file.
++#
++
++import optparse
++
++import gettext
++__trans = gettext.translation('pisi', fallback=True)
++_ = __trans.ugettext
++
++import pisi.cli.command as command
++import pisi.context as ctx
++import pisi.util as util
++import pisi.db
++
++class ListOrphaned(command.Command):
++    __doc__ = _("""List orphaned packages
++
++Usage: list-orphaned
++
++Lists packages installed as dependency, but no longer needed by any other installed package.
++""")
++    __metaclass__ = command.autocommand
++
++    def __init__(self, args):
++        super(ListOrphaned, self).__init__(args)
++        self.installdb = pisi.db.installdb.InstallDB()
++
++    name = ("list-orphaned", "lo")
++
++    def options(self):
++
++        group = optparse.OptionGroup(self.parser, _("list-orphaned options"))
++        group.add_option("-a", "--all", action="store_true",
++                               default=False, help=_("Show all packages without reverse dependencies"))
++        group.add_option("-x", "--exclude", action="append",
++                     default=None, help=_("Ignore packages and components whose basenames match pattern."))
++        self.parser.add_option_group(group)
++
++    def run(self):
++
++        self.init(database = True, write = False)
++        orphaned = self.installdb.get_no_rev_deps() if self.options.all else self.installdb.get_orphaned()
++
++        if self.options.exclude:
++            orphaned = pisi.blacklist.exclude(orphaned, ctx.get_option('exclude'))
++
++        if orphaned:
++            ctx.ui.info(_("Orphaned packages:"))
++            ctx.ui.info(util.format_by_columns(sorted(orphaned)))
++        else: ctx.ui.info(_("No orphaned packages"))
+diff -Naur pisi~/cli/removeorphaned.py pisi/cli/removeorphaned.py
+--- pisi~/cli/removeorphaned.py	1970-01-01 01:00:00.000000000 +0100
++++ pisi/cli/removeorphaned.py	2014-09-15 22:22:37.484459184 +0200
+@@ -0,0 +1,55 @@
++# -*- coding:utf-8 -*-
++#
++# Copyright (C) 2014, marcin.bojara (at) gmail.com
++#
++# This program is free software; you can redistribute it and/or modify it under
++# the terms of the GNU General Public License as published by the Free
++# Software Foundation; either version 2 of the License, or (at your option)
++# any later version.
++#
++# Please read the COPYING file.
++#
++
++import optparse
++
++import gettext
++__trans = gettext.translation('pisi', fallback=True)
++_ = __trans.ugettext
++
++import pisi.cli.command as command
++import pisi.context as ctx
++import pisi.api
++import pisi.db
++
++class RemoveOrphaned(command.PackageOp):
++    __doc__ = _("""Remove orphaned packages
++
++Usage: remove-orphaned
++
++Remove all orphaned packages from the system.
++""")
++    __metaclass__ = command.autocommand
++
++    def __init__(self,args):
++        super(RemoveOrphaned, self).__init__(args)
++        self.installdb = pisi.db.installdb.InstallDB()
++
++    name = ("remove-orphaned", "ro")
++
++    def options(self):
++        group = optparse.OptionGroup(self.parser, _("remove-orphaned options"))
++
++        super(RemoveOrphaned, self).options(group)
++        group.add_option("-x", "--exclude", action="append",
++                     default=None, help=_("When removing orphaned, ignore packages and components whose basenames match pattern."))
++
++        self.parser.add_option_group(group)
++
++    def run(self):
++
++        self.init(database = True, write = False)
++        orphaned = self.installdb.get_orphaned()
++        if ctx.get_option('exclude'):
++            orphaned = pisi.blacklist.exclude(orphaned, ctx.get_option('exclude')) 
++
++        pisi.api.remove(orphaned)
+diff -Naur pisi~/constants.py pisi/constants.py
+--- pisi~/constants.py	2014-06-15 16:33:39.000000000 +0200
++++ pisi/constants.py	2014-08-14 20:51:46.437906848 +0200
+@@ -104,6 +104,7 @@
+         self.__c.system_devel_component = "system.devel"
+         self.__c.devels_component = "programming.devel"
+         self.__c.docs_component = "programming.docs"
++        self.__c.installed_extra = "installedextra"
+ 
+         #file/directory permissions
+         self.__c.umask = 0022
+diff -Naur pisi~/db/installdb.py pisi/db/installdb.py
+--- pisi~/db/installdb.py	2014-06-15 16:33:39.000000000 +0200
++++ pisi/db/installdb.py	2014-08-31 16:59:29.586602738 +0200
+@@ -67,6 +67,15 @@
+     def init(self):
+         self.installed_db = self.__generate_installed_pkgs()
+         self.rev_deps_db = self.__generate_revdeps()
++        self.installed_extra = self.__generate_installed_extra() 
++
++    def __generate_installed_extra(self):
++        ie = []
++        ie_path = os.path.join(ctx.config.info_dir(), ctx.const.installed_extra)
++        if os.path.isfile(ie_path):
++             with open(ie_path) as ie_file:
++                 ie.extend(ie_file.read().strip().split("\n"))
++        return ie
+ 
+     def __generate_installed_pkgs(self):
+         def split_name(dirname):
+@@ -259,6 +268,19 @@
+ 
+         return rev_deps
+ 
++    def get_orphaned(self):
++        """
++        get list of packages installed as extra dependency,
++        but without reverse dependencies now.
++        """
++        return [x for x in self.installed_extra if not self.get_rev_deps(x)]
++
++    def get_no_rev_deps(self):
++        """
++        get installed packages list which haven't reverse dependencies.
++        """
++        return [x for x in self.installed_db if not self.get_rev_deps(x)]
++
+     def pkg_dir(self, pkg, version, release):
+         return pisi.util.join_path(ctx.config.packages_dir(), pkg + '-' + version + '-' + release)
+ 
+diff -Naur pisi~/operations/install.py pisi/operations/install.py
+--- pisi~/operations/install.py	2014-09-15 22:14:00.381478078 +0200
++++ pisi/operations/install.py	2014-07-03 18:54:49.000000000 +0200
+@@ -27,7 +27,7 @@
+ import pisi.ui as ui
+ import pisi.db
+ 
+-def install_pkg_names(A, reinstall = False):
++def install_pkg_names(A, reinstall = False, extra = False):
+     """This is the real thing. It installs packages from
+     the repository, trying to perform a minimum number of
+     installs"""
+@@ -78,7 +78,8 @@
+     if ctx.get_option('dry_run'):
+         return True
+ 
+-    if set(order) - A_0:
++    extra_packages = set(order) - A_0
++    if extra_packages:
+         if not ctx.ui.confirm(_('There are extra packages due to dependencies. Do you want to continue?')):
+             return False
+ 
+@@ -91,10 +92,18 @@
+         conflicts = operations.helper.check_conflicts(order, packagedb)
+ 
+     paths = []
++    extra_paths = {}
+     for x in order:
+         ctx.ui.info(util.colorize(_("Downloading %d / %d") % (order.index(x)+1, len(order)), "yellow"))
+         install_op = atomicoperations.Install.from_name(x)
+         paths.append(install_op.package_fname)
++        if x in extra_packages or (extra and x in A):
++            extra_paths[install_op.package_fname] = x
++        elif reinstall and  x in installdb.installed_extra:
++            installdb.installed_extra.remove(x)
++            with open(os.path.join(ctx.config.info_dir(), ctx.const.installed_extra), "w") as ie_file:
++                ie_file.write("\n".join(installdb.installed_extra) + ("\n" if installdb.installed_extra else ""))
++
+ 
+     # fetch to be installed packages but do not install them.
+     if ctx.get_option('fetch_only'):
+@@ -107,6 +116,12 @@
+         ctx.ui.info(util.colorize(_("Installing %d / %d") % (paths.index(path)+1, len(paths)), "yellow"))
+         install_op = atomicoperations.Install(path)
+         install_op.install(False)
++        try:
++            with open(os.path.join(ctx.config.info_dir(), ctx.const.installed_extra), "a") as ie_file:
++                ie_file.write("%s\n" % extra_paths[path])
++            installdb.installed_extra.append(extra_paths[path])
++        except KeyError:
++            pass
+ 
+     return True
+ 
+@@ -199,7 +214,7 @@
+         ctx.ui.info(util.format_by_columns(sorted(extra_packages)))
+         if not ctx.ui.confirm(_('Do you want to continue?')):
+             raise Exception(_('External dependencies not satisfied'))
+-        install_pkg_names(extra_packages, reinstall=True)
++        install_pkg_names(extra_packages, reinstall=True, extra=True)
+ 
+     class PackageDB:
+         def get_package(self, key, repo = None):
+diff -Naur pisi~/operations/remove.py pisi/operations/remove.py
+--- pisi~/operations/remove.py	2014-09-15 22:14:00.381478078 +0200
++++ pisi/operations/remove.py	2014-07-03 18:54:49.000000000 +0200
+@@ -10,6 +10,7 @@
+ # Please read the COPYING file.
+ #
+ 
++import os
+ import sys
+ 
+ import gettext
+@@ -81,6 +82,11 @@
+     for x in order:
+         if installdb.has_package(x):
+             atomicoperations.remove_single(x)
++            if x in installdb.installed_extra:
++                installdb.installed_extra.remove(x)
++                with open(os.path.join(ctx.config.info_dir(), ctx.const.installed_extra), "w") as ie_file:
++                    ie_file.write("\n".join(installdb.installed_extra) + ("\n" if installdb.installed_extra else ""))
++
+         else:
+             ctx.ui.info(_('Package %s is not installed. Cannot remove.') % x)
+ 
