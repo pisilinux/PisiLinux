@@ -1,0 +1,81 @@
+--- a/nepomuk/server/servicecontroller.cpp
++++ b/nepomuk/server/servicecontroller.cpp
+@@ -30,6 +30,8 @@
+ #include <KConfigGroup>
+ #include <KDebug>
+ 
++// Added by Kubuntu Strigi-RAM patch
++#include <unistd.h>
+ 
+ namespace {
+     inline QString dbusServiceName( const QString& serviceName ) {
+@@ -48,13 +50,15 @@
+           attached( false ),
+           started( false ),
+           initialized( false ),
+-          failedToInitialize( false ) {
++          failedToInitialize( false ),
++          stopForRam( false ) {
+     }
+ 
+     KService::Ptr service;
+     bool autostart;
+     bool startOnDemand;
+     bool runOnce;
++    bool stopForRam;
+ 
+     ProcessControl* processControl;
+     OrgKdeNepomukServiceControlInterface* serviceControlInterface;
+@@ -85,6 +89,27 @@
+     KConfigGroup cg( Server::self()->config(), QString("Service-%1").arg(service->desktopEntryName()) );
+     autostart = cg.readEntry( "autostart", autostart );
+ 
++    // Kubuntu patch; We don't want strigi running on systems with too little RAM
++    if (service->desktopEntryName() == "nepomukstrigiservice") {
++        bool firstStart = cg.readEntry( "First start", false );
++        if ( firstStart == true ) {
++            int memorySize = sysconf(_SC_PHYS_PAGES);
++            memorySize *= sysconf(_SC_PAGESIZE) / 1024;
++
++            // 1GB in bytes divided by 1024
++            if (memorySize <= 1048576) {
++              kDebug() << "Not enough ram, scotty!";
++              // Don't start in the future unless set in nepomuk KCM
++              cg.writeEntry( "autostart", false);
++              // So we know to quit it later
++              stopForRam = true;
++            }
++            cg.writeEntry( "First start", false);
++            cg.sync();
++        }
++    }
++
++
+     QVariant p = service->property( "X-KDE-Nepomuk-start-on-demand", QVariant::Bool );
+     startOnDemand = ( p.isValid() ? p.toBool() : false );
+ 
+@@ -198,6 +223,14 @@
+     else {
+         kDebug() << "Starting" << name();
+ 
++        // Kubuntu "stop strigi if not enough ram" patch
++        if (name() == "nepomukstrigiservice") {
++            if (d->stopForRam) {
++                d->stopForRam = false;
++                return false;
++            }
++        }
++
+         if( !d->processControl ) {
+             d->processControl = new ProcessControl( this );
+             connect( d->processControl, SIGNAL( finished( bool ) ),
+--- a/nepomuk/server/nepomukserver.kcfg
++++ b/nepomuk/server/nepomukserver.kcfg
+@@ -13,4 +13,7 @@
+       <default>sesame2</default>
+     </entry>
+   </group>
++    <entry key="First start" type="Bool">
++      <default>true</default>
++    </entry>
+ </kcfg>

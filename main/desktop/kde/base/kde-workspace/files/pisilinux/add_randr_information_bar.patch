@@ -1,0 +1,354 @@
+Index: kde-workspace-4.7.1/kcontrol/randr/CMakeLists.txt
+===================================================================
+--- kde-workspace-4.7.1.orig/kcontrol/randr/CMakeLists.txt
++++ kde-workspace-4.7.1/kcontrol/randr/CMakeLists.txt
+@@ -26,6 +26,7 @@ endif( XRANDR_1_2_FOUND )
+ 
+ set(kcm_randr_PART_SRCS 
+    krandrmodule.cpp 
++   glinfo.cpp
+    legacyrandrconfig.cpp
+    ${randrinternal_PART_SRCS})
+ 
+@@ -38,7 +39,10 @@ kde4_add_ui_files(kcm_randr_PART_SRCS
+ kde4_add_plugin(kcm_randr ${kcm_randr_PART_SRCS})
+ 
+ 
+-target_link_libraries(kcm_randr  ${KDE4_KDEUI_LIBS} ${X11_Xrandr_LIB} ${X11_LIBRARIES})
++target_link_libraries(kcm_randr  ${KDE4_KDEUI_LIBS} ${X11_Xrandr_LIB}
++    ${X11_LIBRARIES} ${QT_QTGUI_LIBRARY} ${X11_X11_LIB} ${OPENGL_gl_LIBRARY} ${KDE4_KIO_LIBS})
++
++
+ 
+ install(TARGETS kcm_randr  DESTINATION ${PLUGIN_INSTALL_DIR} )
+ 
+@@ -66,5 +70,5 @@ install(PROGRAMS krandrstartup DESTINATI
+ 
+ ########### install files ###############
+ 
+-install( PROGRAMS krandrtray.desktop  DESTINATION  ${XDG_APPS_INSTALL_DIR} )
++install( FILES krandrtray.desktop  DESTINATION  ${XDG_APPS_INSTALL_DIR} )
+ install( FILES randr.desktop  DESTINATION  ${SERVICES_INSTALL_DIR} )
+Index: kde-workspace-4.7.1/kcontrol/randr/glinfo.cpp
+===================================================================
+--- /dev/null
++++ kde-workspace-4.7.1/kcontrol/randr/glinfo.cpp
+@@ -0,0 +1,63 @@
++#include <glinfo.h>
++#include <kdebug.h>
++
++#include <X11/Xlib.h>
++#include <X11/Xutil.h>
++
++// OpenGL includes
++#include <GL/gl.h>
++#include <GL/glext.h>
++#include <GL/glx.h>
++
++
++void GlInfo::getGlStrings()
++{
++  GLXContext ctx;
++  char *displayName = NULL;
++  int scrnum = 0;
++
++  const int attribSingle[] = {
++    GLX_RGBA,
++    GLX_RED_SIZE, 1,
++    GLX_GREEN_SIZE, 1,
++    GLX_BLUE_SIZE, 1,
++    None };
++  const int attribDouble[] = {
++    GLX_RGBA,
++    GLX_RED_SIZE, 1,
++    GLX_GREEN_SIZE, 1,
++    GLX_BLUE_SIZE, 1,
++    GLX_DOUBLEBUFFER,
++    None };
++
++  Display *dpy = XOpenDisplay(displayName);
++  unsigned long mask;
++  XVisualInfo *visinfo;
++  Window root, win;
++  XSetWindowAttributes attr;
++
++  root = DefaultRootWindow(dpy);
++
++  visinfo = glXChooseVisual(dpy, scrnum, const_cast<int*>(attribSingle));
++  if (!visinfo) {
++     visinfo = glXChooseVisual(dpy, scrnum, const_cast<int*>(attribDouble));
++     if (!visinfo) {
++       kDebug() << "Error: couldn't find RGB GLX visual\n";
++       return ;
++     }
++  }
++
++  attr.colormap = XCreateColormap(dpy, root, visinfo->visual, AllocNone);
++  attr.event_mask = StructureNotifyMask | ExposureMask;
++  mask = CWBackPixel | CWBorderPixel | CWColormap | CWEventMask;
++  win = XCreateWindow(dpy, root, 0, 0, 600, 600, 0, visinfo->depth, InputOutput, visinfo->visual, mask, &attr);
++
++  ctx = glXCreateContext( dpy, visinfo, NULL, GL_TRUE);
++
++  if (glXMakeCurrent(dpy, win, ctx)) {
++    glVendor = (const char *) glGetString(GL_VENDOR);
++    glRenderer = (const char *) glGetString(GL_RENDERER);
++    glVersion = (const char *) glGetString(GL_VERSION);
++  }
++
++}
+Index: kde-workspace-4.7.1/kcontrol/randr/glinfo.h
+===================================================================
+--- /dev/null
++++ kde-workspace-4.7.1/kcontrol/randr/glinfo.h
+@@ -0,0 +1,14 @@
++#include <QtCore/QString>
++
++class GlInfo
++
++{
++public:
++
++    void getGlStrings();
++    const char *glVendor;
++    const char *glRenderer;
++    const char *glVersion;
++
++};
++
+Index: kde-workspace-4.7.1/kcontrol/randr/krandrmodule.cpp
+===================================================================
+--- kde-workspace-4.7.1.orig/kcontrol/randr/krandrmodule.cpp
++++ kde-workspace-4.7.1/kcontrol/randr/krandrmodule.cpp
+@@ -20,17 +20,35 @@
+ #include "krandrmodule.h"
+ #include "legacyrandrconfig.h"
+ #include <QTextStream>
++#include <QSizePolicy>
++#include <QBrush>
+ #include "legacyrandrscreen.h"
+ #include "randrdisplay.h"
+ #include "randrconfig.h"
+ 
++// X11 includes
++#include <X11/Xlib.h>
++#include <X11/Xutil.h>
++
++// OpenGL includes
++#include <GL/gl.h>
++#include <GL/glext.h>
++#include <GL/glx.h>
++
+ #include <KPluginFactory>
+ #include <KPluginLoader>
+ #include <KDebug>
++#include <KIcon>
++#include <KProcess>
++#include <KMessageBox>
++#include <KStandardDirs>
++#include <KColorScheme>
++#include <kdesktopfileactions.h>
+ #include <KApplication>
+ #include <config-randr.h>
+ 
+ #include "randr.h"
++#include "glinfo.h"
+ 
+ // DLL Interface for kcontrol
+ K_PLUGIN_FACTORY(KSSFactory, registerPlugin<KRandRModule>();)
+@@ -43,7 +61,9 @@ KRandRModule::KRandRModule(QWidget *pare
+ 	if (!m_display->isValid())
+ 	{
+ 		QVBoxLayout *topLayout = new QVBoxLayout(this);
+-		QLabel *label =
++		
++       
++        QLabel *label =
+ 		    new QLabel(i18n("Your X server does not support resizing and "
+ 		                    "rotating the display. Please update to version 4.3 "
+ 						"or greater. You need the X Resize, Rotate, and Reflect "
+@@ -60,6 +80,104 @@ KRandRModule::KRandRModule(QWidget *pare
+ 	topLayout->setMargin(0);
+ 	topLayout->setSpacing(KDialog::spacingHint());
+ 
++    QFrame* stateContainer = new QFrame(this);
++    stateContainer->setAutoFillBackground(true);
++    stateContainer->setFrameShape(QFrame::Box);
++    stateContainer->setFrameShadow(QFrame::Plain); 
++
++    topLayout->addWidget(stateContainer);
++
++    QHBoxLayout* stateHorizontalLayout = new QHBoxLayout(stateContainer);
++
++    QLabel* stateIconLabel = new QLabel(stateContainer);
++    QSizePolicy sizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
++    sizePolicy.setHorizontalStretch(0);
++    sizePolicy.setVerticalStretch(0);
++    sizePolicy.setHeightForWidth(stateIconLabel->sizePolicy().hasHeightForWidth());
++    stateIconLabel->setSizePolicy(sizePolicy);
++    stateIconLabel->setMinimumSize(QSize(22, 22));
++
++    stateHorizontalLayout->addWidget(stateIconLabel);
++
++    QLabel* stateTextLabel = new QLabel(stateContainer);
++    stateTextLabel->setText(QString::fromUtf8("[current notification system information]"));
++    stateTextLabel->setWordWrap(false);
++
++    stateHorizontalLayout->addWidget(stateTextLabel);
++
++    QPushButton* startButton = new QPushButton(stateContainer);
++    stateContainer->setFixedHeight(38);
++
++    stateHorizontalLayout->addStretch();
++    stateHorizontalLayout->addWidget(startButton);
++
++    glInfo = new GlInfo();
++    glInfo->getGlStrings();
++
++    QString vendorText;
++    vendorText = glInfo->glVendor;
++
++    QString icon = "dialog-information";
++    QString text;
++    text = i18n("Your graphic card's manufacturer provides a tool for these settings.\n"
++                "It's recommended to use this tool. You can start it by clicking the button on the left.");
++
++    bool showStartButton = false;
++    bool nvidia = false;
++    bool ati = false;
++
++    // The user might remove these applications. Check for them too
++    bool nvidia_file = !KStandardDirs::findExe("nvidia-settings").isNull();
++    bool ati_file = !KStandardDirs::findExe("amdcccle").isNull();
++
++    if (vendorText.startsWith("NVIDIA") && nvidia_file){
++        nvidia = true;
++        startButton->setText(i18n("Start Nvidia Settings"));
++        startButton->setIcon(KIcon("nvidia-settings"));
++        showStartButton = true;
++    }
++    else if (vendorText.startsWith("ATI") && ati_file){
++        ati = true;
++        startButton->setText(i18n("Start Ati Control Center"));
++        startButton->setIcon(KIcon("amdcccle"));
++        showStartButton = true;
++    }
++
++    // Adjust palette
++    KColorScheme scheme(QPalette::Active, KColorScheme::Window);
++    QBrush bg = scheme.background(KColorScheme::PositiveBackground);
++    QBrush fg = scheme.foreground(KColorScheme::NormalText);
++
++    stateContainer->setStyleSheet(
++        QString(".QFrame {"
++            "background-color: %1;"
++            "border-radius: 3px;"
++            "border: 1px solid %2;"
++            "}"
++            ".QLabel { color: %2; }"
++            )
++        .arg(bg.color().name())
++        .arg(fg.color().name())
++        );
++
++    stateIconLabel->setPixmap(KIcon(icon).pixmap(22));
++    stateTextLabel->setText(text);
++    startButton->setVisible(showStartButton);
++
++    if (nvidia || ati) {
++        stateContainer->show();
++        if (nvidia) {
++            connect(startButton, SIGNAL(clicked(bool)), SLOT(startNvidia()));
++        }
++        else if (ati) {
++            connect(startButton, SIGNAL(clicked(bool)), SLOT(startAti()));
++        }
++
++    }
++    else {
++        stateContainer->hide();
++    }
++
+ #ifdef HAS_RANDR_1_2
+ 	if (RandR::has_1_2)
+ 	{
+@@ -85,6 +203,7 @@ KRandRModule::KRandRModule(QWidget *pare
+ KRandRModule::~KRandRModule(void)
+ {
+ 	delete m_display;
++	delete glInfo;;
+ }
+ 
+ void KRandRModule::defaults()
+@@ -102,11 +221,10 @@ void KRandRModule::defaults()
+ 
+ void KRandRModule::load()
+ {
+-	kDebug() << "Loading KRandRModule...";
+-	
+-        if (!m_display->isValid()) {
++    if (!m_display->isValid()) {
+                 return;
+-        }
++    }
++
+ #ifdef HAS_RANDR_1_2
+ 	if (RandR::has_1_2)
+ 		m_config->load();
+@@ -152,5 +270,19 @@ bool KRandRModule::x11Event(XEvent* e)
+ 	return QWidget::x11Event(e);
+ }
+ 
++void KRandRModule::startNvidia()
++{
++
++  KUrl url =  KUrl::fromPath("/usr/share/applications/nvidia-settings.desktop");
++  KDesktopFileActions::run(url, true);
++
++}
+ 
++void KRandRModule::startAti()
++{
++
++  KUrl url =  KUrl::fromPath("/usr/share/applications/amdccclesu.desktop");
++  KDesktopFileActions::run(url, true);
++
++}
+ #include "krandrmodule.moc"
+Index: kde-workspace-4.7.1/kcontrol/randr/krandrmodule.h
+===================================================================
+--- kde-workspace-4.7.1.orig/kcontrol/randr/krandrmodule.h
++++ kde-workspace-4.7.1/kcontrol/randr/krandrmodule.h
+@@ -28,6 +28,7 @@
+ class RandRDisplay;
+ class LegacyRandRConfig;
+ class RandRConfig;
++class GlInfo;
+ 
+ class KRandRModule : public KCModule
+ {
+@@ -40,6 +41,7 @@ public:
+ 	virtual void load();
+ 	virtual void save();
+ 	virtual void defaults();
++    void updateStateInformation();
+ 	virtual bool x11Event(XEvent* );
+ 
+ protected:
+@@ -50,6 +52,16 @@ private:
+ 	LegacyRandRConfig *m_legacyConfig;
+ 	RandRConfig *m_config;
+ 	RandRDisplay *m_display;
++    GlInfo* glInfo;
++    QFrame *stateContainer;
++    QLabel *stateIconLabel;
++    QLabel *stateTextLabel;
++    QPushButton *startButton;
++
++private Q_SLOTS:
++    void startNvidia();
++    void startAti();
++
+ };
+ 
+ #endif

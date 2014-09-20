@@ -1,0 +1,311 @@
+diff --git a/kdm/backend/dm.c b/kdm/backend/dm.c
+index e0f1366..5a5f8a7 100644
+--- a/kdm/backend/dm.c
++++ b/kdm/backend/dm.c
+@@ -1347,54 +1347,207 @@ getBusyVTs(void)
+     return activeVTs;
+ }
+ 
++static int
++get_active_vt (void)
++{
++        int console_fd;
++        struct vt_stat console_state = { 0 };
++        console_fd = open ("/dev/tty0", O_RDONLY | O_NOCTTY);
++        if (console_fd < 0) {
++                return 0;
++        }
++        ioctl (console_fd, VT_GETSTATE, &console_state);
++
++        close (console_fd);
++        return console_state.v_active;
++}
++
++static int
++plymouth_is_running (void)
++{
++        static int running = -1;
++        if (running == 0)
++            return 0;
++
++        int status;
++        status = system ("/bin/plymouth --ping");
++
++        running = WIFEXITED (status) && WEXITSTATUS (status) == 0;
++        logWarn ("plymouth is %srunning\n", running?"":"NOT ");
++        return running;
++}
++
++static int
++plymouth_has_active_vt (void)
++{
++        int status;
++        status = system ("/bin/plymouth --has-active-vt");
++
++        return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
++static int
++plymouth_prepare_for_transition (void)
++{
++        int status;
++        status = system ("/bin/plymouth deactivate");
++
++        return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
++int
++plymouth_quit_with_transition (void)
++{
++        int status;
++        status = system ("/bin/plymouth --wait quit --retain-splash");
++
++        return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
++int
++plymouth_quit_without_transition (void)
++{
++        int status;
++        status = system ("/bin/plymouth --wait quit");
++
++        return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
++static int
++triggered_to_force_display_on_active_vt (void)
++{
++   int should_force_display_on_active_vt;
++   should_force_display_on_active_vt=open("/var/spool/gdm/force-display-on-active-vt", O_RDONLY);
++   if ( should_force_display_on_active_vt >= 0 )
++       close(should_force_display_on_active_vt);
++   unlink("/var/spool/gdm/force-display-on-active-vt");
++   return should_force_display_on_active_vt;
++}
++
+ static void
+ allocateVT(struct display *d)
+ {
+     struct display *cd;
+-    int i, tvt, volun;
++    int i, tvt;
+ 
+     if ((d->displayType & d_location) == dLocal &&
+         d->status == notRunning && !d->serverVT && d->reqSrvVT >= 0)
+     {
++        /* Try to find the correct VT.
++         * If ServerVT is specified in the config, use it (if the admin used the
++         * same VT for multiple display, it is his/her own fault, no checks done).
++         * Otherwise, walk the list of specified VTs. Positive numbers are used
++         * even if the VT is already in use by a tty. Negative numbers and 
++         * unspecified numbers (up to #15) are used if not already in use.
++         * VTs already in use (cd->serverVT) or requested (cd->reqSrvVT)
++         * by any display are skipped.
++         */
++
++        /* some special handling is needed for Plymouth:
++         * if no VT is requested, use the active VT from plymouth for the first
++         * started display.
++         * If the display takes over the VT from plymouth, deactivate plymouth
++         */
++
++        char allowedVTs[16] = { 0 };
+         if (d->reqSrvVT && d->reqSrvVT < 16) {
+-            d->serverVT = d->reqSrvVT;
++            allowedVTs[d->reqSrvVT] = 1;
+         } else {
+-            for (i = tvt = 0;;) {
+-                if (serverVTs[i]) {
+-                    tvt = atoi(serverVTs[i++]);
+-                    volun = False;
+-                    if (tvt < 0) {
+-                        tvt = -tvt;
+-                        volun = True;
+-                    }
+-                    if (!tvt || tvt >= 16)
+-                        continue;
+-                } else {
+-                    if (++tvt >= 16)
+-                        break;
+-                    volun = True;
++            for (i = 0; serverVTs[i]; i++) {
++                tvt = atoi(serverVTs[i]);
++                if ((tvt >= 0) && (tvt < 16)) {
++                    allowedVTs[tvt] = 1;
++                } else if (tvt > -16) {
++                    allowedVTs[-tvt] = 2;
+                 }
+-                for (cd = displays; cd; cd = cd->next) {
+-                    if (cd->reqSrvVT == tvt && /* protect from lusers */
+-                            (cd->status != zombie || cd->zstatus != DS_REMOVE))
+-                        goto next;
+-                    if (cd->serverVT == tvt) {
+-                        if (cd->status != zombie || cd->zstatus == DS_REMOTE)
+-                            goto next;
+-                        if (!cd->follower) {
+-                            d->serverVT = -1;
+-                            cd->follower = d;
+-                            return;
+-                        }
+-                    }
++            }
++
++            for (tvt = 15; allowedVTs[tvt] == 0; tvt--) {
++              allowedVTs[tvt] = 2;
++            }
++
++            for (cd = displays; cd; cd = cd->next) {
++                if (cd->status != zombie) {
++                    if (cd->reqSrvVT >= 0) allowedVTs[cd->reqSrvVT] = 0;
++                    if (cd->serverVT >= 0) allowedVTs[cd->serverVT] = 0;
++                } else if (cd->zstatus == DS_REMOTE) {
++                    /* dying, but will spawn new server for remote login */
++                    if (cd->serverVT >= 0) allowedVTs[cd->serverVT] = 0;
++                } else if (cd->zstatus != DS_REMOVE) {
++                    /* dying, but will be restarted or reserved */
++                    if (cd->reqSrvVT >= 0) allowedVTs[cd->reqSrvVT] = 0;
+                 }
+-                if (!volun || !((1 << tvt) & getBusyVTs())) {
+-                    d->serverVT = tvt;
++            }
++        }
++
++        /* check for plymouth using newer methods */
++        d->plymouth_vt = -1;
++        if (plymouth_is_running ()) {
++            if (plymouth_has_active_vt ()) {
++                int vt = get_active_vt ();
++                if (allowedVTs[vt]) {
++                    logWarn ("plymouth is active on VT %d, reusing for %s\n", vt, d->name);
++                    d->serverVT = vt;
++                    d->plymouth_vt = vt;
+                     return;
+                 }
+-          next: ;
++            }
++        /* fallback to old/deprecated method */
++        } else if ( triggered_to_force_display_on_active_vt() >= 0 ) {
++            int vt = get_active_vt ();
++            if (allowedVTs[vt]) {
++                d->serverVT = vt;
++                return;
++            }
++        }
++
++        for (tvt = 0; tvt < 16; tvt++) {
++            if ((allowedVTs[tvt] == 1) ||
++                ((allowedVTs[tvt] == 2) && !((1 << tvt) & getBusyVTs()))) {
++                d->serverVT = tvt;
++                return;
+             }
+         }
++
++        for (cd = displays; cd; cd = cd->next) {
++            if ((cd->status == zombie) && (cd->zstatus != DS_REMOTE) &&
++                (cd->follower == 0) && (cd->reqSrvVT != cd->serverVT)) {
++            /* removed; or restarted/reserved on any VT */
++                    d->serverVT = -1;
++                    cd->follower = d;
++                    return;
++            }
++        }
++    }
++}
++
++static void
++replacePlymouth(void)
++{
++    struct display *cd;
++
++    /* if one display reuses plymouth' VT, plymouth is stopped in the
++     * startServerSuccess/Failed callback (see server.c). In any other
++     * case plymouth is stopped now.
++     */
++    for (cd = displays; cd; cd = cd->next) {
++        if ((cd->serverVT > 0) && (cd->serverVT == cd->plymouth_vt)) {
++            if (cd->status == notRunning) {
++                /* tell plymouth to quit when server has started */
++                logWarn ("plymouth should quit after server startup\n");
++                plymouth_prepare_for_transition ();
++                kickDisplay(cd);
++                return;
++            } else if (cd->status == running) {
++                /* replacing server is starting up, do nothing */
++                return;
++            }
++        }
++    }
++
++    if ( plymouth_is_running ()) {
++        plymouth_prepare_for_transition ();
++        plymouth_quit_without_transition ();
+     }
+ }
+ #endif
+@@ -1407,6 +1560,7 @@ startDisplays(void)
+ #ifdef HAVE_VTS
+     activeVTs = -1;
+     forEachDisplayRev(allocateVT);
++    replacePlymouth();
+ #endif
+     forEachDisplay(kickDisplay);
+ }
+diff --git a/kdm/backend/dm.h b/kdm/backend/dm.h
+index 64e106b..930af0e 100644
+--- a/kdm/backend/dm.h
++++ b/kdm/backend/dm.h
+@@ -304,6 +304,8 @@ struct display {
+     int authNum;                /* number of authorizations */
+     char *authFile;             /* file to store authorization in */
+     char *greeterAuthFile;      /* file to store authorization for greeter in */
++    
++    int plymouth_vt;            /* Plymouth's VT nr */
+ };
+ 
+ #define d_location   1
+@@ -428,6 +430,9 @@ int anyDisplaysLeft(void);
+ void forEachDisplay(void (*f)(struct display *));
+ #ifdef HAVE_VTS
+ void forEachDisplayRev(void (*f)(struct display *));
++/* function for plymouth */
++int plymouth_quit_with_transition (void);
++int plymouth_quit_without_transition (void);
+ #endif
+ void removeDisplay(struct display *old);
+ struct display
+diff --git a/kdm/backend/server.c b/kdm/backend/server.c
+index d8dd6f3..8b4708e 100644
+--- a/kdm/backend/server.c
++++ b/kdm/backend/server.c
+@@ -80,6 +80,7 @@ startServerOnce(void)
+     char **argv;
+ 
+     debug("startServerOnce for %s, try %d\n", d->name, ++d->startTries);
++
+     d->serverStatus = starting;
+     switch (Fork(&d->serverPid)) {
+     case 0:
+@@ -137,6 +138,12 @@ startServerSuccess()
+     struct display *d = startingServer;
+     d->serverStatus = ignore;
+     serverTimeout = TO_INF;
++    if ((d->serverVT > 0) && (d->serverVT == d->plymouth_vt)) {
++        int plymouth_running;
++        logWarn ("Quitting Plymouth with transition\n" );
++        plymouth_running = !plymouth_quit_with_transition ();
++        logWarn ("Is Plymouth still running? %s\n", plymouth_running ? "yes" : "no");
++    }
+     debug("X server ready, starting session\n");
+     startDisplayP2(d);
+ }
+@@ -154,6 +161,10 @@ startServerFailed()
+         startingServer = 0;
+         logError("X server for display %s cannot be started,"
+                  " session disabled\n", d->name);
++        if ((d->serverVT > 0) && (d->serverVT == d->plymouth_vt)) {
++            logWarn ("Quitting Plymouth without transition\n" );
++            plymouth_quit_without_transition ();
++        }
+         stopDisplay(d);
+     }
+ }

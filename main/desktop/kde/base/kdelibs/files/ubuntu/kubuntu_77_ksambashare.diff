@@ -1,0 +1,1346 @@
+Index: kde4libs-4.6.1/kio/kio/ksambashare.cpp
+===================================================================
+--- kde4libs-4.6.1.orig/kio/kio/ksambashare.cpp	2011-02-25 22:00:34.000000000 +0000
++++ kde4libs-4.6.1/kio/kio/ksambashare.cpp	2011-03-21 16:52:45.764431008 +0000
+@@ -1,5 +1,6 @@
+ /* This file is part of the KDE project
+    Copyright (c) 2004 Jan Schaefer <j_schaef@informatik.uni-kl.de>
++   Copyright 2010 Rodrigo Belem <rclbelem@gmail.com>
+ 
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Library General Public
+@@ -17,17 +18,23 @@
+ */
+ 
+ #include "ksambashare.h"
++#include "ksambashare_p.h"
++#include "ksambasharedata.h"
++#include "ksambasharedata_p.h"
+ 
+-#include <QtCore/QSet>
++#include <QtCore/QMap>
++#include <QtCore/QMutableMapIterator>
+ #include <QtCore/QFile>
+-#include <QtCore/QMutableStringListIterator>
+-#include <QtCore/QTextIStream>
++#include <QtCore/QRegExp>
++#include <QtCore/QFileInfo>
++#include <QtCore/QTextStream>
++#include <QtCore/QStringList>
+ 
+ #include <kdirwatch.h>
+ #include <kdebug.h>
+-#include <kconfig.h>
+-#include <kconfiggroup.h>
+ #include <kglobal.h>
++#include <kprocess.h>
++#include <kuser.h>
+ 
+ // Default smb.conf locations
+ // sorted by priority, most priority first
+@@ -41,215 +48,452 @@
+   "/usr/lib/smb.conf",
+   "/usr/local/lib/smb.conf"
+ };
+-static const int DefaultSambaConfigFilePathListSize = sizeof( DefaultSambaConfigFilePathList ) / sizeof(char*);
++static const int DefaultSambaConfigFilePathListSize = sizeof(DefaultSambaConfigFilePathList)
++        / sizeof(char*);
+ 
+-class KSambaShare::KSambaSharePrivate
++KSambaSharePrivate::KSambaSharePrivate(KSambaShare *parent)
++    : q_ptr(parent)
++    , data()
++    , smbConf()
++    , userSharePath()
+ {
+-public:
+-  KSambaSharePrivate(KSambaShare *parent);
++    setUserSharePath();
++    findSmbConf();
++    sync();
++}
+ 
+-  void _k_slotFileChange(const QString&);
++KSambaSharePrivate::~KSambaSharePrivate()
++{
++}
+ 
+-  bool readSmbConf();
+-  bool findSmbConf();
+-  bool load();
++bool KSambaSharePrivate::isSambaInstalled()
++{
++    if (QFile::exists("/usr/sbin/smbd")
++        || QFile::exists("/usr/local/sbin/smbd")) {
++        return true;
++    }
+ 
+-  KSambaShare *q;
+-  QSet<QString> sharedPaths;
+-  QString smbConf;
+-};
++    kDebug() << "Samba is not installed!";
++
++    return false;
++}
++
++// Try to find the samba config file path
++// in several well-known paths
++bool KSambaSharePrivate::findSmbConf()
++{
++    for (int i = 0; i < DefaultSambaConfigFilePathListSize; ++i) {
++        const QString filePath(DefaultSambaConfigFilePathList[i]);
++        if (QFile::exists(filePath)) {
++            smbConf = filePath;
++            return true;
++        }
++    }
++
++    kWarning() << "KSambaShare: Could not find smb.conf!";
+ 
+-KSambaShare::KSambaSharePrivate::KSambaSharePrivate(KSambaShare *parent)
+-    : q(parent)
++    return false;
++}
++
++void KSambaSharePrivate::setUserSharePath()
+ {
+-    load();
++    const QString rawString = testparmParamValue(QLatin1String("usershare path"));
++    const QFileInfo fileInfo(rawString);
++    if (fileInfo.isDir()) {
++        userSharePath = rawString;
++    }
+ }
+ 
++int KSambaSharePrivate::runProcess(const QString &progName, const QStringList &args,
++                                   QByteArray &stdOut, QByteArray &stdErr)
++{
++    KProcess process;
++
++    process.setProgram(progName, args);
++    process.setOutputChannelMode(KProcess::SeparateChannels);
++    process.start();
++    //TODO: make it async in future
++    process.waitForFinished();
+ 
+-#define FILESHARECONF "/etc/security/fileshare.conf"
++    stdOut = process.readAllStandardOutput();
++    stdErr = process.readAllStandardError();
++    return process.exitCode();
++}
+ 
+-bool KSambaShare::KSambaSharePrivate::load()
++QString KSambaSharePrivate::testparmParamValue(const QString &parameterName)
+ {
+-  if (!findSmbConf())
+-      return false;
++    if (!isSambaInstalled()) {
++        return QString();
++    }
++
++    QStringList args;
++    QByteArray stdErr;
++    QByteArray stdOut;
++
++    args << QLatin1String("-d0") << QLatin1String("-s") << QLatin1String("--parameter-name")
++         << parameterName;
++
++    runProcess(QLatin1String("testparm"), args, stdOut, stdErr);
++
++    //TODO: parse and process error messages.
++    // create a parser for the error output and
++    // send error message somewhere
++    if (!stdErr.isEmpty()) {
++        QList<QByteArray> err;
++        err << stdErr.trimmed().split('\n');
++        if ((err.count() == 2)
++                && err.at(0).startsWith("Load smb config files from")
++                && err.at(1).startsWith("Loaded services file OK.")) {
++            kDebug() << "Running testparm" << args;
++        } else {
++            kWarning() << "We got some errors while running testparm" << stdErr;
++        }
++    }
++
++    if (!stdOut.isEmpty()) {
++        return QString::fromLocal8Bit(stdOut.trimmed());
++    }
+ 
+-  return readSmbConf();
++    return QString();
+ }
+ 
+-/**
+- * Try to find the samba config file path
+- * First tries the kconfig, then checks
+- * several well-known paths
+- * @return whether a smb.conf was found.
+- **/
+-bool KSambaShare::KSambaSharePrivate::findSmbConf()
++QByteArray KSambaSharePrivate::getNetUserShareInfo() const
+ {
+-  KConfig config( QLatin1String( FILESHARECONF ) );
+-  const KConfigGroup group( &config, QString() );
+-  smbConf = group.readEntry( "SMBCONF" );
++    if (!isSambaInstalled()) {
++        return QByteArray();
++    }
+ 
+-  if ( QFile::exists( smbConf ) )
+-    return true;
++    QStringList args;
++    QByteArray stdOut;
++    QByteArray stdErr;
++
++    args << QLatin1String("usershare") << QLatin1String("info");
++
++    runProcess(QLatin1String("net"), args, stdOut, stdErr);
++
++    //TODO: parse and process error messages.
++    if (!stdErr.isEmpty()) {
++        // create a parser for the error output and
++        // send error message somewhere
++        kWarning() << "We got some errors while running 'net usershare info'";
++        kWarning() << stdErr;
++    }
+ 
+-  bool success = false;
+-  for( int i = 0; i<DefaultSambaConfigFilePathListSize; ++i )
+-  {
+-    const QString filePath( DefaultSambaConfigFilePathList[i] );
+-    if( QFile::exists( filePath ) )
+-    {
+-        smbConf = filePath;
+-        success = true;
+-        break;
+-    }
+-  }
+-  
+-  if( ! success )
+-    kDebug(7000) << "KSambaShare: Could not find smb.conf!";
+-
+-  return success;
+-  
++    return stdOut;
++}
++
++QStringList KSambaSharePrivate::shareNames() const
++{
++    return data.keys();
+ }
+ 
++QStringList KSambaSharePrivate::sharedDirs() const
++{
++    QStringList dirs;
++
++    QMap<QString, KSambaShareData>::ConstIterator i;
++    for (i = data.constBegin(); i != data.constEnd(); ++i) {
++        if (!dirs.contains(i.value().path())) {
++            dirs << i.value().path();
++        }
++    }
+ 
+-/**
+- * Reads all path= entries from the smb.conf file
+- * and fills the sharedPaths dict with the values
+- */
+-bool KSambaShare::KSambaSharePrivate::readSmbConf()
++    return dirs;
++}
++
++KSambaShareData KSambaSharePrivate::getShareByName(const QString &shareName) const
+ {
+-  QFile f(smbConf);
++    return data.value(shareName);
++}
+ 
+-  //kDebug(7000) << smbConf;
++QList<KSambaShareData> KSambaSharePrivate::getSharesByPath(const QString &path) const
++{
++    QList<KSambaShareData> shares;
++
++    QMap<QString, KSambaShareData>::ConstIterator i;
++    for (i = data.constBegin(); i != data.constEnd(); ++i) {
++        if (i.value().path() == path) {
++            shares << i.value();
++        }
++    }
++
++    return shares;
++}
++
++bool KSambaSharePrivate::isShareNameValid(const QString &name) const
++{
++    // Samba forbidden chars
++    const QRegExp notToMatchRx(QLatin1String("[%<>*\?|/\\+=;:\",]"));
++    return (notToMatchRx.indexIn(name) == -1);
++}
++
++bool KSambaSharePrivate::isDirectoryShared(const QString &path) const
++{
++    QMap<QString, KSambaShareData>::ConstIterator i;
++    for (i = data.constBegin(); i != data.constEnd(); ++i) {
++        if (i.value().path() == path) {
++            return true;
++        }
++    }
+ 
+-  if (!f.open(QIODevice::ReadOnly)) {
+-    kError() << "KSambaShare: Could not open" << smbConf;
+     return false;
+-  }
++}
+ 
+-  sharedPaths.clear();
++bool KSambaSharePrivate::isShareNameAvailable(const QString &name) const
++{
++    // Samba does not allow to name a share with a user name registered in the system
++    return (!KUser::allUserNames().contains(name) || !data.keys().contains(name));
++}
+ 
+-  QTextStream s(&f);
++KSambaShareData::UserShareError KSambaSharePrivate::isPathValid(const QString &path) const
++{
++    QFileInfo pathInfo = path;
+ 
+-  bool continuedLine = false; // is true if the line before ended with a backslash
+-  QString completeLine;
++    if (!pathInfo.exists()) {
++        return KSambaShareData::UserSharePathNotExists;
++    }
+ 
+-  while (!s.atEnd())
+-  {
+-    QString currentLine = s.readLine().trimmed();
++    if (!pathInfo.isDir()) {
++        return KSambaShareData::UserSharePathNotDirectory;
++    }
+ 
+-    if (continuedLine) {
+-      completeLine += currentLine;
+-      continuedLine = false;
++    if (pathInfo.isRelative()) {
++        if (pathInfo.makeAbsolute()) {
++            return KSambaShareData::UserSharePathNotAbsolute;
++        }
+     }
+-    else
+-      completeLine = currentLine;
+ 
+-    // is the line continued in the next line ?
+-    if ( !completeLine.isEmpty() && completeLine[completeLine.length()-1] == '\\' )
+-    {
+-      continuedLine = true;
+-      // remove the ending backslash
+-      completeLine.truncate( completeLine.length()-1 );
+-      continue;
++    // TODO: check if the user is root
++    if (KSambaSharePrivate::testparmParamValue(QLatin1String("usershare owner only"))
++            == QLatin1String("Yes")) {
++        if (!pathInfo.permission(QFile::ReadUser | QFile::WriteUser)) {
++            return KSambaShareData::UserSharePathNotAllowed;
++        }
+     }
+ 
+-    // comments or empty lines
+-    if (completeLine.isEmpty() ||
+-        '#' == completeLine[0] ||
+-        ';' == completeLine[0])
+-    {
+-      continue;
++    return KSambaShareData::UserSharePathOk;
++}
++
++KSambaShareData::UserShareError KSambaSharePrivate::isAclValid(const QString &acl) const
++{
++    const QRegExp aclRx("(?:(?:(\\w+\\s*)\\\\|)(\\w+\\s*):([fFrRd]{1})(?:,|))*");
++    // TODO: check if user is a valid smb user
++    return aclRx.exactMatch(acl) ? KSambaShareData::UserShareAclOk
++           : KSambaShareData::UserShareAclInvalid;
++}
++
++KSambaShareData::UserShareError KSambaSharePrivate::guestsAllowed(const
++        KSambaShareData::GuestPermission &guestok) const
++{
++    if (guestok == KSambaShareData::GuestsAllowed) {
++        if (KSambaSharePrivate::testparmParamValue("usershare allow guests")
++                == QLatin1String("No")) {
++            return KSambaShareData::UserShareGuestsNotAllowed;
++        }
+     }
+ 
+-    // parameter
+-    const int i = completeLine.indexOf('=');
++    return KSambaShareData::UserShareGuestsOk;
++}
+ 
+-    if (i>-1)
+-    {
+-      QString name = completeLine.left(i).trimmed().toLower();
+-      QString value = completeLine.mid(i+1).trimmed();
++KSambaShareData::UserShareError KSambaSharePrivate::add(const KSambaShareData &shareData)
++{
++    // TODO:
++    // * check for usershare max shares
+ 
+-      if (name == KGlobal::staticQString("path") && !value.isEmpty()) {
+-        // Handle quotation marks
+-        if ( value[0] == '"' )
+-          value.remove(0,1);
++    if (!isSambaInstalled()) {
++        return KSambaShareData::UserShareSystemError;
++    }
+ 
+-        if ( value[value.length()-1] == '"' )
+-          value.truncate(value.length()-1);
++    QStringList args;
++    QByteArray stdOut;
++    QByteArray stdErr;
++
++    if (data.contains(shareData.name())) {
++        if (data.value(shareData.name()).path() != shareData.path()) {
++            return KSambaShareData::UserShareNameInUse;
++        }
++    } else {
++        // It needs to be added here, otherwise another instance of KSambaShareDataPrivate
++        // will be created and added to data.
++        data.insert(shareData.name(), shareData);
++    }
+ 
+-        // Normalize path
+-        if ( value[value.length()-1] != '/' )
+-             value += '/';
++    QString guestok = QString("guest_ok=%1").arg(
++                          (shareData.guestPermission() == KSambaShareData::GuestsNotAllowed)
++                          ? QLatin1String("n") : QLatin1String("y"));
++
++    args << QLatin1String("usershare") << QLatin1String("add") << shareData.name()
++         << shareData.path() << shareData.comment() << shareData.acl() << guestok;
++
++    int ret = runProcess(QLatin1String("net"), args, stdOut, stdErr);
++
++    //TODO: parse and process error messages.
++    if (!stdErr.isEmpty()) {
++        // create a parser for the error output and
++        // send error message somewhere
++        kWarning() << "We got some errors while running 'net usershare add'" << args;
++        kWarning() << stdErr;
++    }
+ 
+-        sharedPaths.insert(value);
+-        //kDebug(7000) << "KSambaShare: Found path: " << value;
+-      }
++    return (ret == 0) ? KSambaShareData::UserShareOk : KSambaShareData::UserShareSystemError;
++}
++
++KSambaShareData::UserShareError KSambaSharePrivate::remove(const KSambaShareData &shareData) const
++{
++    if (!isSambaInstalled()) {
++        return KSambaShareData::UserShareSystemError;
++    }
++
++    QStringList args;
++
++    if (!data.contains(shareData.name())) {
++        return KSambaShareData::UserShareNameInvalid;
++    }
++
++    args << QLatin1String("usershare") << QLatin1String("delete") << shareData.name();
++
++    int result = KProcess::execute(QLatin1String("net"), args);
++    return (result == 0) ? KSambaShareData::UserShareOk : KSambaShareData::UserShareSystemError;
++}
++
++bool KSambaSharePrivate::sync()
++{
++    const QRegExp headerRx(QLatin1String("^\\s*\\["
++                                         "([^%<>*\?|/\\+=;:\",]+)"
++                                         "\\]"));
++
++    const QRegExp OptValRx(QLatin1String("^\\s*([\\w\\d\\s]+)"
++                                         "="
++                                         "(.*)$"));
++
++    QTextStream stream(getNetUserShareInfo());
++    QString currentShare;
++    QStringList shareList;
++
++    while (!stream.atEnd()) {
++        const QString line = stream.readLine().trimmed();
++
++        if (headerRx.exactMatch(line)) {
++            currentShare = headerRx.cap(1).trimmed();
++            shareList << currentShare;
++
++            if (!data.contains(currentShare)) {
++                KSambaShareData shareData;
++                shareData.dd->name = currentShare;
++                data.insert(currentShare, shareData);
++            }
++        } else if (OptValRx.exactMatch(line)) {
++            const QString key = OptValRx.cap(1).trimmed();
++            const QString value = OptValRx.cap(2).trimmed();
++            KSambaShareData shareData = getShareByName(currentShare);
++
++            if (key == QLatin1String("path")) {
++                shareData.dd->path = value;
++            } else if (key == QLatin1String("comment")) {
++                shareData.dd->comment = value;
++            } else if (key == QLatin1String("usershare_acl")) {
++                shareData.dd->acl = value;
++            } else if (key == QLatin1String("guest_ok")) {
++                shareData.dd->guestPermission = value;
++            } else {
++                kWarning() << "Something nasty happen while parsing 'net usershare info'"
++                           << "share:" << currentShare << "key:" << key;
++            }
++        } else if (line.trimmed().isEmpty()) {
++            continue;
++        } else {
++            return false;
++        }
+     }
+-  }
+ 
+-  f.close();
++    QMutableMapIterator<QString, KSambaShareData> i(data);
++    while (i.hasNext()) {
++        i.next();
++        if (!shareList.contains(i.key())) {
++            i.remove();
++        }
++    }
+ 
+-  return true;
++    return true;
++}
+ 
++void KSambaSharePrivate::_k_slotFileChange(const QString &path)
++{
++    sync();
++    kDebug() << "path changed:" << path;
++    Q_Q(KSambaShare);
++    emit q->changed();
+ }
+ 
+ KSambaShare::KSambaShare()
+-  : d(new KSambaSharePrivate(this))
++    : QObject(0)
++    , d_ptr(new KSambaSharePrivate(this))
+ {
+-  if (QFile::exists(d->smbConf)) {
+-    KDirWatch::self()->addFile(d->smbConf);
+-    KDirWatch::self()->addFile(FILESHARECONF);
+-    connect(KDirWatch::self(), SIGNAL(dirty (const QString&)),this,
+-   	        SLOT(_k_slotFileChange(const QString&)));
+-  }
++    Q_D(const KSambaShare);
++    if (QFile::exists(d->userSharePath)) {
++        KDirWatch::self()->addDir(d->userSharePath, KDirWatch::WatchFiles);
++        connect(KDirWatch::self(), SIGNAL(dirty(const QString &)), this,
++                SLOT(_k_slotFileChange(const QString &)));
++    }
+ }
+ 
+ KSambaShare::~KSambaShare()
+ {
+-  if (QFile::exists(d->smbConf)) {
+-        KDirWatch::self()->removeFile(d->smbConf);
+-        KDirWatch::self()->removeFile(FILESHARECONF);
+-  }
+-  delete d;
++    Q_D(const KSambaShare);
++    if (KDirWatch::exists()) {
++      if (KDirWatch::self()->contains(d->userSharePath)) {
++          KDirWatch::self()->removeDir(d->userSharePath);
++      }
++    }
++    delete d_ptr;
+ }
+ 
+ QString KSambaShare::smbConfPath() const
+ {
+-  return d->smbConf;
++    Q_D(const KSambaShare);
++    return d->smbConf;
+ }
+ 
+-bool KSambaShare::isDirectoryShared( const QString & path ) const
++bool KSambaShare::isDirectoryShared(const QString &path) const
+ {
+-  if(path.isEmpty())
+-    return false;
+-  QString fixedPath = path;
+-  if ( path[path.length()-1] != '/' )
+-       fixedPath += '/';
++    Q_D(const KSambaShare);
++    return d->isDirectoryShared(path);
++}
+ 
+-  return d->sharedPaths.contains(fixedPath);
++bool KSambaShare::isShareNameAvailable(const QString &name) const
++{
++    Q_D(const KSambaShare);
++    return d->isShareNameValid(name) && d->isShareNameAvailable(name);
+ }
+ 
+-QStringList KSambaShare::sharedDirectories() const
++QStringList KSambaShare::shareNames() const
+ {
+-  return d->sharedPaths.values();
++    Q_D(const KSambaShare);
++    return d->shareNames();
+ }
+ 
+-void KSambaShare::KSambaSharePrivate::_k_slotFileChange( const QString & path )
++QStringList KSambaShare::sharedDirectories() const
+ {
+-  if (path == smbConf)
+-     readSmbConf();
+-  else
+-  if (path == FILESHARECONF)
+-     load();
++    Q_D(const KSambaShare);
++    return d->sharedDirs();
++}
+ 
+-  emit q->changed();
++KSambaShareData KSambaShare::getShareByName(const QString &name) const
++{
++    Q_D(const KSambaShare);
++    return d->getShareByName(name);
+ }
+ 
+-KSambaShare* KSambaShare::instance()
++QList<KSambaShareData> KSambaShare::getSharesByPath(const QString &path) const
+ {
+-  K_GLOBAL_STATIC(KSambaShare, _instance)
+-  return _instance;
++    Q_D(const KSambaShare);
++    return d->getSharesByPath(path);
+ }
+ 
+-#include "ksambashare.moc"
++KSambaShare *KSambaShare::instance()
++{
++    K_GLOBAL_STATIC(KSambaShare, _instance)
++    return _instance;
++}
+ 
++#include "moc_ksambashare.cpp"
+Index: kde4libs-4.6.1/kio/kio/ksambashare.h
+===================================================================
+--- kde4libs-4.6.1.orig/kio/kio/ksambashare.h	2011-02-25 22:00:34.000000000 +0000
++++ kde4libs-4.6.1/kio/kio/ksambashare.h	2011-03-21 16:51:46.000000000 +0000
+@@ -1,5 +1,6 @@
+ /* This file is part of the KDE project
+    Copyright (c) 2004 Jan Schaefer <j_schaef@informatik.uni-kl.de>
++   Copyright 2010 Rodrigo Belem <rclbelem@gmail.com>
+ 
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Library General Public
+@@ -20,63 +21,113 @@
+ #define ksambashare_h
+ 
+ #include <QtCore/QObject>
+-
+ #include <kio/kio_export.h>
+ 
++class KSambaShareData;
++class KSambaSharePrivate;
++
+ /**
+- * Similar functionality like KFileShare, 
+- * but works only for Samba and do not need 
+- * any suid script.
++ * This class lists Samba user shares and monitors them for addition, update and removal.
+  * Singleton class, call instance() to get an instance.
+  */
+-class KIO_EXPORT KSambaShare : public QObject 
++class KIO_EXPORT KSambaShare : public QObject
+ {
+-Q_OBJECT
++    Q_OBJECT
++
+ public:
+-  /**
+-   * Returns the one and only instance of KSambaShare
+-   */
+-  static KSambaShare* instance();
+-
+-  /**
+-   * Whether or not the given path is shared by Samba.
+-   * @param path the path to check if it is shared by Samba.
+-   * @return whether the given path is shared by Samba.
+-   */
+-  bool isDirectoryShared( const QString & path ) const;
+-  
+-  /**
+-   * Returns a list of all directories shared by Samba.
+-   * The resulting list is not sorted.
+-   * @return a list of all directories shared by Samba.
+-   */
+-  QStringList sharedDirectories() const;
+-  
+-  /**
+-   * KSambaShare destructor. 
+-   * Do not call!
+-   * The instance is destroyed automatically!
+-   */ 
+-  virtual ~KSambaShare();
+-  
+-  /**
+-   * Returns the path to the used smb.conf file
+-   * or null if no file was found
+-   */
+-  QString smbConfPath() const;
+-  
++    /**
++     * @return the one and only instance of KSambaShare.
++     */
++    static KSambaShare *instance();
++
++    /**
++     * Whether or not the given path is shared by Samba.
++     *
++     * @param path the path to check if it is shared by Samba.
++     *
++     * @return whether the given path is shared by Samba.
++     */
++    bool isDirectoryShared(const QString &path) const;
++
++    /**
++     * Returns a list of all directories shared by local users in Samba.
++     * The resulting list is not sorted.
++     *
++     * @return a list of all directories shared by Samba.
++     */
++    QStringList sharedDirectories() const;
++
++    /**
++     * Tests that a share name is valid and does not conflict with system users names or shares.
++     *
++     * @param name the share name.
++     *
++     * @return whether the given name is already being used or not.
++     *
++     * @since 4.7
++     */
++    bool isShareNameAvailable(const QString &name) const;
++
++    /**
++     * Returns the list of available shares.
++     *
++     * @return @c a QStringList containing the user shares names.
++     * @return @c an empty list if there aren't user shared directories.
++     *
++     * @since 4.7
++     */
++    QStringList shareNames() const;
++
++    /**
++     * Returns the KSambaShareData object of the share name.
++     *
++     * @param name the share name.
++     *
++     * @return @c the KSambaShareData object that matches the name.
++     * @return @c an empty KSambaShareData object if there isn't match for the name.
++     *
++     * @since 4.7
++     */
++    KSambaShareData getShareByName(const QString &name) const;
++
++    /**
++     * Returns a list of KSambaShareData matching the path.
++     *
++     * @param path the path that wants to get KSambaShareData object.
++     *
++     * @return @c the QList of KSambaShareData objects that matches the path.
++     * @return @c an empty QList if there aren't matches for the given path.
++     *
++     * @since 4.7
++     */
++    QList<KSambaShareData> getSharesByPath(const QString &path) const;
++
++    virtual ~KSambaShare();
++
++    /**
++     * Returns the path to the used smb.conf file
++     * or empty string if no file was found
++     *
++     * @return @c the path to the smb.conf file
++     *
++     * @deprecated
++     */
++    KDE_DEPRECATED QString smbConfPath() const;
++
+ Q_SIGNALS:
+-  /**
+-   * Emitted when the smb.conf file has changed
+-   */
+-  void changed();  
+-  
++    /**
++     * Emitted when a share is updated, added or removed
++     */
++    void changed();
++
+ private:
+-  KSambaShare();
+-  class KSambaSharePrivate;
+-  KSambaSharePrivate * const d;
+-  
+-  Q_PRIVATE_SLOT( d, void _k_slotFileChange(const QString&) )
++    KSambaShare();
++
++    KSambaSharePrivate * const d_ptr;
++    Q_DECLARE_PRIVATE(KSambaShare)
++    friend class KSambaShareData;
++
++    Q_PRIVATE_SLOT(d_func(), void _k_slotFileChange(const QString &))
+ };
+ 
+ #endif
+Index: kde4libs-4.6.1/kio/kio/ksambashare_p.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ kde4libs-4.6.1/kio/kio/ksambashare_p.h	2011-03-21 16:51:46.000000000 +0000
+@@ -0,0 +1,74 @@
++/*
++ *   Copyright 2010 Rodrigo Belem <rclbelem@gmail.com>
++ *
++ *   This library is free software; you can redistribute it and/or
++ *   modify it under the terms of the GNU Lesser General Public
++ *   License as published by the Free Software Foundation; either
++ *   version 2.1 of the License, or (at your option) version 3, or any
++ *   later version accepted by the membership of KDE e.V. (or its
++ *   successor approved by the membership of KDE e.V.), which shall
++ *   act as a proxy defined in Section 6 of version 3 of the license.
++ *
++ *   This library is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *   Lesser General Public License for more details.
++ *
++ *   You should have received a copy of the GNU Lesser General Public
++ *   License along with this library.  If not, see <http://www.gnu.org/licenses/>
++ */
++
++#ifndef ksambashare_p_h
++#define ksambashare_p_h
++
++#include <QtCore/QMap>
++
++#include "ksambasharedata.h"
++
++class QString;
++class KSambaShare;
++
++class KSambaSharePrivate
++{
++
++public:
++    KSambaSharePrivate(KSambaShare *parent);
++    ~KSambaSharePrivate();
++
++    static bool isSambaInstalled();
++    bool findSmbConf();
++    void setUserSharePath();
++
++    static int runProcess(const QString &progName, const QStringList &args,
++                          QByteArray &stdOut, QByteArray &stdErr);
++    static QString testparmParamValue(const QString &parameterName);
++
++    QByteArray getNetUserShareInfo() const;
++    QStringList shareNames() const;
++    QStringList sharedDirs() const;
++    KSambaShareData getShareByName(const QString &shareName) const;
++    QList<KSambaShareData> getSharesByPath(const QString &path) const;
++
++    bool isShareNameValid(const QString &name) const;
++    bool isDirectoryShared(const QString &path) const;
++    bool isShareNameAvailable(const QString &name) const;
++    KSambaShareData::UserShareError isPathValid(const QString &path) const;
++    KSambaShareData::UserShareError isAclValid(const QString &acl) const;
++    KSambaShareData::UserShareError guestsAllowed(const KSambaShareData::GuestPermission &guestok) const;
++
++    KSambaShareData::UserShareError add(const KSambaShareData &shareData);
++    KSambaShareData::UserShareError remove(const KSambaShareData &shareName) const;
++    bool sync();
++
++    void _k_slotFileChange(const QString &path);
++
++private:
++    KSambaShare * const q_ptr;
++    Q_DECLARE_PUBLIC(KSambaShare)
++
++    QMap<QString, KSambaShareData> data;
++    QString smbConf;
++    QString userSharePath;
++};
++
++#endif
+Index: kde4libs-4.6.1/kio/kio/ksambasharedata.cpp
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ kde4libs-4.6.1/kio/kio/ksambasharedata.cpp	2011-03-21 16:51:46.000000000 +0000
+@@ -0,0 +1,172 @@
++/*
++ *   Copyright 2010 Rodrigo Belem <rclbelem@gmail.com>
++ *
++ *   This library is free software; you can redistribute it and/or
++ *   modify it under the terms of the GNU Lesser General Public
++ *   License as published by the Free Software Foundation; either
++ *   version 2.1 of the License, or (at your option) version 3, or any
++ *   later version accepted by the membership of KDE e.V. (or its
++ *   successor approved by the membership of KDE e.V.), which shall
++ *   act as a proxy defined in Section 6 of version 3 of the license.
++ *
++ *   This library is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *   Lesser General Public License for more details.
++ *
++ *   You should have received a copy of the GNU Lesser General Public
++ *   License along with this library.  If not, see <http://www.gnu.org/licenses/>
++ */
++
++#include <QtCore/QRegExp>
++#include <QtCore/QFileInfo>
++#include <QtCore/QStringList>
++
++#include "ksambashare.h"
++#include "ksambashare_p.h"
++#include "ksambasharedata.h"
++#include "ksambasharedata_p.h"
++
++//TODO: add support for this samba options
++// usershare allow guests=P_BOOL,FLAG_ADVANCED
++// usershare max shares=P_INTEGER,FLAG_ADVANCED
++// usershare owner only=P_BOOL,FLAG_ADVANCED
++// usershare path=P_STRING,FLAG_ADVANCED
++// usershare prefix allow list=P_LIST,FLAG_ADVANCED
++// usershare prefix deny list=P_LIST,FLAG_ADVANCED
++// usershare template share=P_STRING,FLAG_ADVANCED
++
++KSambaShareData::KSambaShareData()
++    : dd(new KSambaShareDataPrivate)
++{
++}
++
++KSambaShareData::KSambaShareData(const KSambaShareData &other)
++    : dd(other.dd)
++{
++}
++
++KSambaShareData::~KSambaShareData()
++{
++}
++
++QString KSambaShareData::name() const
++{
++    return dd->name;
++}
++
++QString KSambaShareData::path() const
++{
++    return dd->path;
++}
++
++QString KSambaShareData::comment() const
++{
++    return dd->comment;
++}
++
++QString KSambaShareData::acl() const
++{
++    return dd->acl;
++}
++
++KSambaShareData::GuestPermission KSambaShareData::guestPermission() const
++{
++    return (dd->guestPermission == QLatin1String("n")) ? GuestsNotAllowed : GuestsAllowed;
++}
++
++KSambaShareData::UserShareError KSambaShareData::setName(const QString &name)
++{
++    if (!KSambaShare::instance()->d_func()->isShareNameValid(name)) {
++        return UserShareNameInvalid;
++    }
++
++    if (!KSambaShare::instance()->d_func()->isShareNameAvailable(name)) {
++        return UserShareNameInUse;
++    }
++
++
++    if (!dd->name.isEmpty()) {
++        dd.detach();
++    }
++
++    dd->name = name;
++
++    return UserShareNameOk;
++}
++
++KSambaShareData::UserShareError KSambaShareData::setPath(const QString &path)
++{
++    UserShareError result = KSambaShare::instance()->d_func()->isPathValid(path);
++    if (result == UserSharePathOk) {
++        dd->path = path;
++    }
++
++    return result;
++}
++
++KSambaShareData::UserShareError KSambaShareData::setComment(const QString &comment)
++{
++    dd->comment = comment;
++
++    return UserShareCommentOk;
++}
++
++KSambaShareData::UserShareError KSambaShareData::setAcl(const QString &acl)
++{
++    UserShareError result = KSambaShare::instance()->d_func()->isAclValid(acl);
++    if (result == UserShareAclOk) {
++        dd->acl = acl;
++    }
++
++    return result;
++}
++
++KSambaShareData::UserShareError KSambaShareData::setGuestPermission(const GuestPermission &permission)
++{
++    UserShareError result = KSambaShare::instance()->d_func()->guestsAllowed(permission);
++    if (result == UserShareGuestsOk) {
++        dd->guestPermission = (permission == GuestsNotAllowed) ? "n" : "y";
++    }
++
++    return result;
++}
++
++KSambaShareData::UserShareError KSambaShareData::save()
++{
++    if (dd->name.isEmpty()) {
++        return UserShareNameInvalid;
++    } else if (dd->path.isEmpty()) {
++        return UserSharePathInvalid;
++    } else {
++        return KSambaShare::instance()->d_func()->add(*this);
++    }
++}
++
++KSambaShareData::UserShareError KSambaShareData::remove()
++{
++    if (dd->name.isEmpty()) {
++        return UserShareNameInvalid;
++    } else {
++        return KSambaShare::instance()->d_func()->remove(*this);
++    }
++}
++
++KSambaShareData &KSambaShareData::operator=(const KSambaShareData &other)
++{
++    if (&other != this) {
++        dd = other.dd;
++    }
++
++    return *this;
++}
++
++bool KSambaShareData::operator==(const KSambaShareData &other) const
++{
++    return other.dd == dd;
++}
++
++bool KSambaShareData::operator!=(const KSambaShareData &other) const
++{
++    return !(&other == this);
++}
+Index: kde4libs-4.6.1/kio/kio/ksambasharedata.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ kde4libs-4.6.1/kio/kio/ksambasharedata.h	2011-03-21 16:51:46.000000000 +0000
+@@ -0,0 +1,189 @@
++/*
++ *   Copyright 2010 Rodrigo Belem <rclbelem@gmail.com>
++ *
++ *   This library is free software; you can redistribute it and/or
++ *   modify it under the terms of the GNU Lesser General Public
++ *   License as published by the Free Software Foundation; either
++ *   version 2.1 of the License, or (at your option) version 3, or any
++ *   later version accepted by the membership of KDE e.V. (or its
++ *   successor approved by the membership of KDE e.V.), which shall
++ *   act as a proxy defined in Section 6 of version 3 of the license.
++ *
++ *   This library is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *   Lesser General Public License for more details.
++ *
++ *   You should have received a copy of the GNU Lesser General Public
++ *   License along with this library.  If not, see <http://www.gnu.org/licenses/>
++ */
++
++#ifndef ksambasharedata_h
++#define ksambasharedata_h
++
++#include <QtCore/QExplicitlySharedDataPointer>
++#include <kio/kio_export.h>
++
++class QString;
++class KSambaShare;
++class KSambaSharePrivate;
++class KSambaShareDataPrivate;
++
++/**
++ * This class represents a Samba user share. It is possible to share a directory with one or more
++ * different names, update the share details or remove.
++ *
++ * @author Rodrigo Belem <rclbelem@gmail.com>
++ * @since  4.7
++ */
++class KIO_EXPORT KSambaShareData
++{
++
++public:
++    enum GuestPermission {
++        GuestsNotAllowed,
++        GuestsAllowed
++    };
++
++    enum UserShareError {
++        UserShareOk,
++        UserShareExceedMaxShares,
++        UserShareNameOk,
++        UserShareNameInvalid,
++        UserShareNameInUse,
++        UserSharePathOk,
++        UserSharePathInvalid,
++        UserSharePathNotExists,
++        UserSharePathNotDirectory,
++        UserSharePathNotAbsolute,
++        UserSharePathNotAllowed,
++        UserShareAclOk,
++        UserShareAclInvalid,
++        UserShareAclUserNotValid,
++        UserShareCommentOk,
++        UserShareGuestsOk,
++        UserShareGuestsInvalid,
++        UserShareGuestsNotAllowed,
++        UserShareSystemError
++    };
++
++    KSambaShareData();
++    KSambaShareData(const KSambaShareData &other);
++
++    ~KSambaShareData();
++
++    /**
++     * @return @c the share name.
++     */
++    QString name() const;
++
++    /**
++     * @return @c the share path.
++     */
++    QString path() const;
++
++    /**
++     * @return @c the share comment.
++     */
++    QString comment() const;
++
++    /**
++     * Returns a @c containing a string describing the permission added to the users, such as
++     * "[DOMAIN\]username1:X,[DOMAIN\]username2:X,...". X stands for "F" (full control), "R"
++     * (read-only) and "D" (deny). By dafault the acl is Everyone:R.
++     *
++     * @return @c the share acl.
++     */
++    QString acl() const;
++
++    /**
++     * @return @c whether guest access to the share is allowed or not.
++     */
++    KSambaShareData::GuestPermission guestPermission() const;
++
++    /**
++     * Sets the share name. If the share name is changed and valid it will remove the existing
++     * share and will create a new share.
++     * The share name cannot use a name of a system user or containing the forbidden characters
++     * '%, <, >, *, ?, |, /, \, +, =, ;, :, ",,. To check if the name is available or valid use
++     * the method KSambaShare::isShareNameAvailable().
++     *
++     * @param name the name that will be given to the share.
++     *
++     * @return @c UserShareNameOk if the name is valid.
++     * @return @c UserShareNameInvalid if the name contains invalid characters.
++     * @return @c UserShareNameInUse if the name is already in use by another shared folder or a
++     *            by a system user.
++     */
++    KSambaShareData::UserShareError setName(const QString &name);
++
++    /**
++     * Set the path for the share.
++     *
++     * @param path the path that will be given to the share.
++     *
++     * @return @c UserSharePathOk if valid.
++     * @return @c UserSharePathInvalid if the path is in invalid format.
++     * @return @c UserSharePathNotExists if the path does not exists.
++     * @return @c UserSharePathNotDirectory if the path points to file instead of a directory.
++     * @return @c UserSharePathNotAbsolute if the path is not is absolute form.
++     * @return @c UserSharePathNotAllowed if the path is not owner by the user.
++     */
++    KSambaShareData::UserShareError setPath(const QString &path);
++
++    /**
++     * Sets the comment for the share.
++     *
++     * @param comment the comment that will be given to the share.
++     *
++     * @return @c UserShareCommentOk always.
++     */
++    KSambaShareData::UserShareError setComment(const QString &comment);
++
++    /**
++     * Sets the acl to the share.
++     *
++     * @param acl the acl that will be given to the share.
++     *
++     * @return @c UserShareAclOk if the acl is valid.
++     * @return @c UserShareAclInvalid if the acl has invalid format.
++     * @return @c UserShareAclUserNotValid if one of the users in the acl is invalid.
++     */
++    KSambaShareData::UserShareError setAcl(const QString &acl);
++
++    /**
++     * Flags if guest is allowed or not to access the share.
++     *
++     * @param permission the permission that will be given to the share.
++     *
++     * @return @c UserShareGuestsOk if the permission was set.
++     * @return @c UserShareGuestsNotAllowed if the system does not allow guest access to the
++     *            shares.
++     */
++    KSambaShareData::UserShareError setGuestPermission(const GuestPermission &permission = KSambaShareData::GuestsNotAllowed);
++
++    /**
++     * Share the folder with the information that has been set.
++     *
++     * @return @c UserShareOk if the share was added.
++     */
++    KSambaShareData::UserShareError save();
++
++    /**
++     * Unshare the folder held by the object.
++     *
++     * @return @c UserShareOk if the share was removed.
++     */
++    KSambaShareData::UserShareError remove();
++
++    KSambaShareData &operator=(const KSambaShareData &other);
++    bool operator==(const KSambaShareData &other) const;
++    bool operator!=(const KSambaShareData &other) const;
++
++private:
++    QExplicitlySharedDataPointer<KSambaShareDataPrivate> dd;
++
++    friend class KSambaSharePrivate;
++};
++
++#endif
+Index: kde4libs-4.6.1/kio/kio/ksambasharedata_p.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ kde4libs-4.6.1/kio/kio/ksambasharedata_p.h	2011-03-21 16:51:46.000000000 +0000
+@@ -0,0 +1,49 @@
++/*
++ *   Copyright 2010 Rodrigo Belem <rclbelem@gmail.com>
++ *
++ *   This library is free software; you can redistribute it and/or
++ *   modify it under the terms of the GNU Lesser General Public
++ *   License as published by the Free Software Foundation; either
++ *   version 2.1 of the License, or (at your option) version 3, or any
++ *   later version accepted by the membership of KDE e.V. (or its
++ *   successor approved by the membership of KDE e.V.), which shall
++ *   act as a proxy defined in Section 6 of version 3 of the license.
++ *
++ *   This library is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ *   Lesser General Public License for more details.
++ *
++ *   You should have received a copy of the GNU Lesser General Public
++ *   License along with this library.  If not, see <http://www.gnu.org/licenses/>
++ */
++
++#ifndef ksambasharedata_p_h
++#define ksambasharedata_p_h
++
++#include <QtCore/QSharedData>
++
++class QString;
++
++class KSambaShareDataPrivate : public QSharedData
++{
++public:
++    KSambaShareDataPrivate() {};
++    KSambaShareDataPrivate(const KSambaShareDataPrivate &other)
++        : QSharedData(other)
++        , name(other.name)
++        , path(other.path)
++        , comment(other.comment)
++        , acl(other.acl)
++        , guestPermission(other.guestPermission) {};
++
++    ~KSambaShareDataPrivate() {};
++
++    QString name;
++    QString path;
++    QString comment;
++    QString acl;
++    QString guestPermission;
++};
++
++#endif
+Index: kde4libs-4.6.1/kio/CMakeLists.txt
+===================================================================
+--- kde4libs-4.6.1.orig/kio/CMakeLists.txt	2011-02-25 22:00:34.000000000 +0000
++++ kde4libs-4.6.1/kio/CMakeLists.txt	2011-03-21 16:51:46.000000000 +0000
+@@ -168,6 +168,7 @@
+        kio/kautomount.cpp
+        kio/knfsshare.cpp
+        kio/ksambashare.cpp
++       kio/ksambasharedata.cpp
+    )
+ endif(UNIX)
+ 
+@@ -418,6 +419,7 @@
+   kio/kremoteencoding.h
+   kio/krun.h
+   kio/ksambashare.h
++  kio/ksambasharedata.h
+   kio/kscan.h
+   kio/kshellcompletion.h
+   kio/kurifilter.h
+Index: kde4libs-4.6.1/includes/KSambaShareData
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ kde4libs-4.6.1/includes/KSambaShareData	2011-03-21 16:51:46.000000000 +0000
+@@ -0,0 +1 @@
++#include "../ksambasharedata.h"
+Index: kde4libs-4.6.1/includes/CMakeLists.txt
+===================================================================
+--- kde4libs-4.6.1.orig/includes/CMakeLists.txt	2011-03-21 16:51:46.000000000 +0000
++++ kde4libs-4.6.1/includes/CMakeLists.txt	2011-03-21 16:51:46.000000000 +0000
+@@ -329,6 +329,7 @@
+   KRun
+   KShortcutsEditor
+   KSambaShare
++  KSambaShareData
+   KSaveFile
+   KScanDialog
+   KSelectAction
