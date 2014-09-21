@@ -10,6 +10,7 @@ from pisi.actionsapi import pythonmodules
 
 def build():
     pisitools.dosed("pisi/__init__.py", "2.4", "2.6")
+    pisitools.dosed("pisi/db/lazydb.py", "2.4", "2.6")
     pythonmodules.compile()
 
 def install():
