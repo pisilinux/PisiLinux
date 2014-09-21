@@ -11,7 +11,9 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure ("--prefix=/usr \
                           --libexecdir=/usr/libexec/weston \
-                          --with-internal-xdg=1 \
+                          --enable-simple-clients \
+                          --enable-simple-egl-clients \
+                          --with-cairo=gl \
                           --enable-demo-clients-install")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
