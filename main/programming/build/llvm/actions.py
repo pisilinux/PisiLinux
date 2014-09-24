@@ -11,17 +11,17 @@ from pisi.actionsapi import pkgconfig
 from pisi.actionsapi import get
 from pisi.actionsapi import kde4
 
-WorkDir = "%s-%s.src" % (get.srcNAME(), get.srcVERSION())
+#WorkDir = "%s-%s.src" % (get.srcNAME(), get.srcVERSION())
 libdir = "/usr/lib32/llvm" if get.buildTYPE() == "emul32" else "/usr/lib/llvm"
 lib = "lib32" if get.buildTYPE() == "emul32" else "lib"
 
 def setup():
     if not shelltools.isDirectory("tools/clang"):
-        pisitools.dosed("tools/cfe-3.4.1.src/lib/Driver/ToolChains.cpp", '"ld"', '"ld.gold"')
+        pisitools.dosed("tools/cfe-3.5.0.src/lib/Driver/ToolChains.cpp", '"ld"', '"ld.gold"')
         shelltools.move("tools/cfe-%s.src" % get.srcVERSION(), "tools/clang")
-        shelltools.move("tools/clang-tools-extra-3.4", "tools/clang/extra")
+        shelltools.move("tools/clang-tools-extra-*", "tools/clang/extra")
     if not shelltools.isDirectory("projects/compiler-rt"):
-        shelltools.move("projects/compiler-rt-3.4", "projects/compiler-rt")
+        shelltools.move("projects/compiler-rt-3.5*", "projects/compiler-rt")
 
     pisitools.dosed("utils/llvm-build/llvm-build", "python", "python2.7")
     pisitools.dosed("bindings/ocaml/Makefile.ocaml", '\$\(PROJ_libdir\)', libdir)
@@ -36,7 +36,9 @@ def setup():
 
     shelltools.export("CPPFLAGS","%s %s" % (get.CXXFLAGS(),pkgconfig.getLibraryCFLAGS("libffi")))
 
-    pic_option = "enable" if get.ARCH() == "x86_64" else "disable"
+    #pic_option = "enable" if get.ARCH() == "x86_64" else "disable"
+    shelltools.export("CC", "gcc")
+    shelltools.export("CXX", "g++")
 
     options = "--libdir=%s \
                --datadir=/usr/share/llvm \
@@ -47,12 +49,10 @@ def setup():
                --disable-expensive-checks \
                --disable-debug-runtime \
                --disable-assertions \
-               --enable-jit \
-               --enable-threads \
                --disable-assertions \
-               --%s-pic \
+               --with-python=/usr/bin/python2.7 \
                --with-binutils-include=/usr/include \
-               " % (libdir, pic_option)
+               " % libdir
 
     autotools.configure(options)
 
