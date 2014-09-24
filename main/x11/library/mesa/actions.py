@@ -12,6 +12,9 @@ Libdir = "/usr/lib32" if get.buildTYPE() == "emul32" else "/usr/lib"
 def setup():
     autotools.autoreconf("-vif")
 
+# --enable-sysfs option provides better hardware information support with "lspci"
+# --enable-32-bit option is not present anymore. Although build fails in emul32. With --disable-asm option, not fail. Needs to be tested.
+
     options ="\
               --with-dri-driverdir=/usr/lib/xorg/modules/dri \
               --with-gallium-drivers=r300,r600,nouveau,svga,swrast \
@@ -28,6 +31,8 @@ def setup():
               --enable-vdpau \
               --enable-openvg \
               --enable-osmesa \
+              --enable-sysfs \
+              --enable-xvmc \
               --enable-glx-tls \
               --enable-gallium-egl \
               --enable-gallium-gbm \
@@ -40,8 +45,15 @@ def setup():
         # compile with llvm doesn't work for now, test it later
         options += " --with-dri-driverdir=/usr/lib32/xorg/modules/dri \
                      --with-gallium-drivers=r600,nouveau,swrast \
+                     --with-clang-libdir=/usr/lib32 \
                      --disable-gallium-llvm \
-                     --enable-32-bit"
+                     --disable-asm "
+
+    elif get.ARCH() == "x86_64":
+
+        options += " --with-clang-libdir=/usr/lib \
+                     --enable-opencl-icd \
+                   "
 
     autotools.configure(options)
     pisitools.dosed("libtool","( -shared )", " -Wl,--as-needed\\1")
