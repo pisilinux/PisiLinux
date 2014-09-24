@@ -10,15 +10,15 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("CFLAGS", get.CFLAGS().replace("-fomit-frame-pointer", ""))
-    shelltools.export("LDFLAGS", get.LDFLAGS())
+    #shelltools.export("CFLAGS", get.CFLAGS().replace("-fomit-frame-pointer", ""))
+    #shelltools.export("LDFLAGS", get.LDFLAGS())
 
     autotools.rawConfigure("-prefix /usr \
                             -bindir /usr/bin \
+                            -x11include /usr/include \
                             -libdir /usr/lib/ocaml \
                             -mandir /usr/share/man \
-                            --with-pthread \
-                            --tklibs ")
+                            --with-pthread")
 
 def build():
     autotools.make("-j1 world")
@@ -34,14 +34,12 @@ def install():
 
     pisitools.dodoc("Changes", "LICENSE", "README")
 
-    pisitools.insinto("/usr/share/doc/ocaml/otherlibs/labltk","otherlibs/labltk/examples_*")
 
-    '''autotools.rawInstall("-C emacs \
+    ''' autotools.rawInstall("-C emacs \
                         BINDIR=%(install)s/usr/bin \
                         EMACSDIR=%(install)s/usr/share/emacs/site-lisp"
                         % { "install": get.installDIR()})
-   '''
-
+    '''
     # Remove rpaths from stublibs .so files
-    shelltools.system("chrpath --delete %s/usr/lib/ocaml/stublibs/*.so" 
+    shelltools.system("chrpath --delete %s/usr/lib/ocaml/stublibs/*.so"
                     % get.installDIR())

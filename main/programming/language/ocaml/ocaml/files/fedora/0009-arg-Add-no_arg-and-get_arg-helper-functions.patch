@@ -1,0 +1,118 @@
+From 0641f11626be99c8bde349520ac28a8d93106856 Mon Sep 17 00:00:00 2001
+From: "Richard W.M. Jones" <rjones@redhat.com>
+Date: Tue, 1 Apr 2014 11:17:07 +0100
+Subject: [PATCH 09/12] arg: Add no_arg and get_arg helper functions.
+
+The no_arg function in this patch is a no-op.  It will do something
+useful in the followups.
+
+The get_arg function simply checks the next position on the command
+line exists and returns that argument or raises a Arg.Missing.
+
+This patch should introduce no functional change, it is simply code
+refactoring.
+
+In particular, this should not change the treatment of Arg.current
+(see: http://caml.inria.fr/mantis/view.php?id=5197#c11147)
+---
+ stdlib/arg.ml | 47 ++++++++++++++++++++++++++---------------------
+ 1 file changed, 26 insertions(+), 21 deletions(-)
+
+diff --git a/stdlib/arg.ml b/stdlib/arg.ml
+index 0f6480b..a41e0a2 100644
+--- a/stdlib/arg.ml
++++ b/stdlib/arg.ml
+@@ -134,56 +134,62 @@ let parse_argv_dynamic ?(current=current) argv speclist anonfun errmsg =
+         try assoc3 s !speclist
+         with Not_found -> stop (Unknown s)
+       in
++      let no_arg () = () in
++      let get_arg () =
++        if !current + 1 < l then argv.(!current + 1)
++        else stop (Missing s)
++      in
+       begin try
+         let rec treat_action = function
+-        | Unit f -> f ();
+-        | Bool f when !current + 1 < l ->
+-            let arg = argv.(!current + 1) in
++        | Unit f -> no_arg (); f ();
++        | Bool f ->
++            let arg = get_arg () in
+             begin try f (bool_of_string arg)
+             with Invalid_argument "bool_of_string" ->
+                    raise (Stop (Wrong (s, arg, "a boolean")))
+             end;
+             incr current;
+-        | Set r -> r := true;
+-        | Clear r -> r := false;
+-        | String f when !current + 1 < l ->
+-            f argv.(!current + 1);
++        | Set r -> no_arg (); r := true;
++        | Clear r -> no_arg (); r := false;
++        | String f ->
++            let arg = get_arg () in
++            f arg;
+             incr current;
+-        | Symbol (symb, f) when !current + 1 < l ->
+-            let arg = argv.(!current + 1) in
++        | Symbol (symb, f) ->
++            let arg = get_arg () in
+             if List.mem arg symb then begin
+-              f argv.(!current + 1);
++              f arg;
+               incr current;
+             end else begin
+               raise (Stop (Wrong (s, arg, "one of: "
+                                           ^ (make_symlist "" " " "" symb))))
+             end
+-        | Set_string r when !current + 1 < l ->
+-            r := argv.(!current + 1);
++        | Set_string r ->
++            r := get_arg ();
+             incr current;
+-        | Int f when !current + 1 < l ->
+-            let arg = argv.(!current + 1) in
++        | Int f ->
++            let arg = get_arg () in
+             begin try f (int_of_string arg)
+             with Failure "int_of_string" ->
+                    raise (Stop (Wrong (s, arg, "an integer")))
+             end;
+             incr current;
+-        | Set_int r when !current + 1 < l ->
+-            let arg = argv.(!current + 1) in
++        | Set_int r ->
++            let arg = get_arg () in
+             begin try r := (int_of_string arg)
+             with Failure "int_of_string" ->
+                    raise (Stop (Wrong (s, arg, "an integer")))
+             end;
+             incr current;
+-        | Float f when !current + 1 < l ->
+-            let arg = argv.(!current + 1) in
++        | Float f ->
++            let arg = get_arg () in
+             begin try f (float_of_string arg);
+             with Failure "float_of_string" ->
+                    raise (Stop (Wrong (s, arg, "a float")))
+             end;
+             incr current;
+-        | Set_float r when !current + 1 < l ->
+-            let arg = argv.(!current + 1) in
++        | Set_float r ->
++            let arg = get_arg () in
+             begin try r := (float_of_string arg);
+             with Failure "float_of_string" ->
+                    raise (Stop (Wrong (s, arg, "a float")))
+@@ -196,7 +202,6 @@ let parse_argv_dynamic ?(current=current) argv speclist anonfun errmsg =
+               f argv.(!current + 1);
+               incr current;
+             done;
+-        | _ -> raise (Stop (Missing s))
+         in
+         treat_action action
+       with Bad m -> stop (Message m);
+-- 
+2.0.4
+

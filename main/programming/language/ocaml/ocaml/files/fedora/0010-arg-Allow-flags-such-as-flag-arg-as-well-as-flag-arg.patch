@@ -1,0 +1,84 @@
+From 4d1defe6f017b86b0766fd02005a468bedd9aa88 Mon Sep 17 00:00:00 2001
+From: "Richard W.M. Jones" <rjones@redhat.com>
+Date: Tue, 1 Apr 2014 11:21:40 +0100
+Subject: [PATCH 10/12] arg: Allow flags such as --flag=arg as well as --flag
+ arg.
+
+Allow flags to be followed directly by their argument, separated by an '='
+sign.  This is consistent with what GNU getopt_long and many other
+command line parsing libraries allow.
+
+Fix for the following issue:
+http://caml.inria.fr/mantis/view.php?id=5197
+---
+ stdlib/arg.ml  | 30 ++++++++++++++++++++++++------
+ stdlib/arg.mli |  3 ++-
+ 2 files changed, 26 insertions(+), 7 deletions(-)
+
+diff --git a/stdlib/arg.ml b/stdlib/arg.ml
+index a41e0a2..5ffdabc 100644
+--- a/stdlib/arg.ml
++++ b/stdlib/arg.ml
+@@ -55,6 +55,12 @@ let rec assoc3 x l =
+   | _ :: t -> assoc3 x t
+ ;;
+ 
++let split s =
++  let i = String.index s '=' in
++  let len = String.length s in
++  String.sub s 0 i, String.sub s (i+1) (len-(i+1))
++;;
++
+ let make_symlist prefix sep suffix l =
+   match l with
+   | [] -> "<none>"
+@@ -130,14 +136,26 @@ let parse_argv_dynamic ?(current=current) argv speclist anonfun errmsg =
+   while !current < l do
+     let s = argv.(!current) in
+     if String.length s >= 1 && s.[0] = '-' then begin
+-      let action =
+-        try assoc3 s !speclist
+-        with Not_found -> stop (Unknown s)
++      let action, follow =
++        try assoc3 s !speclist, None
++        with Not_found ->
++          try
++            let keyword, arg = split s in
++            assoc3 keyword !speclist, Some arg
++          with Not_found -> stop (Unknown s)
+       in
+-      let no_arg () = () in
++      let no_arg () =
++        match follow with
++        | None -> ()
++        | Some arg -> stop (Wrong (s, arg, "no argument")) in
+       let get_arg () =
+-        if !current + 1 < l then argv.(!current + 1)
+-        else stop (Missing s)
++        match follow with
++        | None ->
++          if !current + 1 < l then argv.(!current + 1)
++          else stop (Missing s)
++        | Some arg ->
++          decr current;
++          arg
+       in
+       begin try
+         let rec treat_action = function
+diff --git a/stdlib/arg.mli b/stdlib/arg.mli
+index 22eda40..7078071 100644
+--- a/stdlib/arg.mli
++++ b/stdlib/arg.mli
+@@ -25,7 +25,8 @@
+     [Unit], [Set] and [Clear] keywords take no argument. A [Rest]
+     keyword takes the remaining of the command line as arguments.
+     Every other keyword takes the following word on the command line
+-    as argument.
++    as argument.  For compatibility with GNU getopt_long, [keyword=arg]
++    is also allowed.
+     Arguments not preceded by a keyword are called anonymous arguments.
+ 
+    Examples ([cmd] is assumed to be the command name):
+-- 
+2.0.4
+
