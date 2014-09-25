@@ -8,12 +8,13 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import cmaketools
 
-pisitools.flags.add("-fPIC -fno-strict-aliasing -DBIG_JOINS=1")
+
+pisitools.flags.add("-fno-strict-aliasing -DBIG_JOINS=1")
 pisitools.cflags.add("-fomit-frame-pointer")
-pisitools.cxxflags.add("-felide-constructors -fno-rtti")
+pisitools.cxxflags.add("-felide-constructors -fno-rtti -fno-delete-null-pointer-checks")
 
 def setup():
-    pisitools.dosed("storage/tokudb/ft-index/ft/ft-ops.cc", "LEAFENTRY leaf_entry;", "LEAFENTRY leaf_entry = 0;")
+    #pisitools.dosed("storage/tokudb/ft-index/ft/ft-ops.cc", "LEAFENTRY leaf_entry;", "LEAFENTRY leaf_entry = 0;")
     cmaketools.configure("-DBUILD_CONFIG=mysql_release \
                           -DCMAKE_INSTALL_PREFIX=/usr \
                           -DSYSCONFDIR=/etc/mysql \
@@ -42,11 +43,10 @@ def setup():
                           -DWITH_BLACKHOLE_STORAGE_ENGINE=1 \
                           -DWITH_INNOBASE_STORAGE_ENGINE=1 \
                           -DWITH_PARTITION_STORAGE_ENGINE=1 \
-                          -DWITH_TOKUDB_STORAGE_ENGINE=1 \
+                          -DWITHOUT_TOKUDB_STORAGE_ENGINE=1 \
                           -DWITHOUT_EXAMPLE_STORAGE_ENGINE=1 \
                           -DWITHOUT_FEDERATED_STORAGE_ENGINE=1 \
                           -DWITHOUT_PBXT_STORAGE_ENGINE=1 \
-                          -DWITHOUT_TOKUDB=1 \
                          ")
 
 def build():
