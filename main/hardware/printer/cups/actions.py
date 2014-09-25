@@ -10,7 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    pisitools.flags.add("-fstack-protector-all", "-DLDAP_DEPRECATED=1")
+    #pisitools.flags.add("-fstack-protector-all", "-DLDAP_DEPRECATED=1")
     pisitools.dosed("config-scripts/cups-sharedlibs.m4", "( -shared )", " -Wl,--as-needed\\1")
 
     # For --enable-avahi
