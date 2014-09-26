@@ -10,6 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     shelltools.system("svn checkout http://llvm.org/svn/llvm-project/libclc/trunk libclc")
+    shelltools.system("svn up -r217247")
 
     shelltools.cd("libclc")
 
