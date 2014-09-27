@@ -1,1 +1,1 @@
-export M2_HOME=/usr/share/java/maven
+export M2_HOME=/usr/share/java/maven-3.0.5
