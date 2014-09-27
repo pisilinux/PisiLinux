@@ -6,12 +6,13 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
+from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
     shelltools.export("CFLAGS", "-Os")
-    shelltools.system("sed 's|-O0|-Os|g' -i \"%s/efivar/Make.defaults\" || true" % get.workDIR())
-    shelltools.system("sed 's|-rpath=$(TOPDIR)/src/|-rpath=$(libdir)|g' -i \"%s/efivar/src/test/Makefile\" || true" % get.workDIR())
+    pisitools.dosed("Make.defaults","-O0","-Os")
+#    pisitools.dosed("src/test/Makefile","(TOPDIR)/src/","(libdir)")
     autotools.make("V=1 -j1")
 
 def install():
