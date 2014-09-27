@@ -14,11 +14,11 @@ def build():
     autotools.make("all")
 
 def install():
-    shelltools.system("sed -i -e 's|BINDIR := /usr/sbin|BINDIR := %s/usr/sbin|' Makefile" % get.installDIR())
-    shelltools.system("mkdir -p %s/usr/sbin" % get.installDIR())
-    shelltools.system("mkdir -p %s/usr/lib" % get.installDIR())
-    shelltools.system("mkdir -p %s/usr/share/man" % get.installDIR())
-    shelltools.system("mkdir -p %s/usr/include" % get.installDIR())
+    pisitools.dosed("Makefile","BINDIR := /usr/sbin","BINDIR := %s/usr/sbin" % get.installDIR())
+    shelltools.makedirs("%s/usr/sbin" % get.installDIR())
+    shelltools.makedirs("%s/usr/lib" % get.installDIR())
+    shelltools.makedirs("%s/usr/share/man" % get.installDIR())
+    shelltools.makedirs("%s/usr/include" % get.installDIR())
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     pisitools.insinto("/usr/lib", "src/lib/*.o")
     pisitools.insinto("/usr/share/man", "src/man/*")
