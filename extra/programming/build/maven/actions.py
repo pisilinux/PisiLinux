@@ -9,12 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def install():
-    shelltools.makedirs("%s/usr/bin" % get.installDIR())
-    shelltools.makedirs("%s/etc/profile.d" % get.installDIR())
-    shelltools.makedirs("%s/usr/share/java/maven/lib" % get.installDIR())
-    shelltools.makedirs("%s/usr/share/java/maven/boot" % get.installDIR())
-    shelltools.makedirs("%s/usr/share/java/maven/conf" % get.installDIR())
-    shelltools.makedirs("%s/usr/share/java/maven/bin" % get.installDIR())
+    pisitools.dodir("/usr/bin")
+    pisitools.dodir("/etc/profile.d")
+    pisitools.dodir("/usr/share/java/maven/lib")
+    pisitools.dodir("/usr/share/java/maven/boot")
+    pisitools.dodir("/usr/share/java/maven/conf")
+    pisitools.dodir("/usr/share/java/maven/bin")
     shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
     shelltools.system("sed '38i <property name=\"maven.home\" value=\"%s/usr/share/java/maven-%s\"\/>' build.xml > build2.xml" % (get.installDIR(), get.srcVERSION()))
     shelltools.export("M2_HOME","$maven.home")
@@ -25,4 +25,5 @@ def install():
     pisitools.dosym("/usr/share/java/maven-3.0.5/bin/mvn","/usr/bin/mvn")
     pisitools.dosym("/usr/share/java/maven-3.0.5/bin/mvnDebug","/usr/bin/mvnDebug")
     pisitools.dosym("/usr/share/java/maven-3.0.5/bin/mvnyjp","/usr/bin/mvnyjp")
-
+    pisitools.domove("/usr/share/java/maven/repo/","/usr/share/java/maven-%s/" % get.srcVERSION())
+    pisitools.removeDir("/usr/share/java/maven")
