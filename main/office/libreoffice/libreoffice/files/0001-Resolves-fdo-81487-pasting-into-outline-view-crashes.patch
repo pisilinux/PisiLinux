@@ -1,0 +1,48 @@
+From a5793f5e0013b156600fd718d8f77870a9e73032 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Caol=C3=A1n=20McNamara?= <caolanm@redhat.com>
+Date: Fri, 18 Jul 2014 09:06:44 +0100
+Subject: [PATCH] Resolves: fdo#81487 pasting into outline view crashes impress
+
+CreateTitleTextObject will call indirectly ImpPageChange which
+triggers tools::EventMultiplexerEvent::EID_PAGE_ORDER and so
+in outlview.cxx without ignore page changes level in action
+the outliner is filled in from the slide contents in
+FillOutliner clearing the outliner contents and filling it
+fresh, but..
+
+a) this hack tower is not prepared for all the outliner
+iterators to become invalid
+b) the contents of this title object is empty, because
+it was just created, and we didn't get a chance to fill
+in its text.
+
+This all works for typing vs pasting because the KeyInput
+uses the OutlineViewPageChangesGuard guard which sets the
+ignore pages changes bit.
+
+So, given that OutlineView::UpdateDocument expects
+the iterators of the outliner to be valid during
+the lifetime of the method lock the full method with
+the OutlineViewPageChangesGuard guard
+
+Change-Id: Iecbf37d54f5f0c5a181be5f27832f769a3d2e389
+---
+ sd/source/ui/view/outlview.cxx | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/sd/source/ui/view/outlview.cxx b/sd/source/ui/view/outlview.cxx
+index 268a32b..a76bb0b 100644
+--- a/sd/source/ui/view/outlview.cxx
++++ b/sd/source/ui/view/outlview.cxx
+@@ -1535,6 +1535,8 @@ void OutlineView::EndModelChange()
+ /** updates all changes in the outliner model to the draw model */
+ void OutlineView::UpdateDocument()
+ {
++    OutlineViewPageChangesGuard aGuard(this);
++
+     const sal_uInt32 nPageCount = mrDoc.GetSdPageCount(PK_STANDARD);
+     Paragraph* pPara = mrOutliner.GetParagraph( 0 );
+     sal_uInt32 nPage;
+-- 
+1.9.3
+
