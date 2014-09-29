@@ -11,7 +11,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 NoStrip=["/usr/share"]
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure()

@@ -10,7 +10,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("HOME", get.workDIR())
     cmaketools.configure("-DGLM_TEST_ENABLE=ON")
 
 def build():

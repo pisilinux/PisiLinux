@@ -10,7 +10,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 
-shelltools.export("HOME", get.workDIR())
 WorkDir = "vim74"
 
 def setup():

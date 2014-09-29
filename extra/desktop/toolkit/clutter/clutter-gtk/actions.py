@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 
 def setup():
     # guess we should update to new autoconf
-    shelltools.export("HOME", "%s" %get.workDIR())
     shelltools.system("gtkdocize")
     autotools.autoreconf("-fi")
     autotools.configure()
@@ -20,7 +19,6 @@ def setup():
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
-    shelltools.export("HOME", "%s" %get.workDIR())
     autotools.make()
 
 def install():

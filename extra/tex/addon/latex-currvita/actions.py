@@ -10,7 +10,6 @@ from pisi.actionsapi import shelltools
 
 WorkDir= "currvita"
 
-shelltools.export("HOME", get.workDIR())
 
 def build():
     shelltools.system("/usr/bin/latex --interaction=batchmode currvita.ins")

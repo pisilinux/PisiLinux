@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 
 WorkDir = "libtorrent-rasterbar-%s" % get.srcVERSION()
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.autoreconf("-vfi")

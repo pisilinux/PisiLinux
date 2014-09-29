@@ -9,7 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 WorkDir = "LinLibertineSRC"
-shelltools.export("HOME", get.workDIR())
 
 def build():
     shelltools.system("fontforge -lang=ff -script buildscript *.sfd")

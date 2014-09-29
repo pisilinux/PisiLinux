@@ -10,7 +10,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     shelltools.system("rm -rf CMakeCache.txt")

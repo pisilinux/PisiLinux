@@ -9,7 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 
 def build():
     pythonmodules.compile()

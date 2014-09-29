@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure("-DK3B_BUILD_K3BSETUP:BOOL=OFF \

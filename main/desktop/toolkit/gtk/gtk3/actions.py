@@ -9,7 +9,6 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     options = "--enable-x11-backend \

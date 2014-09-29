@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     # ON if installing to /usr, OFF if otherwise

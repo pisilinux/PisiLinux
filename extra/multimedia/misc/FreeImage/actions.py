@@ -10,7 +10,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 #WorkDir = get.srcNAME()
-shelltools.export("HOME", get.workDIR())
 
 def build():
     shelltools.system('export CFLAGS="$CFLAGS -fPIC -fexceptions -fvisibility=hidden -DNO_LCMS"')

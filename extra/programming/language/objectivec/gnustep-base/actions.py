@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 WorkPath="%s/%s"  % (get.workDIR(), get.srcDIR())
 
 def setup():

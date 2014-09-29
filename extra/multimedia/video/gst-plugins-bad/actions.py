@@ -37,7 +37,6 @@ def build():
 #FIXME: tests now tries to 
 #def check():
 #    # for sandbox violations
-#    shelltools.export("HOME", get.workDIR())
 #    autotools.make("-C tests/check check")
 
 def install():

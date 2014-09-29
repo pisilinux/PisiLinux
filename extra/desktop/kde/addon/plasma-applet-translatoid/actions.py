@@ -9,7 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 from pisi.actionsapi import kde4
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     pisitools.dosed("plasma-applet-translatoid.desktop", "Name=Translator", "Name=Translatoid")

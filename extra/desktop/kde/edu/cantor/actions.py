@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 NoStrip=["/usr/share/icons"]
 # TODO: KAlgebra icon not shown in GUI
 # TODO: more sub packages? *-libs etc.?

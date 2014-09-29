@@ -9,7 +9,6 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 
-shelltools.export("HOME", get.workDIR())
 datadir = "/usr/share/%s" % get.srcNAME()
 
 def setup():

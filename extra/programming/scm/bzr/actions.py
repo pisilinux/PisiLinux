@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pythonmodules
 
 shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
-shelltools.export("HOME", get.workDIR())
 
 def build():
     pythonmodules.compile()

@@ -24,7 +24,7 @@ def setup():
         shelltools.export("CXX", "%s -m32" % get.CXX())
         shelltools.system("./Configure linux-elf %s" % options)
         shelltools.export("PKG_CONFIG_PATH","/usr/lib32/pkgconfig")
-    
+
     else:
         options += " enable-ec_nistp_64_gcc_128"
         shelltools.system("./Configure linux-x86_64 %s" % options)

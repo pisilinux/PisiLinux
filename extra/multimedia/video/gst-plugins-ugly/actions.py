@@ -28,7 +28,6 @@ def build():
 # causes sandbox violations
 #def check():
 #    # causes sandbox violation
-#    shelltools.export("HOME", get.workDIR())
 #    autotools.make("-C tests/check check")
 
 def install():

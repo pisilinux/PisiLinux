@@ -11,7 +11,6 @@ from pisi.actionsapi import get
 
 NoStrip=["/usr/share", "/usr/man"]
 WorkDir="krusader-%s" % get.srcVERSION().replace("_","-")
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure()

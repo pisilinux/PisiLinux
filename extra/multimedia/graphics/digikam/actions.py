@@ -10,7 +10,6 @@ from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 from pisi.actionsapi import cmaketools
 
-#shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure("-DCMAKE_INSTALL_PREFIX=/usr \

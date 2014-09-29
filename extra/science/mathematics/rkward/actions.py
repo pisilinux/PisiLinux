@@ -9,7 +9,6 @@ from pisi.actionsapi import get
 from pisi.actionsapi import kde4
 from pisi.actionsapi import pisitools
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure("-DR_HOME=/usr/lib/R")

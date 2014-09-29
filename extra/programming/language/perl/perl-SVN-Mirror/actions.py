@@ -20,7 +20,6 @@ def build():
 # FIXME: test fails
 #def check():
 #    # tries to reach ~/.subversion
-#    shelltools.export("HOME", get.workDIR())
 #    perlmodules.make("test")
 
 def install():
