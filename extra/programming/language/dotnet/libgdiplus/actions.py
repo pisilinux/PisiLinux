@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 
 def setup():
     pisitools.dosed("libgdiplus.pc.in", "libdir=@libdir@", "libdir=@libdir@\nlibjpeg_prefix=${exec_prefix}/lib -ljpeg -ljpeg")
-    autotools.configure("--disable-static")
+    autotools.configure()
 
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
