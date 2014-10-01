@@ -10,21 +10,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    options = " --disable-static \
-                --disable-rpath"
-
-    if get.buildTYPE() == "emul32":
-        # Suggested C(XX)FLAGS by the upstream author
-        pisitools.flags.add("-D_FILE_OFFSET_BITS=32 -m32")
-    else:
-        pisitools.flags.add("-D_FILE_OFFSET_BITS=64")
-
-    autotools.configure(options)
-
-    # Fix overlinking
-    pisitools.dosed("libtool", "-pthread", "-lpthread")
-    pisitools.dosed("src/liblzma/liblzma.pc.in", "@PTHREAD_CFLAGS@", "")
-
+    autotools.configure("--disable-static \
+                         --disable-rpath")
     # Remove RPATH
     pisitools.dosed("libtool", "^hardcode_libdir_flag_spec=.*", "hardcode_libdir_flag_spec=\"\"")
     pisitools.dosed("libtool", "^runpath_var=LD_RUN_PATH", "runpath_var=DIE_RPATH_DIE")
