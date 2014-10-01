@@ -20,5 +20,6 @@ def install():
     pisitools.remove("/usr/share/man/man8/chkconfig.8")
     pisitools.remove("/usr/share/man/man8/ntsysv.8")
     pisitools.removeDir("/usr/share/man/man5")
+    pisitools.removeDir("/sbin")
 
     pisitools.dodoc("COPYING")
