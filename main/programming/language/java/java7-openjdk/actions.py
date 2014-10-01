@@ -28,7 +28,7 @@ def setup():
                             --with-ecj-jar=/usr/share/java/ecj.jar \
                             --with-jdk-home=/usr/lib/jvm/java-7-openjdk \
                             --with-abs-install-dir=/usr/lib/jvm/java-7-openjdk \
-                            --with-pkgversion='PisiLinux build 7.u65_2.5.1' \
+                            --with-pkgversion='PisiLinux build 7.u65_2.5.2' \
                            " % get.makeJOBS().replace("-j", ""))
 
 def build():

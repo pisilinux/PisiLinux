@@ -13,11 +13,12 @@ import os
 
 WorkDir = "mozilla-release"
 NoStrip = ["/usr/include", "/usr/share/idl"]
-XulVersion = "29.0"
+XulVersion = "32.0"
 XulDir = "/usr/lib/%s-%s" % (get.srcNAME(), XulVersion)
 ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else "obj-%s-pc-linux-gnu" % get.ARCH()
 
 def setup():
+    pisitools.dosed("browser/installer/Makefile.in", "MOZ_PKG_FATAL_WARNINGS = 1", "MOZ_PKG_FATAL_WARNINGS = 0")
     pisitools.ldflags.add("-Wl,-rpath,/usr/lib/xulrunner-%s" % XulVersion)
     # Write xulrunner version correctly including the minor part
     for f in ("xulrunner/installer/Makefile.in", ".mozconfig", "20-xulrunner.conf"):
