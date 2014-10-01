@@ -8,10 +8,8 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir="%s30" % get.srcNAME()
-
 def build():
-    autotools.make("-f unix/Makefile CC=%s CPP=%s generic" % (get.CC(), get.CXX()))
+    autotools.make("-f unix/Makefile CC=%s CPP=%s generic_gcc" % (get.CC(), get.CXX()))
 
 def install():
     for bin in ["zip","zipcloak","zipnote","zipsplit"]:
