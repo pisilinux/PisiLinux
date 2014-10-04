@@ -95,7 +95,7 @@ def install():
     pisitools.dosed("%s/usr/share/texmf-dist/web2c/fmtutil.cnf" % get.installDIR(), "^.*aleph.*$")
     
     pisitools.insinto("/etc/texmf/chktex", "%s/usr/share/texmf-dist/chktex/chktexrc" % get.installDIR(), sym=True) 
-    pisitools.insinto("/etc/texmf/web2c", "%s/usr/share/texmf-dist/web2c/texmf.cnf" % get.installDIR(), sym=True)
+    #pisitools.insinto("/etc/texmf/web2c", "%s/usr/share/texmf-dist/web2c/texmf.cnf" % get.installDIR(), sym=True)
     pisitools.insinto("/etc/texmf/web2c", "%s/usr/share/texmf-dist/web2c/fmtutil.cnf" % get.installDIR(), sym=True)
     pisitools.insinto("/etc/texmf/texconfig", "%s/usr/share/texmf-dist/texconfig/tcfmgr.map" % get.installDIR(), sym=True)
     pisitools.insinto("/etc/texmf/dvipdfmx", "%s/usr/share/texmf-dist/dvipdfmx/dvipdfmx.cfg" % get.installDIR(), sym=True)
