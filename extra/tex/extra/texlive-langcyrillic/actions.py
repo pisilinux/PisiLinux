@@ -43,3 +43,6 @@ def install():
         for root, dirs, files in os.walk(script_dir):
             for name in files:
                 shelltools.chmod(os.path.join(root, name), 0755)
+
+    pisitools.remove("/usr/share/texmf-dist/scripts/texlive/rubibtex.sh")
+    pisitools.remove("/usr/share/texmf-dist/scripts/texlive/rumakeindex.sh")
