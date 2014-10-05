@@ -9,7 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 WorkDir = "freefont-%s" % get.srcVERSION().split("_")[1]
-shelltools.export("HOME", get.workDIR())
 
 def build():
     shelltools.system("fontforge -lang=ff -script buildscript *.sfd")

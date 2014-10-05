@@ -14,6 +14,9 @@ def build():
     autotools.make('CC=%s AR=%s RANLIB=%s CFLAGS="%s -D_FILE_OFFSET_BITS=64 -fPIC"' % (get.CC(), get.AR(), get.RANLIB(), get.CFLAGS()))
     autotools.make('CFLAGS="%s -D_FILE_OFFSET_BITS=64 -fPIC" -f Makefile-libbz2_so' % get.CFLAGS())
 
+def check():
+    autotools.make("check")
+
 def install():
     autotools.rawInstall("PREFIX=%s/usr" % get.installDIR())
 

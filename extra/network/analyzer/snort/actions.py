@@ -9,8 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import libtools
 from pisi.actionsapi import get
 
-shelltools.export("HOME",get.workDIR())
-
 def setup():
     libtools.libtoolize()
     autotools.aclocal("-I m4")
@@ -39,7 +37,7 @@ def setup():
                          --enable-linux-smp-stats \
                          --enable-side-channel \
                          --enable-control-socket")
-    
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():

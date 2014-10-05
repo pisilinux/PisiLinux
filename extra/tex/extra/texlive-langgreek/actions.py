@@ -45,5 +45,4 @@ def install():
                 shelltools.chmod(os.path.join(root, name), 0755)
 
 
-    pisitools.dosym("/usr/share/texmf-dist/scripts/mkgrkindex/mkgrkindex", "/usr/bin/mkgrkindex")
-
+    pisitools.remove("/usr/share/texmf-dist/scripts/mkgrkindex/mkgrkindex")

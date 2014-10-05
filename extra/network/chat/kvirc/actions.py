@@ -10,7 +10,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 NoStrip = "/usr/kde/4/share"
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     shelltools.unlinkDir("win32build")

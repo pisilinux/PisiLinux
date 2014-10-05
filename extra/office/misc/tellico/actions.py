@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 from pisi.actionsapi import kde4
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure("-DENABLE_WEBCAM=TRUE -DKSANE_INCLUDE_DIR=/usr/include/kde4/libksane")

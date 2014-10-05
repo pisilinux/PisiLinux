@@ -44,8 +44,8 @@ def install():
             for name in files:
                 shelltools.chmod(os.path.join(root, name), 0755)
 
-    pisitools.dosym("/usr/share/texmf-dist/scripts/cachepic/cachepic.tlu", "/usr/bin/cachepic")
-    pisitools.dosym("/usr/share/texmf-dist/scripts/epspdf/epspdftk", "/usr/bin/epspdftk")
-    pisitools.dosym("/usr/share/texmf-dist/scripts/epspdf/epspdf", "/usr/bin/epspdf")
-    pisitools.dosym("/usr/share/texmf-dist/scripts/fig4latex/fig4latex", "/usr/bin/fig4latex")
-    pisitools.dosym("/usr/share/texmf-dist/scripts/mathspic/mathspic.pl", "/usr/bin/mathspic")
+    pisitools.remove("/usr/share/texmf-dist/scripts/epspdf/epspdf.tlu")
+    pisitools.remove("/usr/share/texmf-dist/scripts/fig4latex/fig4latex")
+    pisitools.remove("/usr/share/texmf-dist/scripts/epspdf/epspdftk.tcl")
+    pisitools.remove("/usr/share/texmf-dist/scripts/cachepic/cachepic.tlu")
+    pisitools.remove("/usr/share/texmf-dist/scripts/mathspic/mathspic.pl")

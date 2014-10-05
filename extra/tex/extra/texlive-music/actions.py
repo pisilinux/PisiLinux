@@ -44,3 +44,7 @@ def install():
             for name in files:
                 shelltools.chmod(os.path.join(root, name), 0755)
 
+    pisitools.remove("/usr/share/texmf-dist/scripts/m-tx/m-tx.lua")
+    pisitools.remove("/usr/share/texmf-dist/scripts/musixtex/musixtex.lua")
+    pisitools.remove("/usr/share/texmf-dist/scripts/musixtex/musixflx.lua")
+    pisitools.remove("/usr/share/texmf-dist/scripts/pmx/pmx2pdf.lua")

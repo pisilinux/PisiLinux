@@ -8,7 +8,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     autotools.configure("--prefix=/usr")

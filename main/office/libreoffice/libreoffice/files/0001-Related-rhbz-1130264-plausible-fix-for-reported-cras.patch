@@ -1,0 +1,76 @@
+From eb21b6827e25b2c943025a662cde2049c0454a6b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Caol=C3=A1n=20McNamara?= <caolanm@redhat.com>
+Date: Fri, 15 Aug 2014 15:59:58 +0100
+Subject: [PATCH] Related: rhbz#1130264 plausible fix for reported crash
+
+Change-Id: I4ccdf19bfc7986881f7022109f22f47a0f493591
+---
+ avmedia/source/gstreamer/gstplayer.cxx | 20 ++++++++++++++++----
+ avmedia/source/gstreamer/gstplayer.hxx |  3 +++
+ 2 files changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/avmedia/source/gstreamer/gstplayer.cxx b/avmedia/source/gstreamer/gstplayer.cxx
+index ceea8e2..836e89e 100644
+--- a/avmedia/source/gstreamer/gstplayer.cxx
++++ b/avmedia/source/gstreamer/gstplayer.cxx
+@@ -74,7 +74,9 @@ Player::Player( const uno::Reference< lang::XMultiServiceFactory >& rxMgr ) :
+     mpXOverlay( NULL ),
+     mnDuration( 0 ),
+     mnWidth( 0 ),
+-    mnHeight( 0 )
++    mnHeight( 0 ),
++    mnWatchID( 0 ),
++    mbWatchID( false )
+ {
+     // Initialize GStreamer library
+     int argc = 1;
+@@ -127,11 +129,15 @@ void SAL_CALL Player::disposing()
+             g_object_unref( G_OBJECT ( mpXOverlay ) );
+             mpXOverlay = NULL;
+         }
++
++    }
++    if (mbWatchID)
++    {
++        g_source_remove(mnWatchID);
++        mbWatchID = false;
+     }
+ }
+ 
+-
+-
+ static gboolean pipeline_bus_callback( GstBus *, GstMessage *message, gpointer data )
+ {
+     Player* pPlayer = static_cast<Player*>(data);
+@@ -357,7 +363,13 @@ void Player::preparePlaybin( const OUString& rURL, GstElement *pSink )
+         g_object_set( G_OBJECT( mpPlaybin ), "uri", ascURL.getStr() , NULL );
+ 
+         pBus = gst_element_get_bus( mpPlaybin );
+-        gst_bus_add_watch( pBus, pipeline_bus_callback, this );
++        if (mbWatchID)
++        {
++            g_source_remove(mnWatchID);
++            mbWatchID = false;
++        }
++        mnWatchID = gst_bus_add_watch( pBus, pipeline_bus_callback, this );
++        mbWatchID = true;
+         DBG( "%p set sync handler", this );
+ #ifdef AVMEDIA_GST_0_10
+         gst_bus_set_sync_handler( pBus, pipeline_bus_sync_handler, this );
+diff --git a/avmedia/source/gstreamer/gstplayer.hxx b/avmedia/source/gstreamer/gstplayer.hxx
+index 2426eed..33c9e4d 100644
+--- a/avmedia/source/gstreamer/gstplayer.hxx
++++ b/avmedia/source/gstreamer/gstplayer.hxx
+@@ -97,6 +97,9 @@ protected:
+     int                     mnWidth;
+     int                     mnHeight;
+ 
++    guint                   mnWatchID;
++    bool                    mbWatchID;
++
+     osl::Condition          maSizeCondition;
+ };
+ 
+-- 
+1.9.3
+

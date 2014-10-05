@@ -8,6 +8,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 import os
+import re
 from distutils.dir_util import copy_tree
 
 WorkDir = "."
@@ -143,7 +144,9 @@ def install():
 		      "xindy/xindy.pl"]
  
     for folder in linked_scripts:
-        pisitools.insinto("/usr/bin/", "/usr/share/texmf-dist/scripts/%s" % folder, sym = True)
+        #pisitools.insinto("/usr/bin/", "/usr/share/texmf-dist/scripts/%s" % folder, sym = True)
+        split = re.split('[/]',folder)
+        pisitools.dosym("/usr/share/texmf-dist/scripts/%s" % folder,"/usr/bin/%s" % split[1])
     pisitools.dosym("/usr/share/texmf-dist/scripts/listings-ext/listings-ext.sh", "/usr/bin/listings-ext.sh")
     
     texlive_scripts=[ "allcm.sh",
@@ -196,3 +199,54 @@ def install():
     # old packages, we will not provide them
     
     pisitools.remove("/usr/share/texmf-dist/web2c/texmf.cnf")
+    pisitools.remove("/usr/bin/lua2dox_filter")
+    pisitools.remove("/usr/bin/pkfix-helper")
+    pisitools.remove("/usr/bin/latexfileversion") 
+    pisitools.remove("/usr/bin/texloganalyser") 
+    pisitools.remove("/usr/bin/luatools") 
+    pisitools.remove("/usr/bin/pdfnup") 
+    pisitools.remove("/usr/bin/mtxrun") 
+    pisitools.remove("/etc/texmf/dvipdfmx/dvipdfmx.cfg") 
+    pisitools.remove("/usr/bin/vpl2vpl") 
+    pisitools.remove("/usr/bin/pdfjam") 
+    pisitools.remove("/usr/bin/arlatex") 
+    pisitools.remove("/usr/bin/latex2man") 
+    pisitools.remove("/usr/bin/pstopdf") 
+    pisitools.remove("/usr/bin/ctxtools") 
+    pisitools.remove("/usr/bin/pdfjam-pocketmod")
+    pisitools.remove("/usr/bin/pdfjam-slides6up") 
+    pisitools.remove("/usr/bin/installfont-tl") 
+    pisitools.remove("/usr/bin/pdfbook") 
+    pisitools.remove("/usr/bin/pdf180") 
+    pisitools.remove("/usr/bin/ctanify") 
+    pisitools.remove("/etc/texmf/xdvi/XDvi") 
+    pisitools.remove("/usr/bin/bundledoc") 
+    pisitools.remove("/usr/bin/listings-ext.sh") 
+    pisitools.remove("/etc/texmf/web2c/fmtutil.cnf") 
+    pisitools.remove("/etc/texmf/chktex/chktexrc") 
+    pisitools.remove("/usr/bin/perl")
+    pisitools.remove("/usr/bin/pdfpun") 
+    pisitools.remove("/usr/bin/ot2kpx") 
+    pisitools.remove("/etc/texmf/ttf2pk/ttf2pk.cfg") 
+    pisitools.remove("/usr/bin/vpl2ovp") 
+    pisitools.remove("/usr/bin/afm2afm") 
+    pisitools.remove("/usr/bin/pdfjam-slides3up") 
+    pisitools.remove("/usr/bin/simpdftex") 
+    pisitools.remove("/usr/bin/texexec") 
+    pisitools.remove("/usr/bin/ltxfileinfo") 
+    pisitools.remove("/usr/bin/findhyph") 
+    pisitools.remove("/usr/bin/texdirflatten") 
+    pisitools.remove("/usr/bin/pdfjoin") 
+    pisitools.remove("/usr/bin/texmfstart") 
+    pisitools.remove("/usr/bin/match_parens") 
+    pisitools.remove("/usr/bin/pdf270") 
+    pisitools.remove("/usr/bin/texdiff") 
+    pisitools.remove("/usr/bin/dtxgen") 
+    pisitools.remove("/usr/bin/mkt1font") 
+    pisitools.remove("/usr/bin/context") 
+    pisitools.remove("/usr/bin/autoinst") 
+    pisitools.remove("/usr/bin/pdfflip") 
+    pisitools.remove("/usr/bin/pdf90") 
+    pisitools.remove("/usr/bin/purifyeps") 
+    pisitools.remove("/usr/bin/latexpand") 
+    pisitools.remove("/usr/bin/de-macro")

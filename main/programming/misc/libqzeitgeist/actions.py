@@ -9,7 +9,6 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 NoStrip=["/usr/share"]
 
 libsuffix = "-DLIB_SUFFIX=32" if get.buildTYPE() == "emul32" else ""

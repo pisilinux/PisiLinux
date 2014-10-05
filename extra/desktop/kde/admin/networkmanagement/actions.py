@@ -8,7 +8,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 WorkDir = "networkmanagement-%s" % get.srcVERSION()
 NoStrip=["/usr/share/icons"]
 

@@ -10,7 +10,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 import os
 
-shelltools.export("HOME", get.workDIR())
 shelltools.export("HAVE_VALGRIND_FALSE", "yes")
 
 def setup():

@@ -11,7 +11,6 @@ from pisi.actionsapi import shelltools
 WorkDir = "."
 SkipList = (".", "filelist", "patches", "pisiBuildState", "tmp")
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     # Speed up xkbcomp

@@ -39,15 +39,16 @@ ldirs = ("/usr/lib/libreoffice/help/%s",
          "/usr/lib/libreoffice/share/extensions/nlpsolver/help/%s",
          "/usr/lib/libreoffice/share/extensions/wiki-publisher/help/%s")
 
-def setup():
+def setup():    
+    shelltools.system("ulimit -c unlimited")
+    shelltools.system("ccache -M 10")
     vars = {"lang": langs,
             "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
     shelltools.system("./autogen.sh")
-    shelltools.system("ulimit -c unlimited")
-    #autotools.aclocal("-I m4")
-    #autotools.autoconf()
-    pisitools.dosed("sysui/desktop/menus/math.desktop", "Categories=Office;Education;Science;Math;X-Red-Hat-Base;X-MandrivaLinux-Office-Other;", "Categories=Office;")
+    autotools.aclocal("-I m4")
+    autotools.autoconf()
+    pisitools.dosed("sysui/desktop/menus/math.desktop", "Office;Spreadsheet;Education;Science;Math;X-Red-Hat-Base;X-MandrivaLinux-Office-Other;", "Categories=Office;")
     pisitools.dosed("sysui/desktop/menus/draw.desktop", "Categories=Office;FlowChart;Graphics;2DGraphics;VectorGraphics;X-Red-Hat-Base;X-MandrivaLinux-Office-Drawing;", "Categories=Office;")
     # avoid running autogen.sh on make
     shelltools.touch("autogen.lastrun")
@@ -92,14 +93,10 @@ def setup():
                        --without-system-liblangtag \
                        --without-system-harfbuzz \
                        --without-system-boost \
-                       --without-system-orcus \
                        --without-system-hsqldb \
-                       --without-system-libmwaw \
-                       --without-system-libfreehand \
-                       --without-system-libebook \
                        --without-system-firebird \
-                       --without-system-libabw \
                        --without-myspell-dicts \
+                       --without-system-orcus \
                        --without-system-npapi-headers \
                        --without-ppds \
                        --without-afms \
@@ -109,6 +106,9 @@ def setup():
                        --with-system-headers \
                        --with-system-cairo \
                        --with-system-mythes \
+                       --with-system-libabw \
+                       --with-system-libebook \
+                       --with-system-libfreehand \
                        --with-system-libcdr \
                        --with-system-libwpg \
                        --with-system-libwps \
@@ -116,9 +116,12 @@ def setup():
                        --with-system-clucene \
                        --with-system-libmspub \
                        --with-system-cppunit \
+                       --with-system-libmwaw \
                        --with-system-mdds \
                        --with-system-libodfgen \
+                       --with-system-libgltf \
                        --with-system-libetonyek \
+                       --with-system-librevenge \
                        --with-system-libatomic_ops \
                        --with-system-libcmis \
                        --with-system-beanshell \
@@ -191,5 +194,3 @@ def install():
     print("creating: %s.tar.xz" % langpackdir)
     shelltools.cd("%s/../" % get.installDIR())
     shelltools.system("tar c %s | xz -9 > %s.tar.xz" % ((langpackdir, )*2))
-
-

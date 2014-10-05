@@ -9,7 +9,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 ARCH =("x86_64")
 buildDir = "build/release-linux-%s" % ARCH
 dataDir = "/usr/share/smokinguns"

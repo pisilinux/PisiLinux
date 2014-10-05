@@ -4,13 +4,9 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import get
 from pisi.actionsapi import kde4
 from pisi.actionsapi import pisitools
 
-WorkDir = "kshutdown-%s" % get.srcVERSION().replace('_','').rstrip("1")
-shelltools.export("HOME", "%s" % get.workDIR())
 
 def setup():
     kde4.configure()

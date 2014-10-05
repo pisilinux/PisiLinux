@@ -9,8 +9,6 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
-shelltools.export("HOME", "%s" % get.workDIR())
-
 def setup():
     cmaketools.configure()
 

@@ -10,7 +10,6 @@ from pisi.actionsapi import get
 
 WorkDir = "."
 
-#shelltools.export("HOME", get.workDIR())
 
 def setup():
     pass

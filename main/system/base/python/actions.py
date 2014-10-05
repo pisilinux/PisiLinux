@@ -52,9 +52,8 @@ def build():
     autotools.make()
 
 # some tests fail. let's disable testing temporarily
-#~ def check():
-    #~ shelltools.export("HOME",get.workDIR())
-    #~ autotools.make("test")
+# def check():
+    #autotools.make("test")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR(), "altinstall")

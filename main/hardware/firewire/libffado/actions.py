@@ -9,7 +9,6 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import scons
 from pisi.actionsapi import get
 
-shelltools.export("HOME", get.workDIR())
 shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
 
 def build():

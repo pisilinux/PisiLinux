@@ -7,9 +7,11 @@
 from pisi.actionsapi import pisitools
 
 BASEDIR = "/opt/tomcat7"
+LOGDIR = "/opt/tomcat7/logs"
 
 def install():
     pisitools.dodir(BASEDIR)
+    pisitools.dodir(LOGDIR)
     pisitools.insinto(BASEDIR, "./*")
 
     docs = ("LICENSE", "NOTICE", "RELEASE-NOTES")

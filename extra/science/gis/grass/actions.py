@@ -30,7 +30,7 @@ def setup():
                          --with-geos \
                          --with-python \
                          --with-freetype=yes \
-                         --with-wxwidgets=/usr/bin/wx-config-2.8 \
+                         --with-wxwidgets=/usr/bin/wxconfig \
                          --with-postgres-includes=/usr/include/postgresql \
                          --with-freetype-includes=/usr/include/freetype2 \
                          --with-nls%s" % e64)

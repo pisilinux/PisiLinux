@@ -12,7 +12,6 @@ from pisi.actionsapi import get
 import os
 
 WorkDir="gtk-qt-engine"
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     cmaketools.configure()

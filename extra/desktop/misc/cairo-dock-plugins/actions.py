@@ -10,7 +10,6 @@ from pisi.actionsapi import get
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     pisitools.dosed("Dbus/interfaces/python/PythonInstall.cmake.in",  "\@ROOT_PREFIX\@",  get.installDIR())

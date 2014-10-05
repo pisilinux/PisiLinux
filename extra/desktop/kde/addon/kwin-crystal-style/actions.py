@@ -10,7 +10,6 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 WorkDir = "crystal-%s" % get.srcVERSION()
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure()

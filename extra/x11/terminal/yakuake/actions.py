@@ -12,7 +12,6 @@ from pisi.actionsapi import kde4
 
 WorkDir = "yakuake-%s" % get.srcVERSION()
 
-shelltools.export("HOME", get.workDIR())
 
 def setup():
     kde4.configure()
