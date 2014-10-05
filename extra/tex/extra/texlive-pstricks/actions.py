@@ -45,4 +45,5 @@ def install():
             for name in files:
                 shelltools.chmod(os.path.join(root, name), 0755)
 
-    pisitools.dosym("/usr/share/texmf-dist/scripts/pst2pdf/pst2pdf", "/usr/bin/pst2pdf")
+    pisitools.remove("/usr/share/texmf-dist/scripts/pedigree-perl/pedigree.pl")
+    pisitools.remove("/usr/share/texmf-dist/scripts/pst2pdf/pst2pdf.pl")
