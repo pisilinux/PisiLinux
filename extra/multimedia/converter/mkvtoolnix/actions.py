@@ -34,4 +34,4 @@ def build():
 def install():
     shelltools.system('rake install DESTDIR="%s"' % get.installDIR())
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "README", "TODO")
+    pisitools.dodoc("AUTHORS", "ChangeLog",  "NEWS", "COPYING", "README.md",  "README.Windows.txt", "TODO")
