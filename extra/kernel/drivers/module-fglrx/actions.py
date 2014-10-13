@@ -8,7 +8,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "fglrx-14.20"
+WorkDir = "./"
 KDIR = kerneltools.getKernelVersion()
 NoStrip = ["/lib/modules"]
 
@@ -25,8 +25,12 @@ XDir = "xpic" + ("_64a" if Target == "x86_64" else "")
 
 
 def setup():
-    shelltools.export("SETUP_NOCHECK", "1")
-    shelltools.system("sh amd-driver-installer-*-x86.x86_64.run --extract .")
+    shelltools.makedirs("%s/common" % get.workDIR())
+    shelltools.move("lib", "%s/common/" % get.workDIR())
+    shelltools.move("usr", "%s/common/" % get.workDIR())
+    shelltools.move("etc", "%s/common/" % get.workDIR())
+    #shelltools.export("SETUP_NOCHECK", "1")
+    #shelltools.system("sh amd-driver-installer-*-x86.x86_64.run --extract .")
 
     if get.buildTYPE() == "emul32":
         return
