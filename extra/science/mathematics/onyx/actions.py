@@ -11,13 +11,13 @@ from pisi.actionsapi import pisitools
 # WorkDir="onyx-"+ get.srcVERSION() +"/sub_project_dir/"
 
 def setup():
-    pisitools.insinto("/usr/share/onyx/", "onyx-1.0.jar")
+    pisitools.insinto("/usr/share/onyx/", "onyx-0.9-729.jar")
 
 #def build():
     #autotools.make()
 
 def install():
-    pisitools.insinto("/usr/share/onyx/", "onyx-1.0.jar")
+    pisitools.insinto("/usr/share/onyx/", "onyx-0.9-729.jar")
     pisitools.insinto("/usr/share/onyx/", "onyx.sh")
     pisitools.dosym("/usr/share/onyx/onyx.sh", "/usr/bin/onyx")
    
