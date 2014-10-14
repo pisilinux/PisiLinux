@@ -16,7 +16,7 @@ def setup():
                     -DKDE4_BUILD_TESTS=OFF \
                     -DCMAKE_SKIP_RPATH=ON \
                     -DWITH_SOLID_UDISKS2=ON \
-                    -DWITH_FAM=ON \
+                    -DWITH_FAM=OFF \
                     -DWITH_HUpnp=ON")
 
 def build():
