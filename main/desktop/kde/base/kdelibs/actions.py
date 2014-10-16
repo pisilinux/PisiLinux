@@ -17,7 +17,7 @@ def setup():
                     -DCMAKE_SKIP_RPATH=ON \
                     -DWITH_SOLID_UDISKS2=ON \
                     -DWITH_FAM=OFF \
-                    -DWITH_HUpnp=ON")
+                    -DWITH_HUpnp=OFF")
 
 def build():
     kde4.make()
