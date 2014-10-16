@@ -20,5 +20,5 @@ def install():
     pisitools.dodoc("README.txt","CHANGES.txt")
     pisitools.insinto("/usr/share/applications/","desktop/htmldoc.desktop")
     for i in [16,24,32,48,64,96,128]:
-		pisitools.insinto("/usr/share/icons/hicolor/{0}x{0}/apps/htmldoc.png".format(i),"desktop/htmldoc-{0}.png".format(i))
+		pisitools.insinto("/usr/share/icons/hicolor/{0}x{0}/apps".format(i),"desktop/htmldoc-{0}.png".format(i),"htmldoc.png")
     pisitools.insinto("/usr/share/mime/packages/","desktop/htmldoc.xml")
