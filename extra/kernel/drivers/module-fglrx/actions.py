@@ -44,7 +44,10 @@ def setup():
 
     shelltools.system("patch -p1 < desktop-files.patch")
     shelltools.system("patch -p1 < cold-fglrx-3.14-current_euid.patch")
-    
+    shelltools.system("patch -p1 < fglrx-fix-GL-redefines.patch")
+    shelltools.cd("common")
+    shelltools.system("patch -p1 < fglrx-no_hotplug.patch")
+
 
 def build():
     if get.buildTYPE() == "emul32":
@@ -81,14 +84,14 @@ def install():
 
     for source, target in DIRS.items():
         pisitools.insinto(target, source)
-        
-   # pisitools.insinto("usr/share/ati/lib64", "arch/%s/usr/share/ati/lib*/*" % Target)   
+
+   # pisitools.insinto("usr/share/ati/lib64", "arch/%s/usr/share/ati/lib*/*" % Target)
 
     # X.org drivers
     pisitools.domove("%s/modules" % Libdir, "%s/fglrx" % Libdir)
     pisitools.insinto("%s/fglrx/modules" % Libdir, "%s/usr/X11R6/lib*/modules/*" % XDir)
     pisitools.insinto("%s/xorg/modules" % Libdir, "%s/usr/X11R6/lib*/modules/*" % XDir)
-    
+
     # libGl library name changed to fglrx-libGl since 1.15
     pisitools.domove("%s/fglrx/fglrx-libGL.so.1.2" % Libdir, "%s/fglrx" % Libdir, "libGL.so.1.2.0")
 
@@ -96,7 +99,7 @@ def install():
 
     pisitools.domove("%s/fglrx/modules/extensions/fglrx/fglrx-libglx.so" % Libdir,
                      "%s/fglrx/modules/extensions" % Libdir, "libglx.so")
-    
+
     pisitools.domove("%s/xorg/modules/extensions/fglrx/fglrx-libglx.so" % Libdir,
                      "%s/xorg/modules/extensions" % Libdir, "libglx.so")
 
@@ -114,7 +117,7 @@ def install():
 
     pisitools.dosym("libXvBAW.so.1.0", "%s/libXvBAW.so.1" % Libdir)
     pisitools.dosym("libXvBAW.so.1", "%s/libXvBAW.so" % Libdir)
-    
+
     # remove static libs
     pisitools.remove("%s/*.a" % Libdir)
     if shelltools.isFile("%s%s/fglrx/modules/esut.a" % (get.installDIR(), Libdir)):
@@ -129,7 +132,7 @@ def install():
 
     # Another compatibility link
     pisitools.dosym("/usr", "/usr/X11R6")
-    
+
     pisitools.dosym("../security/console.apps/amdcccle-su", "/etc/pam.d/amdcccle-su")
 
     # copy compiled kernel module
@@ -144,7 +147,7 @@ def install():
 
     pisitools.domove("/usr/share/icons/ccc_large.xpm", "/usr/share/pixmaps", "amdcccle.xpm")
     pisitools.removeDir("/usr/share/icons")
-    
+
     #LICENSE information
     pisitools.dodoc("LICENSE.TXT")
 
