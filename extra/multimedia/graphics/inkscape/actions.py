@@ -11,11 +11,14 @@ from pisi.actionsapi import shelltools
 def setup():
     #pisitools.dosed("src/widgets/desktop-widget.h", "commands_toolbox,", "commands_toolbox")
     autotools.autoreconf('-vfi')
-    autotools.configure("--prefix=/usr \
+    autotools.configure(" \
                          --enable-lcms \
                          --enable-poppler-cairo \
                          --disable-dependency-tracking \
                          --with-python \
+                         --with-gnome-vfs \
+                         --with-inkjar \
+                         --enable-nls \
                          --with-perl")
 
 def build():
