@@ -10,9 +10,13 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fi")
+    shelltools.system("NOCONFIGURE=1 ./autogen.sh")
     autotools.configure("--disable-static \
+                         --disable-hal \
+                         --sysconfdir=/etc \
+                         --with-dbus \
                          --enable-polkit")
+    
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
@@ -21,4 +25,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING")
+    pisitools.dodoc("CHANGELOG.*", "COPYING")
