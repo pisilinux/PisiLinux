@@ -68,7 +68,11 @@ $cfg['Servers'][$i]['bs_temp_log_threshold'] = '32M';
 /*
  * Directories for saving/loading files from server
  */
-$cfg['UploadDir'] = '';
+
+/*
+ *for phpmyadmin import sql max size
+ */
+$cfg['UploadDir'] = 'upload';
 $cfg['SaveDir'] = '';
 
 ?>

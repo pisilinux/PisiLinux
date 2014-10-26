@@ -14,3 +14,6 @@ def install():
 
     pisitools.dohtml("*")
     pisitools.dodoc("ChangeLog","LICENSE","README")
+
+    #for phpmyadmin import sql max size
+    pisitools.dodir("/usr/share/phpmyadmin/upload")
