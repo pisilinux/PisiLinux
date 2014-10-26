@@ -12,8 +12,12 @@ WorkDir = "."
 def setup():
     shelltools.system("ant build")
 
-def install():
-    pisitools.insinto("/usr/share/java/", "ecj.jar", "eclipse-ecj-4.3.2.jar")
+def install():    
+    pisitools.insinto("/usr/share/man/man1/","ecj.1")
+    
+    pisitools.insinto("/usr/share/java/", "ecj.jar", "eclipse-ecj-4.4.jar")
+    
     shelltools.cd("%s/usr/share/java/" % get.installDIR())
-    pisitools.dosym("eclipse-ecj-4.3.2.jar", "/usr/share/java/ecj.jar")
-    pisitools.dosym("eclipse-ecj-4.3.2.jar", "/usr/share/java/eclipse-ecj.jar")
+    
+    pisitools.dosym("eclipse-ecj-4.4.jar", "/usr/share/java/ecj.jar")
+    pisitools.dosym("eclipse-ecj-4.4.jar", "/usr/share/java/eclipse-ecj.jar")
