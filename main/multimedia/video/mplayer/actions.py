@@ -50,7 +50,6 @@ def setup():
                              --enable-caca \
                              --enable-cmov \
                              --enable-dvb \
-                             --enable-dvdnav \
                              --enable-dvdread \
                              --enable-fbdev \
                              --enable-ffmpeg_a \
