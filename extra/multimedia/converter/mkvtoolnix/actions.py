@@ -24,6 +24,7 @@ def setup():
     autotools.autoreconf("-fiv")
     autotools.configure("--enable-gui \
                          --enable-wxwidgets \
+                         --with-wx-config=/usr/bin/wxconfig \
                          --with-flac \
                          --with-boost-libdir=/usr/lib \
                          ")
