@@ -11,10 +11,7 @@ def setup():
     # disable XAA to allow building against >=xorg-server-1.12.99.902
     # pisitools.dosed("configure.ac", ".*USE_XAA, 1.*")
     autotools.autoreconf("-vif")
-    autotools.configure("\
-                         --disable-static \
-                         --enable-dri \
-                        ")
+    autotools.configure()
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
