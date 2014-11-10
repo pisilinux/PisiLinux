@@ -61,7 +61,7 @@ def setup():
                          --disable-xindy-docs ")
 
 def build():
-  
+
     shelltools.cd("%s/source/build/" % get.workDIR())
     autotools.make()
 
@@ -75,33 +75,10 @@ def install():
     #pisitools.dodir("/usr/share/tlpkg/TeXLive")
     #shelltools.move("%s/source/utils/biber/TeXLive/*.pm" % get.workDIR(), "%s/usr/share/tlpkg/TeXLive" % get.installDIR())
 
-
-    # install texmf tree
-    folders = ["/usr/share",
-               "/etc/texmf/chktex",
-               "/etc/texmf/tex/",
-               "/etc/texmf/web2c",
-               "/etc/texmf/dvips/config",
-               "/etc/texmf/dvipdfm",
-               "/etc/texmf/texconfig",
-               "/etc/texmf/ttf2pk",
-               "/etc/texmf/xdvi",
-               "/etc/fonts/conf.avail",
-               "/etc/texmf/dvipdfmx"]
-
-    for dirs in folders:
-        pisitools.dodir(dirs)
-
     # remove aleph from fmtutil.cnf
     pisitools.dosed("%s/usr/share/texmf-dist/web2c/fmtutil.cnf" % get.installDIR(), "^.*aleph.*$")
 
-    pisitools.insinto("/etc/texmf/chktex", "%s/usr/share/texmf-dist/chktex/chktexrc" % get.installDIR(), sym=True) 
-    #pisitools.insinto("/etc/texmf/web2c", "%s/usr/share/texmf-dist/web2c/texmf.cnf" % get.installDIR(), sym=True)
-    pisitools.insinto("/etc/texmf/web2c", "%s/usr/share/texmf-dist/web2c/fmtutil.cnf" % get.installDIR(), sym=True)
     pisitools.insinto("/etc/texmf/texconfig", "%s/usr/share/texmf-dist/texconfig/tcfmgr.map" % get.installDIR(), sym=True)
-    pisitools.insinto("/etc/texmf/dvipdfmx", "%s/usr/share/texmf-dist/dvipdfmx/dvipdfmx.cfg" % get.installDIR(), sym=True)
-    pisitools.insinto("/etc/texmf/ttf2pk", "%s/usr/share/texmf-dist/ttf2pk/ttf2pk.cfg" % get.installDIR(), sym=True)
-    pisitools.insinto("/etc/texmf/xdvi", "%s/usr/share/texmf-dist/xdvi/XDvi" % get.installDIR(), sym=True)
 
     # fix symlinks, some are incorrect
     # makefile patching is another way, but there ar/dvipdfmx.cfge lot of scripts
@@ -114,7 +91,7 @@ def install():
             shelltools.unlink(get.installDIR() + "/usr/bin/" + binary)
             pisitools.dosym(new_path, "/usr/bin/" + binary)
 
-     
+
     bibtexextra_scripts=["bibexport", "listbib" ,"multibibliography", "urlbst"]
 
     core_scripts=["a2ping","a5toa4", "adhocfilelist", "afm2afm", "allcm", "allec", "allneeded", "arara","arlatex"
