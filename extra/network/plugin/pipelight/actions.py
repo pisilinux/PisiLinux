@@ -29,6 +29,6 @@ def install():
     
     shelltools.system("public-scripts/pipelight-plugin --destdir=/var/pisi/pipelight-0.2.3-1/install/ --create-mozilla-plugins ")
     
-    pisitools.domove("/usr/lib/pipelight/libpipelight-silverlight5.1.so", "/usr/lib/mozilla/plugins/")
+    pisitools.domove("/usr/lib/pipelight/libpipelight-silverlight5.1.so", "/usr/lib/browser-plugins")
     
     pisitools.dodoc("LICENSE")
