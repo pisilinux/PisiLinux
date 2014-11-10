@@ -10,7 +10,7 @@ from pisi.actionsapi import get
 
 def setup():
     cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
-                          -DwxWidgets_CONFIG_EXECUTABLE=/usr/bin/wx-config-2.8 \
+                          -DwxWidgets_CONFIG_EXECUTABLE=/usr/bin/wxconfig \
                           -DENABLE_LAPACK=yes \
                           -DBUILD_HSI=no")
 
