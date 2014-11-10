@@ -17,5 +17,5 @@ def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
     
     pisitools.dodoc("README", "COPYING")
-    pisitools.dosed("%s/usr/share/applications/yarock.desktop" % get.installDIR(), "Icon=application-x-yarock", "Icon=/usr/share/pixmaps/yarock.png")
-    pisitools.insinto("/usr/share/pixmaps", "icon/48x48/yarock.png")
+    pisitools.dosed("%s/usr/share/applications/yarock.desktop" % get.installDIR(), "Icon=application-x-yarock", "Icon=/usr/share/pixmaps/yarock_48x48.png")
+    pisitools.insinto("/usr/share/pixmaps", "icon/yarock_48x48.png")
