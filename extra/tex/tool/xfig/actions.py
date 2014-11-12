@@ -10,7 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def build():
-    shelltools.system("xmkmf")
+    shelltools.system("/usr/bin/xmkmf")
     shelltools.system("sed -i 's/#define XAW3D/XCOMM #define XAW3D/' Imakefile")
     shelltools.system("sed -i 's/XCOMM USEINLINE/USEINLINE/' Imakefile")
     shelltools.system("sed -i -e 's/XCOMM #define I18N/#define I18N/' \
