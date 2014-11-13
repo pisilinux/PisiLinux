@@ -2,7 +2,7 @@
 
 import os
 
-driver_dir_name = "nvidia-current"
+driver_dir_name = "nvidia340"
 libdir = "/usr/lib/%s" % driver_dir_name
 datadir = "/usr/share/%s" % driver_dir_name
 

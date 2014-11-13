@@ -14,7 +14,7 @@ KDIR = kerneltools.getKernelVersion()
 NoStrip = ["/lib/modules"]
 
 version = get.srcVERSION()
-driver_dir_name = "nvidia-current"
+driver_dir_name = "nvidia340"
 datadir = "/usr/share/%s" % driver_dir_name
 libdir = "/usr/lib32" if get.buildTYPE() == 'emul32' else "/usr/lib"
 arch = "x86"  if get.buildTYPE() == 'emul32' else get.ARCH().replace("i6", "x")
@@ -98,7 +98,7 @@ def install():
 
     # VDPAU driver
     pisitools.dolib("libvdpau_nvidia.so.%s" % version, "%s/vdpau" % nvlibdir)
-    pisitools.dosym("../nvidia-current/vdpau/libvdpau_nvidia.so.%s" % version, "%s/vdpau/libvdpau_nvidia.so.1" % nvlibdir.strip(driver_dir_name))
+    pisitools.dosym("../nvidia340/vdpau/libvdpau_nvidia.so.%s" % version, "%s/vdpau/libvdpau_nvidia.so.1" % nvlibdir.strip(driver_dir_name))
 
     # X modules
     pisitools.dolib("nvidia_drv.so", "%s/modules/drivers" % nvlibdir)
