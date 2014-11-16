@@ -8,8 +8,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import kde4
 
 def setup():
-    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
-                    -DKDE4_BUILD_TESTS=OFF")
+    kde4.configure("-DCMAKE_SKIP_RPATH=ON")
 
 def build():
     kde4.make()
