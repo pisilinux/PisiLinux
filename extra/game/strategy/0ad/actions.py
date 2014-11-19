@@ -11,8 +11,9 @@ from pisi.actionsapi import pisitools
 
 def setup():    
     shelltools.cd("build/workspaces/")
-    shelltools.export("WX_CONFIG", "/usr/bin/wx-config-2.8 ")
-    shelltools.system("./update-workspaces.sh \
+    shelltools.chmod("update-workspaces.sh", 0755)
+    shelltools.export("WX_CONFIG", "/usr/bin/wxconfig")
+    shelltools.system("sh update-workspaces.sh \
                        --enable-atlas \
                        --with-system-enet \
                        --with-system-mozjs24 \
