@@ -8,7 +8,6 @@ from pisi.actionsapi import perlmodules
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "Tk-%s" % get.srcVERSION()
 
 def setup():
     perlmodules.configure()
@@ -17,8 +16,8 @@ def build():
     perlmodules.make()
 
 # disable because they need an x screen
-def check():
-    perlmodules.make("test")
+#def check():
+ #   perlmodules.make("test")
 
 def install():
     perlmodules.install()
