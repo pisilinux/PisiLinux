@@ -163,6 +163,7 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
                 (143, "bitlbee"),
                 (144, "icecast"),
                 (145, "virt"),
+                (995, "vboxusers"),
                 # Gnokii system user for the SMS daemon
                 (146, "gnokii"),
                 (150, "svn"),
