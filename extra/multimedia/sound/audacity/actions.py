@@ -19,6 +19,7 @@ def setup():
     autotools.aclocal("-I m4")
     autotools.autoconf()
     shelltools.export("LIBS", "-lavcodec")
+    shelltools.export("WX_CONFIG", "/usr/bin/wxconfig")
     autotools.configure("--enable-unicode \
                          --enable-nyquist \
                          --enable-ladspa \
@@ -39,6 +40,7 @@ def setup():
                          --without-ffmpeg \
                          --with-midi \
                          --with-taglib \
+                         --without-lv2 \
                          --with-portmixer")
 
 def build():
