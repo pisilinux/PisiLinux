@@ -18,8 +18,8 @@ def setup():
                          --enable-dssi \
                          --enable-vestige \
                          --enable-ladspa \
-                         --enable-liblo \
-                         --localedir=/usr/share/locale")
+                         --enable-liblo")
+#                         --localedir=/usr/share/locale")
 
 def build():
     autotools.make()

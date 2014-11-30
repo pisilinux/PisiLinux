@@ -1,0 +1,82 @@
+diff --git a/dom/browser-element/BrowserElementChildPreload.js b/dom/browser-element/BrowserElementChildPreload.js
+--- a/dom/browser-element/BrowserElementChildPreload.js
++++ b/dom/browser-element/BrowserElementChildPreload.js
+@@ -90,16 +90,17 @@ function getErrorClass(errorCode) {
+   switch (NSPRCode) {
+     case SEC_ERROR_UNKNOWN_ISSUER:
+     case SEC_ERROR_UNTRUSTED_ISSUER:
+     case SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE:
+     case SEC_ERROR_UNTRUSTED_CERT:
+     case SSL_ERROR_BAD_CERT_DOMAIN:
+     case SEC_ERROR_EXPIRED_CERTIFICATE:
+     case SEC_ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED:
++    case SEC_ERROR_CA_CERT_INVALID:
+     case MOZILLA_PKIX_ERROR_CA_CERT_USED_AS_END_ENTITY:
+       return Ci.nsINSSErrorsService.ERROR_CLASS_BAD_CERT;
+     default:
+       return Ci.nsINSSErrorsService.ERROR_CLASS_SSL_PROTOCOL;
+   }
+ 
+   return null;
+ }
+diff --git a/security/manager/ssl/src/NSSErrorsService.cpp b/security/manager/ssl/src/NSSErrorsService.cpp
+--- a/security/manager/ssl/src/NSSErrorsService.cpp
++++ b/security/manager/ssl/src/NSSErrorsService.cpp
+@@ -136,16 +136,17 @@ NSSErrorsService::GetErrorClass(nsresult
+     // Overridable errors.
+     case SEC_ERROR_UNKNOWN_ISSUER:
+     case SEC_ERROR_UNTRUSTED_ISSUER:
+     case SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE:
+     case SEC_ERROR_UNTRUSTED_CERT:
+     case SSL_ERROR_BAD_CERT_DOMAIN:
+     case SEC_ERROR_EXPIRED_CERTIFICATE:
+     case SEC_ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED:
++    case SEC_ERROR_CA_CERT_INVALID:
+     case mozilla::pkix::MOZILLA_PKIX_ERROR_CA_CERT_USED_AS_END_ENTITY:
+       *aErrorClass = ERROR_CLASS_BAD_CERT;
+       break;
+     // Non-overridable errors.
+     default:
+       *aErrorClass = ERROR_CLASS_SSL_PROTOCOL;
+       break;
+   }
+diff --git a/security/manager/ssl/src/SSLServerCertVerification.cpp b/security/manager/ssl/src/SSLServerCertVerification.cpp
+--- a/security/manager/ssl/src/SSLServerCertVerification.cpp
++++ b/security/manager/ssl/src/SSLServerCertVerification.cpp
+@@ -287,16 +287,17 @@ private:
+ 
+ // A probe value of 1 means "no error".
+ uint32_t
+ MapCertErrorToProbeValue(PRErrorCode errorCode)
+ {
+   switch (errorCode)
+   {
+     case SEC_ERROR_UNKNOWN_ISSUER:                     return  2;
++    case SEC_ERROR_CA_CERT_INVALID:                    return  3;
+     case SEC_ERROR_UNTRUSTED_ISSUER:                   return  4;
+     case SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE:         return  5;
+     case SEC_ERROR_UNTRUSTED_CERT:                     return  6;
+     case SEC_ERROR_INADEQUATE_KEY_USAGE:               return  7;
+     case SEC_ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED:  return  8;
+     case SSL_ERROR_BAD_CERT_DOMAIN:                    return  9;
+     case SEC_ERROR_EXPIRED_CERTIFICATE:                return 10;
+     case mozilla::pkix::MOZILLA_PKIX_ERROR_CA_CERT_USED_AS_END_ENTITY: return 11;
+@@ -321,16 +322,17 @@ DetermineCertOverrideErrors(CERTCertific
+   MOZ_ASSERT(errorCodeMismatch == 0);
+   MOZ_ASSERT(errorCodeExpired == 0);
+ 
+   // Assumes the error prioritization described in mozilla::pkix's
+   // BuildForward function. Also assumes that CERT_VerifyCertName was only
+   // called if CertVerifier::VerifyCert succeeded.
+   switch (defaultErrorCodeToReport) {
+     case SEC_ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED:
++    case SEC_ERROR_CA_CERT_INVALID:
+     case SEC_ERROR_UNKNOWN_ISSUER:
+     case mozilla::pkix::MOZILLA_PKIX_ERROR_CA_CERT_USED_AS_END_ENTITY:
+     {
+       collectedErrors = nsICertOverrideService::ERROR_UNTRUSTED;
+       errorCodeTrust = defaultErrorCodeToReport;
+ 
+       SECCertTimeValidity validity = CERT_CheckCertValidTimes(cert, now, false);
+       if (validity == secCertTimeUndetermined) {
+
