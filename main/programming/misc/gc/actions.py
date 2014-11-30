@@ -16,8 +16,7 @@ def setup():
     autotools.configure("--disable-static \
                          --enable-cplusplus \
                          --enable-large-config \
-                         --enable-threads=posix \
-                         --with-libatomic-ops=no")
+                         --enable-threads=posix")
 
 def build():
     autotools.make()
