@@ -11,14 +11,16 @@ from pisi.actionsapi import pisitools
 configTemplateDir = "/usr/share/libtool/config"
 
 def setup():
-    pisitools.cflags.add("-fPIC")
-    autotools.configure("--enable-static=no")
+    #pisitools.cflags.add("-fPIC")
+    #autotools.configure("--enable-static=no")
+    autotools.configure()
+
 
 def build():
     autotools.make()
 
-#def check():
-    #autotools.make("check")
+def check():
+    autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())

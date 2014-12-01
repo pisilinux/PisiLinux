@@ -1,0 +1,96 @@
+From df9ff91801da603079018f21a9412385b62f0f8e Mon Sep 17 00:00:00 2001
+From: Lv Zheng <lv.zheng@intel.com>
+Date: Wed, 29 Oct 2014 11:33:43 +0800
+Subject: [PATCH 1/2] Revert "ACPI / EC: Add support to disallow QR_EC to be
+ issued before completing previous QR_EC"
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+It is reported that the following commit breaks Samsung hardware:
+ Commit: 558e4736f2e1b0e6323adf7a5e4df77ed6cfc1a4.
+ Subject: ACPI / EC: Add support to disallow QR_EC to be issued before
+          completing previous QR_EC
+
+Which means the Samsung behavior conflicts with the Acer behavior.
+
+1. Samsung may behave like:
+   [ +event 1 ] SCI_EVT set
+   [ +event 2 ] SCI_EVT set
+                              write QR_EC
+                              read event
+   [ -event 1 ] SCI_EVT clear
+   Without the above commit, Samsung can work:
+   [ +event 1 ] SCI_EVT set
+   [ +event 2 ] SCI_EVT set
+                              write QR_EC
+                              CAN prepare next QR_EC as SCI_EVT=1
+                              read event
+   [ -event 1 ] SCI_EVT clear
+                              write QR_EC
+                              read event
+   [ -event 2 ] SCI_EVT clear
+   With the above commit, Samsung cannot work:
+   [ +event 1 ] SCI_EVT set
+   [ +event 2 ] SCI_EVT set
+                              write QR_EC
+                              read event
+   [ -event 1 ] SCI_EVT clear
+                              CANNOT prepare next QR_EC as SCI_EVT=0
+2. Acer may behave like:
+   [ +event 1 ] SCI_EVT set
+   [ +event 2 ]
+                              write QR_EC
+                              read event
+   [ -event 1 ] SCI_EVT clear
+   [ +event 2 ] SCI_EVT set
+   Without the above commit, Acer cannot work when there is only 1 event:
+   [ +event 1 ] SCI_EVT set
+                              write QR_EC
+                              can prepared next QR_EC as SCI_EVT=1
+                              read event
+   [ -event 1 ] SCI_EVT clear
+                              CANNOT write QR_EC as SCI_EVT=0
+   With the above commit, Acer can work:
+   [ +event 1 ] SCI_EVT set
+   [ +event 2 ]
+                              write QR_EC
+                              read event
+   [ -event 1 ] SCI_EVT set
+                              can prepare next QR_EC because SCI_EVT=0
+                              CAN write QR_EC as SCI_EVT=1
+
+Since Acer can also work with only the following commit applied:
+ Commit: 3afcf2ece453e1a8c2c6de19cdf06da3772a1b08
+ Subject: ACPI / EC: Add support to disallow QR_EC to be issued when
+          SCI_EVT isn't set
+commit 558e4736f2e1b0e6323adf7a5e4df77ed6cfc1a4 can be reverted.
+
+Fixes: 558e4736f2e1 (ACPI / EC: Add support to disallow QR_EC to be issued ...)
+Link: https://bugzilla.kernel.org/show_bug.cgi?id=44161
+Reported-and-tested-by: Ortwin Glück <odi@odi.ch>
+Signed-off-by: Lv Zheng <lv.zheng@intel.com>
+Cc: 3.17+ <stable@vger.kernel.org> # 3.17+
+Signed-off-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
+---
+ drivers/acpi/ec.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/acpi/ec.c b/drivers/acpi/ec.c
+index 3d304ff..31b699f 100644
+--- a/drivers/acpi/ec.c
++++ b/drivers/acpi/ec.c
+@@ -299,11 +299,11 @@ static int acpi_ec_transaction_unlocked(
+ 	/* following two actions should be kept atomic */
+ 	ec->curr = t;
+ 	start_transaction(ec);
++	if (ec->curr->command == ACPI_EC_COMMAND_QUERY)
++		clear_bit(EC_FLAGS_QUERY_PENDING, &ec->flags);
+ 	spin_unlock_irqrestore(&ec->lock, tmp);
+ 	ret = ec_poll(ec);
+ 	spin_lock_irqsave(&ec->lock, tmp);
+-	if (ec->curr->command == ACPI_EC_COMMAND_QUERY)
+-		clear_bit(EC_FLAGS_QUERY_PENDING, &ec->flags);
+ 	ec->curr = NULL;
+ 	spin_unlock_irqrestore(&ec->lock, tmp);
+ 	return ret;
