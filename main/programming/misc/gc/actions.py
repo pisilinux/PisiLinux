@@ -16,8 +16,7 @@ def setup():
     autotools.configure("--disable-static \
                          --enable-cplusplus \
                          --enable-large-config \
-                         --enable-threads=posix \
-                         --with-libatomic-ops=no")
+                         --enable-threads=posix")
 
 def build():
     autotools.make()
@@ -28,6 +27,6 @@ def check():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("ChangeLog", "doc/README", "doc/README.linux", "doc/*.html")
+    pisitools.dodoc("ChangeLog", "doc/README.linux", "doc/*.html")
     
     pisitools.removeDir("/usr/share/gc")
