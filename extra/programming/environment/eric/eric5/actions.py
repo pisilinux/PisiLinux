@@ -25,7 +25,7 @@ def install():
     for lang in ["cs", "de", "es", "fr", "it", "ru", "tr"]:
         pisitools.insinto("%(site-packages)s/eric5/i18n" % conf, "eric/i18n/eric5_%s.qm" % lang)
     pisitools.dodoc("changelog", "LICENSE.GPL3", "THANKS", "README*")
-    pisitools.insinto("/usr/lib/python3.3/site-packages/eric5", "/usr/lib/python3.3/site-packages/eric5config.py")
+#    pisitools.insinto("/usr/lib/python3.3/site-packages/", "/usr/lib/python3.3/site-packages/eric5config.py")
     # remove files conflict with eric4
     pisitools.remove("/usr/share/qt4/qsci/api/python/zope-2.11.2.api")
     pisitools.remove("/usr/share/qt4/qsci/api/python/zope-2.10.7.api")
