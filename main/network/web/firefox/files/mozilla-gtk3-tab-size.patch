@@ -1,0 +1,258 @@
+diff -up src/widget/gtk/gtk3drawing.c.gtk3-tab-size src/widget/gtk/gtk3drawing.c
+--- src/widget/gtk/gtk3drawing.c.gtk3-tab-size	2014-05-22 11:59:23.000000000 +0200
++++ src/widget/gtk/gtk3drawing.c	2014-06-03 14:41:06.740369999 +0200
+@@ -2063,22 +2063,35 @@ moz_gtk_tab_paint(cairo_t *cr, GdkRectan
+      * tab appear physically attached to the tabpanel; see details below. */
+ 
+     GtkStyleContext* style;
++    GdkRectangle tabRect;
+     GdkRectangle focusRect;
+     GdkRectangle backRect;
++    int initial_gap = 0;
+ 
+     ensure_tab_widget();
+     gtk_widget_set_direction(gTabWidget, direction);
+ 
+     style = gtk_widget_get_style_context(gTabWidget);    
+-    backRect = focusRect = *rect;
+-
+     gtk_style_context_save(style);
+ 
++    tabRect = *rect;
++
++    if (flags & MOZ_GTK_TAB_FIRST) {
++        gtk_widget_style_get (gTabWidget, "initial-gap", &initial_gap, NULL);
++        tabRect.width -= initial_gap;
++
++        if (direction != GTK_TEXT_DIR_RTL) {
++            tabRect.x += initial_gap;
++        }
++    }
++
++    focusRect = backRect = tabRect;
++
+     if ((flags & MOZ_GTK_TAB_SELECTED) == 0) {
+         /* Only draw the tab */
+         gtk_style_context_set_state(style, GTK_STATE_FLAG_NORMAL);
+         gtk_render_extension(style, cr,
+-                             rect->x, rect->y, rect->width, rect->height,
++                             tabRect.x, tabRect.y, tabRect.width, tabRect.height,
+                             (flags & MOZ_GTK_TAB_BOTTOM) ?
+                                 GTK_POS_TOP : GTK_POS_BOTTOM );
+     } else {
+@@ -2132,15 +2145,17 @@ moz_gtk_tab_paint(cairo_t *cr, GdkRectan
+         gap_loffset = gap_roffset = 20; /* should be enough */
+         if (flags & MOZ_GTK_TAB_FIRST) {
+             if (direction == GTK_TEXT_DIR_RTL)
+-                gap_roffset = 0;
++                gap_roffset = initial_gap;
+             else
+-                gap_loffset = 0;
++                gap_loffset = initial_gap;
+         }
+ 
+-        gtk_style_context_set_state(style, GTK_STATE_FLAG_ACTIVE);
+-
+         /* Adwaita theme engine crashes without it (rhbz#713764) */
+-        gtk_style_context_add_region(style, GTK_STYLE_REGION_TAB, 0);      
++        gtk_style_context_add_region(style, GTK_STYLE_REGION_TAB, 
++                                     (flags & MOZ_GTK_TAB_FIRST) ? 
++                                      GTK_REGION_FIRST : 0);
++
++        gtk_style_context_set_state(style, GTK_STATE_FLAG_ACTIVE);
+ 
+         if (flags & MOZ_GTK_TAB_BOTTOM) {
+             /* Draw the tab on bottom */
+@@ -2148,8 +2163,8 @@ moz_gtk_tab_paint(cairo_t *cr, GdkRectan
+             focusRect.height -= gap_voffset;
+ 
+             gtk_render_extension(style, cr,
+-                                 rect->x, rect->y + gap_voffset, rect->width,
+-                                 rect->height - gap_voffset, GTK_POS_TOP);
++                                 tabRect.x, tabRect.y + gap_voffset, tabRect.width,
++                                 tabRect.height - gap_voffset, GTK_POS_TOP);
+ 
+             gtk_style_context_remove_region(style, GTK_STYLE_REGION_TAB);
+ 
+@@ -2165,38 +2180,39 @@ moz_gtk_tab_paint(cairo_t *cr, GdkRectan
+             cairo_clip(cr);
+ 
+             gtk_render_frame_gap(style, cr,
+-                                 rect->x - gap_loffset,
+-                                 rect->y + gap_voffset - 3 * gap_height,
+-                                 rect->width + gap_loffset + gap_roffset,
++                                 tabRect.x - gap_loffset,
++                                 tabRect.y + gap_voffset - 3 * gap_height,
++                                 tabRect.width + gap_loffset + gap_roffset,
+                                  3 * gap_height, GTK_POS_BOTTOM,
+-                                 gap_loffset, gap_loffset + rect->width);
++                                 gap_loffset, gap_loffset + tabRect.width);
+             cairo_restore(cr);
+         } else {
+             /* Draw the tab on top */
+             focusRect.height -= gap_voffset;
+             gtk_render_extension(style, cr,
+-                                 rect->x, rect->y, rect->width,
+-                                 rect->height - gap_voffset, GTK_POS_BOTTOM);
++                                 tabRect.x, tabRect.y, tabRect.width,
++                                 tabRect.height - gap_voffset, GTK_POS_BOTTOM);
+ 
+             gtk_style_context_remove_region(style, GTK_STYLE_REGION_TAB);
+ 
+-            backRect.y += (rect->height - gap_voffset);
++            backRect.y += (tabRect.height - gap_voffset);
+             backRect.height = gap_height;
+ 
+             /* Draw the gap; erase with background color before painting in
+              * case theme does not */
+             gtk_render_background(style, cr, backRect.x, backRect.y,
+                                   backRect.width, backRect.height);
++
+             cairo_save(cr);
+             cairo_rectangle(cr, backRect.x, backRect.y, backRect.width, backRect.height);
+             cairo_clip(cr);
+ 
+             gtk_render_frame_gap(style, cr,
+-                                 rect->x - gap_loffset,
+-                                 rect->y + rect->height - gap_voffset,
+-                                 rect->width + gap_loffset + gap_roffset,
++                                 tabRect.x - gap_loffset,
++                                 tabRect.y + tabRect.height - gap_voffset,
++                                 tabRect.width + gap_loffset + gap_roffset,
+                                  3 * gap_height, GTK_POS_TOP,
+-                                 gap_loffset, gap_loffset + rect->width);
++                                 gap_loffset, gap_loffset + tabRect.width);
+             cairo_restore(cr);
+         }
+     }
+@@ -2825,10 +2841,6 @@ moz_gtk_get_widget_border(GtkThemeWidget
+                                       left, top, right, bottom);
+             return MOZ_GTK_SUCCESS;
+         }
+-    case MOZ_GTK_TAB:
+-        ensure_tab_widget();
+-        w = gTabWidget;
+-        break;
+     /* These widgets have no borders, since they are not containers. */
+     case MOZ_GTK_SPLITTER_HORIZONTAL:
+     case MOZ_GTK_SPLITTER_VERTICAL:
+@@ -2871,6 +2883,58 @@ moz_gtk_get_widget_border(GtkThemeWidget
+     return MOZ_GTK_SUCCESS;
+ }
+ 
++gint
++moz_gtk_get_tab_border(GtkThemeWidgetType widget, gint* left, gint* top,
++                       gint* right, gint* bottom, GtkTextDirection direction, 
++                       GtkTabFlags flags)
++{
++    GtkStyleContext* style;    
++    int tab_curvature;
++
++    ensure_tab_widget();
++
++    style = gtk_widget_get_style_context(gTabWidget);
++    gtk_style_context_save(style);
++
++    gtk_style_context_set_state(style, ((flags & MOZ_GTK_TAB_SELECTED) == 0) ? 
++                                          GTK_STATE_FLAG_NORMAL : 
++                                          GTK_STATE_FLAG_ACTIVE);
++    gtk_style_context_add_region(style, GTK_STYLE_REGION_TAB, 
++                                        (flags & MOZ_GTK_TAB_FIRST) ? 
++                                          GTK_REGION_FIRST : 0);
++    gtk_style_context_add_class(style, (flags & MOZ_GTK_TAB_BOTTOM) ? 
++                                          GTK_STYLE_CLASS_BOTTOM : 
++                                          GTK_STYLE_CLASS_TOP);
++
++    *left = *top = *right = *bottom = 0;
++    moz_gtk_add_style_border(style, left, top, right, bottom);
++    moz_gtk_add_style_padding(style, left, top, right, bottom);
++
++    gtk_widget_style_get (gTabWidget, "tab-curvature", &tab_curvature, NULL);
++    *left += tab_curvature;
++    *right += tab_curvature;
++
++    if (flags & MOZ_GTK_TAB_FIRST) {
++      int initial_gap;
++      gtk_widget_style_get (gTabWidget, "initial-gap", &initial_gap, NULL);
++      if (direction == GTK_TEXT_DIR_RTL)
++      	*right += initial_gap;
++      else
++      	*left += initial_gap;
++    }
++
++    // Top tabs have no bottom border, bottom tabs have no top border
++    if (flags & MOZ_GTK_TAB_BOTTOM) {
++      *top = 0;
++    } else {
++      *bottom = 0;
++    }      
++
++    gtk_style_context_restore(style);
++
++    return MOZ_GTK_SUCCESS;
++}
++
+ gint
+ moz_gtk_get_combo_box_entry_button_size(gint* width, gint* height)
+ {
+diff -up src/widget/gtk/gtkdrawing.h.gtk3-tab-size src/widget/gtk/gtkdrawing.h
+--- src/widget/gtk/gtkdrawing.h.gtk3-tab-size	2014-04-22 17:06:04.000000000 +0200
++++ src/widget/gtk/gtkdrawing.h	2014-06-03 14:39:09.240424957 +0200
+@@ -258,6 +258,13 @@ gint moz_gtk_get_widget_border(GtkThemeW
+                                gint* right, gint* bottom, GtkTextDirection direction,
+                                gboolean inhtml);
+ 
++#if (MOZ_WIDGET_GTK == 3)
++gint
++moz_gtk_get_tab_border(GtkThemeWidgetType widget, gint* left, gint* top,
++                       gint* right, gint* bottom, GtkTextDirection direction, 
++                       GtkTabFlags flags);
++#endif
++
+ /**
+  * Get the desired size of a GtkCheckButton
+  * indicator_size:     [OUT] the indicator size
+diff -up src/widget/gtk/nsNativeThemeGTK.cpp.gtk3-tab-size src/widget/gtk/nsNativeThemeGTK.cpp
+--- src/widget/gtk/nsNativeThemeGTK.cpp.gtk3-tab-size	2014-05-21 13:29:44.000000000 +0200
++++ src/widget/gtk/nsNativeThemeGTK.cpp	2014-06-03 14:39:09.240424957 +0200
+@@ -915,15 +915,31 @@ nsNativeThemeGTK::GetWidgetBorder(nsDevi
+     // but don't reserve any space for it.
+     break;
+   case NS_THEME_TAB:
+-    // Top tabs have no bottom border, bottom tabs have no top border
+-    moz_gtk_get_widget_border(MOZ_GTK_TAB, &aResult->left, &aResult->top,
+-                              &aResult->right, &aResult->bottom, direction,
+-                              FALSE);
+-    if (IsBottomTab(aFrame))
+-        aResult->top = 0;
+-    else
+-        aResult->bottom = 0;
+-    break;
++    {
++#if (MOZ_WIDGET_GTK == 2)
++      // Top tabs have no bottom border, bottom tabs have no top border
++      moz_gtk_get_widget_border(MOZ_GTK_TAB, &aResult->left, &aResult->top,
++                                &aResult->right, &aResult->bottom, direction,
++                                FALSE);
++      if (IsBottomTab(aFrame))
++          aResult->top = 0;
++      else
++          aResult->bottom = 0;
++#else
++      GtkWidgetState state;
++      GtkThemeWidgetType gtkWidgetType;
++      gint flags;
++
++      if (!GetGtkWidgetAndState(aWidgetType, aFrame, gtkWidgetType, &state,
++                                &flags))
++        return NS_OK;
++
++      moz_gtk_get_tab_border(MOZ_GTK_TAB, &aResult->left, &aResult->top,
++                             &aResult->right, &aResult->bottom, direction,
++                             (GtkTabFlags)flags);
++#endif
++    }
++    break;    
+   case NS_THEME_MENUITEM:
+   case NS_THEME_CHECKMENUITEM:
+   case NS_THEME_RADIOMENUITEM:
