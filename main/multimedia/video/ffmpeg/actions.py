@@ -66,4 +66,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s install-man" % get.installDIR())
     pisitools.dobin("tools/qt-faststart")
-    pisitools.dodoc("Changelog", "README", "COPYING*")
+    pisitools.dodoc("Changelog", "README.md", "LICENSE.md", "COPYING*")
