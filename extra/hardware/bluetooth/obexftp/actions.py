@@ -4,32 +4,24 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import autotools
-from pisi.actionsapi import perlmodules
-from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
+from pisi.actionsapi import cmaketools
+
 
 def setup():
-    pisitools.dosed("swig/python/Makefile.in", "(setup.py install)", "\\1 --no-compile")
-    autotools.autoreconf("-fi")
-
-    autotools.configure("--disable-static \
-                         --disable-dependency-tracking \
-                         --disable-ruby \
-                         --disable-rpath \
-                         --enable-tcl \
-                         --enable-perl")
-    
-    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
-
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
+                        -DCMAKE_SKIP_RPATH=ON \
+                        -DPYTHON_EXECUTABLE:FILEPATH=/usr/bin/python \
+                        -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
+                        -DPYTHON_LIBRARY=/usr/lib/libpython2.7.so \
+                        -DCMAKE_INSTALL_PREFIX=/usr")
+  
 def build():
-    autotools.make("-j1")
+    cmaketools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    
-    shelltools.system("chrpath --delete %s/usr/lib/perl5/vendor_perl/5.18.1/x86_64-linux-thread-multi/auto/OBEXFTP/OBEXFTP.so" % get.installDIR())
-    
-    pisitools.remove("/usr/lib/perl5/5.18.1/x86_64-linux-thread-multi/perllocal.pod")
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+
+    pisitools.dodoc("AUTHORS", "README","NEWS")
