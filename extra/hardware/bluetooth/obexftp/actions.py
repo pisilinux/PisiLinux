@@ -17,6 +17,10 @@ def setup():
                         -DPYTHON_INCLUDE_DIR=/usr/include/python2.7 \
                         -DPYTHON_LIBRARY=/usr/lib/libpython2.7.so \
                         -DCMAKE_INSTALL_LIBDIR=lib \
+                        -DENABLE_PERL=YES \
+                        -DENABLE_PYTHON=YES \
+                        -DENABLE_RUBY=YES \
+                        -DENABLE_TCL=YES \
                         -DCMAKE_INSTALL_PREFIX=/usr")
   
 def build():
