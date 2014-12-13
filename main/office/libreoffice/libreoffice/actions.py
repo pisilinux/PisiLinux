@@ -41,14 +41,13 @@ ldirs = ("/usr/lib/libreoffice/help/%s",
 
 def setup():    
     shelltools.system("ulimit -c unlimited")
-    shelltools.system("ccache -M 10")
+    shelltools.system("ccache -M 1025")
     vars = {"lang": langs,
             "jobs": psutil.NUM_CPUS,
             "etar": get.workDIR()}
     shelltools.system("./autogen.sh")
     autotools.aclocal("-I m4")
     autotools.autoconf()
-    pisitools.dosed("sysui/desktop/menus/math.desktop", "Office;Spreadsheet;Education;Science;Math;X-Red-Hat-Base;X-MandrivaLinux-Office-Other;", "Categories=Office;")
     pisitools.dosed("sysui/desktop/menus/draw.desktop", "Categories=Office;FlowChart;Graphics;2DGraphics;VectorGraphics;X-Red-Hat-Base;X-MandrivaLinux-Office-Drawing;", "Categories=Office;")
     # avoid running autogen.sh on make
     shelltools.touch("autogen.lastrun")
@@ -106,9 +105,9 @@ def setup():
                        --with-system-headers \
                        --with-system-cairo \
                        --with-system-mythes \
-                       --with-system-libabw \
-                       --with-system-libebook \
-                       --with-system-libfreehand \
+                       --without-system-libabw \
+                       --without-system-libebook \
+                       --without-system-libfreehand \
                        --with-system-libcdr \
                        --with-system-libwpg \
                        --with-system-libwps \
@@ -116,14 +115,14 @@ def setup():
                        --with-system-clucene \
                        --with-system-libmspub \
                        --with-system-cppunit \
-                       --with-system-libmwaw \
+                       --without-system-libmwaw \
                        --with-system-mdds \
                        --with-system-libodfgen \
-                       --with-system-libgltf \
+                       --without-system-libgltf \
                        --with-system-libetonyek \
-                       --with-system-librevenge \
+                       --without-system-librevenge \
                        --with-system-libatomic_ops \
-                       --with-system-libcmis \
+                       --without-system-libcmis \
                        --with-system-beanshell \
                        --with-system-graphite \
                        --with-system-dicts \
