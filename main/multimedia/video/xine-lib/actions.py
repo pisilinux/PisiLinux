@@ -62,9 +62,9 @@ def setup():
                       --disable-dependency-tracking")
                       # the world is not ready for this code, see bug #8267
                       # --enable-antialiasing \
-                          
+
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
-    
+
 def build():
     autotools.make()
 

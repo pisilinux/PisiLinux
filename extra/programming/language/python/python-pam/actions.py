@@ -4,17 +4,13 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import kde4
-from pisi.actionsapi import get
-
-
-def setup():
-    kde4.configure("-DCMAKE_INSTALL_LIBDIR=lib")
 
 def build():
-    kde4.make()
+    pythonmodules.compile()
 
 def install():
-    kde4.install()
+    pythonmodules.install()
+    
+    pisitools.dodoc("PKG-INFO")
