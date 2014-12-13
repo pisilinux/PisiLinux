@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--prefix=/")
+    autotools.configure("--prefix=/usr --sbindir=/sbin")
 
 def build():
     autotools.make()
@@ -17,6 +17,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dosym("reiserfsck", "/sbin/fsck.reiserfs")
-    pisitools.dosym("mkreiserfs", "/sbin/mkfs.reiserfs")
     pisitools.dodoc("ChangeLog", "README")
