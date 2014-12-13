@@ -19,5 +19,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    pisitools.removeDir("/usr/share/doc/html")
 
     pisitools.dodoc("CHANGES", "COPYING*", "README")
