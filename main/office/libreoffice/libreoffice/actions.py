@@ -145,6 +145,15 @@ def check():
 
 def install():
     autotools.rawInstall("DESTDIR=%s distro-pack-install -o build -o check" % get.installDIR())
+    
+    pisitools.insinto("/usr/share/pixmaps/", "android/experimental/GSoC-2012-eclipse-workspace/LibreOfficeUI/res/drawable-hdpi/base.png", "libreoffice-base.png")
+    pisitools.insinto("/usr/share/pixmaps/", "android/experimental/GSoC-2012-eclipse-workspace/LibreOfficeUI/res/drawable-hdpi/calc.png", "libreoffice-calc.png")
+    pisitools.insinto("/usr/share/pixmaps/", "android/experimental/GSoC-2012-eclipse-workspace/LibreOfficeUI/res/drawable-hdpi/draw.png", "libreoffice-draw.png")
+    pisitools.insinto("/usr/share/pixmaps/", "android/experimental/GSoC-2012-eclipse-workspace/LibreOfficeUI/res/drawable-hdpi/impress.png", "libreoffice-impress.png")
+    pisitools.insinto("/usr/share/pixmaps/", "android/experimental/GSoC-2012-eclipse-workspace/LibreOfficeUI/res/drawable-hdpi/main.png", "libreoffice-main.png")
+    pisitools.insinto("/usr/share/pixmaps/", "android/experimental/GSoC-2012-eclipse-workspace/LibreOfficeUI/res/drawable-hdpi/math.png", "libreoffice-math.png")
+    pisitools.insinto("/usr/share/pixmaps/", "android/experimental/GSoC-2012-eclipse-workspace/LibreOfficeUI/res/drawable-hdpi/startcenter.png", "libreoffice-startcenter.png")
+    pisitools.insinto("/usr/share/pixmaps/", "android/experimental/GSoC-2012-eclipse-workspace/LibreOfficeUI/res/drawable-hdpi/writer.png", "libreoffice-writer.png")
 
     if not shelltools.isDirectory(langpackpath): shelltools.makedirs(langpackpath)
     else: shelltools.unlinkDir(langpackpath)
