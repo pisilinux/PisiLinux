@@ -25,8 +25,10 @@ def setup():
   
 def build():
     cmaketools.make()
+    cmaketools.make("all doc")
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
+    pisitools.removeDir("/usr/share/doc/html")
     pisitools.dodoc("AUTHORS", "README","NEWS")
