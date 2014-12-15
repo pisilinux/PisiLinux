@@ -30,5 +30,5 @@ def build():
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.removeDir("/usr/share/doc/html")
+    pisitools.removeDir("/usr/share/doc/obexftp/html/")
     pisitools.dodoc("AUTHORS", "README","NEWS")
