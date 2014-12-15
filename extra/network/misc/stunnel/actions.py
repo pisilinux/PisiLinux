@@ -9,7 +9,11 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure()
+    autotools.configure("--prefix=/usr        \
+                         --sysconfdir=/etc    \
+                         --localstatedir=/var \
+                         --with-ssl=/usr      \
+                         --disable-systemd")
 
 def build():
     autotools.make()
