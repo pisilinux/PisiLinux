@@ -21,11 +21,11 @@ def install():
 
     pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua.so")
 
-    pisitools.insinto("/usr/share/lua/5.1", "etc/strict.lua")
-    pisitools.insinto("/usr/share/lua/5.1", "test/*.lua")
-    pisitools.insinto("/usr/lib/pkgconfig", "etc/lua.pc")
+    #pisitools.insinto("/usr/share/lua/5.1", "etc/strict.lua")
+    #pisitools.insinto("/usr/share/lua/5.1", "test/*.lua")
+    #pisitools.insinto("/usr/lib/pkgconfig", "etc/lua.pc")
 
     pisitools.dohtml("doc")
-    pisitools.newdoc("etc/README", "README.etc")
-    pisitools.newdoc("test/README", "README.test")
-    pisitools.dodoc("COPYRIGHT", "HISTORY", "README")
+    #pisitools.newdoc("etc/README", "README.etc")
+    #pisitools.newdoc("test/README", "README.test")
+    pisitools.dodoc("README")
