@@ -22,4 +22,4 @@ def build():
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dodoc("doc/COPYING", "doc/PCRE-LICENSE", "doc/README", "doc/stringencoders-license")
+    pisitools.dodoc("doc/PCRE-LICENSE")
