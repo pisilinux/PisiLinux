@@ -1,33 +1,153 @@
-# HG changeset patch
-# Parent b17cad2d1e5e6bcb5a10096d51d07ea8a79b6921
-# User Martin Stransky <stransky@redhat.com>
-Bug 858919 - Add support for libnotify calls which was removed for new notification API. r=karlt
-
-diff --git a/toolkit/system/gnome/moz.build b/toolkit/system/gnome/moz.build
---- a/toolkit/system/gnome/moz.build
-+++ b/toolkit/system/gnome/moz.build
-@@ -1,15 +1,17 @@
- # -*- Mode: python; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 40 -*-
- # vim: set filetype=python:
- # This Source Code Form is subject to the terms of the Mozilla Public
- # License, v. 2.0. If a copy of the MPL was not distributed with this
+diff -up mozilla-release/toolkit/components/alerts/nsAlertsService.cpp.858919 mozilla-release/toolkit/components/alerts/nsAlertsService.cpp
+--- mozilla-release/toolkit/components/alerts/nsAlertsService.cpp.858919	2014-11-26 03:17:37.000000000 +0100
++++ mozilla-release/toolkit/components/alerts/nsAlertsService.cpp	2014-12-01 11:58:31.896101722 +0100
+@@ -100,10 +100,12 @@ NS_IMETHODIMP nsAlertsService::ShowAlert
+   nsCOMPtr<nsIAlertsService> sysAlerts(do_GetService(NS_SYSTEMALERTSERVICE_CONTRACTID));
+   nsresult rv;
+   if (sysAlerts) {
+-    return sysAlerts->ShowAlertNotification(aImageUrl, aAlertTitle, aAlertText, aAlertTextClickable,
+-                                            aAlertCookie, aAlertListener, aAlertName,
+-                                            aBidi, aLang, aData,
+-                                            IPC::Principal(aPrincipal));
++    rv = sysAlerts->ShowAlertNotification(aImageUrl, aAlertTitle, aAlertText, aAlertTextClickable,
++                                          aAlertCookie, aAlertListener, aAlertName,
++                                          aBidi, aLang, aData,
++                                          IPC::Principal(aPrincipal));
++    if (NS_SUCCEEDED(rv))
++      return NS_OK;
+   }
+ 
+   if (!ShouldShowAlert()) {
+diff -up mozilla-release/toolkit/system/gnome/moz.build.858919 mozilla-release/toolkit/system/gnome/moz.build
+--- mozilla-release/toolkit/system/gnome/moz.build.858919	2014-11-26 03:17:39.000000000 +0100
++++ mozilla-release/toolkit/system/gnome/moz.build	2014-12-01 11:58:31.896101722 +0100
+@@ -5,7 +5,9 @@
  # file, You can obtain one at http://mozilla.org/MPL/2.0/.
  
  SOURCES += [
 +    'nsAlertsIconListener.cpp',
-+    'nsAlertsService.cpp',
      'nsGnomeModule.cpp',
++    'nsSystemAlertsService.cpp',
  ]
  
  if CONFIG['MOZ_ENABLE_GCONF']:
-     SOURCES += [
-         'nsGConfService.cpp',
-     ]
+diff -up mozilla-release/toolkit/system/gnome/nsAlertsIconListener.cpp.858919 mozilla-release/toolkit/system/gnome/nsAlertsIconListener.cpp
+--- mozilla-release/toolkit/system/gnome/nsAlertsIconListener.cpp.858919	2014-11-26 03:17:39.000000000 +0100
++++ mozilla-release/toolkit/system/gnome/nsAlertsIconListener.cpp	2014-12-01 12:00:39.455960137 +0100
+@@ -51,6 +51,21 @@ static void notify_closed_marshal(GClosu
+   NS_RELEASE(alert);
+ }
  
-diff --git a/toolkit/system/gnome/nsAlertsIconListener.h b/toolkit/system/gnome/nsAlertsIconListener.h
-new file mode 100644
---- /dev/null
-+++ b/toolkit/system/gnome/nsAlertsIconListener.h
++static GdkPixbuf*
++GetPixbufFromImgRequest(imgIRequest* aRequest)
++{
++  nsCOMPtr<imgIContainer> image;
++  nsresult rv = aRequest->GetImage(getter_AddRefs(image));
++  if (NS_FAILED(rv)) {
++    return nullptr;
++  }
++
++  nsCOMPtr<nsIImageToPixbuf> imgToPixbuf =
++    do_GetService("@mozilla.org/widget/image-to-gdk-pixbuf;1");
++
++  return imgToPixbuf->ConvertImageToPixbuf(image);
++}
++
+ NS_IMPL_ISUPPORTS(nsAlertsIconListener, imgINotificationObserver,
+                   nsIObserver, nsISupportsWeakReference)
+ 
+@@ -106,15 +121,15 @@ nsAlertsIconListener::Notify(imgIRequest
+ nsresult
+ nsAlertsIconListener::OnStopRequest(imgIRequest* aRequest)
+ {
++  NS_ASSERTION(mIconRequest == aRequest, "aRequest does not match!");
++
+   uint32_t imgStatus = imgIRequest::STATUS_ERROR;
+   nsresult rv = aRequest->GetImageStatus(&imgStatus);
+   NS_ENSURE_SUCCESS(rv, rv);
+   if (imgStatus == imgIRequest::STATUS_ERROR && !mLoadedFrame) {
+     // We have an error getting the image. Display the notification with no icon.
+     ShowAlert(nullptr);
+-  }
+ 
+-  if (mIconRequest) {
+     mIconRequest->Cancel(NS_BINDING_ABORTED);
+     mIconRequest = nullptr;
+   }
+@@ -124,29 +139,25 @@ nsAlertsIconListener::OnStopRequest(imgI
+ nsresult
+ nsAlertsIconListener::OnStopFrame(imgIRequest* aRequest)
+ {
+-  if (aRequest != mIconRequest)
+-    return NS_ERROR_FAILURE;
++  NS_ASSERTION(mIconRequest == aRequest, "aRequest does not match!");
+ 
+   if (mLoadedFrame)
+     return NS_OK; // only use one frame
+ 
+-  nsCOMPtr<imgIContainer> image;
+-  nsresult rv = aRequest->GetImage(getter_AddRefs(image));
+-  if (NS_FAILED(rv))
+-    return rv;
+-
+-  nsCOMPtr<nsIImageToPixbuf> imgToPixbuf =
+-    do_GetService("@mozilla.org/widget/image-to-gdk-pixbuf;1");
+-
+-  GdkPixbuf* imagePixbuf = imgToPixbuf->ConvertImageToPixbuf(image);
+-  if (!imagePixbuf)
+-    return NS_ERROR_FAILURE;
++  GdkPixbuf* imagePixbuf = GetPixbufFromImgRequest(aRequest);
++  if (!imagePixbuf) {
++    ShowAlert(nullptr);
++  } else {
++    ShowAlert(imagePixbuf);
++    g_object_unref(imagePixbuf);
++  }
+ 
+-  ShowAlert(imagePixbuf);
++  mLoadedFrame = true;
+ 
+-  g_object_unref(imagePixbuf);
++  // Cancel any pending request (multipart image loading/decoding for instance)
++  mIconRequest->Cancel(NS_BINDING_ABORTED);
++  mIconRequest = nullptr;
+ 
+-  mLoadedFrame = true;
+   return NS_OK;
+ }
+ 
+@@ -180,6 +191,9 @@ nsAlertsIconListener::ShowAlert(GdkPixbu
+   mClosureHandler = g_signal_connect_closure(mNotification, "closed", closure, FALSE);
+   gboolean result = notify_notification_show(mNotification, nullptr);
+ 
++  if (result && mAlertListener)
++    mAlertListener->Observe(nullptr, "alertshow", mAlertCookie.get());
++
+   return result ? NS_OK : NS_ERROR_FAILURE;
+ }
+ 
+@@ -201,9 +215,15 @@ nsAlertsIconListener::StartRequest(const
+   if (!il)
+     return ShowAlert(nullptr);
+ 
+-  return il->LoadImageXPCOM(imageUri, nullptr, nullptr, nullptr, nullptr,
+-                            this, nullptr, nsIRequest::LOAD_NORMAL, nullptr,
+-                            nullptr, getter_AddRefs(mIconRequest));
++  nsresult rv = il->LoadImageXPCOM(imageUri, nullptr, nullptr, nullptr, nullptr,
++                                   this, nullptr, nsIRequest::LOAD_NORMAL, nullptr,
++                                   0 /* use default */, getter_AddRefs(mIconRequest));
++  if (NS_FAILED(rv))
++    return rv;
++
++  mIconRequest->StartDecoding();
++
++  return NS_OK;
+ }
+ 
+ void
+diff -up mozilla-release/toolkit/system/gnome/nsAlertsIconListener.h.858919 mozilla-release/toolkit/system/gnome/nsAlertsIconListener.h
+--- mozilla-release/toolkit/system/gnome/nsAlertsIconListener.h.858919	2014-12-01 11:58:31.896101722 +0100
++++ mozilla-release/toolkit/system/gnome/nsAlertsIconListener.h	2014-12-01 11:58:31.896101722 +0100
 @@ -0,0 +1,89 @@
 +/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 +/* This Source Code Form is subject to the terms of the Mozilla Public
@@ -118,50 +238,86 @@ new file mode 100644
 +};
 +
 +#endif
-diff --git a/toolkit/system/gnome/nsAlertsService.cpp b/toolkit/system/gnome/nsAlertsService.cpp
-new file mode 100644
---- /dev/null
-+++ b/toolkit/system/gnome/nsAlertsService.cpp
-@@ -0,0 +1,53 @@
+diff -up mozilla-release/toolkit/system/gnome/nsGnomeModule.cpp.858919 mozilla-release/toolkit/system/gnome/nsGnomeModule.cpp
+--- mozilla-release/toolkit/system/gnome/nsGnomeModule.cpp.858919	2014-11-26 03:17:39.000000000 +0100
++++ mozilla-release/toolkit/system/gnome/nsGnomeModule.cpp	2014-12-01 11:58:31.896101722 +0100
+@@ -22,6 +22,8 @@ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsGn
+ NS_GENERIC_FACTORY_CONSTRUCTOR(nsGIOService)
+ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsGSettingsService, Init)
+ #endif
++#include "nsSystemAlertsService.h"
++NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsSystemAlertsService, Init)
+ 
+ #ifdef MOZ_ENABLE_GCONF
+ NS_DEFINE_NAMED_CID(NS_GCONFSERVICE_CID);
+@@ -33,6 +35,7 @@ NS_DEFINE_NAMED_CID(NS_GNOMEVFSSERVICE_C
+ NS_DEFINE_NAMED_CID(NS_GIOSERVICE_CID);
+ NS_DEFINE_NAMED_CID(NS_GSETTINGSSERVICE_CID);
+ #endif
++NS_DEFINE_NAMED_CID(NS_SYSTEMALERTSSERVICE_CID);
+ 
+ static const mozilla::Module::CIDEntry kGnomeCIDs[] = {
+ #ifdef MOZ_ENABLE_GCONF
+@@ -45,6 +48,7 @@ static const mozilla::Module::CIDEntry k
+   { &kNS_GIOSERVICE_CID, false, nullptr, nsGIOServiceConstructor },
+   { &kNS_GSETTINGSSERVICE_CID, false, nullptr, nsGSettingsServiceConstructor },
+ #endif
++  { &kNS_SYSTEMALERTSSERVICE_CID, false, nullptr, nsSystemAlertsServiceConstructor },
+   { nullptr }
+ };
+ 
+@@ -59,6 +63,7 @@ static const mozilla::Module::ContractID
+   { NS_GIOSERVICE_CONTRACTID, &kNS_GIOSERVICE_CID },
+   { NS_GSETTINGSSERVICE_CONTRACTID, &kNS_GSETTINGSSERVICE_CID },
+ #endif
++  { NS_SYSTEMALERTSERVICE_CONTRACTID, &kNS_SYSTEMALERTSSERVICE_CID },
+   { nullptr }
+ };
+ 
+diff -up mozilla-release/toolkit/system/gnome/nsSystemAlertsService.cpp.858919 mozilla-release/toolkit/system/gnome/nsSystemAlertsService.cpp
+--- mozilla-release/toolkit/system/gnome/nsSystemAlertsService.cpp.858919	2014-12-01 11:58:31.897101728 +0100
++++ mozilla-release/toolkit/system/gnome/nsSystemAlertsService.cpp	2014-12-01 11:58:31.896101722 +0100
+@@ -0,0 +1,54 @@
 +/* -*- Mode: C++; tab-width: 2; indent-tabs-mode:nil; c-basic-offset: 2 -*- */
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 +
 +#include "nsXULAppAPI.h"
-+#include "nsAlertsService.h"
++#include "nsSystemAlertsService.h"
 +#include "nsAlertsIconListener.h"
 +#include "nsAutoPtr.h"
 +
-+NS_IMPL_ADDREF(nsAlertsService)
-+NS_IMPL_RELEASE(nsAlertsService)
++NS_IMPL_ADDREF(nsSystemAlertsService)
++NS_IMPL_RELEASE(nsSystemAlertsService)
 +
-+NS_INTERFACE_MAP_BEGIN(nsAlertsService)
++NS_INTERFACE_MAP_BEGIN(nsSystemAlertsService)
 +   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIAlertsService)
 +   NS_INTERFACE_MAP_ENTRY(nsIAlertsService)
 +NS_INTERFACE_MAP_END_THREADSAFE
 +
-+nsAlertsService::nsAlertsService()
++nsSystemAlertsService::nsSystemAlertsService()
 +{
 +}
 +
-+nsAlertsService::~nsAlertsService()
++nsSystemAlertsService::~nsSystemAlertsService()
 +{}
 +
 +nsresult
-+nsAlertsService::Init()
++nsSystemAlertsService::Init()
 +{
 +  return NS_OK;
 +}
 +
-+NS_IMETHODIMP nsAlertsService::ShowAlertNotification(const nsAString & aImageUrl, const nsAString & aAlertTitle, 
-+                                                     const nsAString & aAlertText, bool aAlertTextClickable,
-+                                                     const nsAString & aAlertCookie,
-+                                                     nsIObserver * aAlertListener,
-+                                                     const nsAString & aAlertName,
-+                                                     const nsAString & aBidi,
-+                                                     const nsAString & aLang,
-+                                                     nsIPrincipal * aPrincipal)
++NS_IMETHODIMP nsSystemAlertsService::ShowAlertNotification(const nsAString & aImageUrl, const nsAString & aAlertTitle, 
++                                                           const nsAString & aAlertText, bool aAlertTextClickable,
++                                                           const nsAString & aAlertCookie,
++                                                           nsIObserver * aAlertListener,
++                                                           const nsAString & aAlertName,
++                                                           const nsAString & aBidi,
++                                                           const nsAString & aLang,
++                                                           const nsAString & aData,
++                                                           nsIPrincipal * aPrincipal)
 +{
 +  nsRefPtr<nsAlertsIconListener> alertListener = new nsAlertsIconListener();
 +  if (!alertListener)
@@ -171,102 +327,39 @@ new file mode 100644
 +                                       aAlertCookie, aAlertListener);
 +}
 +
-+NS_IMETHODIMP nsAlertsService::CloseAlert(const nsAString& aAlertName,
-+                                          nsIPrincipal* aPrincipal)
++NS_IMETHODIMP nsSystemAlertsService::CloseAlert(const nsAString& aAlertName,
++                                                nsIPrincipal* aPrincipal)
 +{
 +  return NS_ERROR_NOT_IMPLEMENTED;
 +}
-diff --git a/toolkit/system/gnome/nsAlertsService.h b/toolkit/system/gnome/nsAlertsService.h
-new file mode 100644
---- /dev/null
-+++ b/toolkit/system/gnome/nsAlertsService.h
+diff -up mozilla-release/toolkit/system/gnome/nsSystemAlertsService.h.858919 mozilla-release/toolkit/system/gnome/nsSystemAlertsService.h
+--- mozilla-release/toolkit/system/gnome/nsSystemAlertsService.h.858919	2014-12-01 11:58:31.897101728 +0100
++++ mozilla-release/toolkit/system/gnome/nsSystemAlertsService.h	2014-12-01 11:58:31.897101728 +0100
 @@ -0,0 +1,27 @@
 +/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 +
-+#ifndef nsAlertsService_h__
-+#define nsAlertsService_h__
++#ifndef nsSystemAlertsService_h__
++#define nsSystemAlertsService_h__
 +
 +#include "nsIAlertsService.h"
 +#include "nsCOMPtr.h"
 +
-+class nsAlertsService : public nsIAlertsService
++class nsSystemAlertsService : public nsIAlertsService
 +{
 +public:
 +  NS_DECL_NSIALERTSSERVICE
 +  NS_DECL_ISUPPORTS
 +
-+  nsAlertsService();
++  nsSystemAlertsService();
 +
 +  nsresult Init();
 +
 +protected:
-+  virtual ~nsAlertsService();
++  virtual ~nsSystemAlertsService();
 +
 +};
 +
-+#endif /* nsAlertsService_h__ */
-diff --git a/toolkit/system/gnome/nsGnomeModule.cpp b/toolkit/system/gnome/nsGnomeModule.cpp
---- a/toolkit/system/gnome/nsGnomeModule.cpp
-+++ b/toolkit/system/gnome/nsGnomeModule.cpp
-@@ -17,53 +17,58 @@ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsGC
- NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsGnomeVFSService, Init)
- #endif
- #ifdef MOZ_ENABLE_GIO
- #include "nsGIOService.h"
- #include "nsGSettingsService.h"
- NS_GENERIC_FACTORY_CONSTRUCTOR(nsGIOService)
- NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsGSettingsService, Init)
- #endif
-+#include "nsAlertsService.h"
-+NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(nsAlertsService, Init)
- 
- #ifdef MOZ_ENABLE_GCONF
- NS_DEFINE_NAMED_CID(NS_GCONFSERVICE_CID);
- #endif
- #ifdef MOZ_ENABLE_GNOMEVFS
- NS_DEFINE_NAMED_CID(NS_GNOMEVFSSERVICE_CID);
- #endif
- #ifdef MOZ_ENABLE_GIO
- NS_DEFINE_NAMED_CID(NS_GIOSERVICE_CID);
- NS_DEFINE_NAMED_CID(NS_GSETTINGSSERVICE_CID);
- #endif
-+NS_DEFINE_NAMED_CID(NS_SYSTEMALERTSSERVICE_CID);
- 
- static const mozilla::Module::CIDEntry kGnomeCIDs[] = {
- #ifdef MOZ_ENABLE_GCONF
-   { &kNS_GCONFSERVICE_CID, false, nullptr, nsGConfServiceConstructor },
- #endif
- #ifdef MOZ_ENABLE_GNOMEVFS
-   { &kNS_GNOMEVFSSERVICE_CID, false, nullptr, nsGnomeVFSServiceConstructor },
- #endif
- #ifdef MOZ_ENABLE_GIO
-   { &kNS_GIOSERVICE_CID, false, nullptr, nsGIOServiceConstructor },
-   { &kNS_GSETTINGSSERVICE_CID, false, nullptr, nsGSettingsServiceConstructor },
- #endif
-+  { &kNS_SYSTEMALERTSSERVICE_CID, false, nullptr, nsAlertsServiceConstructor },
-   { nullptr }
- };
- 
- static const mozilla::Module::ContractIDEntry kGnomeContracts[] = {
- #ifdef MOZ_ENABLE_GCONF
-   { NS_GCONFSERVICE_CONTRACTID, &kNS_GCONFSERVICE_CID },
- #endif
- #ifdef MOZ_ENABLE_GNOMEVFS
-   { NS_GNOMEVFSSERVICE_CONTRACTID, &kNS_GNOMEVFSSERVICE_CID },
- #endif
- #ifdef MOZ_ENABLE_GIO
-   { NS_GIOSERVICE_CONTRACTID, &kNS_GIOSERVICE_CID },
-   { NS_GSETTINGSSERVICE_CONTRACTID, &kNS_GSETTINGSSERVICE_CID },
- #endif
-+  { NS_SYSTEMALERTSERVICE_CONTRACTID, &kNS_SYSTEMALERTSSERVICE_CID },
-   { nullptr }
- };
- 
- static nsresult
- InitGType ()
- {
-   g_type_init();
-   return NS_OK;
++#endif /* nsSystemAlertsService_h__ */

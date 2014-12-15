@@ -7,20 +7,21 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
+from pisi.actionsapi import cmaketools
 
 def setup():
-    autotools.autoreconf("-fi")
-    autotools.configure("--disable-static \
+    cmaketools.configure("--disable-static \
                          --enable-bluetooth \
                          --enable-irda \
+                         -DCMAKE_INSTALL_LIBDIR=lib \
                          --enable-usb")
     
-    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+   # pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
-    autotools.make()
+    cmaketools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("README", "AUTHORS", "NEWS", "ChangeLog")
