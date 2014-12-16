@@ -13,27 +13,16 @@ import os
 
 WorkDir = "mozilla-release"
 NoStrip = ["/usr/include", "/usr/share/idl"]
-XulVersion = "32.0.3"
+XulVersion = get.srcVERSION()
 XulDir = "/usr/lib/%s-%s" % (get.srcNAME(), XulVersion)
 ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else "obj-%s-pc-linux-gnu" % get.ARCH()
 
 def setup():
-    pisitools.dosed("browser/installer/Makefile.in", "MOZ_PKG_FATAL_WARNINGS = 1", "MOZ_PKG_FATAL_WARNINGS = 0")
     pisitools.ldflags.add("-Wl,-rpath,/usr/lib/xulrunner-%s" % XulVersion)
-    # Write xulrunner version correctly including the minor part
-    #for f in ("xulrunner/installer/Makefile.in", ".mozconfig", "20-xulrunner.conf"):
-        #pisitools.dosed(f, "PSPEC_VERSION", XulVersion)
-
-    # Mozilla sticks on with autoconf-213, so use autoconf-213 which we provide via a hacky patch to produce configure
-    #shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
 
     # Set job count for make
-    pisitools.dosed(".mozconfig", "%%JOBS%%", get.makeJOBS())
-
-    #shelltools.system("/bin/bash ./autoconf-213/autoconf-2.13 --macro-dir=autoconf-213/m4")
-    #shelltools.cd("js/src")
-    #shelltools.system("/bin/bash ../../autoconf-213/autoconf-2.13 --macro-dir=../../autoconf-213/m4")
-    #shelltools.cd("../..")
+    #pisitools.dosed(".mozconfig", "%%JOBS%%", get.makeJOBS())
+    
     # configure script misdetects the preprocessor without an optimization level
     # https://bugs.archlinux.org/task/34644
     shelltools.system("sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' configure")
@@ -56,8 +45,8 @@ def install():
     shelltools.touch("%s%s/dictionaries/tr-TR.aff" % (get.installDIR(), XulDir))
     shelltools.touch("%s%s/dictionaries/tr-TR.dic" % (get.installDIR(), XulDir))
 
-    shelltools.chmod("%s/usr/lib/xulrunner-devel-29.0/sdk/bin/xpt.py" % get.installDIR(), 0755)
-    shelltools.chmod("%s/usr/lib/xulrunner-devel-29.0/sdk/bin/xpcshell" % get.installDIR(), 0755)
+    shelltools.chmod("%s/usr/lib/xulrunner-devel-%s/sdk/bin/xpt.py" % (get.installDIR(), XulVersion), 0755)
+    shelltools.chmod("%s/usr/lib/xulrunner-devel-%s/sdk/bin/xpcshell" % (get.installDIR(), XulVersion), 0755)
     # Remove unnecessary executable bits
     for d in ("%s/usr/share" % get.installDIR(), "%s/usr/include" % get.installDIR()):
         for root, dirs, files in os.walk(d):

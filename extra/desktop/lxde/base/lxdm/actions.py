@@ -19,5 +19,5 @@ def install():
     
     #install Pisi Linux default theme
     pisitools.insinto("/usr/share/lxdm/themes", "lxdm-pisilinux-theme")
-
+    pisitools.remove("/usr/share/lxdm/themes/lxdm-pisilinux-theme/login.png")
     pisitools.dodoc("COPYING", "AUTHORS", "TODO", "README", "ChangeLog", "NEWS")
