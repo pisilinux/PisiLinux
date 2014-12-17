@@ -50,6 +50,9 @@ def setup():
     # configure script misdetects the preprocessor without an optimization level
     # https://bugs.archlinux.org/task/34644
     shelltools.system("sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' configure")
+    
+    # Set job count for make
+    pisitools.dosed(".mozconfig", "%%JOBS%%", get.makeJOBS())
 
     shelltools.system("/bin/bash ./autoconf-213/autoconf-2.13 --macro-dir=autoconf-213/m4")
     shelltools.cd("js/src")
