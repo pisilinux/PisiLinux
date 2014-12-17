@@ -91,5 +91,4 @@ def install():
     # Install docs
     pisitools.dodoc("LEGAL", "LICENSE")
     
-    shelltools.cd("../")
     pisitools.insinto("/usr/share/pixmaps/", "langpack/firefox-lang-*.png")
