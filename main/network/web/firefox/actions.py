@@ -32,10 +32,6 @@ def setup():
     pisitools.dosed(".mozconfig", "%%PWD%%", get.curDIR())
     pisitools.dosed(".mozconfig", "%%FILE%%", "google_api_key")
 
-    # Fix build with new freetype
-    #pisitools.dosed(".", "freetype\/(.*\.h)", r"\1", filePattern="system-headers")
-    #pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.cpp$")
-    #pisitools.dosed("gfx/", "freetype\/(.*\.h)", r"\1", filePattern=".*\.h$")
     # LOCALE
     shelltools.system("rm -rf langpack-ff/*/browser/defaults")
     if not shelltools.isDirectory(xpidir): shelltools.makedirs(xpidir)
@@ -54,9 +50,6 @@ def setup():
     # configure script misdetects the preprocessor without an optimization level
     # https://bugs.archlinux.org/task/34644
     shelltools.system("sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' configure")
-    
-    # Set job count for make
-    pisitools.dosed(".mozconfig", "%%JOBS%%", get.makeJOBS())
 
     shelltools.system("/bin/bash ./autoconf-213/autoconf-2.13 --macro-dir=autoconf-213/m4")
     shelltools.cd("js/src")
@@ -97,3 +90,5 @@ def install():
     
     # Install docs
     pisitools.dodoc("LEGAL", "LICENSE")
+    
+    pisitools.insinto("/usr/share/pixmaps/", "langpack/firefox-lang-*.png")
