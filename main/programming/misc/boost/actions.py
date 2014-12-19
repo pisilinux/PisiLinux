@@ -16,6 +16,6 @@ def build():
     shelltools.system("./b2 stage threading=multi link=shared")
 
 def install():
-    shelltools.copytree("tools/boostbook/xsl", "%s/usr/share/boostbook" % get.installDIR())
+    shelltools.copytree("tools/boostbook/xsl", "%s/usr/share/boostbook/xsl" % get.installDIR())
     shelltools.copytree("tools/boostbook/dtd", "%s/usr/share/boostbook" % get.installDIR())
     shelltools.system("./b2 install threading=multi link=shared")
