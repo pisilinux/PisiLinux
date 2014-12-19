@@ -13,9 +13,20 @@ def setup():
     shelltools.echo("project-config.jam","using mpi ;")
 
 def build():
-    shelltools.system("./b2 stage threading=multi link=shared")
+    shelltools.system("./b2 \
+                       variant=release \
+                       debug-symbols=off \
+                       threading=multi \
+                       runtime-link=shared \
+                       link=shared,static \
+                       toolset=gcc \
+                       python=2.7 \
+                       cflags=-fno-strict-aliasing \
+                       --layout=system")
 
 def install():
+    pisitools.dobin("b2")
+    pisitools.dobin("bjam")
     shelltools.copytree("tools/boostbook/xsl", "%s/usr/share/boostbook/xsl" % get.installDIR())
     shelltools.copytree("tools/boostbook/dtd", "%s/usr/share/boostbook" % get.installDIR())
     shelltools.system("./b2 install threading=multi link=shared")
