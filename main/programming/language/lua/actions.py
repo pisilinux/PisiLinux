@@ -17,9 +17,9 @@ def build():
     autotools.make("linux")
 
 def install():
-    autotools.rawInstall("INSTALL_TOP=%s/usr" % get.installDIR())
+    autotools.rawInstall("INSTALL_TOP=%s/usr TO_LIB='liblua.so liblua.so.5.2 liblua.so.5.2.3'" % get.installDIR())
 
-    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua.so")
+    #pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua.so")
 
     #pisitools.insinto("/usr/share/lua/5.1", "etc/strict.lua")
     #pisitools.insinto("/usr/share/lua/5.1", "test/*.lua")
