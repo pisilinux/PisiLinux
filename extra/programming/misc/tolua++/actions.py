@@ -17,9 +17,6 @@ def build():
                 shared=1 '
                 % (get.CC(), get.CFLAGS(), get.CC(), get.LDFLAGS()))
 
-    # Remove static libraries
-    shelltools.unlink(get.workDIR()+'/'+get.srcDIR()+'/lib/*.a')
-
 def install():
     for dirs in ["bin", "include", "lib"]:
         pisitools.insinto("/usr", dirs)
