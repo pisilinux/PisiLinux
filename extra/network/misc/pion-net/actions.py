@@ -22,9 +22,9 @@ def setup():
 
 def build():
     autotools.make()
-    
+
 def check():
-    autotools.make("check")    
+    autotools.make("check")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
