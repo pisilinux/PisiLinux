@@ -20,4 +20,4 @@ def install():
     
     pisitools.insinto("/etc/", "doc/xjadeorc")
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README", "TODO")
+    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")
