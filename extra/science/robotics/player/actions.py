@@ -6,10 +6,13 @@
 
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import pythonmodules
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.system("sed -i '48a PLAYERCC_ADD_LINK_LIB( boost_system )' client_libs/libplayerc++/CMakeLists.txt")
+    shelltools.system("sed -i '98a PLAYERCC_ADD_LINK_LIB( boost_system )' client_libs/libplayerc++/CMakeLists.txt")
     cmaketools.configure("-DBUILD_RUBYCPP_BINDINGS=ON \
                           -DBoost_USE_MULTITHREAD=ON \
                           -DUNICAP_DIR=/usr \
