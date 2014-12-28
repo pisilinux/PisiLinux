@@ -20,7 +20,7 @@ def setup():
     # for why the "-fno-devirtualize" flag is needed.  I can go away with GCC 4.9.2+.
     pisitools.cxxflags.add("-fno-devirtualize")
 
-    #shelltools.system("LIBS=-lboost_signals LDFLAGS=-lboost_signals")
+    shelltools.system("LIBS=-lboost_signals LDFLAGS=-lboost_signals")
 
     cmaketools.configure("-Wcpp -DCMAKE_BUILD_TYPE=Release \
                           -DwxWidgets_CONFIG_EXECUTABLE=/usr/bin/wxconfig \
