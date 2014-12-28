@@ -10,6 +10,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 
 def setup():
+    shelltools.system("sed -i 's/#include <string.h>/&\n#include <stdio.h>/' plugins/mas.c")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-server \
                          --disable-dependency-tracking")
