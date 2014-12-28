@@ -12,7 +12,9 @@ from pisi.actionsapi import get
 NoStrip=["/usr/share/doc"]
 
 def setup():
-    cmaketools.configure("-DWITH_VIGRANUMPY=1 -DDOXYGEN_FOUND=0")
+    cmaketools.configure("-DWITH_VIGRANUMPY=1 \
+                          -DWITH_OPENEXR=1 \
+                          -DDOXYGEN_FOUND=0")
 
 def build():
     cmaketools.make()
