@@ -7,6 +7,8 @@ from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 
 def setup():
+    #https://github.com/K-3D/k3d/commit/9e7a5ee23c63c7dcfa1b6855887bb0fa8a747cf5
+    pisitools.dosed("k3dsdk/difference.h", "#include <boost/math/tools/test.hpp>", "")
     pisitools.flags.add("-DdDOUBLE")
     shelltools.makedirs("build")
     shelltools.cd("build")
