@@ -9,10 +9,12 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
+major = ".".join(get.srcVERSION().split(".")[:2])
+
 def setup():
     pisitools.dosed("src/Makefile", "^CFLAGS.*$", "CFLAGS=%s -fPIC -DLUA_USE_LINUX" % get.CFLAGS())
     pisitools.dosed("src/Makefile", "^MYLDFLAGS.*$", "MYLDFLAGS=%s" % get.LDFLAGS())
-    pisitools.dosed("lua.pc", "%VER%", "%s" % get.srcVERSION())
+    pisitools.dosed("lua.pc", "%VER%", "%s" % major)
     pisitools.dosed("lua.pc", "%REL%", "%s" % get.srcVERSION())
 
 def build():
