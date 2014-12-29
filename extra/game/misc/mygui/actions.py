@@ -33,13 +33,13 @@ def install():
     # non-bin files in bin: plugins.cfg, resources.xml? opt?
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.dolib_so("lib/libCommon.so.3.2.0")
-    pisitools.dosym("libCommon.so.3.2.0", "/usr/lib/libCommon.so")
-    pisitools.dosym("libCommon.so.3.2.0", "/usr/lib/libCommon.so.3")
+    pisitools.dolib_so("lib/libCommon.so.3.2.1")
+    pisitools.dosym("libCommon.so.3.2.1", "/usr/lib/libCommon.so")
+    pisitools.dosym("libCommon.so.3.2.1", "/usr/lib/libCommon.so.3")
 
-    for files in ["Demo_Colour", "Demo_Console", "Demo_Controllers", "Demo_Gui", "Demo_ItemBox", "Demo_PanelView", "Demo_Picking", "Demo_PluginStrangeButton", "Demo_Pointers", "Demo_RenderBox", "Demo_ScrollView", "Demo_Themes", "FontViewer", "ImageSetViewer", "LayoutEditor", "SkinEditor", "plugins.cfg", "resources.xml"]:
+    for files in ["Demo_Colour", "Demo_Console", "Demo_Controllers", "Demo_Gui", "Demo_ItemBox", "Demo_PanelView", "Demo_Picking", "Demo_PluginStrangeButton", "Demo_Pointers", "Demo_RenderBox", "Demo_ScrollView", "Demo_Themes", "FontEditor", "ImageEditor", "LayoutEditor", "SkinEditor", "plugins.cfg", "resources.xml"]:
         shelltools.chmod("%s/usr/bin/%s" % (get.installDIR(), files), 0755)
 
     pisitools.dohtml("Docs/html")
 
-    pisitools.dodoc("ChangeLog.txt", "COPYING.LESSER", "Readme.txt")
+    pisitools.dodoc("ChangeLog.txt", "COPYING.MIT", "Readme.txt")
