@@ -46,6 +46,7 @@ def install():
 
     #pisitools.doman("doc/*.[1-8]")
     pisitools.dodir("/var/lib/lxc")
+    pisitools.dodir("/usr/lib/lxc/rootfs/dev")
 
     # Install management tools
     for script in shelltools.ls("lxc-management-tools/lxc*"):
