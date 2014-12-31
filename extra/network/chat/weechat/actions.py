@@ -23,4 +23,4 @@ def install():
    # pisitools.domove("/usr/bin/weechat-curses", "/usr/bin", "weechat")
    # pisitools.domove("/usr/share/man/man1/weechat-curses.1", "/usr/share/man/man1", "weechat.1")
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")
+    pisitools.dodoc("AUTHORS.asciidoc", "ChangeLog.asciidoc", "COPYING", "README.asciidoc")
