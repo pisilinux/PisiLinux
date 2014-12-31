@@ -16,7 +16,6 @@ def setup():
      shelltools.cd("build")
      cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
                            -DPYLIB_INSTALL_DIR=lib/python2.7/site-packages \
-                           -DUSE_EXTERNAL_TBB=ON \
                            -DUSE_OCIO= OFF \
                            -DOIIO_BUILD_TESTS=OFF", sourceDir="..")
      
@@ -29,10 +28,5 @@ def install():
     shelltools.cd("build")
     
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR()) 
-    #pisitools.insinto("/usr/bin", "dist/*/bin/*")
-    #pisitools.insinto("/usr/include", "dist/*/include/*")
-    #pisitools.insinto("/usr/lib", "dist/*/lib/*")
-    #pisitools.insinto("/usr/lib", "dist/*/python/*")
-    #pisitools.insinto("/usr/share/doc", "dist/*/doc*")
     
     #pisitools.dodoc("CREDITS", "LICENSE", "README.*")
