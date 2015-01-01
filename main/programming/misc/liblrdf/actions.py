@@ -6,10 +6,11 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-WorkDir="LRDF-master"
+from pisi.actionsapi import shelltools
 
 def setup():
-    autotools.autoreconf("-vif")
+    shelltools.system("./autogen.sh")
+    autotools.autoreconf("-vfi")
     autotools.configure("--disable-static")
 
 def build():
