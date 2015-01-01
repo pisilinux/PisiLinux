@@ -14,6 +14,7 @@ def setup():
                     -DCMAKE_INSTALL_LIBDIR=lib \
                     -DCMAKE_BUILD_TYPE=Release \
                     -DBUILD_active=OFF \
+                    -DWITH_OCIO=OFF \
                     -DBUILD_cstester=OFF \
                     -DKDE4_BUILD_TESTS=OFF \
                     -DBUILD_mobile=OFF \
