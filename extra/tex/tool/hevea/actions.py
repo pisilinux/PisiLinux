@@ -7,24 +7,13 @@
 
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-libdir = "/usr/lib/hevea"
-bindir = "/usr/bin"
-
 def build():
-    pisitools.dosed("Makefile", "^PREFIX=/usr/local$", "PREFIX=%s" % get.defaultprefixDIR())
-    pisitools.dosed("mylib.ml", "LIBDIR", libdir)
-    autotools.make("BINDIR=%s LIBDIR=%s" % \
-                    (get.installDIR() + bindir, \
-                     get.installDIR() + libdir))
+    pisitools.dosed("Makefile", "/usr/local", "/usr/")
+    autotools.make()
 
 def install():
-    pisitools.dodir(libdir)
-    pisitools.dodir(bindir)
-    autotools.rawInstall("BINDIR=%s LIBDIR=%s" % \
-                          (get.installDIR() + bindir, \
-                           get.installDIR() + libdir))
+    autotools.rawInstall("DESTDIR=%s" % (get.installDIR()))
 
     pisitools.dodoc("README", "CHANGES", "LICENSE")
