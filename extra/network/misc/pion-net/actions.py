@@ -7,7 +7,7 @@
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
-
+from pisi.actionsapi import pisitools
 
 
 def setup():
@@ -19,6 +19,8 @@ def setup():
                          --with-bzlib \
                          --with-openssl \
                          --with-log4cpp")
+
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make()
