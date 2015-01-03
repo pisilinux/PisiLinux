@@ -22,6 +22,8 @@ def setup():
                          --with-zlib=system \
                          --with-libgeoip=system")
 
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+
 def build():
     autotools.make("CXX=%s" % get.CXX())
 
