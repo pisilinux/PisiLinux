@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 
 def setup():
     autotools.autoreconf("-vfi")
-    autotools.configure("WX_CONFIG=/usr/bin/wx-config-2.8 \
+    autotools.configure("WX_CONFIG=/usr/bin/wxconfig \
                         --with-gihdir=/usr/share/gnuplot \
                         --with-readline=gnu --enable-qt")
 
