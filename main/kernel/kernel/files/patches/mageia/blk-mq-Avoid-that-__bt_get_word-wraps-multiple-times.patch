@@ -1,0 +1,51 @@
+From 9e98e9d7cf6e9d2ec1cce45e8d5ccaf3f9b386f3 Mon Sep 17 00:00:00 2001
+From: Bart Van Assche <bvanassche@acm.org>
+Date: Tue, 9 Dec 2014 16:58:11 +0100
+Subject: [PATCH] blk-mq: Avoid that __bt_get_word() wraps multiple times
+
+If __bt_get_word() is called with last_tag != 0, if the first
+find_next_zero_bit() fails, if after wrap-around the
+test_and_set_bit() call fails and find_next_zero_bit() succeeds,
+if the next test_and_set_bit() call fails and subsequently
+find_next_zero_bit() does not find a zero bit, then another
+wrap-around will occur. Avoid this by introducing an additional
+local variable.
+
+Signed-off-by: Bart Van Assche <bvanassche@acm.org>
+Cc: Christoph Hellwig <hch@lst.de>
+Cc: Robert Elliott <elliott@hp.com>
+Cc: Ming Lei <ming.lei@canonical.com>
+Cc: Alexander Gordeev <agordeev@redhat.com>
+Cc: <stable@vger.kernel.org> # v3.13+
+Signed-off-by: Jens Axboe <axboe@fb.com>
+---
+ block/blk-mq-tag.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/block/blk-mq-tag.c b/block/blk-mq-tag.c
+index bab4bff..0f5e22a 100644
+--- a/block/blk-mq-tag.c
++++ b/block/blk-mq-tag.c
+@@ -137,6 +137,7 @@ static inline bool hctx_may_queue(struct blk_mq_hw_ctx *hctx,
+ static int __bt_get_word(struct blk_align_bitmap *bm, unsigned int last_tag)
+ {
+ 	int tag, org_last_tag, end;
++	bool wrap = last_tag != 0;
+ 
+ 	org_last_tag = last_tag;
+ 	end = bm->depth;
+@@ -148,8 +149,9 @@ restart:
+ 			 * We started with an offset, start from 0 to
+ 			 * exhaust the map.
+ 			 */
+-			if (org_last_tag && last_tag) {
+-				end = last_tag;
++			if (wrap) {
++				wrap = false;
++				end = org_last_tag;
+ 				last_tag = 0;
+ 				goto restart;
+ 			}
+-- 
+2.2.0
+
