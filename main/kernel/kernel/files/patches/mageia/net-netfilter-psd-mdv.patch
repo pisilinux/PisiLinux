@@ -1,0 +1,233 @@
+ipt_psd: Mandriva changes
+
+This patch holds all the Mandriva changes done in ipt_psd
+netfilter module.
+
+Most of the time they're just upgrades to match with new
+API in the kernel.
+
+This work is mostly done by Thomas Backlund, Herton R.
+Krzesinski and Luiz Fernando N. Capitulino.
+
+Signed-off-by: Luiz Fernando N. Capitulino <lcapitulino@mandriva.com.br>
+Signed-off-by: Herton Ronaldo Krzesinski <herton@mandriva.com.br>
+
+---
+ include/linux/netfilter_ipv4/Kbuild |    1
+ net/ipv4/netfilter/Kconfig          |    8 ++
+ net/ipv4/netfilter/ipt_psd.c        |  113 ++++++++++++++----------------------
+ 3 files changed, 55 insertions(+), 67 deletions(-)
+
+diff -p -up linux-2.6.28/net/ipv4/netfilter/ipt_psd.c.orig linux-2.6.28/net/ipv4/netfilter/ipt_psd.c
+--- linux-2.6.28/net/ipv4/netfilter/ipt_psd.c.orig	2008-12-12 11:03:05.000000000 -0500
++++ linux-2.6.28/net/ipv4/netfilter/ipt_psd.c	2008-12-12 11:04:03.000000000 -0500
+@@ -1,21 +1,24 @@
+ /*
+-  This is a module which is used for PSD (portscan detection)
+-  Derived from scanlogd v2.1 written by Solar Designer <solar@false.com>
+-  and LOG target module.
+-
+-  Copyright (C) 2000,2001 astaro AG
+-
+-  This file is distributed under the terms of the GNU General Public
+-  License (GPL). Copies of the GPL can be obtained from:
+-     ftp://prep.ai.mit.edu/pub/gnu/GPL
+-
+-  2000-05-04 Markus Hennig <hennig@astaro.de> : initial
+-  2000-08-18 Dennis Koslowski <koslowski@astaro.de> : first release
+-  2000-12-01 Dennis Koslowski <koslowski@astaro.de> : UDP scans detection added
+-  2001-01-02 Dennis Koslowski <koslowski@astaro.de> : output modified
+-  2001-02-04 Jan Rekorajski <baggins@pld.org.pl> : converted from target to match
+-  2004-05-05 Martijn Lievaart <m@rtij.nl> : ported to 2.6
+-*/
++ * This is a module which is used for PSD (portscan detection)
++ * Derived from scanlogd v2.1 written by Solar Designer <solar@false.com>
++ * and LOG target module.
++ *
++ * Copyright (C) 2000,2001 astaro AG
++ *
++ * This file is distributed under the terms of the GNU General Public
++ * License (GPL). Copies of the GPL can be obtained from:
++ *    ftp://prep.ai.mit.edu/pub/gnu/GPL
++ *
++ * 2000-05-04 Markus Hennig <hennig@astaro.de> : initial
++ * 2000-08-18 Dennis Koslowski <koslowski@astaro.de> : first release
++ * 2000-12-01 Dennis Koslowski <koslowski@astaro.de> : UDP scans detection added
++ * 2001-01-02 Dennis Koslowski <koslowski@astaro.de> : output modified
++ * 2001-02-04 Jan Rekorajski <baggins@pld.org.pl> : converted from target to match
++ * 2004-05-05 Martijn Lievaart <m@rtij.nl> : ported to 2.6
++ * 2007-10-10 Thomas Backlund <tmb@mandriva.org>: 2.6.22 update
++ * 2007-11-14 Luiz Capitulino <lcapitulino@mandriva.com> : 2.6.22 API usage fixes
++ * 2007-11-26 Herton Ronaldo Krzesinski <herton@mandriva.com>: switch xt_match->match to bool
++ */
+ 
+ #include <linux/module.h>
+ #include <linux/skbuff.h>
+@@ -54,7 +57,7 @@ struct port {
+  */
+ struct host {
+ 	struct host *next;		/* Next entry with the same hash */
+-	clock_t timestamp;		/* Last update time */
++	unsigned long timestamp;	/* Last update time */
+ 	struct in_addr src_addr;	/* Source address */
+ 	struct in_addr dest_addr;	/* Destination address */
+ 	unsigned short src_port;	/* Source port */
+@@ -93,33 +96,29 @@ static inline int hashfunc(struct in_add
+ 	return hash & (HASH_SIZE - 1);
+ }
+ 
+-static int
++static bool
+ ipt_psd_match(const struct sk_buff *pskb,
+-	      const struct net_device *in,
+-	      const struct net_device *out,
+-	      const void *matchinfo,
+-	      int offset,
+-	      int *hotdrop)
++	      const struct xt_match_param *match_param)
+ {
+ 	struct iphdr *ip_hdr;
+ 	struct tcphdr *tcp_hdr;
+ 	struct in_addr addr;
+ 	u_int16_t src_port,dest_port;
+   	u_int8_t tcp_flags, proto;
+-	clock_t now;
++	unsigned long now;
+ 	struct host *curr, *last, **head;
+ 	int hash, index, count;
+ 
+ 	/* Parameters from userspace */
+-	const struct ipt_psd_info *psdinfo = matchinfo;
++	const struct ipt_psd_info *psdinfo = match_param->matchinfo;
+ 
+ 	/* IP header */
+-	ip_hdr = pskb->nh.iph;
++	ip_hdr = ipip_hdr(pskb);
+ 
+ 	/* Sanity check */
+ 	if (ntohs(ip_hdr->frag_off) & IP_OFFSET) {
+ 		DEBUGP("PSD: sanity check failed\n");
+-		return 0;
++		return false;
+ 	}
+ 
+ 	/* TCP or UDP ? */
+@@ -127,7 +126,7 @@ ipt_psd_match(const struct sk_buff *pskb
+ 
+ 	if (proto != IPPROTO_TCP && proto != IPPROTO_UDP) {
+ 		DEBUGP("PSD: protocol not supported\n");
+-		return 0;
++		return false;
+ 	}
+ 
+ 	/* Get the source address, source & destination ports, and TCP flags */
+@@ -151,7 +150,7 @@ ipt_psd_match(const struct sk_buff *pskb
+ 	 * them spoof us. [DHCP needs this feature - HW] */
+ 	if (!addr.s_addr) {
+ 		DEBUGP("PSD: spoofed source address (0.0.0.0)\n");
+-		return 0;
++		return false;
+ 	}
+ 
+ 	/* Use jiffies here not to depend on someone setting the time while we're
+@@ -298,46 +297,26 @@ ipt_psd_match(const struct sk_buff *pskb
+ 
+ out_no_match:
+ 	spin_unlock(&state.lock);
+-	return 0;
++	return false;
+ 
+ out_match:
+ 	spin_unlock(&state.lock);
+-	return 1;
++	DEBUGP("PSD: Dropping packets from "NIPQUAD_FMT" \n",
++	       NIPQUAD(curr->src_addr.s_addr));
++	return true;
+ }
+ 
+-static int ipt_psd_checkentry(const char *tablename,
+-			      const struct ipt_ip *e,
+-			      void *matchinfo,
+-			      unsigned int matchsize,
+-			      unsigned int hook_mask)
+-{
+-/*	const struct ipt_psd_info *psdinfo = targinfo;*/
+-
+-	/* we accept TCP only */
+-/*  	if (e->ip.proto != IPPROTO_TCP) { */
+-/*  		DEBUGP("PSD: specified protocol may be TCP only\n"); */
+-/*  		return 0; */
+-/*  	} */
+-
+-	if (matchsize != IPT_ALIGN(sizeof(struct ipt_psd_info))) {
+-		DEBUGP("PSD: matchsize %u != %u\n",
+-		       matchsize,
+-		       IPT_ALIGN(sizeof(struct ipt_psd_info)));
+-		return 0;
+-	}
+-
+-	return 1;
+-}
+-
+-static struct ipt_match ipt_psd_reg = {
+-	.name = "psd",
+-	.match = ipt_psd_match,
+-	.checkentry = ipt_psd_checkentry,
+-	.me = THIS_MODULE };
++static struct xt_match ipt_psd_reg = {
++	.name      = "psd",
++	.family    = AF_INET,
++	.match     = ipt_psd_match,
++	.matchsize = sizeof(struct ipt_psd_info),
++	.me        = THIS_MODULE
++};
+ 
+-static int __init init(void)
++static int __init ipt_psd_init(void)
+ {
+-	if (ipt_register_match(&ipt_psd_reg))
++	if (xt_register_match(&ipt_psd_reg))
+ 		return -EINVAL;
+ 
+ 	memset(&state, 0, sizeof(state));
+@@ -348,11 +327,11 @@ static int __init init(void)
+ 	return 0;
+ }
+ 
+-static void __exit fini(void)
++static void __exit ipt_psd_fini(void)
+ {
+-	ipt_unregister_match(&ipt_psd_reg);
++	xt_unregister_match(&ipt_psd_reg);
+ 	printk("netfilter PSD unloaded - (c) astaro AG\n");
+ }
+ 
+-module_init(init);
+-module_exit(fini);
++module_init(ipt_psd_init);
++module_exit(ipt_psd_fini);
+--- a/net/ipv4/netfilter/Kconfig
++++ b/net/ipv4/netfilter/Kconfig
+@@ -69,6 +69,14 @@ config IP_NF_MATCH_ECN
+ 	(e.g. when running oldconfig). It selects
+ 	CONFIG_NETFILTER_XT_MATCH_ECN.
+ 
++config IP_NF_MATCH_PSD
++	tristate 'Port scanner detection support'
++	depends on NETFILTER_ADVANCED
++	help
++	  Module used for PSD (portscan detection).
++
++	  To compile it as a module, choose M here.  If unsure, say N.
++
+ config IP_NF_MATCH_RPFILTER
+ 	tristate '"rpfilter" reverse path filter match support'
+ 	depends on NETFILTER_ADVANCED && (IP_NF_MANGLE || IP_NF_RAW)
+--- linux/include/uapi/linux/netfilter_ipv4/Kbuild.orig
++++ linux/include/uapi/linux/netfilter_ipv4/Kbuild
+@@ -8,4 +8,5 @@ header-y += ipt_REJECT.h
+ header-y += ipt_TTL.h
+ header-y += ipt_ah.h
+ header-y += ipt_ecn.h
++header-y += ipt_psd.h
+ header-y += ipt_ttl.h

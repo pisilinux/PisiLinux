@@ -1,0 +1,70 @@
+From c44c70983107257f33f2b9d1c6a5aaf3d2eb670a Mon Sep 17 00:00:00 2001
+From: Kenneth Graunke <kenneth@whitecape.org>
+Date: Wed, 31 Dec 2014 16:23:00 -0800
+Subject: drm/i915: Make sample_c messages go faster on Haswell.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Haswell significantly improved the performance of sampler_c messages,
+but the optimization appears to be off by default.  Later platforms
+remove this bit, and apparently always enable the optimization.
+
+Improves performance in "Counter Strike: Global Offensive" by 18%
+at default settings on Iris Pro.
+
+This may break sampling of paletted formats (P8/A8P8/P8A8).  It's
+unclear whether it affects sampling of paletted formats in general,
+or just the sample_c message (which is never used).
+
+While libva does have support for using paletted formats (primarily
+for OSDs), that support appears to have been broken for at least a
+year, so I couldn't observe a regression from this:
+
+I tried to get libva-intel to use paletted formats, and observe a
+regression...but the only thing I found that used it was mplayer's OSD
+(on screen display).  Even without my patch, the colors were totally
+wrong with that, and it's according to a few distro wikis, that's been
+the case for over a year.
+
+If libva's code for paletted formats /is/ broken, they could always
+add code to disable this bit using the command validator when fixing
+it.
+
+Signed-off-by: Kenneth Graunke <kenneth@whitecape.org>
+[danvet: Add wa name from Ville's review to the comment and copypaste
+the explanation why we don't care about libva (already broken) from
+Ken.]
+Reviewed-by: Ville Syrjälä <ville.syrjala@linux.intel.com>
+Signed-off-by: Daniel Vetter <daniel.vetter@ffwll.ch>
+
+diff --git a/drivers/gpu/drm/i915/i915_reg.h b/drivers/gpu/drm/i915/i915_reg.h
+index 1fdda42..0cb0067 100644
+--- a/drivers/gpu/drm/i915/i915_reg.h
++++ b/drivers/gpu/drm/i915/i915_reg.h
+@@ -6152,6 +6152,7 @@ enum punit_power_well {
+ #define  HSW_ROW_CHICKEN3_L3_GLOBAL_ATOMICS_DISABLE    (1 << 6)
+ 
+ #define HALF_SLICE_CHICKEN3		0xe184
++#define   HSW_SAMPLE_C_PERFORMANCE	(1<<9)
+ #define   GEN8_CENTROID_PIXEL_OPT_DIS	(1<<8)
+ #define   GEN8_SAMPLER_POWER_BYPASS_DIS	(1<<1)
+ 
+diff --git a/drivers/gpu/drm/i915/intel_pm.c b/drivers/gpu/drm/i915/intel_pm.c
+index 4254e91..0918604 100644
+--- a/drivers/gpu/drm/i915/intel_pm.c
++++ b/drivers/gpu/drm/i915/intel_pm.c
+@@ -5972,6 +5972,10 @@ static void haswell_init_clock_gating(struct drm_device *dev)
+ 	I915_WRITE(GEN7_GT_MODE,
+ 		   GEN6_WIZ_HASHING_MASK | GEN6_WIZ_HASHING_16x4);
+ 
++	/* WaSampleCChickenBitEnable:hsw */
++	I915_WRITE(HALF_SLICE_CHICKEN3,
++		   _MASKED_BIT_ENABLE(HSW_SAMPLE_C_PERFORMANCE));
++
+ 	/* WaSwitchSolVfFArbitrationPriority:hsw */
+ 	I915_WRITE(GAM_ECOCHK, I915_READ(GAM_ECOCHK) | HSW_ECOCHK_ARB_PRIO_SOL);
+ 
+-- 
+cgit v0.10.2
+
