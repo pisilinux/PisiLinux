@@ -1,0 +1,44 @@
+From 5fabcb4c33fe11c7e3afdf805fde26c1a54d0953 Mon Sep 17 00:00:00 2001
+From: Jens Axboe <axboe@fb.com>
+Date: Wed, 19 Nov 2014 13:06:22 -0700
+Subject: [PATCH] genhd: check for int overflow in disk_expand_part_tbl()
+
+We can get here from blkdev_ioctl() -> blkpg_ioctl() -> add_partition()
+with a user passed in partno value. If we pass in 0x7fffffff, the
+new target in disk_expand_part_tbl() overflows the 'int' and we
+access beyond the end of ptbl->part[] and even write to it when we
+do the rcu_assign_pointer() to assign the new partition.
+
+Reported-by: David Ramos <daramos@stanford.edu>
+Cc: stable@kernel.org
+Signed-off-by: Jens Axboe <axboe@fb.com>
+---
+ block/genhd.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/block/genhd.c b/block/genhd.c
+index bd30606..0a536dc 100644
+--- a/block/genhd.c
++++ b/block/genhd.c
+@@ -1070,9 +1070,16 @@ int disk_expand_part_tbl(struct gendisk *disk, int partno)
+ 	struct disk_part_tbl *old_ptbl = disk->part_tbl;
+ 	struct disk_part_tbl *new_ptbl;
+ 	int len = old_ptbl ? old_ptbl->len : 0;
+-	int target = partno + 1;
++	int i, target;
+ 	size_t size;
+-	int i;
++
++	/*
++	 * check for int overflow, since we can get here from blkpg_ioctl()
++	 * with a user passed 'partno'.
++	 */
++	target = partno + 1;
++	if (target < 0)
++		return -EINVAL;
+ 
+ 	/* disk_max_parts() is zero during initialization, ignore if so */
+ 	if (disk_max_parts(disk) && target > disk_max_parts(disk))
+-- 
+2.2.0
+

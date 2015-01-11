@@ -1,0 +1,63 @@
+From c38d185d4af12e8be63ca4b6745d99449c450f12 Mon Sep 17 00:00:00 2001
+From: Bart Van Assche <bvanassche@acm.org>
+Date: Tue, 9 Dec 2014 16:58:35 +0100
+Subject: [PATCH] blk-mq: Fix a race between bt_clear_tag() and bt_get()
+
+What we need is the following two guarantees:
+* Any thread that observes the effect of the test_and_set_bit() by
+  __bt_get_word() also observes the preceding addition of 'current'
+  to the appropriate wait list. This is guaranteed by the semantics
+  of the spin_unlock() operation performed by prepare_and_wait().
+  Hence the conversion of test_and_set_bit_lock() into
+  test_and_set_bit().
+* The wait lists are examined by bt_clear() after the tag bit has
+  been cleared. clear_bit_unlock() guarantees that any thread that
+  observes that the bit has been cleared also observes the store
+  operations preceding clear_bit_unlock(). However,
+  clear_bit_unlock() does not prevent that the wait lists are examined
+  before that the tag bit is cleared. Hence the addition of a memory
+  barrier between clear_bit() and the wait list examination.
+
+Signed-off-by: Bart Van Assche <bvanassche@acm.org>
+Cc: Christoph Hellwig <hch@lst.de>
+Cc: Robert Elliott <elliott@hp.com>
+Cc: Ming Lei <ming.lei@canonical.com>
+Cc: Alexander Gordeev <agordeev@redhat.com>
+Cc: <stable@vger.kernel.org> # v3.13+
+Signed-off-by: Jens Axboe <axboe@fb.com>
+---
+ block/blk-mq-tag.c | 11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+diff --git a/block/blk-mq-tag.c b/block/blk-mq-tag.c
+index 0f5e22a..e47c4c7 100644
+--- a/block/blk-mq-tag.c
++++ b/block/blk-mq-tag.c
+@@ -158,7 +158,7 @@ restart:
+ 			return -1;
+ 		}
+ 		last_tag = tag + 1;
+-	} while (test_and_set_bit_lock(tag, &bm->word));
++	} while (test_and_set_bit(tag, &bm->word));
+ 
+ 	return tag;
+ }
+@@ -357,11 +357,10 @@ static void bt_clear_tag(struct blk_mq_bitmap_tags *bt, unsigned int tag)
+ 	struct bt_wait_state *bs;
+ 	int wait_cnt;
+ 
+-	/*
+-	 * The unlock memory barrier need to order access to req in free
+-	 * path and clearing tag bit
+-	 */
+-	clear_bit_unlock(TAG_TO_BIT(bt, tag), &bt->map[index].word);
++	clear_bit(TAG_TO_BIT(bt, tag), &bt->map[index].word);
++
++	/* Ensure that the wait list checks occur after clear_bit(). */
++	smp_mb();
+ 
+ 	bs = bt_wake_ptr(bt);
+ 	if (!bs)
+-- 
+2.2.0
+
