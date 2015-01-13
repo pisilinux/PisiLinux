@@ -18,4 +18,4 @@ def install():
 
     pisitools.dodoc("COPYING", "README*")
 
-    pisitools.insinto("/usr/share/pixmaps", "data/img/icon-ssr.png", "simplescreenrecorder.png")
+    pisitools.insinto("/usr/share/pixmaps", "data/icons/192/simplescreenrecorder.png", "simplescreenrecorder.png")
