@@ -12,7 +12,11 @@ from pisi.actionsapi import get
 def setup():
     shelltools.echo("po/LINGUAS", "tr")
     autotools.autoreconf("-fi")
-    autotools.configure("--disable-static")
+    autotools.configure("--prefix=/usr \
+                         --sysconfdir=/etc \
+                         --libexecdir=/usr/lib/NetworkManager \
+                         --enable-more-warnings=no \
+                         --disable-static")
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
