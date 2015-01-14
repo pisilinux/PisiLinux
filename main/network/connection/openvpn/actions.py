@@ -11,50 +11,48 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 # this package needs a lot of work for init scripts etc.
+#pisitools.cflags.add("-DPLUGIN_LIBDIR=\\\"/usr/lib/openvpn\\\"")
+#shelltools.export("CFLAGS", "%s -DPLUGIN_LIBDIR=\\\"/usr/lib/openvpn\\\"" % get.CFLAGS())
 def setup():
-    autotools.configure("--enable-pthread \
+    autotools.configure("--prefix=/usr \
                          --enable-password-save \
                          --enable-iproute2 \
                          --enable-ssl \
                          --enable-crypto \
-                         --with-ifconfig-path=/sbin/ifconfig \
-                         --with-iproute-path=/sbin/ip \
-                         --with-route-path=/sbin/route")
-
+                         --mandir=/usr/share/man \
+                         --sbindir=/usr/bin")
+#
 def build():
     autotools.make()
-
-    for d in ("plugin/auth-pam", "plugin/down-root", "easy-rsa/2.0"):
-        autotools.make("-C %s" % d)
-
+    shelltools.cd("src/plugins/auth-pam")
+    autotools.make()
+    shelltools.cd("../down-root/")
+    autotools.make
+    shelltools.cd("..")
 def check():
     shelltools.system("./openvpn-test.sh")
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    autotools.rawInstall("-C easy-rsa/2.0 DESTDIR=%s/usr/share/%s/easy-rsa" % (get.installDIR(), get.srcNAME()))
 
-    for val in ["auth-pam", "down-root"]:
-        pisitools.dolib_so("plugin/%s/openvpn-%s.so" % (val, val), "/usr/lib/openvpn/plugin/lib/openvpn-%s.so" % val)
-
-    for val in ["contrib", "sample-config-files", "sample-keys", "sample-scripts"]:
+    for val in ["contrib", "sample/sample-config-files", "sample/sample-keys", "sample/sample-scripts"]:
         pisitools.insinto("/%s/openvpn/%s" % (get.dataDIR(), val), "%s/*" % val)
 
     pisitools.dodir("/etc/openvpn")
     pisitools.dodir("/run/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/server.conf", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/client.conf", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/firewall.sh", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/xinetd-server-config", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/xinetd-client-config", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/loopback-server", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/loopback-client", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/openvpn-startup.sh", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-config-files/openvpn-shutdown.sh", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-keys/*.key", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-keys/*.crt", "/etc/openvpn")
-    pisitools.domove("/usr/share/openvpn/sample-keys/*.pem", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/server.conf", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/client.conf", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/firewall.sh", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/xinetd-server-config", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/xinetd-client-config", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/loopback-server", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/loopback-client", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/openvpn-startup.sh", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-config-files/openvpn-shutdown.sh", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-keys/*.key", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-keys/*.crt", "/etc/openvpn")
+    pisitools.domove("/usr/share/openvpn/sample/sample-keys/*.pem", "/etc/openvpn")
 
-     
+
     pisitools.dodoc("AUTHORS", "COPYING", "COPYRIGHT.GPL", "ChangeLog", "README")
 
