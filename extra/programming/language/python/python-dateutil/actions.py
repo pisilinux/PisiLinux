@@ -14,5 +14,5 @@ def build():
 def install():
     pythonmodules.install()
 
-    pisitools.remove("/usr/lib/%s/site-packages/dateutil/zoneinfo/*.tar.gz" % get.curPYTHON())
-    pisitools.dodoc("example.py", "LICENSE", "NEWS", "README")
+    #pisitools.remove("/usr/lib/%s/site-packages/dateutil/zoneinfo/*.tar.gz" % get.curPYTHON())
+    pisitools.dodoc("LICENSE", "NEWS", "README.rst")
