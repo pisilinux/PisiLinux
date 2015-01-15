@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure()
+    cmaketools.configure("-DCMAKE_CXX_FLAGS='-fno-inline-functions'")
 
 def build():
     cmaketools.make()
