@@ -9,5 +9,5 @@ WorkDir = "."
 from pisi.actionsapi import pisitools
 
 def install():
-    pisitools.insinto("/usr/share/icons", "NITRUX-KDE")
+    pisitools.insinto("/usr/share/icons", "Nitrux")
 

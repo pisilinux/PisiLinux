@@ -11,4 +11,4 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def install():
-    pisitools.insinto("/usr/share/icons", "Compass-KDE")
+    pisitools.insinto("/usr/share/icons", "Compass")
