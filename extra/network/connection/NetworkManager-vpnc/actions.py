@@ -16,6 +16,7 @@ def setup():
                          --sysconfdir=/etc \
                          --libexecdir=/usr/lib/NetworkManager \
                          --enable-more-warnings=no \
+                         --without-gnome \
                          --disable-static")
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 

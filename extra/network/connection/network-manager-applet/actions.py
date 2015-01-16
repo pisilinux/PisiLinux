@@ -14,10 +14,15 @@ def setup():
     autotools.autoreconf("-vfi")
     autotools.configure("--disable-dependency-tracking \
                          --disable-static \
+                         --sysconfdir=/etc \
+                         --localstatedir=/var \
                          --with-bluetooth \
-                         --with-gtkver=2 \
+                         --disable-migration \
+                         --with-modem-manager-1 \
+                         --without-gnome \
+                         --libexecdir=/usr/lib/networkmanager \
                          --enable-more-warnings=yes")
-    
+
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
