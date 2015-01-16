@@ -10,7 +10,6 @@ from pisi.actionsapi import get
 
 def setup():
     #autotools.autoreconf("-fi")
-    # --with-systemdsystemunitdir=/lib/systemd/system
     autotools.configure("--with-distro=none \
                          --disable-monodoc \
                          --disable-static \
@@ -27,7 +26,7 @@ def setup():
                          --disable-mono \
                          --disable-compat-howl \
                          --disable-compat-libdns_sd \
-                         --with-systemdsystemunitdir=/lib/systemd/system \
+                         --with-systemdsystemunitdir=no \
                          --with-avahi-user=avahi \
                          --with-avahi-group=avahi \
                          --with-autoipd-user=avahi-autoipd \
