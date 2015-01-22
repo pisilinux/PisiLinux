@@ -61,6 +61,8 @@ def install():
 
     pisitools.domove("%s/libGL.so.1.2.0" % Libdir, "%s/mesa" % Libdir)
     pisitools.dosym("libGL.so.1.2.0", "%s/libGL.so.1.2" % Libdir)
+    pisitools.dosym("libGL.so", "%s/libGL.so.1.0" % Libdir)
+
 
     if get.buildTYPE() == "emul32":
         return
