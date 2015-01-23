@@ -41,7 +41,6 @@ def setup():
         options += " --with-dri-driverdir=/usr/lib32/xorg/modules/dri \
                      --with-gallium-drivers=r600,nouveau,swrast \
                      --with-clang-libdir=/usr/lib32 \
-                     --disable-gallium-llvm \
                      --disable-asm "
 
     elif get.ARCH() == "x86_64":
