@@ -22,7 +22,6 @@ def setup():
               --enable-llvm-shared-libs \
               --enable-egl \
               --enable-gbm \
-              --enable-gallium-llvm \
               --enable-shared-glapi \
               --enable-glx \
               --enable-glx-tls \
@@ -41,6 +40,7 @@ def setup():
         options += " --with-dri-driverdir=/usr/lib32/xorg/modules/dri \
                      --with-gallium-drivers=r600,nouveau,swrast \
                      --with-clang-libdir=/usr/lib32 \
+                     --disable-gallium-llvm \
                      --disable-asm "
 
     elif get.ARCH() == "x86_64":
