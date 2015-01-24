@@ -22,7 +22,6 @@ def setup():
               --enable-llvm-shared-libs \
               --enable-egl \
               --enable-gbm \
-              --enable-gallium-llvm \
               --enable-shared-glapi \
               --enable-glx \
               --enable-glx-tls \

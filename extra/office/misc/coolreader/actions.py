@@ -10,10 +10,10 @@ from pisi.actionsapi import pisitools
 def setup():
     pisitools.dosed("cr3qt/CMakeLists.txt", "share/cr3", "share/coolreader")
     cmaketools.configure("-DGUI=QT \
--DCMAKE_BUILD_TYPE=Release \
--DMAX_IMAGE_SCALE_MUL=2 \
--DDOC_DATA_COMPRESSION_LEVEL=3 \
--DDOC_BUFFER_SIZE=0x1400000", installPrefix="/usr")
+                          -DCMAKE_BUILD_TYPE=Release \
+                          -DMAX_IMAGE_SCALE_MUL=2 \
+                          -DDOC_DATA_COMPRESSION_LEVEL=3 \
+                          -DDOC_BUFFER_SIZE=0x1400000", installPrefix="/usr")
 
 def build():
     cmaketools.make()
