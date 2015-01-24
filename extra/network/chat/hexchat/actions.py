@@ -25,4 +25,4 @@ def install():
     pisitools.domo("po/tr.po", "tr", "hexchat.mo")
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     shelltools.cd("share/doc")
-    pisitools.dodoc("COPYING", "readme.*")
+    #pisitools.dodoc("COPYING", "readme.*")
