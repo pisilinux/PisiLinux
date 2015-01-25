@@ -19,8 +19,7 @@ def setup():
                          --with-daemon-user=colord \
                          --with-systemdsystemunitdir=no \
                          --enable-introspection \
-                         --enable-vala \
-                         --enable-sane")
+                         --enable-vala ")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
