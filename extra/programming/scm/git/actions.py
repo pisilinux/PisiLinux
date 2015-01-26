@@ -17,20 +17,24 @@ INSTALLDIRS             = vendor
 DESTDIR                 = %s
 prefix                  = /usr
 htmldir                 = /usr/share/doc/git
+sysconfdir              = /etc 
 ETC_GITCONFIG           = /etc/gitconfig
 GITWEB_CSS              = gitweb/gitweb.css
 GITWEB_LOGO             = gitweb/git-logo.png
 GITWEB_FAVICON          = gitweb/git-favicon.png
 GITWEB_JS               = gitweb/gitweb.js
+PYTHON_PATH             = /usr/bin/python3 
+PERL_MM_OPT             ="" 
+GIT_TEST_OPTS           ='--no-color' 
 gitwebdir               = /var/www/localhost/cgi-bin
 ASCIIDOC8               = 1
 ASCIIDOC_NO_ROFF        = 1
 BLK_SHA1                = 1
 NEEDS_CRYPTO_WITH_SSL   = 1
-NO_PYTHON               = 1
 USE_LIBPCRE             = 1
 NO_CROSS_DIRECTORY_HARDLINKS = 1
 MAN_BOLD_LITERAL        = 1
+V                       = 1 
 """ % (get.CFLAGS(), get.LDFLAGS(), get.installDIR())
 
 
