@@ -8,7 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-WorkDir = "psqlodbc-0%s" % get.srcVERSION()
+#WorkDir = "psqlodbc-09.03.0400%s" % get.srcVERSION()
 
 def setup():
     autotools.autoreconf("-vfi")
