@@ -36,7 +36,9 @@ def setup():
                           -DWITH_READLINE=ON \
                           -DWITH_ZLIB=system \
                           -DWITH_SSL=system \
+                          -DWITH_PCRE=system \
                           -DWITH_LIBWRAP=OFF \
+                          -DWITH_JEMALLOC=OFF \
                           -DWITH_EXTRA_CHARSETS=complex \
                           -DWITH_EMBEDDED_SERVER=ON \
                           -DWITH_ARCHIVE_STORAGE_ENGINE=1 \
@@ -47,8 +49,10 @@ def setup():
                           -DWITHOUT_EXAMPLE_STORAGE_ENGINE=1 \
                           -DWITHOUT_FEDERATED_STORAGE_ENGINE=1 \
                           -DWITHOUT_PBXT_STORAGE_ENGINE=1 \
-                         ")
-
+                          -DCMAKE_C_FLAGS='-fPIC %s -fno-strict-aliasing -DBIG_JOINS=1 -fomit-frame-pointer -fno-delete-null-pointer-checks' \
+                          -DCMAKE_CXX_FLAGS='-fPIC %s -fno-strict-aliasing -DBIG_JOINS=1 -felide-constructors -fno-rtti -fno-delete-null-pointer-checks' \
+                          -DWITH_MYSQLD_LDFLAGS='-pie %s,-z,now'" % (get.CFLAGS(), get.CXXFLAGS(), get.LDFLAGS()))
+#-DCMAKE_EXE_LINKER_FLAGS='-ljemalloc' \
 def build():
     cmaketools.make()
 
