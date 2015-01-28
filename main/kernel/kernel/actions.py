@@ -34,5 +34,12 @@ def install():
 
     # Generate some module lists to use within mkinitramfs
     shelltools.system("./generate-module-list %s/lib/modules/%s" % (get.installDIR(), kerneltools.__getSuffix()))
-    
+
     #generate perf and cpupowertools tar.xz's
+    shelltools.cd("tools")
+    shelltools.system("tar -cJf perf-%s.tar.xz perf" % get.srcVERSION())
+    shelltools.move("perf-*", "%s" % get.workDIR())
+
+    shelltools.cd("power")
+    shelltools.system("tar -cJf cpupowertools-%s.tar.xz cpupower" % get.srcVERSION())
+    shelltools.move("cpupowertools-*", "%s" % get.workDIR())
