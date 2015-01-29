@@ -41,7 +41,6 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s install-libexecPROGRAMS install-dbussessionbusDATA install-dbussystembusDATA install-dbusDATA install-man8" % get.installDIR())
  
-    pisitools.dosym("/usr/libexec/bluetooth/bluetoothd", "/usr/sbin")
     
     # Install conf files
     for i in ["profiles/input", "profiles/network" ,"src"]:
