@@ -4,7 +4,7 @@ import os
 import shutil
 
 DATADIR = "/var/lib/mysql"
-DATADIRMODE = 0700
+DATADIRMODE = 0755
 
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     if toRelease == "3":
@@ -19,7 +19,11 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     # On first install...
     if not os.path.exists(DATADIR):
         os.makedirs(DATADIR, DATADIRMODE)
+        
         # Create the database
-        os.system("/usr/bin/mysql_install_db --datadir=/var/lib/mysql --basedir=/usr --user=mysql --force")
+        os.makedirs("/var/log/mysqld.log, 0755")
         os.system("/bin/chown -R mysql:mysql %s" % DATADIR)
+        os.system("/bin/chown -R mysql:mysql /var/log/mysqld.log")
+        os.system("/usr/bin/mysql_install_db --datadir=/var/lib/mysql --basedir=/usr --force")
+        os.system("/usr/bin/mysql_upgrade --force")
 
