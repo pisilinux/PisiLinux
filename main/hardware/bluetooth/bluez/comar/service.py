@@ -11,15 +11,14 @@ DAEMON ="/usr/libexec/bluetooth/bluetoothd"
 
 @synchronized
 def start():
-    # Work-around udev bug, bluetoothd wasn't getting enabled on coldplug
-    #run("/sbin/udevadm trigger --subsystem-match=bluetooth")
-    
-    
+  
     startService(command=DAEMON,
                  pidfile=PIDFILE,
                  detach=True,
                  donotify=True)
+    
     os.system("pidof bluez + /usr/libexec/bluetooth/bluetoothd > /run/bluez.pid")
+    
 @synchronized
 def stop():
     stopService(pidfile=PIDFILE,
