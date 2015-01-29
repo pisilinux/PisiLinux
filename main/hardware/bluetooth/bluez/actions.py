@@ -4,18 +4,32 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+  
+    #shelltools.system("sed -i -e '/SystemdService/d' obexd/src/org.bluez.obex.service.in")
+    pisitools.dosed("obexd/src/org.bluez.obex.service.in", "SystemdService", deleteLine=True)
     autotools.autoreconf("-fi")
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
                          --localstatedir=/var \
                          --libexecdir=/usr/libexec/ \
+                         --enable-sixaxis \
+                         --enable-experimental \
+                         --disable-android \
+                         --enable-datafiles \
+                         --enable-optimization \
+                         --enable-pie \
+                         --enable-threads \
                          --enable-library \
+                         --enable-tools \
+                         --enable-manpages \
+                         --enable-monitor \
+                         --enable-udev \
+                         --enable-test \
                          --disable-systemd")
                          
     
@@ -23,14 +37,17 @@ def setup():
     
 def build():
     autotools.make()
-
+    
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    autotools.rawInstall("DESTDIR=%s install-libexecPROGRAMS install-dbussessionbusDATA install-dbussystembusDATA install-dbusDATA install-man8" % get.installDIR())
+ 
+    pisitools.dosym("/usr/libexec/bluetooth/bluetoothd", "/usr/sbin")
+    
     # Install conf files
     for i in ["profiles/input", "profiles/network" ,"src"]:
         pisitools.insinto("/etc/bluetooth", "%s/*.conf" % (i))
-
+        
+    
     # Simple test tools
     for i in ["bluezutils.py",
                 "dbusdef.py",
@@ -61,7 +78,7 @@ def install():
                 "test-sap-server",
                 "test-thermometer"]:
         pisitools.dobin("test/%s" % i)
-
-
+   # for i in 
+      #  pisitools.dodoc("doc/%s" % i)
     # Install documents
     pisitools.dodoc("AUTHORS", "ChangeLog", "README")
