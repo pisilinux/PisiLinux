@@ -58,7 +58,7 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.domove("%s/libGL.so.1.2.0" % Libdir, "%s/mesa" % Libdir)
+    pisitools.domove("%s/libGL.so.1.2.0" % Libdir, "%s/" % Libdir)
     pisitools.dosym("libGL.so.1.2.0", "%s/libGL.so.1.2" % Libdir)
 
 
