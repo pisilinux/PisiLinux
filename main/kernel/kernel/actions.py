@@ -16,7 +16,7 @@ shelltools.export("KBUILD_BUILD_USER", "pisilinux")
 shelltools.export("KBUILD_BUILD_HOST", "buildfarm")
 shelltools.export("PYTHONDONTWRITEBYTECODE", "1")
 
-cpupower_arch = get.ARCH().replace("i686", "i386")
+#cpupower_arch = get.ARCH().replace("i686", "i386")
 
 def setup():
     kerneltools.configure()
