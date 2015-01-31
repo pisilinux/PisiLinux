@@ -20,7 +20,8 @@ def setup():
                          --with-boost-filesystem=mt \
                          --with-boost-thread=mt \
                          --with-zlib=system \
-                         --with-libgeoip=system")
+                         --with-libgeoip=system \
+                         --enable-export-all")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
