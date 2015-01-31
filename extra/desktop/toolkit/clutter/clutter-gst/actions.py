@@ -16,7 +16,8 @@ def setup():
     autotools.autoreconf("-fi")
     autotools.configure("--prefix=/usr \
 			 --sysconfdir=/etc \
-			 --enable-introspection ")
+			 --enable-introspection \
+			 --disable-static")
     
     # for fix unused dependency   
     pisitools.dosed("libtool"," -shared ", " -Wl,-O1,--as-needed -shared ")    
