@@ -29,6 +29,7 @@ def setup():
                          --with-rlm_eap_ttls \
                          --with-rlm_eap_peap \
                          --with-rlm_eap_otp \
+                         --without-rlm_cache_memcached \
                          --without-rlm_eap_ikev2 \
                          --without-rlm_sql_iodbc \
                          --without-rlm_sql_firebird \

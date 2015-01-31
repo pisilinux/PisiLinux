@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 from pisi.actionsapi import libtools
 from pisi.actionsapi import autotools
 
-WorkDir = "freecad-0.13.1830"
+WorkDir = "freecad-0.14.3702"
 
 def setup():
     shelltools.makedirs("build")
@@ -23,16 +23,16 @@ def setup():
                           -DFREECAD_USE_EXTERNAL_PIVY:BOOL=ON \
                           -DPYTHON_EXECUTABLE:FILEPATH=/usr/bin/python", sourceDir = "..")
     #for build plugin   
-    shelltools.cd("../src/Tools/plugins/widget")
-    shelltools.system("qmake plugin.pro")
+    # shelltools.cd("../src/Tools/plugins/widget")
+    # shelltools.system("qmake plugin.pro")
 
 def build():
     shelltools.cd("%s/%s/build" % (get.workDIR(),WorkDir))
     cmaketools.make()
     
     #build plugin
-    shelltools.cd("../src/Tools/plugins/widget")
-    autotools.make()         
+    # shelltools.cd("../src/Tools/plugins/widget")
+    # autotools.make()        
 
 def install():
     libtools.libtoolize()
@@ -41,7 +41,7 @@ def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
     
     #install plugin
-    pisitools.insinto("/usr/lib/qt4/plugins/designer/", "../src/Tools/plugins/widget/*.so")
+    # pisitools.insinto("/usr/lib/qt4/plugins/designer/", "../src/Tools/plugins/widget/*.so")
     
     shelltools.cd("..")
     pisitools.dodoc("README","ChangeLog.*", "copying.*")

@@ -9,8 +9,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure("-DENABLE_OMP=ON \
-                          -DENABLE_TOOLS=ON")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
+                          -DENABLE_OMP=ON \
+                          -DENABLE_TOOLS=ON \
+                          -DMANDIR=share/man")
 
 def build():
     cmaketools.make()

@@ -17,6 +17,7 @@ def setup():
                --bindir=%s" % (demos_dir_emul32 if get.buildTYPE() == "emul32" else demos_dir)
 
     autotools.configure(options)
+    pisitools.dosed("libtool","( -shared )", " -Wl,--as-needed\\1")
 
 def build():
     autotools.make()

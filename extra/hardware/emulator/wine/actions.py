@@ -22,14 +22,13 @@ def setup():
     #     to the 64bit files that was compiled in the first step (files in the work)
     #
     # More info can be obtained here: http://wiki.winehq.org/Wine64
-    #shelltools.export("CPPFLAGS", "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0")
+    shelltools.export("CPPFLAGS", "-D_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0")
     autotools.autoreconf("-vif")
     options = "--without-capi \
                --with-curses \
                --without-hal \
                --without-gstreamer \
                --with-dbus \
-               --with-opengl \
                --with-alsa \
                --with-x"
 
@@ -55,5 +54,5 @@ def install():
     pisitools.dodoc("ANNOUNCE", "AUTHORS", "COPYING.LIB", "LICENSE*", "README", "documentation/README.*")
     
     pisitools.insinto("/usr/share/wine/mono/", "wine-mono-4.5.4.msi")
-    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.34-x86.msi")
-    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.34-x86_64.msi")
+    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.36-beta1-x86.msi")
+    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.36-beta1-x86_64.msi")
