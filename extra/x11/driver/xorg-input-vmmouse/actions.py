@@ -8,11 +8,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fiv")
     autotools.configure("\
-                         --disable-static \
-                         --disable-silent-rules \
-                         --with-xorg-conf-dir==/usr/share/X11/xorg.conf.d \
+                         --without-hal-fdi-dir      \
+                         --without-hal-callouts-dir \
+                         --with-udev-rules-dir=/lib/udev/rules.d \
                         ")
 
 def build():
@@ -20,6 +19,3 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
-    pisitools.removeDir("/usr/lib/hal")
-    pisitools.removeDir("/usr/share/hal")
