@@ -14,7 +14,10 @@ def setup():
     # guess we should update to new autoconf
     shelltools.system("gtkdocize")
     autotools.autoreconf("-fi")
-    autotools.configure("--disable-static --enable-introspection")
+    autotools.configure("--prefix=/usr \
+			 --sysconfdir=/etc \
+			 --enable-introspection \
+			 --disable-static")
     
     # for fix unused dependency   
     pisitools.dosed("libtool"," -shared ", " -Wl,-O1,--as-needed -shared ")    
