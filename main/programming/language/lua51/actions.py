@@ -32,6 +32,9 @@ def install():
     pisitools.domove("/usr/include/luaconf.h", "usr/include/5.1")
     pisitools.domove("/usr/include/lualib.h", "usr/include/5.1")
     pisitools.domove("/usr/include/lauxlib.h", "usr/include/5.1")
+    pisitools.rename("/usr/lib/liblua.so", "liblua51.so")
+    pisitools.rename("/usr/bin/lua", "lua51")
+    pisitools.rename("/usr/bin/luac", "luac51")
     pisitools.removeDir("/usr/include")
 
     pisitools.dohtml("doc")
