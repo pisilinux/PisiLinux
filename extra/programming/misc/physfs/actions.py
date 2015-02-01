@@ -16,7 +16,8 @@ def setup():
                           -DPHYSFS_BUILD_TEST=OFF \
                           -DPHYSFS_BUILD_WX_TEST=OFF \
                           -DPHYSFS_INTERNAL_ZLIB=OFF \
-                          ")
+                          -DCMAKE_BUILD_TYPE=Release \
+                          -DCMAKE_INSTALL_PREFIX=/usr ")
 
 def build():
     cmaketools.make()
