@@ -12,7 +12,8 @@ def setup():
     pisitools.flags.add("-fno-strict-aliasing")
     pisitools.dosed("configure", '(wx_cv_std_libpath="lib)64"', r'\1"')
 
-    autotools.configure("--enable-gtk2 \
+    autotools.configure("--prefix=/usr\
+			 --enable-gtk2 \
                          --enable-shared \
                          --disable-optimise \
                          --disable-debug \
@@ -41,21 +42,24 @@ def setup():
                          --without-gnomevfs \
                          --without-odbc \
                          --with-opengl \
-                         --with-regex=sys \
+                         --with-regex=builtin \
                          --with-zlib=sys \
-                         --with-expat=sys")
+                         --with-expat=sys \
+                         --libdir=/usr/lib \
+                         --enable-webview \
+                         --enable-printfposparam ")
 
 def build():
     autotools.make()
-    autotools.make("-C contrib")
+    #autotools.make("-C contrib")
     autotools.make("-C locale allmo")
 
 def install():
     autotools.install()
-    autotools.install("-C contrib")
+    
 
     pisitools.dodoc("docs/*.txt", "docs/*.htm")
-    pisitools.dosym("/usr/bin/wxrc-2.8", "/usr/bin/wxrc")
-    pisitools.dosym("/usr/bin/wx-config-2.8", "/usr/bin/wxconfig")
+    #pisitools.dosym("/usr/bin/wxrc-3.0", "/usr/bin/wxrc")
+    #pisitools.dosym("/usr/bin/wx-config-3.0", "/usr/bin/wxconfig")
     # pisitools.rename("/usr/bin/wxrc-2.8", "wxrc")
     # pisitools.rename("/usr/bin/wx-config-2.8", "wxconfig")
