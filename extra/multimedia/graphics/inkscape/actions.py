@@ -6,27 +6,26 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
+from pisi.actionsapi import get
 
 def setup():
-    #pisitools.dosed("src/widgets/desktop-widget.h", "commands_toolbox,", "commands_toolbox")
-    autotools.autoreconf('-vfi')
     autotools.configure(" \
                          --enable-lcms \
+                         --disable-static \
                          --enable-poppler-cairo \
                          --disable-dependency-tracking \
-                         --with-python \
                          --with-gnome-vfs \
-                         --with-inkjar \
-                         --enable-nls \
-                         --with-perl")
+                         --without-inkjar \
+                         --enable-dbusapi \
+                         --enable-nls")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+
 
 def build():
     autotools.make()
 
 def install():
-    autotools.install()
-    #/usr/share/icons/hicolor/icon-theme.cache from dia package 
-    pisitools.remove("/usr/share/icons/hicolor/icon-theme.cache")
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "COPYING", "COPYING.LIB", "ChangeLog", "NEWS", "README")
