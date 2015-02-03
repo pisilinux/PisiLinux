@@ -33,4 +33,4 @@ def install():
     pisitools.insinto("/usr/share/vim/vimfiles/syntax/", "editors/proto.vim")
     pisitools.insinto("/usr/share/emacs/site-lisp/", "editors/protobuf-mode.el")
 
-    pisitools.dodoc("CHANGES.txt", "CONTRIBUTORS.txt", "COPYING.txt", "README.txt")
+    pisitools.dodoc("CHANGES.txt", "CONTRIBUTORS.txt", "LICENSE", "README.md")
