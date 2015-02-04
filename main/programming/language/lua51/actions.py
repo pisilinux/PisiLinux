@@ -9,36 +9,34 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-major = ".".join(get.srcVERSION().split(".")[:2])
-
 def setup():
     pisitools.dosed("src/Makefile", "^CFLAGS.*$", "CFLAGS=%s -fPIC -DLUA_USE_LINUX" % get.CFLAGS())
     pisitools.dosed("src/Makefile", "^MYLDFLAGS.*$", "MYLDFLAGS=%s" % get.LDFLAGS())
-    #pisitools.dosed("lua.pc", "%VER%", "%s" % get.srcVERSION())
-    #pisitools.dosed("lua.pc", "%REL%", "%s" % get.srcVERSION())
 
 def build():
     autotools.make("linux")
 
 def install():
     autotools.rawInstall("INSTALL_TOP=%s/usr" % get.installDIR())
-    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua.so")
+
     pisitools.insinto("/usr/share/lua/5.1", "etc/strict.lua")
     pisitools.insinto("/usr/share/lua/5.1", "test/*.lua")
-    pisitools.insinto("/usr/lib/pkgconfig/5.1", "etc/lua.pc")
+    pisitools.insinto("/usr/lib/pkgconfig", "etc/lua.pc", "lua5.1.pc")
 
-    pisitools.domove("/usr/include/lua.h", "usr/include/5.1")
-    pisitools.domove("/usr/include/lua.hpp", "usr/include/5.1")
-    pisitools.domove("/usr/include/luaconf.h", "usr/include/5.1")
-    pisitools.domove("/usr/include/lualib.h", "usr/include/5.1")
-    pisitools.domove("/usr/include/lauxlib.h", "usr/include/5.1")
-    pisitools.rename("/usr/lib/liblua.so", "liblua51.so")
-    pisitools.rename("/usr/bin/lua", "lua51")
-    pisitools.rename("/usr/bin/luac", "luac51")
-    pisitools.removeDir("/usr/include")
+    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua5.1.so")
+    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua5.1.so.5.1")
+    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua5.1.so.5.1.5")
+    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua.so.5.1.5")
+
+    pisitools.domove("/usr/include/lua.h", "usr/include/lua5.1")
+    pisitools.domove("/usr/include/lua.hpp", "usr/include/lua5.1")
+    pisitools.domove("/usr/include/luaconf.h", "usr/include/lua5.1")
+    pisitools.domove("/usr/include/lualib.h", "usr/include/lua5.1")
+    pisitools.domove("/usr/include/lauxlib.h", "usr/include/lua5.1")
+    pisitools.rename("/usr/bin/lua", "lua5.1")
+    pisitools.rename("/usr/bin/luac", "luac5.1")
 
     pisitools.dohtml("doc")
     pisitools.newdoc("etc/README", "README.etc")
     pisitools.newdoc("test/README", "README.test")
     pisitools.dodoc("COPYRIGHT", "HISTORY", "README")
-    pisitools.dodoc("README")
