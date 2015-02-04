@@ -11,8 +11,8 @@ from pisi.actionsapi import shelltools
 
 def setup():
     # /var/run => /run
-    pisitools.dosed("configure.ac", "^(\s+CONSOLE_KIT_PID_FILE=)\$\{localstatedir\}(\/run\/ConsoleKit\/pid)", r"\1\2")
-    pisitools.dosed("src/Makefile.am", "\$\(localstatedir\)(\/run\/ConsoleKit)", r"\1")
+    #pisitools.dosed("configure.ac", "^(\s+CONSOLE_KIT_PID_FILE=)\$\{localstatedir\}(\/run\/ConsoleKit\/pid)", r"\1\2")
+    #pisitools.dosed("src/Makefile.am", "\$\(localstatedir\)(\/run\/ConsoleKit)", r"\1")
     shelltools.system("sed -i -e '/SystemdService/d' data/org.freedesktop.ConsoleKit.service.in")
 
     autotools.autoreconf("-fi")
@@ -41,4 +41,4 @@ def install():
     autotools.rawInstall("DESTDIR=%s/" % get.installDIR())
     pisitools.dodir("/run/console")
 
-    pisitools.dodoc("AUTHORS","ChangeLog","README", "COPYING", "HACKING", "NEWS", "TODO")
+    pisitools.dodoc("AUTHORS", "README", "COPYING", "HACKING", "NEWS", "TODO")
