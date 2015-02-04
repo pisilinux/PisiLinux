@@ -20,7 +20,7 @@ WorkDir = "mozilla-release"
 # config.guess returns 'x86_64-unknown-linux-gnu' on x86_64 machines, and 'i686-pc-linux-gnu' on x86 machines
 ObjDir = "obj-%s-unknown-linux-gnu" % get.ARCH() if get.ARCH() == "x86_64" else "obj-%s-pc-linux-gnu" % get.ARCH()
 
-locales = "az be  ca  da  de  el  en-US  es-AR  es-CL  es-ES  fi  fr  hr  hu  it  lt nl  pl  pt-BR  pt-PT  ro  ru  sr  sv-SE  tr  uk".split()
+locales = "az be  ca  da  de  el  en-US en-GB en-ZA  es-AR  es-CL  es-ES  fi  fr  hr  hu  it  lt nl  pl  pt-BR  pt-PT  ro  ru  sr  sv-SE  tr  uk".split()
 xpidir = "%s/xpi" % get.workDIR()
 arch = get.ARCH()
 ver = ".".join(get.srcVERSION().split(".")[:3])
@@ -45,7 +45,7 @@ def setup():
         shelltools.copy("browserconfig.properties", "browser/branding/official/locales/")
 
     # Mozilla sticks on with autoconf-213
-    shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
+    #shelltools.chmod("autoconf-213/autoconf-2.13", 0755)
 
     # configure script misdetects the preprocessor without an optimization level
     # https://bugs.archlinux.org/task/34644
@@ -54,10 +54,10 @@ def setup():
     # Set job count for make
     pisitools.dosed(".mozconfig", "%%JOBS%%", get.makeJOBS())
 
-    shelltools.system("/bin/bash ./autoconf-213/autoconf-2.13 --macro-dir=autoconf-213/m4")
-    shelltools.cd("js/src")
-    shelltools.system("/bin/bash ../../autoconf-213/autoconf-2.13 --macro-dir=../../autoconf-213/m4")
-    shelltools.cd("../..")
+    #shelltools.system("/bin/bash ./autoconf-213/autoconf-2.13 --macro-dir=autoconf-213/m4")
+    #shelltools.cd("js/src")
+    #shelltools.system("/bin/bash ../../autoconf-213/autoconf-2.13 --macro-dir=../../autoconf-213/m4")
+    #shelltools.cd("../..")
 
     shelltools.makedirs(ObjDir)
     shelltools.cd(ObjDir)
@@ -93,5 +93,3 @@ def install():
     
     # Install docs
     pisitools.dodoc("LEGAL", "LICENSE")
-    
-    pisitools.insinto("/usr/share/pixmaps/", "langpack/firefox-lang-*.png")
