@@ -9,12 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import shelltools
 
-#shelltools.export("LC_ALL", "C")
-#WorkDir = "."
+shelltools.export("LC_ALL", "C")
+WorkDir = "."
 
 def setup():
-    #autotools.rawConfigure("--prefix=/usr")
-    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib -DUSE_GTK2=OFF -DUSE_GTK3=1 -DCMAKE_SKIP_RPATH=ON -DCMAKE_SKIP_INSTALL_RPATH=ON")
+    autotools.rawConfigure("--prefix=/usr")
+    cmaketools.configure("-DUSE_GTK2=OFF -DUSE_GTK3=1 -DCMAKE_SKIP_RPATH=ON -DCMAKE_SKIP_INSTALL_RPATH=ON")
     
     pisitools.dosed("CMakeCache.txt", "lib64", "lib")
     pisitools.dosed(".", "lib64", "lib", filePattern="cmake_install.cmake")
