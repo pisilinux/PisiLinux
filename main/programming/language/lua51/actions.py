@@ -10,6 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
+    shelltools.system("sed -e 's:llua:llua5.1:' -e 's:/include:/include/lua5.1:' -i etc/lua.pc")
     pisitools.dosed("src/Makefile", "^CFLAGS.*$", "CFLAGS=%s -fPIC -DLUA_USE_LINUX" % get.CFLAGS())
     pisitools.dosed("src/Makefile", "^MYLDFLAGS.*$", "MYLDFLAGS=%s" % get.LDFLAGS())
 
@@ -19,8 +20,8 @@ def build():
 def install():
     autotools.rawInstall("INSTALL_TOP=%s/usr" % get.installDIR())
 
-    pisitools.insinto("/usr/share/lua/5.1", "etc/strict.lua")
-    pisitools.insinto("/usr/share/lua/5.1", "test/*.lua")
+    pisitools.insinto("/usr/share/lua5.1", "etc/strict.lua")
+    pisitools.insinto("/usr/share/lua5.1", "test/*.lua")
     pisitools.insinto("/usr/lib/pkgconfig", "etc/lua.pc", "lua5.1.pc")
 
     pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua5.1.so")
@@ -35,6 +36,8 @@ def install():
     pisitools.domove("/usr/include/lauxlib.h", "usr/include/lua5.1")
     pisitools.rename("/usr/bin/lua", "lua5.1")
     pisitools.rename("/usr/bin/luac", "luac5.1")
+    pisitools.removeDir("/usr/share/lua")
+    pisitools.removeDir("/usr/lib/lua")
 
     pisitools.dohtml("doc")
     pisitools.newdoc("etc/README", "README.etc")
