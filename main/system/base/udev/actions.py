@@ -61,8 +61,19 @@ def build():
     shelltools.echo("Makefile.extra", "BUILT_SOURCES: $(BUILT_SOURCES)")
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
     autotools.make("-f Makefile -f Makefile.extra")
-    
-    autotools.make()
+    targets = " \
+                src/libudev \
+                src/gudev \
+                src/udev \
+                src/ata_id \
+                src/cdrom_id \
+                src/collect \
+                src/scsi_id \
+                src/v4l_id \
+                src/accelerometer \
+               "
+
+    autotools.make(targets)
 
     autotools.make("-C docs/libudev")
     autotools.make("-C docs/gudev")
@@ -82,8 +93,8 @@ def install():
         #shelltools.unlinkDir("%s%s" % (get.installDIR(), suffix))
         return
     # Create needed directories
-#~     for d in ("", "net", "pts", "shm", "hugepages"):
-#~          pisitools.dodir("/lib/udev/devices/%s" % d)
+    for d in ("", "net", "pts", "shm", "hugepages"):
+         pisitools.dodir("/lib/udev/devices/%s" % d)
 
     # Create vol_id and scsi_id symlinks in /sbin probably needed by multipath-tools
     pisitools.dosym("/lib/udev/scsi_id", "/sbin/scsi_id")
