@@ -48,7 +48,7 @@ def setup():
                --without-perl \
                --with-logdir=/var/log/cups \
                KRB5CONFIG=/usr/bin/krb5-config \
-               -localstatedir=/var \
+               --localstatedir=/var \
                --with-rundir=/run/cups \
                --with-xinetd=/etc/xinetd.d \
               ' % get.CFLAGS()
