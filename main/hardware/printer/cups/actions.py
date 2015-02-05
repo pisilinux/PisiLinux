@@ -29,14 +29,13 @@ def setup():
                --without-java \
                --enable-acl \
                --enable-ssl=yes \
-               --enable-openssl \
                --enable-libpaper \
                --enable-libusb=yes \
                --enable-debug \
                --enable-avahi \
                --enable-gssapi \
                --enable-dbus \
-               --enable-pam \
+               --enable-pam=yes \
                --enable-relro \
                --enable-dnssd \
                --enable-browsing \
@@ -46,11 +45,16 @@ def setup():
                --disable-launchd \
                --without-rcdir \
                --libdir=/usr/lib \
+               --without-perl \
+               --with-logdir=/var/log/cups \
+               KRB5CONFIG=/usr/bin/krb5-config \
+               -localstatedir=/var \
+               --with-rundir=/run/cups \
+               --with-xinetd=/etc/xinetd.d \
               ' % get.CFLAGS()
 
     if get.buildTYPE() == "emul32":
-        options += ' --disable-ldap \
-                     --enable-threads \
+        options += '  \
                      --enable-libusb=no \
                      --disable-avahi \
                      --disable-dnssd \
