@@ -21,7 +21,7 @@ def build():
 
 def install():
     pisitools.dobin("fet")
-    pisitools.doman("doc/fet.1")
+    #pisitools.doman("doc/fet.1")
     pisitools.insinto("/usr/share/%s/translations" % get.srcNAME(), "translations/*.qm")
 
     # Install examples
