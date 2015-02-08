@@ -13,17 +13,20 @@ shelltools.export("LC_ALL", "C")
 WorkDir = "."
 
 def setup():
-    autotools.rawConfigure("--prefix=/usr")
+    shelltools.cd('midori-%s' %(get.srcVERSION()) )
+    autotools.rawConfigure("--prefix=/usr --enable-gtk3")
     cmaketools.configure("-DUSE_GTK2=OFF -DUSE_GTK3=1 -DCMAKE_SKIP_RPATH=ON -DCMAKE_SKIP_INSTALL_RPATH=ON")
     
     pisitools.dosed("CMakeCache.txt", "lib64", "lib")
     pisitools.dosed(".", "lib64", "lib", filePattern="cmake_install.cmake")
 
 def build():
+    shelltools.cd('midori-%s' %(get.srcVERSION()) )
     cmaketools.make()
 
 
 def install():
+    shelltools.cd('midori-%s' %(get.srcVERSION()) )
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
     
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "README")
