@@ -34,3 +34,28 @@ def install():
     pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBrighter.colors")
     pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBright.colors")
     pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaDark.colors")
+    
+    #for <Icon></Icon>
+    pisitools.dopixmaps("braindump/data/icons/hi32-app-braindump.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-braindump.png", "calligra-braindump.png")
+
+    pisitools.dopixmaps("flow/pics/hi32-app-calligraflow.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-calligraflow.png", "calligra-flow.png")
+
+    pisitools.dopixmaps("karbon/pics/app/hi32-app-calligrakarbon.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-calligrakarbon.png", "calligra-karbon.png")
+
+    pisitools.dopixmaps("kexi/pics/app/hi32-app-calligrakexi.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-calligrakexi.png", "calligra-kexi.png")
+
+    pisitools.dopixmaps("plan/pics/hi32-app-calligraplan.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-calligraplan.png", "calligra-plan.png")
+
+    pisitools.dopixmaps("sheets/data/pics/hi32-app-calligrasheets.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-calligrasheets.png", "calligra-sheets.png")
+
+    pisitools.dopixmaps("stage/pics/hi32-app-calligrastage.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-calligrastage.png", "calligra-stage.png")
+
+    pisitools.dopixmaps("words/pics/hi32-app-calligrawords.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-calligrawords.png", "calligra-words.png")
