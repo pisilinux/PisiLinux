@@ -10,7 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure()
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=Debug")
 
 def build():
     cmaketools.make()
