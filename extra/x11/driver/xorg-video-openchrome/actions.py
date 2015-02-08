@@ -8,7 +8,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.autoreconf("-vif")
+    autotools.autoreconf("-if")
     autotools.configure("\
                          --disable-static \
                          --enable-dri \
