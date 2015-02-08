@@ -10,7 +10,17 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    cmaketools.configure()
+    cmaketools.configure(" \
+                          -DCMAKE_INSTALL_PREFIX=/usr \
+                          -DCMAKE_BUILD_TYPE=Release \
+                          -DBUILD_WERROR=OFF \
+                          -DBUNDLE_PROJECTM_PRESETS=OFF \
+                          -DENABLE_GIO=ON \
+                          -DENABLE_SPOTIFY_BLOB=OFF \
+                          -DENABLE_BREAKPAD=OFF \
+                          -DUSE_BUILTIN_TAGLIB=OFF \
+                          -DUSE_SYSTEM_GMOCK=ON \
+                          -Wno-dev")
 
 def build():
     cmaketools.make()
