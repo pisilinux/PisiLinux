@@ -16,7 +16,8 @@ def setup():
     pisitools.ldflags.add("-fPIC")
     autotools.autoreconf("-if")
     #libtools.libtoolize("--force --copy --automake")
-    autotools.configure("\
+    autotools.configure("--disable-static \
+                         --enable-shared \
                          --prefix=/usr \
                          --enable-samples \
                          --enable-ipv6 \
