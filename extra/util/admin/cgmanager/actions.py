@@ -9,8 +9,9 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("./bootstrap.sh")
-    autotools.configure("--sbindir=/usr/bin")
+    #shelltools.system("./bootstrap.sh")
+    autotools.configure("--sbindir=/usr/bin \
+			 --prefix=/usr")
 
 def build():
     autotools.make()
