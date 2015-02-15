@@ -13,5 +13,5 @@ def build():
 def install():
     pythonmodules.install()
     pisitools.domove("/usr/bin/pyzord", "/usr/sbin")
-    pisitools.dohtml("docs/usage.html")
-    pisitools.doman("docs/pyzor*")
+    #pisitools.dohtml("docs/usage.html")
+    pisitools.dodoc("COPYING", "README.txt", "NEWS")
