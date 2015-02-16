@@ -35,5 +35,5 @@ def install():
     pisitools.dobin("contrib/gzip-like_CLI_wrapper_for_7z/p7zip")
     pisitools.doman("contrib/gzip-like_CLI_wrapper_for_7z/man1/p7zip.1")
 
-    pisitools.dohtml("DOCS/MANUAL/*")
-    pisitools.dodoc("ChangeLog", "README", "TODO", "DOCS/*.txt")
+    pisitools.dohtml("DOC/MANUAL/*")
+    pisitools.dodoc("ChangeLog", "README", "TODO", "DOC/*.txt")
