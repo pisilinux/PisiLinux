@@ -26,7 +26,7 @@ def setup():
                          --enable-xorg \
                          --enable-dmx \
                          --enable-xvfb \
-                         --disable-xnest \
+                         --enable-xnest \
                          --enable-kdrive \
                          --enable-kdrive-evdev \
                          --enable-kdrive-kbd \

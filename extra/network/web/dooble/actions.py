@@ -21,4 +21,4 @@ def install():
     install_dirs = ["libSpotOn/libspoton.o","libSpotOn/libspoton.so"]
     for i in install_dirs:
             pisitools.insinto("/usr/local/dooble/Lib",i)
-    pisitools.dodoc("Doc/*")
+    #pisitools.dodoc("Doc/*")
