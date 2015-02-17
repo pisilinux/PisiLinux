@@ -6,7 +6,7 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import get
-WorkDir = "."
+WorkDir = "iptux-0.6.2"
 def setup():
   autotools.rawConfigure("--prefix=/usr")
  
