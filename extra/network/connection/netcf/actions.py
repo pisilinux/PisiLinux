@@ -19,6 +19,6 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.removeDir("/etc")
+    #pisitools.removeDir("/etc")
 
-    pisitools.dodoc("AUTHORS", "COPYING", "NEWS")
+    pisitools.dodoc("AUTHORS", "COPYING", "ChangeLog", "README", "NEWS")
