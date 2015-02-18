@@ -10,13 +10,19 @@ from pisi.actionsapi import get
 from pisi.actionsapi import shelltools
 
 def setup():
+    # Use Python 2
+    shelltools.system("sed -i 's/python2/python/g'  gtk/src/Makefile.am")
+    # Force use of gtk2
+    shelltools.system("sed -i 's/PKG_CHECK_MODULES(Gtk3.*/use_gtk3=no/' gtk/configure.ac")
     shelltools.cd("gtk")
     pisitools.dosed("configure.ac", "AM_CONFIG_HEADER", "AC_CONFIG_HEADERS")
     pisitools.dosed("configure.ac", "AM_PROG_CC_STDC", "AC_PROG_CC")
     autotools.autoreconf("-fiv")
     shelltools.cd("..")
-    shelltools.system("./configure --prefix=/usr \
-                       --disable-gtk-update-checks")
+    shelltools.system("./configure --force \
+		      --prefix=/usr \
+		      --disable-gtk-update-checks \
+		      --verbose")
 
                        
 
