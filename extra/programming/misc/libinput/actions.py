@@ -18,4 +18,4 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     pisitools.dosym("libinput.so.5.0.0","/usr/lib/libinput.so.0")
     
-    pisitools.dodoc("COPYING", "README")
+    #pisitools.dodoc("COPYING", "README")
