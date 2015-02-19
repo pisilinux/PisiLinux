@@ -23,8 +23,8 @@ def setup():
                     -DDIGIKAMSC_COMPILE_LIBKGEOMAP=ON \
                     -DDIGIKAMSC_COMPILE_LIBKVKONTAKTE=ON \
                     -DDIGIKAMSC_COMPILE_LIBMEDIAWIKI=ON \
-                    -DDIGIKAMSC_COMPILE_LIBKFACE=OFF \
-                    -DDIGIKAMSC_COMPILE_LIBKIPI=OFF ")
+                    -DDIGIKAMSC_COMPILE_LIBKFACE=ON \
+                    -DDIGIKAMSC_COMPILE_LIBKIPI=ON ")
 
 def build():
     kde4.make()
