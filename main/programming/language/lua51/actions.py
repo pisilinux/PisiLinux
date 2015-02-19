@@ -9,37 +9,25 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
-def setup():
-    shelltools.system("sed -e 's:llua:llua5.1:' -e 's:/include:/include/lua5.1:' -i etc/lua.pc")
+def build():
+    shelltools.system("sed -r -e '/^LUA_(SO|A|T)=/ s/lua/lua5.1/' -e '/^LUAC_T=/ s/luac/luac5.1/' \
+    -i src/Makefile")
     pisitools.dosed("src/Makefile", "^CFLAGS.*$", "CFLAGS=%s -fPIC -DLUA_USE_LINUX" % get.CFLAGS())
     pisitools.dosed("src/Makefile", "^MYLDFLAGS.*$", "MYLDFLAGS=%s" % get.LDFLAGS())
-
-def build():
     autotools.make("linux")
 
 def install():
-    autotools.rawInstall("INSTALL_TOP=%s/usr" % get.installDIR())
+    options = "TO_BIN=\"lua5.1 luac5.1\" \
+               TO_LIB=\"liblua5.1.a liblua5.1.so liblua5.1.so.5.1\" \
+               INSTALL_DATA=\"cp -d\" \
+               INSTALL_TOP=\"%s/usr\"  \
+               INSTALL_INC=\"%s/usr/include/lua5.1\" \
+               INSTALL_MAN=%s/usr/share/man/man1" % (get.installDIR(),get.installDIR(),get.installDIR())
+    autotools.rawInstall(options)
 
-    pisitools.insinto("/usr/share/lua5.1", "etc/strict.lua")
-    pisitools.insinto("/usr/share/lua5.1", "test/*.lua")
-    pisitools.insinto("/usr/lib/pkgconfig", "etc/lua.pc", "lua5.1.pc")
-
-    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua5.1.so")
-    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua5.1.so.5.1")
-    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua5.1.so.5.1.5")
-    pisitools.dosym("/usr/lib/liblua.so.5.1", "/usr/lib/liblua.so.5.1.5")
-
-    pisitools.domove("/usr/include/lua.h", "usr/include/lua5.1")
-    pisitools.domove("/usr/include/lua.hpp", "usr/include/lua5.1")
-    pisitools.domove("/usr/include/luaconf.h", "usr/include/lua5.1")
-    pisitools.domove("/usr/include/lualib.h", "usr/include/lua5.1")
-    pisitools.domove("/usr/include/lauxlib.h", "usr/include/lua5.1")
-    pisitools.rename("/usr/bin/lua", "lua5.1")
-    pisitools.rename("/usr/bin/luac", "luac5.1")
     pisitools.removeDir("/usr/share/lua")
     pisitools.removeDir("/usr/lib/lua")
 
-    pisitools.dohtml("doc")
-    pisitools.newdoc("etc/README", "README.etc")
-    pisitools.newdoc("test/README", "README.test")
-    pisitools.dodoc("COPYRIGHT", "HISTORY", "README")
+    docs = [ "*.html", "*.png", "*.css", "*.gif" ]
+    for d in docs:
+        pisitools.insinto("/usr/share/doc/lua", "doc/%s" % d)
