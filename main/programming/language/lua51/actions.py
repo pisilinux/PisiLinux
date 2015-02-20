@@ -31,7 +31,5 @@ def install():
     docs = [ "*.html", "*.png", "*.css", "*.gif" ]
     for d in docs:
         pisitools.insinto("/usr/share/doc/lua", "doc/%s" % d)
-    shelltools.cd("/usr/share/man/man1")
-    pisitools.dolib("lua.1", "lua5.1.1")
-    pisitools.dolib("luac.1", "luac5.1.1")
-
+    pisitools.rename("/usr/share/man/man1/lua.1", "lua.5.1.1")
+    pisitools.rename("/usr/share/man/man1/luac.1", "luac.5.1.1")
