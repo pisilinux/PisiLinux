@@ -4,16 +4,16 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
+from pisi.actionsapi import get
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import get
 
 def setup():
     cmaketools.configure("-DWITH_NLS=ON \
                           -DWITH_JABBER=ON \
-                          -DWITH_WEBINTERFACE=ON \
-                          -DWITH_BITTORRENT=ON \
                           -DWITH_CURL=ON")
+    
+    jvmdir="/usr/lib/jvm/java-7-openjdk"
 
 def build():
     cmaketools.make()
