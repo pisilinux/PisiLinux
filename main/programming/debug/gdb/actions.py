@@ -33,10 +33,12 @@ def install():
         pisitools.remove("/usr/lib/%s" % libdel)
 
     # these are not necessary
-    for info in ["bfd","configure","standards"]:
-        pisitools.remove("/usr/share/info/%s.info" % info)
+    #for info in ["bfd","configure","standards"]:
+        #pisitools.remove("/usr/share/info/%s.info" % info)
         
-    for hea in ["ansidecl","symcat","dis-asm", "bfd", "bfdlink"]:
+    pisitools.remove("/usr/share/info/bfd.info")
+  
+    for hea in ["ansidecl","symcat","dis-asm", "bfd", "bfdlink", "plugin-api"]:
         pisitools.remove("/usr/include/%s.h" % hea)
     
     pisitools.dodoc("README*", "MAINTAINERS", "COPYING*", "ChangeLog*")
