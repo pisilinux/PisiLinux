@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import shelltools
 
-iscan_data = "iscan-data-1.26.0"
+iscan_data = "iscan-data-1.35.0"
 
 def setup():
     # Setup iscan-data
@@ -20,7 +20,7 @@ def setup():
     shelltools.unlink("m4/libtool.m4")
 
     shelltools.export("AUTOPOINT", "true")
-    shelltools.export("LDFLAGS", "-ldl -lpng15")
+    shelltools.export("LDFLAGS", "-ldl -lpng16")
     autotools.autoreconf("-vif")
 
     autotools.configure("--disable-static \
@@ -31,6 +31,8 @@ def setup():
                          --enable-png \
                          --enable-dependency-reduction \
                          --disable-rpath")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     autotools.make("-C %s" % iscan_data)
