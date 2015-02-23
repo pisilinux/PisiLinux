@@ -14,10 +14,11 @@ from pisi.actionsapi import texlivemodules
 import os
 
 WorkDir = "."
+buildDir = 'source/build'
 
 def setup():
-    shelltools.makedirs("%s/source/build" % get.workDIR())
-    shelltools.cd("%s/source/build" % get.workDIR())
+    shelltools.makedirs(buildDir)
+    shelltools.cd(buildDir)
     shelltools.sym("../configure", "configure")
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
@@ -25,48 +26,32 @@ def setup():
                          --datadir=/usr/share \
                          --mandir=/usr/share/man \
                          --disable-native-texlive-build \
+                         --bindir=/usr/bin \
                          --with-banner-add=/PisiLinux \
-                         --disable-multiplatform \
-                         --disable-dialog \
                          --disable-psutils \
                          --disable-t1utils \
-                         --disable-bibtexu \
-                         --disable-xz \
-                         --disable-web2c \
-                         --enable-shared \
+                         --enable-multiplatform \
                          --disable-static \
+                         --enable-ipc \
+                         --with-x \
+                         --disable-xindy \
                          --with-system-zlib \
-                         --with-system-zziplib \
                          --with-system-pnglib \
                          --with-system-ncurses \
                          --with-system-t1lib \
                          --with-system-gd \
-                         --with-system-poppler \
-                         --with-system-xpdf \
+                         --without-system-xpdf \
+                         --with-system-graphite2 \
                          --with-system-freetype2 \
-                         --with-system-pixman \
-                         --with-system-cairo \
-                         --with-system-harfbuzz \
-                         --with-system-graphite \
-                         --with-system-icu \
-                         --with-freetype2-libdir=/usr/lib \
-                         --with-freetype2-include=/usr/include/freetype2 \
-                         --with-xdvi-x-toolkit=xaw \
-                         --disable-dump-share \
-                         --disable-aleph \
-                         --enable-luatex \
-                         --with-clisp-runtime=default \
-                         --enable-xindy \
-                         --disable-xindy-rules \
-                         --disable-xindy-docs ")
+                         --disable-luatex")
 
 def build():
 
-    shelltools.cd("%s/source/build/" % get.workDIR())
+    shelltools.cd(buildDir)
     autotools.make()
 
 def install():
-    shelltools.cd("%s/source/build/" % get.workDIR())
+    shelltools.cd(buildDir)
     autotools.rawInstall("prefix=/usr DESTDIR=%s" % get.installDIR())
 
     #install biber
