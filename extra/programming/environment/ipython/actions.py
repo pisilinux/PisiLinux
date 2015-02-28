@@ -15,6 +15,6 @@ def install():
     pythonmodules.install()
 
     pisitools.dodir("/usr/share/emacs/site-lisp")
-    pisitools.insinto("/usr/share/emacs/site-lisp", "docs/emacs/ipython.el")
+    #pisitools.insinto("/usr/share/emacs/site-lisp", "docs/emacs/ipython.el")
 
     #pisitools.dodoc("README.txt")
