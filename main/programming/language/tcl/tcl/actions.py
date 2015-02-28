@@ -8,9 +8,9 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-WorkDir="tcl%s" % get.srcVERSION()
-
+#WorkDir="tcl%s" % get.srcVERSION()
 def setup():
+    shelltools.unlinkDir("%s/tcl8.6.3/pkgs/sqlite3.8.7.1" % get.workDIR())
     shelltools.cd("unix")
 
     autotools.autoreconf("-fi")
@@ -18,6 +18,7 @@ def setup():
                          --enable-threads \
                          --enable-man-compression=gzip \
                          --enable-man-symlinks \
+                         --enable-shared \
                          --enable-64bit")
 
 def build():
