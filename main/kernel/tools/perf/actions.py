@@ -24,5 +24,5 @@ def install():
     pisitools.domove("/usr/etc/bash_completion.d/perf", "/etc/bash_completion.d")
     pisitools.removeDir("/usr/etc")
     
-    pisitools.domove("/usr/lib64/libperf-gtk.so", "/usr/lib64/")
-    pisitools.removeDir("/usr/lib64")
+    #pisitools.domove("/usr/lib64/libperf-gtk.so", "/usr/lib64/")
+    #pisitools.removeDir("/usr/lib64")

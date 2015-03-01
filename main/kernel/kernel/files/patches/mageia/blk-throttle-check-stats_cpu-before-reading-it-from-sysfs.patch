@@ -1,0 +1,119 @@
+From: Thadeu Lima de Souza Cascardo <cascardo@linux.vnet.ibm.com>
+Subject: [PATCH] blk-throttle: check stats_cpu before reading it from sysfs
+Date: Mon, 16 Feb 2015 17:16:45 -0200
+
+When reading blkio.throttle.io_serviced in a recently created blkio
+cgroup, it's possible to race against the creation of a throttle policy,
+which delays the allocation of stats_cpu.
+
+Like other functions in the throttle code, just checking for a NULL
+stats_cpu prevents the following oops caused by that race.
+
+[ 1117.285199] Unable to handle kernel paging request for data at address 0x7fb4d0020
+[ 1117.285252] Faulting instruction address: 0xc0000000003efa2c
+[ 1137.733921] Oops: Kernel access of bad area, sig: 11 [#1]
+[ 1137.733945] SMP NR_CPUS=2048 NUMA PowerNV
+[ 1137.734025] Modules linked in: bridge stp llc kvm_hv kvm binfmt_misc autofs4
+[ 1137.734102] CPU: 3 PID: 5302 Comm: blkcgroup Not tainted 3.19.0 #5
+[ 1137.734132] task: c000000f1d188b00 ti: c000000f1d210000 task.ti: c000000f1d210000
+[ 1137.734167] NIP: c0000000003efa2c LR: c0000000003ef9f0 CTR: c0000000003ef980
+[ 1137.734202] REGS: c000000f1d213500 TRAP: 0300   Not tainted  (3.19.0)
+[ 1137.734230] MSR: 9000000000009032 <SF,HV,EE,ME,IR,DR,RI>  CR: 42008884  XER: 20000000
+[ 1137.734325] CFAR: 0000000000008458 DAR: 00000007fb4d0020 DSISR: 40000000 SOFTE: 0
+GPR00: c0000000003ed3a0 c000000f1d213780 c000000000c59538 0000000000000000
+GPR04: 0000000000000800 0000000000000000 0000000000000000 0000000000000000
+GPR08: ffffffffffffffff 00000007fb4d0020 00000007fb4d0000 c000000000780808
+GPR12: 0000000022000888 c00000000fdc0d80 0000000000000000 0000000000000000
+GPR16: 0000000000000000 0000000000000000 0000000000000000 0000000000000000
+GPR20: 000001003e120200 c000000f1d5b0cc0 0000000000000200 0000000000000000
+GPR24: 0000000000000001 c000000000c269e0 0000000000000020 c000000f1d5b0c80
+GPR28: c000000000ca3a08 c000000000ca3dec c000000f1c667e00 c000000f1d213850
+[ 1137.734886] NIP [c0000000003efa2c] .tg_prfill_cpu_rwstat+0xac/0x180
+[ 1137.734915] LR [c0000000003ef9f0] .tg_prfill_cpu_rwstat+0x70/0x180
+[ 1137.734943] Call Trace:
+[ 1137.734952] [c000000f1d213780] [d000000005560520] 0xd000000005560520 (unreliable)
+[ 1137.734996] [c000000f1d2138a0] [c0000000003ed3a0] .blkcg_print_blkgs+0xe0/0x1a0
+[ 1137.735039] [c000000f1d213960] [c0000000003efb50] .tg_print_cpu_rwstat+0x50/0x70
+[ 1137.735082] [c000000f1d2139e0] [c000000000104b48] .cgroup_seqfile_show+0x58/0x150
+[ 1137.735125] [c000000f1d213a70] [c0000000002749dc] .kernfs_seq_show+0x3c/0x50
+[ 1137.735161] [c000000f1d213ae0] [c000000000218630] .seq_read+0xe0/0x510
+[ 1137.735197] [c000000f1d213bd0] [c000000000275b04] .kernfs_fop_read+0x164/0x200
+[ 1137.735240] [c000000f1d213c80] [c0000000001eb8e0] .__vfs_read+0x30/0x80
+[ 1137.735276] [c000000f1d213cf0] [c0000000001eb9c4] .vfs_read+0x94/0x1b0
+[ 1137.735312] [c000000f1d213d90] [c0000000001ebb38] .SyS_read+0x58/0x100
+[ 1137.735349] [c000000f1d213e30] [c000000000009218] syscall_exit+0x0/0x98
+[ 1137.735383] Instruction dump:
+[ 1137.735405] 7c6307b4 7f891800 409d00b8 60000000 60420000 3d420004 392a63b0 786a1f24
+[ 1137.735471] 7d49502a e93e01c8 7d495214 7d2ad214 <7cead02a> e9090008 e9490010 e9290018
+
+And here is one code that allows to easily reproduce this, although this
+has first been found by running docker.
+
+void run(pid_t pid)
+{
+	int n;
+	int status;
+	int fd;
+	char *buffer;
+	buffer = memalign(BUFFER_ALIGN, BUFFER_SIZE);
+	n = snprintf(buffer, BUFFER_SIZE, "%d\n", pid);
+	fd = open(CGPATH "/test/tasks", O_WRONLY);
+	write(fd, buffer, n);
+	close(fd);
+	if (fork() > 0) {
+		fd = open("/dev/sda", O_RDONLY | O_DIRECT);
+		read(fd, buffer, 512);
+		close(fd);
+		wait(&status);
+	} else {
+		fd = open(CGPATH "/test/blkio.throttle.io_serviced", O_RDONLY);
+		n = read(fd, buffer, BUFFER_SIZE);
+		close(fd);
+	}
+	free(buffer);
+	exit(0);
+}
+
+void test(void)
+{
+	int status;
+	mkdir(CGPATH "/test", 0666);
+	if (fork() > 0)
+		wait(&status);
+	else
+		run(getpid());
+	rmdir(CGPATH "/test");
+}
+
+int main(int argc, char **argv)
+{
+	int i;
+	for (i = 0; i < NR_TESTS; i++)
+		test();
+	return 0;
+}
+
+Reported-by: Ricardo Marin Matinata <rmm@br.ibm.com>
+Signed-off-by: Thadeu Lima de Souza Cascardo <cascardo@linux.vnet.ibm.com>
+Cc: stable@vger.kernel.org
+---
+ block/blk-throttle.c |    3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/block/blk-throttle.c b/block/blk-throttle.c
+index 9273d09..5b9c6d5 100644
+--- a/block/blk-throttle.c
++++ b/block/blk-throttle.c
+@@ -1292,6 +1292,9 @@ static u64 tg_prfill_cpu_rwstat(struct seq_file *sf,
+ 	struct blkg_rwstat rwstat = { }, tmp;
+ 	int i, cpu;
+ 
++	if (tg->stats_cpu == NULL)
++		return 0;
++
+ 	for_each_possible_cpu(cpu) {
+ 		struct tg_stats_cpu *sc = per_cpu_ptr(tg->stats_cpu, cpu);
+ 
+-- 
+1.7.10.4
+

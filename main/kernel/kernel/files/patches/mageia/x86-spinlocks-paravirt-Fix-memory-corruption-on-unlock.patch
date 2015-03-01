@@ -1,0 +1,370 @@
+From d6abfdb2022368d8c6c4be3f11a06656601a6cc2 Mon Sep 17 00:00:00 2001
+From: Raghavendra K T <raghavendra.kt@linux.vnet.ibm.com>
+Date: Fri, 6 Feb 2015 16:44:11 +0530
+Subject: x86/spinlocks/paravirt: Fix memory corruption on unlock
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Paravirt spinlock clears slowpath flag after doing unlock.
+As explained by Linus currently it does:
+
+                prev = *lock;
+                add_smp(&lock->tickets.head, TICKET_LOCK_INC);
+
+                /* add_smp() is a full mb() */
+
+                if (unlikely(lock->tickets.tail & TICKET_SLOWPATH_FLAG))
+                        __ticket_unlock_slowpath(lock, prev);
+
+which is *exactly* the kind of things you cannot do with spinlocks,
+because after you've done the "add_smp()" and released the spinlock
+for the fast-path, you can't access the spinlock any more.  Exactly
+because a fast-path lock might come in, and release the whole data
+structure.
+
+Linus suggested that we should not do any writes to lock after unlock(),
+and we can move slowpath clearing to fastpath lock.
+
+So this patch implements the fix with:
+
+ 1. Moving slowpath flag to head (Oleg):
+    Unlocked locks don't care about the slowpath flag; therefore we can keep
+    it set after the last unlock, and clear it again on the first (try)lock.
+    -- this removes the write after unlock. note that keeping slowpath flag would
+    result in unnecessary kicks.
+    By moving the slowpath flag from the tail to the head ticket we also avoid
+    the need to access both the head and tail tickets on unlock.
+
+ 2. use xadd to avoid read/write after unlock that checks the need for
+    unlock_kick (Linus):
+    We further avoid the need for a read-after-release by using xadd;
+    the prev head value will include the slowpath flag and indicate if we
+    need to do PV kicking of suspended spinners -- on modern chips xadd
+    isn't (much) more expensive than an add + load.
+
+Result:
+ setup: 16core (32 cpu +ht sandy bridge 8GB 16vcpu guest)
+ benchmark overcommit %improve
+ kernbench  1x           -0.13
+ kernbench  2x            0.02
+ dbench     1x           -1.77
+ dbench     2x           -0.63
+
+[Jeremy: Hinted missing TICKET_LOCK_INC for kick]
+[Oleg: Moved slowpath flag to head, ticket_equals idea]
+[PeterZ: Added detailed changelog]
+
+Suggested-by: Linus Torvalds <torvalds@linux-foundation.org>
+Reported-by: Sasha Levin <sasha.levin@oracle.com>
+Tested-by: Sasha Levin <sasha.levin@oracle.com>
+Signed-off-by: Raghavendra K T <raghavendra.kt@linux.vnet.ibm.com>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Oleg Nesterov <oleg@redhat.com>
+Cc: Andrew Jones <drjones@redhat.com>
+Cc: Andrew Morton <akpm@linux-foundation.org>
+Cc: Andy Lutomirski <luto@amacapital.net>
+Cc: Boris Ostrovsky <boris.ostrovsky@oracle.com>
+Cc: Christian Borntraeger <borntraeger@de.ibm.com>
+Cc: Christoph Lameter <cl@linux.com>
+Cc: Dave Hansen <dave.hansen@linux.intel.com>
+Cc: Dave Jones <davej@redhat.com>
+Cc: David Vrabel <david.vrabel@citrix.com>
+Cc: Fernando Luis Vázquez Cao <fernando_b1@lab.ntt.co.jp>
+Cc: Konrad Rzeszutek Wilk <konrad.wilk@oracle.com>
+Cc: Masami Hiramatsu <masami.hiramatsu.pt@hitachi.com>
+Cc: Paolo Bonzini <pbonzini@redhat.com>
+Cc: Paul E. McKenney <paulmck@linux.vnet.ibm.com>
+Cc: Ulrich Obergfell <uobergfe@redhat.com>
+Cc: Waiman Long <Waiman.Long@hp.com>
+Cc: a.ryabinin@samsung.com
+Cc: dave@stgolabs.net
+Cc: hpa@zytor.com
+Cc: jasowang@redhat.com
+Cc: jeremy@goop.org
+Cc: paul.gortmaker@windriver.com
+Cc: riel@redhat.com
+Cc: tglx@linutronix.de
+Cc: waiman.long@hp.com
+Cc: xen-devel@lists.xenproject.org
+Link: http://lkml.kernel.org/r/20150215173043.GA7471@linux.vnet.ibm.com
+Signed-off-by: Ingo Molnar <mingo@kernel.org>
+
+diff --git a/arch/x86/include/asm/spinlock.h b/arch/x86/include/asm/spinlock.h
+index 625660f..cf87de3 100644
+--- a/arch/x86/include/asm/spinlock.h
++++ b/arch/x86/include/asm/spinlock.h
+@@ -46,7 +46,7 @@ static __always_inline bool static_key_false(struct static_key *key);
+ 
+ static inline void __ticket_enter_slowpath(arch_spinlock_t *lock)
+ {
+-	set_bit(0, (volatile unsigned long *)&lock->tickets.tail);
++	set_bit(0, (volatile unsigned long *)&lock->tickets.head);
+ }
+ 
+ #else  /* !CONFIG_PARAVIRT_SPINLOCKS */
+@@ -60,10 +60,30 @@ static inline void __ticket_unlock_kick(arch_spinlock_t *lock,
+ }
+ 
+ #endif /* CONFIG_PARAVIRT_SPINLOCKS */
++static inline int  __tickets_equal(__ticket_t one, __ticket_t two)
++{
++	return !((one ^ two) & ~TICKET_SLOWPATH_FLAG);
++}
++
++static inline void __ticket_check_and_clear_slowpath(arch_spinlock_t *lock,
++							__ticket_t head)
++{
++	if (head & TICKET_SLOWPATH_FLAG) {
++		arch_spinlock_t old, new;
++
++		old.tickets.head = head;
++		new.tickets.head = head & ~TICKET_SLOWPATH_FLAG;
++		old.tickets.tail = new.tickets.head + TICKET_LOCK_INC;
++		new.tickets.tail = old.tickets.tail;
++
++		/* try to clear slowpath flag when there are no contenders */
++		cmpxchg(&lock->head_tail, old.head_tail, new.head_tail);
++	}
++}
+ 
+ static __always_inline int arch_spin_value_unlocked(arch_spinlock_t lock)
+ {
+-	return lock.tickets.head == lock.tickets.tail;
++	return __tickets_equal(lock.tickets.head, lock.tickets.tail);
+ }
+ 
+ /*
+@@ -87,18 +107,21 @@ static __always_inline void arch_spin_lock(arch_spinlock_t *lock)
+ 	if (likely(inc.head == inc.tail))
+ 		goto out;
+ 
+-	inc.tail &= ~TICKET_SLOWPATH_FLAG;
+ 	for (;;) {
+ 		unsigned count = SPIN_THRESHOLD;
+ 
+ 		do {
+-			if (READ_ONCE(lock->tickets.head) == inc.tail)
+-				goto out;
++			inc.head = READ_ONCE(lock->tickets.head);
++			if (__tickets_equal(inc.head, inc.tail))
++				goto clear_slowpath;
+ 			cpu_relax();
+ 		} while (--count);
+ 		__ticket_lock_spinning(lock, inc.tail);
+ 	}
+-out:	barrier();	/* make sure nothing creeps before the lock is taken */
++clear_slowpath:
++	__ticket_check_and_clear_slowpath(lock, inc.head);
++out:
++	barrier();	/* make sure nothing creeps before the lock is taken */
+ }
+ 
+ static __always_inline int arch_spin_trylock(arch_spinlock_t *lock)
+@@ -106,56 +129,30 @@ static __always_inline int arch_spin_trylock(arch_spinlock_t *lock)
+ 	arch_spinlock_t old, new;
+ 
+ 	old.tickets = READ_ONCE(lock->tickets);
+-	if (old.tickets.head != (old.tickets.tail & ~TICKET_SLOWPATH_FLAG))
++	if (!__tickets_equal(old.tickets.head, old.tickets.tail))
+ 		return 0;
+ 
+ 	new.head_tail = old.head_tail + (TICKET_LOCK_INC << TICKET_SHIFT);
++	new.head_tail &= ~TICKET_SLOWPATH_FLAG;
+ 
+ 	/* cmpxchg is a full barrier, so nothing can move before it */
+ 	return cmpxchg(&lock->head_tail, old.head_tail, new.head_tail) == old.head_tail;
+ }
+ 
+-static inline void __ticket_unlock_slowpath(arch_spinlock_t *lock,
+-					    arch_spinlock_t old)
+-{
+-	arch_spinlock_t new;
+-
+-	BUILD_BUG_ON(((__ticket_t)NR_CPUS) != NR_CPUS);
+-
+-	/* Perform the unlock on the "before" copy */
+-	old.tickets.head += TICKET_LOCK_INC;
+-
+-	/* Clear the slowpath flag */
+-	new.head_tail = old.head_tail & ~(TICKET_SLOWPATH_FLAG << TICKET_SHIFT);
+-
+-	/*
+-	 * If the lock is uncontended, clear the flag - use cmpxchg in
+-	 * case it changes behind our back though.
+-	 */
+-	if (new.tickets.head != new.tickets.tail ||
+-	    cmpxchg(&lock->head_tail, old.head_tail,
+-					new.head_tail) != old.head_tail) {
+-		/*
+-		 * Lock still has someone queued for it, so wake up an
+-		 * appropriate waiter.
+-		 */
+-		__ticket_unlock_kick(lock, old.tickets.head);
+-	}
+-}
+-
+ static __always_inline void arch_spin_unlock(arch_spinlock_t *lock)
+ {
+ 	if (TICKET_SLOWPATH_FLAG &&
+-	    static_key_false(&paravirt_ticketlocks_enabled)) {
+-		arch_spinlock_t prev;
++		static_key_false(&paravirt_ticketlocks_enabled)) {
++		__ticket_t head;
+ 
+-		prev = *lock;
+-		add_smp(&lock->tickets.head, TICKET_LOCK_INC);
++		BUILD_BUG_ON(((__ticket_t)NR_CPUS) != NR_CPUS);
+ 
+-		/* add_smp() is a full mb() */
++		head = xadd(&lock->tickets.head, TICKET_LOCK_INC);
+ 
+-		if (unlikely(lock->tickets.tail & TICKET_SLOWPATH_FLAG))
+-			__ticket_unlock_slowpath(lock, prev);
++		if (unlikely(head & TICKET_SLOWPATH_FLAG)) {
++			head &= ~TICKET_SLOWPATH_FLAG;
++			__ticket_unlock_kick(lock, (head + TICKET_LOCK_INC));
++		}
+ 	} else
+ 		__add(&lock->tickets.head, TICKET_LOCK_INC, UNLOCK_LOCK_PREFIX);
+ }
+@@ -164,14 +161,15 @@ static inline int arch_spin_is_locked(arch_spinlock_t *lock)
+ {
+ 	struct __raw_tickets tmp = READ_ONCE(lock->tickets);
+ 
+-	return tmp.tail != tmp.head;
++	return !__tickets_equal(tmp.tail, tmp.head);
+ }
+ 
+ static inline int arch_spin_is_contended(arch_spinlock_t *lock)
+ {
+ 	struct __raw_tickets tmp = READ_ONCE(lock->tickets);
+ 
+-	return (__ticket_t)(tmp.tail - tmp.head) > TICKET_LOCK_INC;
++	tmp.head &= ~TICKET_SLOWPATH_FLAG;
++	return (tmp.tail - tmp.head) > TICKET_LOCK_INC;
+ }
+ #define arch_spin_is_contended	arch_spin_is_contended
+ 
+@@ -183,16 +181,16 @@ static __always_inline void arch_spin_lock_flags(arch_spinlock_t *lock,
+ 
+ static inline void arch_spin_unlock_wait(arch_spinlock_t *lock)
+ {
+-	__ticket_t head = ACCESS_ONCE(lock->tickets.head);
++	__ticket_t head = READ_ONCE(lock->tickets.head);
+ 
+ 	for (;;) {
+-		struct __raw_tickets tmp = ACCESS_ONCE(lock->tickets);
++		struct __raw_tickets tmp = READ_ONCE(lock->tickets);
+ 		/*
+ 		 * We need to check "unlocked" in a loop, tmp.head == head
+ 		 * can be false positive because of overflow.
+ 		 */
+-		if (tmp.head == (tmp.tail & ~TICKET_SLOWPATH_FLAG) ||
+-		    tmp.head != head)
++		if (__tickets_equal(tmp.head, tmp.tail) ||
++				!__tickets_equal(tmp.head, head))
+ 			break;
+ 
+ 		cpu_relax();
+diff --git a/arch/x86/kernel/kvm.c b/arch/x86/kernel/kvm.c
+index 94f6434..e354cc6 100644
+--- a/arch/x86/kernel/kvm.c
++++ b/arch/x86/kernel/kvm.c
+@@ -609,7 +609,7 @@ static inline void check_zero(void)
+ 	u8 ret;
+ 	u8 old;
+ 
+-	old = ACCESS_ONCE(zero_stats);
++	old = READ_ONCE(zero_stats);
+ 	if (unlikely(old)) {
+ 		ret = cmpxchg(&zero_stats, old, 0);
+ 		/* This ensures only one fellow resets the stat */
+@@ -727,6 +727,7 @@ __visible void kvm_lock_spinning(struct arch_spinlock *lock, __ticket_t want)
+ 	int cpu;
+ 	u64 start;
+ 	unsigned long flags;
++	__ticket_t head;
+ 
+ 	if (in_nmi())
+ 		return;
+@@ -768,11 +769,15 @@ __visible void kvm_lock_spinning(struct arch_spinlock *lock, __ticket_t want)
+ 	 */
+ 	__ticket_enter_slowpath(lock);
+ 
++	/* make sure enter_slowpath, which is atomic does not cross the read */
++	smp_mb__after_atomic();
++
+ 	/*
+ 	 * check again make sure it didn't become free while
+ 	 * we weren't looking.
+ 	 */
+-	if (ACCESS_ONCE(lock->tickets.head) == want) {
++	head = READ_ONCE(lock->tickets.head);
++	if (__tickets_equal(head, want)) {
+ 		add_stats(TAKEN_SLOW_PICKUP, 1);
+ 		goto out;
+ 	}
+@@ -803,8 +808,8 @@ static void kvm_unlock_kick(struct arch_spinlock *lock, __ticket_t ticket)
+ 	add_stats(RELEASED_SLOW, 1);
+ 	for_each_cpu(cpu, &waiting_cpus) {
+ 		const struct kvm_lock_waiting *w = &per_cpu(klock_waiting, cpu);
+-		if (ACCESS_ONCE(w->lock) == lock &&
+-		    ACCESS_ONCE(w->want) == ticket) {
++		if (READ_ONCE(w->lock) == lock &&
++		    READ_ONCE(w->want) == ticket) {
+ 			add_stats(RELEASED_SLOW_KICKED, 1);
+ 			kvm_kick_cpu(cpu);
+ 			break;
+diff --git a/arch/x86/xen/spinlock.c b/arch/x86/xen/spinlock.c
+index 23b45eb..956374c 100644
+--- a/arch/x86/xen/spinlock.c
++++ b/arch/x86/xen/spinlock.c
+@@ -41,7 +41,7 @@ static u8 zero_stats;
+ static inline void check_zero(void)
+ {
+ 	u8 ret;
+-	u8 old = ACCESS_ONCE(zero_stats);
++	u8 old = READ_ONCE(zero_stats);
+ 	if (unlikely(old)) {
+ 		ret = cmpxchg(&zero_stats, old, 0);
+ 		/* This ensures only one fellow resets the stat */
+@@ -112,6 +112,7 @@ __visible void xen_lock_spinning(struct arch_spinlock *lock, __ticket_t want)
+ 	struct xen_lock_waiting *w = this_cpu_ptr(&lock_waiting);
+ 	int cpu = smp_processor_id();
+ 	u64 start;
++	__ticket_t head;
+ 	unsigned long flags;
+ 
+ 	/* If kicker interrupts not initialized yet, just spin */
+@@ -159,11 +160,15 @@ __visible void xen_lock_spinning(struct arch_spinlock *lock, __ticket_t want)
+ 	 */
+ 	__ticket_enter_slowpath(lock);
+ 
++	/* make sure enter_slowpath, which is atomic does not cross the read */
++	smp_mb__after_atomic();
++
+ 	/*
+ 	 * check again make sure it didn't become free while
+ 	 * we weren't looking
+ 	 */
+-	if (ACCESS_ONCE(lock->tickets.head) == want) {
++	head = READ_ONCE(lock->tickets.head);
++	if (__tickets_equal(head, want)) {
+ 		add_stats(TAKEN_SLOW_PICKUP, 1);
+ 		goto out;
+ 	}
+@@ -204,8 +209,8 @@ static void xen_unlock_kick(struct arch_spinlock *lock, __ticket_t next)
+ 		const struct xen_lock_waiting *w = &per_cpu(lock_waiting, cpu);
+ 
+ 		/* Make sure we read lock before want */
+-		if (ACCESS_ONCE(w->lock) == lock &&
+-		    ACCESS_ONCE(w->want) == next) {
++		if (READ_ONCE(w->lock) == lock &&
++		    READ_ONCE(w->want) == next) {
+ 			add_stats(RELEASED_SLOW_KICKED, 1);
+ 			xen_send_IPI_one(cpu, XEN_SPIN_UNLOCK_VECTOR);
+ 			break;
+-- 
+cgit v0.10.2
+
