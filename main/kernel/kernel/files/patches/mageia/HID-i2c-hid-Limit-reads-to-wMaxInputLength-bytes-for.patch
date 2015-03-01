@@ -1,0 +1,41 @@
+From 6d00f37e49d95e640a3937a4a1ae07dbe92a10cb Mon Sep 17 00:00:00 2001
+From: Seth Forshee <seth.forshee@canonical.com>
+Date: Fri, 20 Feb 2015 11:45:11 -0600
+Subject: [PATCH] HID: i2c-hid: Limit reads to wMaxInputLength bytes for input
+ events
+
+d1c7e29e8d27 (HID: i2c-hid: prevent buffer overflow in early IRQ)
+changed hid_get_input() to read ihid->bufsize bytes, which can be
+more than wMaxInputLength. This is the case with the Dell XPS 13
+9343, and it is causing events to be missed. In some cases the
+missed events are releases, which can cause the cursor to jump or
+freeze, among other problems. Limit the number of bytes read to
+min(wMaxInputLength, ihid->bufsize) to prevent such problems.
+
+Fixes: d1c7e29e8d27 "HID: i2c-hid: prevent buffer overflow in early IRQ"
+Signed-off-by: Seth Forshee <seth.forshee@canonical.com>
+Reviewed-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Signed-off-by: Jiri Kosina <jkosina@suse.cz>
+---
+ drivers/hid/i2c-hid/i2c-hid.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hid/i2c-hid/i2c-hid.c b/drivers/hid/i2c-hid/i2c-hid.c
+index 8f1dfc5..36053f3 100644
+--- a/drivers/hid/i2c-hid/i2c-hid.c
++++ b/drivers/hid/i2c-hid/i2c-hid.c
+@@ -370,7 +370,10 @@ static int i2c_hid_hwreset(struct i2c_client *client)
+ static void i2c_hid_get_input(struct i2c_hid *ihid)
+ {
+ 	int ret, ret_size;
+-	int size = ihid->bufsize;
++	int size = le16_to_cpu(ihid->hdesc.wMaxInputLength);
++
++	if (size > ihid->bufsize)
++		size = ihid->bufsize;
+ 
+ 	ret = i2c_master_recv(ihid->client, ihid->inbuf, size);
+ 	if (ret != size) {
+-- 
+2.3.0
+

@@ -1,15 +1,15 @@
 
  Documentation/ABI/testing/debugfs-aufs             |   50 +
  Documentation/ABI/testing/sysfs-aufs               |   31 +
- Documentation/filesystems/aufs/README              |  370 ++++
+ Documentation/filesystems/aufs/README              |  389 +++++
  Documentation/filesystems/aufs/design/01intro.txt  |  148 ++
  Documentation/filesystems/aufs/design/02struct.txt |  238 +++
  Documentation/filesystems/aufs/design/03lookup.txt |  120 ++
  Documentation/filesystems/aufs/design/04branch.txt |   62 +
  .../filesystems/aufs/design/05wbr_policy.txt       |   51 +
- Documentation/filesystems/aufs/design/06fhsm.txt   |  120 ++
+ Documentation/filesystems/aufs/design/06fhsm.txt   |  105 ++
  Documentation/filesystems/aufs/design/06mmap.txt   |   33 +
- Documentation/filesystems/aufs/design/06xattr.txt  |   96 +
+ Documentation/filesystems/aufs/design/06xattr.txt  |   81 +
  Documentation/filesystems/aufs/design/07export.txt |   45 +
  Documentation/filesystems/aufs/design/08shwh.txt   |   39 +
  Documentation/filesystems/aufs/design/10dynop.txt  |   33 +
@@ -82,7 +82,7 @@
  fs/aufs/vfsub.c                                    |  783 +++++++++
  fs/aufs/vfsub.h                                    |  288 +++
  fs/aufs/wbr_policy.c                               |  752 ++++++++
- fs/aufs/whout.c                                    | 1043 +++++++++++
+ fs/aufs/whout.c                                    | 1048 +++++++++++
  fs/aufs/whout.h                                    |   72 +
  fs/aufs/wkq.c                                      |  200 +++
  fs/aufs/wkq.h                                      |   78 +
@@ -112,7 +112,7 @@
  mm/msync.c                                         |    4 +-
  mm/nommu.c                                         |   10 +-
  mm/prfile.c                                        |   86 +
- 113 files changed, 32976 insertions(+), 34 deletions(-)
+ 113 files changed, 32970 insertions(+), 34 deletions(-)
 
 diff --git a/Documentation/ABI/testing/debugfs-aufs b/Documentation/ABI/testing/debugfs-aufs
 new file mode 100644
@@ -209,10 +209,10 @@ index 0000000..82f9518
 +		will be empty. About XINO files, see the aufs manual.
 diff --git a/Documentation/filesystems/aufs/README b/Documentation/filesystems/aufs/README
 new file mode 100644
-index 0000000..4b97e59
+index 0000000..b81588a
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/README
-@@ -0,0 +1,370 @@
+@@ -0,0 +1,389 @@
 +
 +Aufs3 -- advanced multi layered unification filesystem version 3.x
 +http://aufs.sf.net
@@ -325,9 +325,13 @@ index 0000000..4b97e59
 +git://git.kernel.org/.../torvalds/linux.git.
 +And you cannot select CONFIG_AUFS_FS=m for this version, eg. you cannot
 +build aufs3 as an external kernel module.
++Several extra patches are not included in this tree. Only
++aufs3-standalong tree contains them. They are describe in the later
++section "Configuration and Compilation."
 +
 +On the other hand, the aufs3-standalone tree has only aufs source files
 +and necessary patches, and you can select CONFIG_AUFS_FS=m.
++But you need to apply all aufs patches manually.
 +
 +You will find GIT branches whose name is in form of "aufs3.x" where "x"
 +represents the linux kernel version, "linux-3.x". For instance,
@@ -336,11 +340,25 @@ index 0000000..4b97e59
 +
 +o aufs3-linux tree
 +$ git clone --reference /your/linux/git/tree \
-+	git://git.code.sf.net/p/aufs/aufs3-linux aufs-aufs3-linux \
-+	aufs3-linux.git
++	git://git.code.sf.net/p/aufs/aufs3-linux aufs3-linux.git
 +- if you don't have linux GIT tree, then remove "--reference ..."
 +$ cd aufs3-linux.git
 +$ git checkout origin/aufs3.0
++
++Or You may want to directly git-pull aufs into your linux GIT tree, and
++leave the patch-work to GIT.
++$ cd /your/linux/git/tree
++$ git remote add aufs3 https://github.com/sfjro/aufs3-linux.git
++- aufs3-linux.git tree also exists on github.
++$ git fetch aufs3
++$ git checkout -b my3.14 v3.14
++$ (add your change...)
++$ git pull aufs3 aufs3.14
++- now you have v3.14 + your_changes + aufs3.14 in you my3.14 branch.
++- you may need to solve some conflicts between your_changes and
++  aufs3.14. in this case, git-rerere is recommended so that you can
++  solve the similar confilicts automatically when you upgrade to 3.15 or
++  later in the future.
 +
 +o aufs3-standalone tree
 +$ git clone git://git.code.sf.net/p/aufs/aufs3-standalone \
@@ -566,6 +584,7 @@ index 0000000..4b97e59
 +Nikolay Pertsev made a donation (2014/5).
 +James B made a donation (2014/7).
 +Stefano Di Biase made a donation (2014/8).
++Daniel Epellei made a donation (2015/1).
 +
 +Thank you very much.
 +Donations are always, including future donations, very important and
@@ -585,12 +604,12 @@ index 0000000..4b97e59
 +# End: ;
 diff --git a/Documentation/filesystems/aufs/design/01intro.txt b/Documentation/filesystems/aufs/design/01intro.txt
 new file mode 100644
-index 0000000..d97a5a2
+index 0000000..7f491fb
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/01intro.txt
 @@ -0,0 +1,148 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +Introduction
 +----------------------------------------
@@ -739,12 +758,12 @@ index 0000000..d97a5a2
 +about it. But currently I have implemented it in kernel space.
 diff --git a/Documentation/filesystems/aufs/design/02struct.txt b/Documentation/filesystems/aufs/design/02struct.txt
 new file mode 100644
-index 0000000..717381b
+index 0000000..f185393
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/02struct.txt
 @@ -0,0 +1,238 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +Basic Aufs Internal Structure
 +
@@ -983,12 +1002,12 @@ index 0000000..717381b
 +For this purpose, use "aumvdown" command in aufs-util.git.
 diff --git a/Documentation/filesystems/aufs/design/03lookup.txt b/Documentation/filesystems/aufs/design/03lookup.txt
 new file mode 100644
-index 0000000..b2b0a9c
+index 0000000..55ade95
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/03lookup.txt
 @@ -0,0 +1,120 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +Lookup in a Branch
 +----------------------------------------------------------------------
@@ -1109,12 +1128,12 @@ index 0000000..b2b0a9c
 +   by over-mounting something (or another method).
 diff --git a/Documentation/filesystems/aufs/design/04branch.txt b/Documentation/filesystems/aufs/design/04branch.txt
 new file mode 100644
-index 0000000..9f54b5d
+index 0000000..644ceb1
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/04branch.txt
 @@ -0,0 +1,62 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +Branch Manipulation
 +
@@ -1177,12 +1196,12 @@ index 0000000..9f54b5d
 +    same named entry on the upper branch.
 diff --git a/Documentation/filesystems/aufs/design/05wbr_policy.txt b/Documentation/filesystems/aufs/design/05wbr_policy.txt
 new file mode 100644
-index 0000000..c9b9326
+index 0000000..fc64d70
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/05wbr_policy.txt
 @@ -0,0 +1,51 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +Policies to Select One among Multiple Writable Branches
 +----------------------------------------------------------------------
@@ -1234,27 +1253,12 @@ index 0000000..c9b9326
 +  copyup policy.
 diff --git a/Documentation/filesystems/aufs/design/06fhsm.txt b/Documentation/filesystems/aufs/design/06fhsm.txt
 new file mode 100644
-index 0000000..69cdf17
+index 0000000..6cf01ae
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/06fhsm.txt
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,105 @@
 +
-+# Copyright (C) 2011-2014 Junjiro R. Okajima
-+# 
-+# This program is free software; you can redistribute it and/or modify
-+# it under the terms of the GNU General Public License as published by
-+# the Free Software Foundation; either version 2 of the License, or
-+# (at your option) any later version.
-+# 
-+# This program is distributed in the hope that it will be useful,
-+# but WITHOUT ANY WARRANTY; without even the implied warranty of
-+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-+# GNU General Public License for more details.
-+# 
-+# You should have received a copy of the GNU General Public License
-+# along with this program; if not, write to the Free Software
-+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-+
++# Copyright (C) 2011-2015 Junjiro R. Okajima
 +
 +File-based Hierarchical Storage Management (FHSM)
 +----------------------------------------------------------------------
@@ -1360,12 +1364,12 @@ index 0000000..69cdf17
 +should restore the original file state after an error happens.
 diff --git a/Documentation/filesystems/aufs/design/06mmap.txt b/Documentation/filesystems/aufs/design/06mmap.txt
 new file mode 100644
-index 0000000..9b2fe0f
+index 0000000..9abea60
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/06mmap.txt
 @@ -0,0 +1,33 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +mmap(2) -- File Memory Mapping
 +----------------------------------------------------------------------
@@ -1399,27 +1403,12 @@ index 0000000..9b2fe0f
 +switching the approach.
 diff --git a/Documentation/filesystems/aufs/design/06xattr.txt b/Documentation/filesystems/aufs/design/06xattr.txt
 new file mode 100644
-index 0000000..1896cba
+index 0000000..d16f822
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/06xattr.txt
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,81 @@
 +
-+# Copyright (C) 2014 Junjiro R. Okajima
-+#
-+# This program is free software; you can redistribute it and/or modify
-+# it under the terms of the GNU General Public License as published by
-+# the Free Software Foundation; either version 2 of the License, or
-+# (at your option) any later version.
-+#
-+# This program is distributed in the hope that it will be useful,
-+# but WITHOUT ANY WARRANTY; without even the implied warranty of
-+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-+# GNU General Public License for more details.
-+#
-+# You should have received a copy of the GNU General Public License
-+# along with this program; if not, write to the Free Software
-+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-+
++# Copyright (C) 2014-2015 Junjiro R. Okajima
 +
 +Listing XATTR/EA and getting the value
 +----------------------------------------------------------------------
@@ -1501,12 +1490,12 @@ index 0000000..1896cba
 +now, aufs implements the branch attributes to ignore the error.
 diff --git a/Documentation/filesystems/aufs/design/07export.txt b/Documentation/filesystems/aufs/design/07export.txt
 new file mode 100644
-index 0000000..d0b1990
+index 0000000..50744ea
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/07export.txt
 @@ -0,0 +1,45 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +Export Aufs via NFS
 +----------------------------------------------------------------------
@@ -1552,12 +1541,12 @@ index 0000000..d0b1990
 +  lookup_one_len(), vfs_getattr(), encode_fh() and others.
 diff --git a/Documentation/filesystems/aufs/design/08shwh.txt b/Documentation/filesystems/aufs/design/08shwh.txt
 new file mode 100644
-index 0000000..56e7c7d
+index 0000000..181dc02
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/08shwh.txt
 @@ -0,0 +1,39 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +Show Whiteout Mode (shwh)
 +----------------------------------------------------------------------
@@ -1597,12 +1586,12 @@ index 0000000..56e7c7d
 +initramfs will use it to replace the old one at the next boot.
 diff --git a/Documentation/filesystems/aufs/design/10dynop.txt b/Documentation/filesystems/aufs/design/10dynop.txt
 new file mode 100644
-index 0000000..e7f8f78
+index 0000000..0e40da0
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/10dynop.txt
 @@ -0,0 +1,33 @@
 +
-+# Copyright (C) 2010-2014 Junjiro R. Okajima
++# Copyright (C) 2010-2015 Junjiro R. Okajima
 +
 +Dynamically customizable FS operations
 +----------------------------------------------------------------------
@@ -1636,12 +1625,12 @@ index 0000000..e7f8f78
 +vm_operations_struct for regular files only.
 diff --git a/Documentation/filesystems/aufs/design/99plan.txt b/Documentation/filesystems/aufs/design/99plan.txt
 new file mode 100644
-index 0000000..3f0a8c1
+index 0000000..73a8fae
 --- /dev/null
 +++ b/Documentation/filesystems/aufs/design/99plan.txt
 @@ -0,0 +1,45 @@
 +
-+# Copyright (C) 2005-2014 Junjiro R. Okajima
++# Copyright (C) 2005-2015 Junjiro R. Okajima
 +
 +Plan
 +
@@ -1686,10 +1675,10 @@ index 0000000..3f0a8c1
 +/new.
 +Otherwise from /new.
 diff --git a/MAINTAINERS b/MAINTAINERS
-index 3589d67..67359aa 100644
+index d66a97d..1c113a4 100644
 --- a/MAINTAINERS
 +++ b/MAINTAINERS
-@@ -1830,6 +1830,20 @@ F:	include/linux/audit.h
+@@ -1833,6 +1833,20 @@ F:	include/linux/audit.h
  F:	include/uapi/linux/audit.h
  F:	kernel/audit*
  
@@ -1995,12 +1984,12 @@ index 0000000..c7efb62
 +aufs-$(CONFIG_AUFS_MAGIC_SYSRQ) += sysrq.o
 diff --git a/fs/aufs/aufs.h b/fs/aufs/aufs.h
 new file mode 100644
-index 0000000..e013b24
+index 0000000..75290bd
 --- /dev/null
 +++ b/fs/aufs/aufs.h
 @@ -0,0 +1,46 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -2047,12 +2036,12 @@ index 0000000..e013b24
 +#endif /* __AUFS_H__ */
 diff --git a/fs/aufs/branch.c b/fs/aufs/branch.c
 new file mode 100644
-index 0000000..b82930f
+index 0000000..cf61201
 --- /dev/null
 +++ b/fs/aufs/branch.c
 @@ -0,0 +1,1397 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -3450,12 +3439,12 @@ index 0000000..b82930f
 +}
 diff --git a/fs/aufs/branch.h b/fs/aufs/branch.h
 new file mode 100644
-index 0000000..1bd149d
+index 0000000..61f5ca1
 --- /dev/null
 +++ b/fs/aufs/branch.h
 @@ -0,0 +1,254 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -3710,12 +3699,12 @@ index 0000000..1bd149d
 +#endif /* __AUFS_BRANCH_H__ */
 diff --git a/fs/aufs/cpup.c b/fs/aufs/cpup.c
 new file mode 100644
-index 0000000..7f68d5f
+index 0000000..26ee630
 --- /dev/null
 +++ b/fs/aufs/cpup.c
 @@ -0,0 +1,1290 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -4962,7 +4951,7 @@ index 0000000..7f68d5f
 +
 +static int au_cpup_dir(struct dentry *dentry, aufs_bindex_t bdst,
 +		       struct au_pin *pin,
-+		       struct dentry *h_parent __maybe_unused ,
++		       struct dentry *h_parent __maybe_unused,
 +		       void *arg __maybe_unused)
 +{
 +	struct au_cp_generic cpg = {
@@ -5006,12 +4995,12 @@ index 0000000..7f68d5f
 +}
 diff --git a/fs/aufs/cpup.h b/fs/aufs/cpup.h
 new file mode 100644
-index 0000000..e3a773d
+index 0000000..3355f08
 --- /dev/null
 +++ b/fs/aufs/cpup.h
 @@ -0,0 +1,81 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -5093,12 +5082,12 @@ index 0000000..e3a773d
 +#endif /* __AUFS_CPUP_H__ */
 diff --git a/fs/aufs/dbgaufs.c b/fs/aufs/dbgaufs.c
 new file mode 100644
-index 0000000..ed7b125
+index 0000000..68af344
 --- /dev/null
 +++ b/fs/aufs/dbgaufs.c
 @@ -0,0 +1,419 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -5518,12 +5507,12 @@ index 0000000..ed7b125
 +}
 diff --git a/fs/aufs/dbgaufs.h b/fs/aufs/dbgaufs.h
 new file mode 100644
-index 0000000..31947fb
+index 0000000..efa9a4d
 --- /dev/null
 +++ b/fs/aufs/dbgaufs.h
 @@ -0,0 +1,35 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -5559,12 +5548,12 @@ index 0000000..31947fb
 +#endif /* __DBGAUFS_H__ */
 diff --git a/fs/aufs/dcsub.c b/fs/aufs/dcsub.c
 new file mode 100644
-index 0000000..57d0819
+index 0000000..f9d9d52
 --- /dev/null
 +++ b/fs/aufs/dcsub.c
 @@ -0,0 +1,211 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -5776,12 +5765,12 @@ index 0000000..57d0819
 +}
 diff --git a/fs/aufs/dcsub.h b/fs/aufs/dcsub.h
 new file mode 100644
-index 0000000..d58ace1
+index 0000000..3d18314
 --- /dev/null
 +++ b/fs/aufs/dcsub.h
 @@ -0,0 +1,112 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -5894,12 +5883,12 @@ index 0000000..d58ace1
 +#endif /* __AUFS_DCSUB_H__ */
 diff --git a/fs/aufs/debug.c b/fs/aufs/debug.c
 new file mode 100644
-index 0000000..e04e696
+index 0000000..b60f242
 --- /dev/null
 +++ b/fs/aufs/debug.c
 @@ -0,0 +1,509 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -6409,12 +6398,12 @@ index 0000000..e04e696
 +}
 diff --git a/fs/aufs/debug.h b/fs/aufs/debug.h
 new file mode 100644
-index 0000000..c7c1d4a
+index 0000000..67a34f7
 --- /dev/null
 +++ b/fs/aufs/debug.h
 @@ -0,0 +1,249 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -6664,12 +6653,12 @@ index 0000000..c7c1d4a
 +#endif /* __AUFS_DEBUG_H__ */
 diff --git a/fs/aufs/dentry.c b/fs/aufs/dentry.c
 new file mode 100644
-index 0000000..4252f83
+index 0000000..dd7514b
 --- /dev/null
 +++ b/fs/aufs/dentry.c
 @@ -0,0 +1,1083 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -7753,12 +7742,12 @@ index 0000000..4252f83
 +};
 diff --git a/fs/aufs/dentry.h b/fs/aufs/dentry.h
 new file mode 100644
-index 0000000..2b44b33
+index 0000000..6516146
 --- /dev/null
 +++ b/fs/aufs/dentry.h
 @@ -0,0 +1,220 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -7979,12 +7968,12 @@ index 0000000..2b44b33
 +#endif /* __AUFS_DENTRY_H__ */
 diff --git a/fs/aufs/dinfo.c b/fs/aufs/dinfo.c
 new file mode 100644
-index 0000000..50ed848
+index 0000000..cd29ce0
 --- /dev/null
 +++ b/fs/aufs/dinfo.c
 @@ -0,0 +1,531 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -8516,12 +8505,12 @@ index 0000000..50ed848
 +}
 diff --git a/fs/aufs/dir.c b/fs/aufs/dir.c
 new file mode 100644
-index 0000000..157f235
+index 0000000..ffee6b4
 --- /dev/null
 +++ b/fs/aufs/dir.c
 @@ -0,0 +1,632 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -9154,12 +9143,12 @@ index 0000000..157f235
 +};
 diff --git a/fs/aufs/dir.h b/fs/aufs/dir.h
 new file mode 100644
-index 0000000..b7de46f
+index 0000000..cefad5a
 --- /dev/null
 +++ b/fs/aufs/dir.h
 @@ -0,0 +1,117 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -9277,12 +9266,12 @@ index 0000000..b7de46f
 +#endif /* __AUFS_DIR_H__ */
 diff --git a/fs/aufs/dynop.c b/fs/aufs/dynop.c
 new file mode 100644
-index 0000000..3761d99
+index 0000000..b1052e9
 --- /dev/null
 +++ b/fs/aufs/dynop.c
 @@ -0,0 +1,366 @@
 +/*
-+ * Copyright (C) 2010-2014 Junjiro R. Okajima
++ * Copyright (C) 2010-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -9649,12 +9638,12 @@ index 0000000..3761d99
 +}
 diff --git a/fs/aufs/dynop.h b/fs/aufs/dynop.h
 new file mode 100644
-index 0000000..17c9eaa
+index 0000000..d68ec7a
 --- /dev/null
 +++ b/fs/aufs/dynop.h
 @@ -0,0 +1,62 @@
 +/*
-+ * Copyright (C) 2010-2014 Junjiro R. Okajima
++ * Copyright (C) 2010-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -9717,12 +9706,12 @@ index 0000000..17c9eaa
 +#endif /* __AUFS_DYNOP_H__ */
 diff --git a/fs/aufs/export.c b/fs/aufs/export.c
 new file mode 100644
-index 0000000..8ebcfd4
+index 0000000..61501e1
 --- /dev/null
 +++ b/fs/aufs/export.c
 @@ -0,0 +1,818 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -10541,12 +10530,12 @@ index 0000000..8ebcfd4
 +}
 diff --git a/fs/aufs/f_op.c b/fs/aufs/f_op.c
 new file mode 100644
-index 0000000..1cd6fdc
+index 0000000..41c4c4a
 --- /dev/null
 +++ b/fs/aufs/f_op.c
 @@ -0,0 +1,801 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -11306,7 +11295,7 @@ index 0000000..1cd6fdc
 +/* no one supports this operation, currently */
 +#if 0
 +static ssize_t aufs_sendpage(struct file *file, struct page *page, int offset,
-+			     size_t len, loff_t *pos , int more)
++			     size_t len, loff_t *pos, int more)
 +{
 +}
 +#endif
@@ -11348,12 +11337,12 @@ index 0000000..1cd6fdc
 +};
 diff --git a/fs/aufs/fhsm.c b/fs/aufs/fhsm.c
 new file mode 100644
-index 0000000..5dac33e
+index 0000000..47106cb
 --- /dev/null
 +++ b/fs/aufs/fhsm.c
 @@ -0,0 +1,412 @@
 +/*
-+ * Copyright (C) 2011-2014 Junjiro R. Okajima
++ * Copyright (C) 2011-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -11766,12 +11755,12 @@ index 0000000..5dac33e
 +}
 diff --git a/fs/aufs/file.c b/fs/aufs/file.c
 new file mode 100644
-index 0000000..87aea77
+index 0000000..cf680cb
 --- /dev/null
 +++ b/fs/aufs/file.c
 @@ -0,0 +1,816 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -12588,12 +12577,12 @@ index 0000000..87aea77
 +};
 diff --git a/fs/aufs/file.h b/fs/aufs/file.h
 new file mode 100644
-index 0000000..2086f40
+index 0000000..643c6f4
 --- /dev/null
 +++ b/fs/aufs/file.h
 @@ -0,0 +1,271 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -12865,12 +12854,12 @@ index 0000000..2086f40
 +#endif /* __AUFS_FILE_H__ */
 diff --git a/fs/aufs/finfo.c b/fs/aufs/finfo.c
 new file mode 100644
-index 0000000..9b23737
+index 0000000..61e39eb
 --- /dev/null
 +++ b/fs/aufs/finfo.c
 @@ -0,0 +1,143 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -13014,12 +13003,12 @@ index 0000000..9b23737
 +}
 diff --git a/fs/aufs/fstype.h b/fs/aufs/fstype.h
 new file mode 100644
-index 0000000..04afae7
+index 0000000..6893432
 --- /dev/null
 +++ b/fs/aufs/fstype.h
 @@ -0,0 +1,456 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -13047,8 +13036,8 @@ index 0000000..04afae7
 +
 +static inline int au_test_iso9660(struct super_block *sb __maybe_unused)
 +{
-+#if defined(CONFIG_ROMFS_FS) || defined(CONFIG_ROMFS_FS_MODULE)
-+	return sb->s_magic == ROMFS_MAGIC;
++#if defined(CONFIG_ISO9660_FS) || defined(CONFIG_ISO9660_FS_MODULE)
++	return sb->s_magic == ISOFS_SUPER_MAGIC;
 +#else
 +	return 0;
 +#endif
@@ -13056,8 +13045,8 @@ index 0000000..04afae7
 +
 +static inline int au_test_romfs(struct super_block *sb __maybe_unused)
 +{
-+#if defined(CONFIG_ISO9660_FS) || defined(CONFIG_ISO9660_FS_MODULE)
-+	return sb->s_magic == ISOFS_SUPER_MAGIC;
++#if defined(CONFIG_ROMFS_FS) || defined(CONFIG_ROMFS_FS_MODULE)
++	return sb->s_magic == ROMFS_MAGIC;
 +#else
 +	return 0;
 +#endif
@@ -13476,12 +13465,12 @@ index 0000000..04afae7
 +#endif /* __AUFS_FSTYPE_H__ */
 diff --git a/fs/aufs/hfsnotify.c b/fs/aufs/hfsnotify.c
 new file mode 100644
-index 0000000..fa1cc0f
+index 0000000..2dd7419
 --- /dev/null
 +++ b/fs/aufs/hfsnotify.c
 @@ -0,0 +1,275 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -13757,12 +13746,12 @@ index 0000000..fa1cc0f
 +};
 diff --git a/fs/aufs/hfsplus.c b/fs/aufs/hfsplus.c
 new file mode 100644
-index 0000000..98f9ca2
+index 0000000..78ec26f
 --- /dev/null
 +++ b/fs/aufs/hfsplus.c
 @@ -0,0 +1,43 @@
 +/*
-+ * Copyright (C) 2010-2014 Junjiro R. Okajima
++ * Copyright (C) 2010-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -13806,12 +13795,12 @@ index 0000000..98f9ca2
 +}
 diff --git a/fs/aufs/hnotify.c b/fs/aufs/hnotify.c
 new file mode 100644
-index 0000000..6c637af
+index 0000000..a07e4f2
 --- /dev/null
 +++ b/fs/aufs/hnotify.c
 @@ -0,0 +1,701 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -14513,12 +14502,12 @@ index 0000000..6c637af
 +}
 diff --git a/fs/aufs/i_op.c b/fs/aufs/i_op.c
 new file mode 100644
-index 0000000..ea96759
+index 0000000..e33cbec
 --- /dev/null
 +++ b/fs/aufs/i_op.c
 @@ -0,0 +1,1286 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -15805,12 +15794,12 @@ index 0000000..ea96759
 +};
 diff --git a/fs/aufs/i_op_add.c b/fs/aufs/i_op_add.c
 new file mode 100644
-index 0000000..d88e8ad
+index 0000000..a76e11d6
 --- /dev/null
 +++ b/fs/aufs/i_op_add.c
 @@ -0,0 +1,878 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -16689,12 +16678,12 @@ index 0000000..d88e8ad
 +}
 diff --git a/fs/aufs/i_op_del.c b/fs/aufs/i_op_del.c
 new file mode 100644
-index 0000000..4e1ee2e
+index 0000000..fcf377f
 --- /dev/null
 +++ b/fs/aufs/i_op_del.c
 @@ -0,0 +1,494 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -17189,12 +17178,12 @@ index 0000000..4e1ee2e
 +}
 diff --git a/fs/aufs/i_op_ren.c b/fs/aufs/i_op_ren.c
 new file mode 100644
-index 0000000..102a259
+index 0000000..cbe78c8
 --- /dev/null
 +++ b/fs/aufs/i_op_ren.c
 @@ -0,0 +1,1021 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -18216,12 +18205,12 @@ index 0000000..102a259
 +}
 diff --git a/fs/aufs/iinfo.c b/fs/aufs/iinfo.c
 new file mode 100644
-index 0000000..da9ba0b
+index 0000000..b8efd45
 --- /dev/null
 +++ b/fs/aufs/iinfo.c
 @@ -0,0 +1,264 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -18486,12 +18475,12 @@ index 0000000..da9ba0b
 +}
 diff --git a/fs/aufs/inode.c b/fs/aufs/inode.c
 new file mode 100644
-index 0000000..d4ded00
+index 0000000..f58367d
 --- /dev/null
 +++ b/fs/aufs/inode.c
 @@ -0,0 +1,483 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -18975,12 +18964,12 @@ index 0000000..d4ded00
 +}
 diff --git a/fs/aufs/inode.h b/fs/aufs/inode.h
 new file mode 100644
-index 0000000..b3b618f
+index 0000000..7552346
 --- /dev/null
 +++ b/fs/aufs/inode.h
 @@ -0,0 +1,654 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -19635,12 +19624,12 @@ index 0000000..b3b618f
 +#endif /* __AUFS_INODE_H__ */
 diff --git a/fs/aufs/ioctl.c b/fs/aufs/ioctl.c
 new file mode 100644
-index 0000000..1d9287f
+index 0000000..87e3ddc
 --- /dev/null
 +++ b/fs/aufs/ioctl.c
 @@ -0,0 +1,206 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -19847,12 +19836,12 @@ index 0000000..1d9287f
 +#endif
 diff --git a/fs/aufs/loop.c b/fs/aufs/loop.c
 new file mode 100644
-index 0000000..54cb651
+index 0000000..69f7e96
 --- /dev/null
 +++ b/fs/aufs/loop.c
 @@ -0,0 +1,132 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -19985,12 +19974,12 @@ index 0000000..54cb651
 +}
 diff --git a/fs/aufs/loop.h b/fs/aufs/loop.h
 new file mode 100644
-index 0000000..da8b756
+index 0000000..6d9864d
 --- /dev/null
 +++ b/fs/aufs/loop.h
 @@ -0,0 +1,39 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -20090,12 +20079,12 @@ index 0000000..3e6387b
 +endif
 diff --git a/fs/aufs/module.c b/fs/aufs/module.c
 new file mode 100644
-index 0000000..08d4902
+index 0000000..64b6fdc
 --- /dev/null
 +++ b/fs/aufs/module.c
 @@ -0,0 +1,196 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -20292,12 +20281,12 @@ index 0000000..08d4902
 +module_exit(aufs_exit);
 diff --git a/fs/aufs/module.h b/fs/aufs/module.h
 new file mode 100644
-index 0000000..eab25b0
+index 0000000..adee827
 --- /dev/null
 +++ b/fs/aufs/module.h
 @@ -0,0 +1,91 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -20389,12 +20378,12 @@ index 0000000..eab25b0
 +#endif /* __AUFS_MODULE_H__ */
 diff --git a/fs/aufs/mvdown.c b/fs/aufs/mvdown.c
 new file mode 100644
-index 0000000..1fbca14
+index 0000000..ca4e078
 --- /dev/null
 +++ b/fs/aufs/mvdown.c
 @@ -0,0 +1,681 @@
 +/*
-+ * Copyright (C) 2011-2014 Junjiro R. Okajima
++ * Copyright (C) 2011-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -21076,12 +21065,12 @@ index 0000000..1fbca14
 +}
 diff --git a/fs/aufs/opts.c b/fs/aufs/opts.c
 new file mode 100644
-index 0000000..f24b367
+index 0000000..78bb06c
 --- /dev/null
 +++ b/fs/aufs/opts.c
 @@ -0,0 +1,1837 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -22919,12 +22908,12 @@ index 0000000..f24b367
 +}
 diff --git a/fs/aufs/opts.h b/fs/aufs/opts.h
 new file mode 100644
-index 0000000..832a183
+index 0000000..929ebc3
 --- /dev/null
 +++ b/fs/aufs/opts.h
 @@ -0,0 +1,200 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -23125,12 +23114,12 @@ index 0000000..832a183
 +#endif /* __AUFS_OPTS_H__ */
 diff --git a/fs/aufs/plink.c b/fs/aufs/plink.c
 new file mode 100644
-index 0000000..2b0384f
+index 0000000..3e4fe87
 --- /dev/null
 +++ b/fs/aufs/plink.c
 @@ -0,0 +1,519 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -23650,12 +23639,12 @@ index 0000000..2b0384f
 +}
 diff --git a/fs/aufs/poll.c b/fs/aufs/poll.c
 new file mode 100644
-index 0000000..e6ebf7e
+index 0000000..9a1fbbd
 --- /dev/null
 +++ b/fs/aufs/poll.c
 @@ -0,0 +1,42 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -23698,12 +23687,12 @@ index 0000000..e6ebf7e
 +}
 diff --git a/fs/aufs/posix_acl.c b/fs/aufs/posix_acl.c
 new file mode 100644
-index 0000000..1754a46
+index 0000000..d9ce957
 --- /dev/null
 +++ b/fs/aufs/posix_acl.c
 @@ -0,0 +1,86 @@
 +/*
-+ * Copyright (C) 2014 Junjiro R. Okajima
++ * Copyright (C) 2014-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -23790,12 +23779,12 @@ index 0000000..1754a46
 +}
 diff --git a/fs/aufs/procfs.c b/fs/aufs/procfs.c
 new file mode 100644
-index 0000000..bcc686b
+index 0000000..ead2a00
 --- /dev/null
 +++ b/fs/aufs/procfs.c
 @@ -0,0 +1,156 @@
 +/*
-+ * Copyright (C) 2010-2014 Junjiro R. Okajima
++ * Copyright (C) 2010-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -23952,12 +23941,12 @@ index 0000000..bcc686b
 +}
 diff --git a/fs/aufs/rdu.c b/fs/aufs/rdu.c
 new file mode 100644
-index 0000000..a7f70eb
+index 0000000..6a34e48
 --- /dev/null
 +++ b/fs/aufs/rdu.c
 @@ -0,0 +1,375 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -24333,12 +24322,12 @@ index 0000000..a7f70eb
 +#endif
 diff --git a/fs/aufs/rwsem.h b/fs/aufs/rwsem.h
 new file mode 100644
-index 0000000..052171d
+index 0000000..171ee0c
 --- /dev/null
 +++ b/fs/aufs/rwsem.h
 @@ -0,0 +1,178 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -24517,12 +24506,12 @@ index 0000000..052171d
 +#endif /* __AUFS_RWSEM_H__ */
 diff --git a/fs/aufs/sbinfo.c b/fs/aufs/sbinfo.c
 new file mode 100644
-index 0000000..f9126b7
+index 0000000..34ef9fb
 --- /dev/null
 +++ b/fs/aufs/sbinfo.c
 @@ -0,0 +1,340 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -24863,12 +24852,12 @@ index 0000000..f9126b7
 +}
 diff --git a/fs/aufs/spl.h b/fs/aufs/spl.h
 new file mode 100644
-index 0000000..686473b
+index 0000000..a66d39e
 --- /dev/null
 +++ b/fs/aufs/spl.h
 @@ -0,0 +1,98 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -24967,12 +24956,12 @@ index 0000000..686473b
 +#endif /* __AUFS_SPL_H__ */
 diff --git a/fs/aufs/super.c b/fs/aufs/super.c
 new file mode 100644
-index 0000000..67a7d67
+index 0000000..9acda0e
 --- /dev/null
 +++ b/fs/aufs/super.c
 @@ -0,0 +1,996 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -25969,12 +25958,12 @@ index 0000000..67a7d67
 +};
 diff --git a/fs/aufs/super.h b/fs/aufs/super.h
 new file mode 100644
-index 0000000..c3a310a
+index 0000000..0514a13
 --- /dev/null
 +++ b/fs/aufs/super.h
 @@ -0,0 +1,628 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -26603,12 +26592,12 @@ index 0000000..c3a310a
 +#endif /* __AUFS_SUPER_H__ */
 diff --git a/fs/aufs/sysaufs.c b/fs/aufs/sysaufs.c
 new file mode 100644
-index 0000000..b31b8d3
+index 0000000..29ac6fa
 --- /dev/null
 +++ b/fs/aufs/sysaufs.c
 @@ -0,0 +1,91 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -26700,12 +26689,12 @@ index 0000000..b31b8d3
 +}
 diff --git a/fs/aufs/sysaufs.h b/fs/aufs/sysaufs.h
 new file mode 100644
-index 0000000..e0192bd
+index 0000000..feb78fd
 --- /dev/null
 +++ b/fs/aufs/sysaufs.h
 @@ -0,0 +1,88 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -26794,12 +26783,12 @@ index 0000000..e0192bd
 +#endif /* __SYSAUFS_H__ */
 diff --git a/fs/aufs/sysfs.c b/fs/aufs/sysfs.c
 new file mode 100644
-index 0000000..4aff3c0
+index 0000000..75cc82a
 --- /dev/null
 +++ b/fs/aufs/sysfs.c
 @@ -0,0 +1,336 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -27136,12 +27125,12 @@ index 0000000..4aff3c0
 +}
 diff --git a/fs/aufs/sysrq.c b/fs/aufs/sysrq.c
 new file mode 100644
-index 0000000..73a27eb
+index 0000000..e9fd963
 --- /dev/null
 +++ b/fs/aufs/sysrq.c
 @@ -0,0 +1,144 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -27286,12 +27275,12 @@ index 0000000..73a27eb
 +}
 diff --git a/fs/aufs/vdir.c b/fs/aufs/vdir.c
 new file mode 100644
-index 0000000..515339d
+index 0000000..c61a77f
 --- /dev/null
 +++ b/fs/aufs/vdir.c
 @@ -0,0 +1,876 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -28168,12 +28157,12 @@ index 0000000..515339d
 +}
 diff --git a/fs/aufs/vfsub.c b/fs/aufs/vfsub.c
 new file mode 100644
-index 0000000..6453842
+index 0000000..b233552
 --- /dev/null
 +++ b/fs/aufs/vfsub.c
 @@ -0,0 +1,783 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -28957,12 +28946,12 @@ index 0000000..6453842
 +}
 diff --git a/fs/aufs/vfsub.h b/fs/aufs/vfsub.h
 new file mode 100644
-index 0000000..ba88fbf
+index 0000000..6493d90
 --- /dev/null
 +++ b/fs/aufs/vfsub.h
 @@ -0,0 +1,288 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -29251,12 +29240,12 @@ index 0000000..ba88fbf
 +#endif /* __AUFS_VFSUB_H__ */
 diff --git a/fs/aufs/wbr_policy.c b/fs/aufs/wbr_policy.c
 new file mode 100644
-index 0000000..e894f5d
+index 0000000..7ce1cf1
 --- /dev/null
 +++ b/fs/aufs/wbr_policy.c
 @@ -0,0 +1,752 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -30009,12 +29998,12 @@ index 0000000..e894f5d
 +};
 diff --git a/fs/aufs/whout.c b/fs/aufs/whout.c
 new file mode 100644
-index 0000000..5b63018
+index 0000000..21a264f
 --- /dev/null
 +++ b/fs/aufs/whout.c
-@@ -0,0 +1,1043 @@
+@@ -0,0 +1,1048 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -30935,6 +30924,7 @@ index 0000000..5b63018
 +		   struct dentry *wh_dentry, struct au_nhash *whlist)
 +{
 +	int err;
++	unsigned int h_nlink;
 +	struct path h_tmp;
 +	struct inode *wh_inode, *h_dir;
 +	struct au_branch *br;
@@ -30971,14 +30961,18 @@ index 0000000..5b63018
 +	if (!err) {
 +		h_tmp.dentry = wh_dentry;
 +		h_tmp.mnt = au_br_mnt(br);
++		h_nlink = h_dir->i_nlink;
 +		err = vfsub_rmdir(h_dir, &h_tmp);
++		/* some fs doesn't change the parent nlink in some cases */
++		h_nlink -= h_dir->i_nlink;
 +	}
 +
 +	if (!err) {
 +		if (au_ibstart(dir) == bindex) {
 +			/* todo: dir->i_mutex is necessary */
 +			au_cpup_attr_timesizes(dir);
-+			vfsub_drop_nlink(dir);
++			if (h_nlink)
++				vfsub_drop_nlink(dir);
 +		}
 +		return 0; /* success */
 +	}
@@ -31058,12 +31052,12 @@ index 0000000..5b63018
 +}
 diff --git a/fs/aufs/whout.h b/fs/aufs/whout.h
 new file mode 100644
-index 0000000..983288b
+index 0000000..14155f5
 --- /dev/null
 +++ b/fs/aufs/whout.h
 @@ -0,0 +1,72 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -31136,12 +31130,12 @@ index 0000000..983288b
 +#endif /* __AUFS_WHOUT_H__ */
 diff --git a/fs/aufs/wkq.c b/fs/aufs/wkq.c
 new file mode 100644
-index 0000000..8b04d42
+index 0000000..08870ec
 --- /dev/null
 +++ b/fs/aufs/wkq.c
 @@ -0,0 +1,200 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -31342,12 +31336,12 @@ index 0000000..8b04d42
 +}
 diff --git a/fs/aufs/wkq.h b/fs/aufs/wkq.h
 new file mode 100644
-index 0000000..f545c66
+index 0000000..8f01343
 --- /dev/null
 +++ b/fs/aufs/wkq.h
 @@ -0,0 +1,78 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -31426,12 +31420,12 @@ index 0000000..f545c66
 +#endif /* __AUFS_WKQ_H__ */
 diff --git a/fs/aufs/xattr.c b/fs/aufs/xattr.c
 new file mode 100644
-index 0000000..b60653b
+index 0000000..78b34d9
 --- /dev/null
 +++ b/fs/aufs/xattr.c
 @@ -0,0 +1,321 @@
 +/*
-+ * Copyright (C) 2014 Junjiro R. Okajima
++ * Copyright (C) 2014-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -31753,12 +31747,12 @@ index 0000000..b60653b
 +#endif
 diff --git a/fs/aufs/xino.c b/fs/aufs/xino.c
 new file mode 100644
-index 0000000..e9611dd
+index 0000000..c053d55
 --- /dev/null
 +++ b/fs/aufs/xino.c
 @@ -0,0 +1,1305 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +/*
@@ -33212,10 +33206,10 @@ index 42efe13..f634198 100644
  
  extern int generic_show_options(struct seq_file *m, struct dentry *root);
 diff --git a/include/linux/mm.h b/include/linux/mm.h
-index 80fc92a..1928e78 100644
+index dd5ea30..445d798 100644
 --- a/include/linux/mm.h
 +++ b/include/linux/mm.h
-@@ -1222,6 +1222,28 @@ static inline int fixup_user_fault(struct task_struct *tsk,
+@@ -1224,6 +1224,28 @@ static inline int fixup_user_fault(struct task_struct *tsk,
  }
  #endif
  
@@ -33293,12 +33287,12 @@ index 00b10002..f4a389c 100644
  header-y += auxvec.h
 diff --git a/include/uapi/linux/aufs_type.h b/include/uapi/linux/aufs_type.h
 new file mode 100644
-index 0000000..866333b
+index 0000000..d6abed8
 --- /dev/null
 +++ b/include/uapi/linux/aufs_type.h
 @@ -0,0 +1,406 @@
 +/*
-+ * Copyright (C) 2005-2014 Junjiro R. Okajima
++ * Copyright (C) 2005-2015 Junjiro R. Okajima
 + */
 +
 +#ifndef __AUFS_TYPE_H__
@@ -33325,7 +33319,7 @@ index 0000000..866333b
 +
 +#include <linux/limits.h>
 +
-+#define AUFS_VERSION	"3.x-rcN"
++#define AUFS_VERSION	"3.19"
 +
 +/* todo? move this to linux-2.6.19/include/magic.h */
 +#define AUFS_SUPER_MAGIC	('a' << 24 | 'u' << 16 | 'f' << 8 | 's')
@@ -33797,7 +33791,7 @@ index a271adc..29a932f 100644
  	return error;
  }
 diff --git a/mm/memory.c b/mm/memory.c
-index c6565f0..1f7954c 100644
+index 2c3536c..444bb1d 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
 @@ -2157,7 +2157,7 @@ reuse:
@@ -33889,10 +33883,10 @@ index 992a167..ce1915b 100644
  				goto out;
  			down_read(&mm->mmap_sem);
 diff --git a/mm/nommu.c b/mm/nommu.c
-index b51eadf..7d7a4d1 100644
+index 28bd8c4..3c0ace2 100644
 --- a/mm/nommu.c
 +++ b/mm/nommu.c
-@@ -658,7 +658,7 @@ static void __put_nommu_region(struct vm_region *region)
+@@ -659,7 +659,7 @@ static void __put_nommu_region(struct vm_region *region)
  		up_write(&nommu_region_sem);
  
  		if (region->vm_file)
@@ -33901,7 +33895,7 @@ index b51eadf..7d7a4d1 100644
  
  		/* IO memory and memory shared directly out of the pagecache
  		 * from ramfs/tmpfs mustn't be released here */
-@@ -823,7 +823,7 @@ static void delete_vma(struct mm_struct *mm, struct vm_area_struct *vma)
+@@ -824,7 +824,7 @@ static void delete_vma(struct mm_struct *mm, struct vm_area_struct *vma)
  	if (vma->vm_ops && vma->vm_ops->close)
  		vma->vm_ops->close(vma);
  	if (vma->vm_file)
@@ -33910,7 +33904,7 @@ index b51eadf..7d7a4d1 100644
  	put_nommu_region(vma->vm_region);
  	kmem_cache_free(vm_area_cachep, vma);
  }
-@@ -1374,7 +1374,7 @@ unsigned long do_mmap_pgoff(struct file *file,
+@@ -1375,7 +1375,7 @@ unsigned long do_mmap_pgoff(struct file *file,
  					goto error_just_free;
  				}
  			}
@@ -33919,7 +33913,7 @@ index b51eadf..7d7a4d1 100644
  			kmem_cache_free(vm_region_jar, region);
  			region = pregion;
  			result = start;
-@@ -1450,10 +1450,10 @@ error_just_free:
+@@ -1451,10 +1451,10 @@ error_just_free:
  	up_write(&nommu_region_sem);
  error:
  	if (region->vm_file)

@@ -1,0 +1,128 @@
+From dc0b177cf8be1e7371cfb92cfbccac595bf8dac8 Mon Sep 17 00:00:00 2001
+From: Lin Wang <lin.x.wang@intel.com>
+Date: Fri, 9 Jan 2015 16:06:28 +0200
+Subject: xhci: remove unused parameter 'xhci' in function xhci_handshake().
+
+Parameter 'xhci' is no longer be used in function xhci_handshake(),
+just remove it.
+
+Signed-off-by: Lin Wang <lin.x.wang@intel.com>
+Signed-off-by: Mathias Nyman <mathias.nyman@linux.intel.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+diff --git a/drivers/usb/host/xhci-ring.c b/drivers/usb/host/xhci-ring.c
+index e692e76..c84a959 100644
+--- a/drivers/usb/host/xhci-ring.c
++++ b/drivers/usb/host/xhci-ring.c
+@@ -299,7 +299,7 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci)
+ 	 * seconds), then it should assume that the there are
+ 	 * larger problems with the xHC and assert HCRST.
+ 	 */
+-	ret = xhci_handshake(xhci, &xhci->op_regs->cmd_ring,
++	ret = xhci_handshake(&xhci->op_regs->cmd_ring,
+ 			CMD_RING_RUNNING, 0, 5 * 1000 * 1000);
+ 	if (ret < 0) {
+ 		xhci_err(xhci, "Stopped the command ring failed, "
+diff --git a/drivers/usb/host/xhci.c b/drivers/usb/host/xhci.c
+index 93200db..5ec74e2 100644
+--- a/drivers/usb/host/xhci.c
++++ b/drivers/usb/host/xhci.c
+@@ -60,8 +60,7 @@ MODULE_PARM_DESC(quirks, "Bit flags for quirks to be enabled as default");
+  * handshake done).  There are two failure modes:  "usec" have passed (major
+  * hardware flakeout), or the register reads as all-ones (hardware removed).
+  */
+-int xhci_handshake(struct xhci_hcd *xhci, void __iomem *ptr,
+-		      u32 mask, u32 done, int usec)
++int xhci_handshake(void __iomem *ptr, u32 mask, u32 done, int usec)
+ {
+ 	u32	result;
+ 
+@@ -111,7 +110,7 @@ int xhci_halt(struct xhci_hcd *xhci)
+ 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "// Halt the HC");
+ 	xhci_quiesce(xhci);
+ 
+-	ret = xhci_handshake(xhci, &xhci->op_regs->status,
++	ret = xhci_handshake(&xhci->op_regs->status,
+ 			STS_HALT, STS_HALT, XHCI_MAX_HALT_USEC);
+ 	if (!ret) {
+ 		xhci->xhc_state |= XHCI_STATE_HALTED;
+@@ -140,7 +139,7 @@ static int xhci_start(struct xhci_hcd *xhci)
+ 	 * Wait for the HCHalted Status bit to be 0 to indicate the host is
+ 	 * running.
+ 	 */
+-	ret = xhci_handshake(xhci, &xhci->op_regs->status,
++	ret = xhci_handshake(&xhci->op_regs->status,
+ 			STS_HALT, 0, XHCI_MAX_HALT_USEC);
+ 	if (ret == -ETIMEDOUT)
+ 		xhci_err(xhci, "Host took too long to start, "
+@@ -175,7 +174,7 @@ int xhci_reset(struct xhci_hcd *xhci)
+ 	command |= CMD_RESET;
+ 	writel(command, &xhci->op_regs->command);
+ 
+-	ret = xhci_handshake(xhci, &xhci->op_regs->command,
++	ret = xhci_handshake(&xhci->op_regs->command,
+ 			CMD_RESET, 0, 10 * 1000 * 1000);
+ 	if (ret)
+ 		return ret;
+@@ -186,7 +185,7 @@ int xhci_reset(struct xhci_hcd *xhci)
+ 	 * xHCI cannot write to any doorbells or operational registers other
+ 	 * than status until the "Controller Not Ready" flag is cleared.
+ 	 */
+-	ret = xhci_handshake(xhci, &xhci->op_regs->status,
++	ret = xhci_handshake(&xhci->op_regs->status,
+ 			STS_CNR, 0, 10 * 1000 * 1000);
+ 
+ 	for (i = 0; i < 2; ++i) {
+@@ -929,7 +928,7 @@ int xhci_suspend(struct xhci_hcd *xhci, bool do_wakeup)
+ 	/* Some chips from Fresco Logic need an extraordinary delay */
+ 	delay *= (xhci->quirks & XHCI_SLOW_SUSPEND) ? 10 : 1;
+ 
+-	if (xhci_handshake(xhci, &xhci->op_regs->status,
++	if (xhci_handshake(&xhci->op_regs->status,
+ 		      STS_HALT, STS_HALT, delay)) {
+ 		xhci_warn(xhci, "WARN: xHC CMD_RUN timeout\n");
+ 		spin_unlock_irq(&xhci->lock);
+@@ -944,7 +943,7 @@ int xhci_suspend(struct xhci_hcd *xhci, bool do_wakeup)
+ 	command = readl(&xhci->op_regs->command);
+ 	command |= CMD_CSS;
+ 	writel(command, &xhci->op_regs->command);
+-	if (xhci_handshake(xhci, &xhci->op_regs->status,
++	if (xhci_handshake(&xhci->op_regs->status,
+ 				STS_SAVE, 0, 10 * 1000)) {
+ 		xhci_warn(xhci, "WARN: xHC save state timeout\n");
+ 		spin_unlock_irq(&xhci->lock);
+@@ -1011,7 +1010,7 @@ int xhci_resume(struct xhci_hcd *xhci, bool hibernated)
+ 		command = readl(&xhci->op_regs->command);
+ 		command |= CMD_CRS;
+ 		writel(command, &xhci->op_regs->command);
+-		if (xhci_handshake(xhci, &xhci->op_regs->status,
++		if (xhci_handshake(&xhci->op_regs->status,
+ 			      STS_RESTORE, 0, 10 * 1000)) {
+ 			xhci_warn(xhci, "WARN: xHC restore state timeout\n");
+ 			spin_unlock_irq(&xhci->lock);
+@@ -1082,7 +1081,7 @@ int xhci_resume(struct xhci_hcd *xhci, bool hibernated)
+ 	command = readl(&xhci->op_regs->command);
+ 	command |= CMD_RUN;
+ 	writel(command, &xhci->op_regs->command);
+-	xhci_handshake(xhci, &xhci->op_regs->status, STS_HALT,
++	xhci_handshake(&xhci->op_regs->status, STS_HALT,
+ 		  0, 250 * 1000);
+ 
+ 	/* step 5: walk topology and initialize portsc,
+diff --git a/drivers/usb/host/xhci.h b/drivers/usb/host/xhci.h
+index cc7c5bb..eeea5c0 100644
+--- a/drivers/usb/host/xhci.h
++++ b/drivers/usb/host/xhci.h
+@@ -1733,8 +1733,7 @@ void xhci_free_command(struct xhci_hcd *xhci,
+ 
+ /* xHCI host controller glue */
+ typedef void (*xhci_get_quirks_t)(struct device *, struct xhci_hcd *);
+-int xhci_handshake(struct xhci_hcd *xhci, void __iomem *ptr,
+-		u32 mask, u32 done, int usec);
++int xhci_handshake(void __iomem *ptr, u32 mask, u32 done, int usec);
+ void xhci_quiesce(struct xhci_hcd *xhci);
+ int xhci_halt(struct xhci_hcd *xhci);
+ int xhci_reset(struct xhci_hcd *xhci);
+-- 
+cgit v0.10.2
+
