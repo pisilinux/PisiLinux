@@ -13,24 +13,25 @@ def setup():
     pisitools.dosed("configure.ac", '(AS_AC_EXPAND\(EXPANDED_LOCALSTATEDIR, )"\$localstatedir"\)', r'\1 "")')
     for f in ["bus/Makefile.am", "bus/Makefile.in"]:
         pisitools.dosed(f, "\$\(localstatedir\)(\/run\/dbus)", "\\1")
-    options = "--with-xml=expat \
-               --with-system-pid-file=/run/dbus/pid \
-               --with-system-socket=/run/dbus/system_bus_socket \
-               --with-console-auth-dir=/run/console/ \
-               --with-session-socket-dir=/tmp \
-               --with-dbus-user=dbus \
+    options = "\
                --disable-selinux \
                --disable-static \
                --disable-tests \
                --disable-asserts \
                --disable-checks \
-               --disable-tests \
                --disable-embedded-tests \
                --disable-modular-tests \
                --disable-doxygen-docs \
                --disable-libaudit \
                --disable-systemd \
+               --disable-silent-rules \
                --enable-inotify \
+               --with-system-pid-file=/run/dbus/pid \
+               --with-system-socket=/run/dbus/system_bus_socket \
+               --with-console-auth-dir=/run/console/ \
+               --with-session-socket-dir=/tmp \
+               --with-dbus-user=dbus \
+               --enable-abstract-sockets=auto \
                --disable-xml-docs"
 
     if get.buildTYPE() == "emul32":
@@ -40,6 +41,7 @@ def setup():
         # Build only libdbus
         pisitools.dosed("Makefile.am", "(.*SUBDIRS=dbus) .*", "\\1")
 
+    
     autotools.autoreconf("-vif")
     autotools.configure(options)
 

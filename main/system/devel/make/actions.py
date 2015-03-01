@@ -26,4 +26,4 @@ def install():
     pisitools.dosym("gmake", "/usr/bin/make")
     pisitools.dosym("gmake.1","/usr/share/man/man1/make.1")
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "NEWS", "README*")
+    pisitools.dodoc("AUTHORS", "NEWS", "README*")

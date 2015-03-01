@@ -10,7 +10,10 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    cmaketools.configure("-DNOSERVER=1")
+    cmaketools.configure("-DCMAKE_BUILD_TYPE='Release' \
+			  -DCMAKE_INSTALL_PREFIX=/usr \
+			  -DDATA_INSTALL_DIR=/usr/share/hedgewars \
+			  -DNOSERVER=1")
 
 def build():
     cmaketools.make()
