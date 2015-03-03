@@ -41,6 +41,9 @@ def install():
     pisitools.remove("/usr/include/tcl-private/generic/tclDecls.h")
     pisitools.remove("/usr/include/tcl-private/generic/tclPlatDecls.h")
 
+    # Remove man file sqlite paket çakışması için silindi.
+    pisitools.remove("/usr/share/man/mann/sqlite3.n")
+
     # Expect package needs these symlinks
     pisitools.dosym("/usr/include/tcl-private/unix/tclUnixPort.h","/usr/include/tcl-private/generic/tclUnixPort.h")
     pisitools.dosym("/usr/include/tcl-private/unix/tclUnixThrd.h","/usr/include/tcl-private/generic/tclUnixThrd.h")
