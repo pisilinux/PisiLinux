@@ -17,6 +17,7 @@ def setup():
     autotools.configure("--with-encoding=utf-8 \
                          --enable-threads \
                          --enable-man-compression=gzip \
+                         --mandir=/usr/share/man \
                          --enable-man-symlinks \
                          --enable-shared \
                          --enable-64bit")
@@ -42,7 +43,7 @@ def install():
     pisitools.remove("/usr/include/tcl-private/generic/tclPlatDecls.h")
 
     # Remove man file sqlite paket çakışması için silindi.
-    pisitools.remove("/usr/share/man/mann/sqlite3.n")
+    #pisitools.remove("/usr/share/man/mann/sqlite3.n")
 
     # Expect package needs these symlinks
     pisitools.dosym("/usr/include/tcl-private/unix/tclUnixPort.h","/usr/include/tcl-private/generic/tclUnixPort.h")
