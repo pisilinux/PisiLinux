@@ -53,6 +53,6 @@ def install():
 
     pisitools.dodoc("ANNOUNCE", "AUTHORS", "COPYING.LIB", "LICENSE*", "README", "documentation/README.*")
     
-    pisitools.insinto("/usr/share/wine/mono/", "wine-mono-4.5.4.msi")
-    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.36-beta1-x86.msi")
-    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.36-beta1-x86_64.msi")
+    pisitools.insinto("/usr/share/wine/mono/", "wine-mono-4.5.6.msi")
+    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.36-x86.msi")
+    pisitools.insinto("/usr/share/wine/gecko/", "wine_gecko-2.36-x86_64.msi")
