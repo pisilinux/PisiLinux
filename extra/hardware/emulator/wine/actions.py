@@ -22,7 +22,7 @@ def setup():
     #     to the 64bit files that was compiled in the first step (files in the work)
     #
     # More info can be obtained here: http://wiki.winehq.org/Wine64
-    shelltools.export("CPPFLAGS", "-D_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0")
+    shelltools.export("CPPFLAGS", "-D_FORTIFY_SOURCE=2 -D_FORTIFY_SOURCE=0")
     autotools.autoreconf("-vif")
     options = "--without-capi \
                --with-curses \
