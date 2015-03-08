@@ -1,0 +1,114 @@
+From 06c8173eb92bbfc03a0fe8bb64315857d0badd06 Mon Sep 17 00:00:00 2001
+From: Quentin Casasnovas <quentin.casasnovas@oracle.com>
+Date: Thu, 5 Mar 2015 13:19:22 +0100
+Subject: [PATCH] x86/fpu/xsaves: Fix improper uses of __ex_table
+
+Commit:
+
+  f31a9f7c7169 ("x86/xsaves: Use xsaves/xrstors to save and restore xsave area")
+
+introduced alternative instructions for XSAVES/XRSTORS and commit:
+
+  adb9d526e982 ("x86/xsaves: Add xsaves and xrstors support for booting time")
+
+added support for the XSAVES/XRSTORS instructions at boot time.
+
+Unfortunately both failed to properly protect them against faulting:
+
+The 'xstate_fault' macro will use the closest label named '1'
+backward and that ends up in the .altinstr_replacement section
+rather than in .text. This means that the kernel will never find
+in the __ex_table the .text address where this instruction might
+fault, leading to serious problems if userspace manages to
+trigger the fault.
+
+Signed-off-by: Quentin Casasnovas <quentin.casasnovas@oracle.com>
+Signed-off-by: Jamie Iles <jamie.iles@oracle.com>
+[ Improved the changelog, fixed some whitespace noise. ]
+Acked-by: Borislav Petkov <bp@alien8.de>
+Acked-by: Linus Torvalds <torvalds@linux-foundation.org>
+Cc: <stable@vger.kernel.org>
+Cc: Allan Xavier <mr.a.xavier@gmail.com>
+Cc: H. Peter Anvin <hpa@zytor.com>
+Cc: Thomas Gleixner <tglx@linutronix.de>
+Fixes: adb9d526e982 ("x86/xsaves: Add xsaves and xrstors support for booting time")
+Fixes: f31a9f7c7169 ("x86/xsaves: Use xsaves/xrstors to save and restore xsave area")
+Signed-off-by: Ingo Molnar <mingo@kernel.org>
+---
+ arch/x86/include/asm/xsave.h | 28 +++++++++++-----------------
+ 1 file changed, 11 insertions(+), 17 deletions(-)
+
+diff --git a/arch/x86/include/asm/xsave.h b/arch/x86/include/asm/xsave.h
+index 5fa9770..c9a6d68 100644
+--- a/arch/x86/include/asm/xsave.h
++++ b/arch/x86/include/asm/xsave.h
+@@ -82,18 +82,15 @@ static inline int xsave_state_booting(struct xsave_struct *fx, u64 mask)
+ 	if (boot_cpu_has(X86_FEATURE_XSAVES))
+ 		asm volatile("1:"XSAVES"\n\t"
+ 			"2:\n\t"
+-			: : "D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
++			     xstate_fault
++			: "D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
+ 			:   "memory");
+ 	else
+ 		asm volatile("1:"XSAVE"\n\t"
+ 			"2:\n\t"
+-			: : "D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
++			     xstate_fault
++			: "D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
+ 			:   "memory");
+-
+-	asm volatile(xstate_fault
+-		     : "0" (0)
+-		     : "memory");
+-
+ 	return err;
+ }
+ 
+@@ -112,18 +109,15 @@ static inline int xrstor_state_booting(struct xsave_struct *fx, u64 mask)
+ 	if (boot_cpu_has(X86_FEATURE_XSAVES))
+ 		asm volatile("1:"XRSTORS"\n\t"
+ 			"2:\n\t"
+-			: : "D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
++			     xstate_fault
++			: "D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
+ 			:   "memory");
+ 	else
+ 		asm volatile("1:"XRSTOR"\n\t"
+ 			"2:\n\t"
+-			: : "D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
++			     xstate_fault
++			: "D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
+ 			:   "memory");
+-
+-	asm volatile(xstate_fault
+-		     : "0" (0)
+-		     : "memory");
+-
+ 	return err;
+ }
+ 
+@@ -149,9 +143,9 @@ static inline int xsave_state(struct xsave_struct *fx, u64 mask)
+ 	 */
+ 	alternative_input_2(
+ 		"1:"XSAVE,
+-		"1:"XSAVEOPT,
++		XSAVEOPT,
+ 		X86_FEATURE_XSAVEOPT,
+-		"1:"XSAVES,
++		XSAVES,
+ 		X86_FEATURE_XSAVES,
+ 		[fx] "D" (fx), "a" (lmask), "d" (hmask) :
+ 		"memory");
+@@ -178,7 +172,7 @@ static inline int xrstor_state(struct xsave_struct *fx, u64 mask)
+ 	 */
+ 	alternative_input(
+ 		"1: " XRSTOR,
+-		"1: " XRSTORS,
++		XRSTORS,
+ 		X86_FEATURE_XSAVES,
+ 		"D" (fx), "m" (*fx), "a" (lmask), "d" (hmask)
+ 		: "memory");
+-- 
+2.3.2
+
