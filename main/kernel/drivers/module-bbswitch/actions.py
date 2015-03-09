@@ -11,13 +11,12 @@ from pisi.actionsapi import kerneltools
 
 KDIR = kerneltools.getKernelVersion()
 
-#def setup():
-#    autotools.configure()
-
 def build():
-    autotools.make("KDIR=/lib/modules/%s/build" % KDIR)
+    #autotools.make("KDIR=/lib/modules/%s/build" % KDIR)
+    autotools.make()
 
 def install():
-    pisitools.insinto("/lib/modules/%s/extra" % KDIR, "bbswitch.ko")
+    #autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    pisitools.insinto("/lib/modules/%s/misc" % KDIR, "bbswitch.ko")
 
     pisitools.dodoc("NEWS", "README*")
