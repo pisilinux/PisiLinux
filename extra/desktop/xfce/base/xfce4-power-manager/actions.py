@@ -8,17 +8,14 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.configure("--prefix=/usr \
-                         --sbindir=/usr/bin \
-                         --disable-network-manager \
-                         --enable-polkit \
-                         --enable-dpms \
+    autotools.configure("--disable-network-manager \
                          --disable-debug")
 
 def build():
     autotools.make()
 
 def install():
+    #autotools.install()
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README", "TODO")
