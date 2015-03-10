@@ -10,9 +10,13 @@ from pisi.actionsapi import shelltools
 
 def setup():
     autotools.configure("--prefix=/usr \
+                         --sysconfdir=/etc \
+                         --libexecdir=/usr/lib \
+                         --localstatedir=/var \
                          --disable-static \
                          --enable-gio-unix \
-                         --disable-gtk-doc \
+                         --enable-gtk-doc \
+                         --enable-gtk3 \
                          --disable-debug")
 
     pisitools.dosed("libtool", "^(hardcode_libdir_flag_spec=).*", '\\1""')
