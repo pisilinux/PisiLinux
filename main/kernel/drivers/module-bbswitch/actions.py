@@ -12,8 +12,8 @@ from pisi.actionsapi import kerneltools
 KDIR = kerneltools.getKernelVersion()
 
 def build():
-    #autotools.make("KDIR=/lib/modules/%s/build" % KDIR)
-    autotools.make()
+    autotools.make("KDIR=/lib/modules/%s/build" % KDIR)
+    #autotools.make()
 
 def install():
     #autotools.rawInstall("DESTDIR=%s" % get.installDIR())
