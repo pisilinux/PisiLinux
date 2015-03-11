@@ -11,9 +11,12 @@ from pisi.actionsapi import get
 
 
 def setup():
-    autotools.configure("--disable-schemas-compile \
-                         --enable-introspection=yes \
-                         --enable-libnotify")
+    autotools.configure("--prefix=/usr \
+                         --sysconfdir=/etc \
+                         --localstatedir=/var \
+                         --disable-schemas-compile")
+                         #--enable-introspection=yes \
+                         #--enable-libnotify")
 
 def build():
     autotools.make()
