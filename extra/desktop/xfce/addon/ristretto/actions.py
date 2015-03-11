@@ -10,8 +10,11 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system("./autogen.sh \
-                      --prefix=/usr")
+    shelltools.system("./autogen.sh")
+    autotools.configure("--prefix=/usr \
+	                 --sysconfdir=/etc \
+	                 --localstatedir=/var \
+	                 --disable-debug")
 
 def build():
     autotools.make()

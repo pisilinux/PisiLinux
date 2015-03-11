@@ -9,7 +9,7 @@ from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.configure("--disable-static")
+    autotools.configure()
 
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
@@ -20,3 +20,4 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING", "NEWS", "README")
+

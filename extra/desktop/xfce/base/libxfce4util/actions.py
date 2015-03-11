@@ -23,5 +23,5 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-
+    pisitools.dosym("/usr/lib/libxfce4util.so.7.0.0", "/usr/lib/libxfce4util.so.6")
     pisitools.dodoc("AUTHORS", "ChangeLog*", "COPYING", "NEWS", "README*", "THANKS", "TODO")
