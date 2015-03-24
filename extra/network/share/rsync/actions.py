@@ -11,12 +11,7 @@ from pisi.actionsapi import get
 WorkDir="rsync-%s" % get.srcVERSION().replace('_','')
 
 def setup():
-    autotools.configure("--disable-debug \
-                         --with-rsyncd-conf=/etc/rsyncd.conf \
-                         --enable-acl-support \
-                         --enable-attr-support \
-                         --without-included-popt \
-                         --enable-ipv6")
+    autotools.configure("--without-included-zlib")
 
 def build():
     autotools.make()
