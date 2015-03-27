@@ -6,11 +6,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-fvi")
-    autotools.configure("--disable-rpath \
-                         --enable-utf8 \
-                         --enable-altrcname \
-                         --disable-speller")
+    autotools.configure('--enable-utf8')
 
 def build():
     autotools.make()
