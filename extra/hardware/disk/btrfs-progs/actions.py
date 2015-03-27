@@ -9,9 +9,14 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
+def setup():
+    shelltools.system("./autogen.sh")
+    autotools.configure()
+
 def build():
-    autotools.make("V=1 CC=%s CFLAGS=\"%s\"" % (get.CC(), get.CFLAGS()))
-    autotools.make("V=1 CC=%s CFLAGS=\"%s\" btrfs-select-super" % (get.CC(), get.CFLAGS()))
+    autotools.make("CC=%s" % get.CC())
+    #autotools.make("V=1 CC=%s CFLAGS=\"%s\"" % (get.CC(), get.CFLAGS()))
+    #autotools.make("V=1 CC=%s CFLAGS=\"%s\" btrfs-select-super" % (get.CC(), get.CFLAGS()))
 
 def install():
     autotools.rawInstall("prefix=/usr DESTDIR=%s" % get.installDIR())
