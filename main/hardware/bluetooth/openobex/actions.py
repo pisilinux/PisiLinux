@@ -23,5 +23,8 @@ def build():
 
 def install():
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    pisitools.removeDir("/usr/bin")
+    pisitools.removeDir("/usr/share/man")
 
     pisitools.dodoc("README", "AUTHORS", "NEWS", "ChangeLog")
