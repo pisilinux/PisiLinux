@@ -15,5 +15,8 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    #remove after usbmove
+    pisitools.dosym("/usr/sbin/biosdevname", "/sbin/biosdevname")
 
     pisitools.dodoc("AUTHORS", "NEWS", "ChangeLog", "COPYING", "TODO", "README")
