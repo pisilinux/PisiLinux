@@ -1,37 +1,8 @@
+From 41050a009640f9f330a5b916563ca7faf853a98c Mon Sep 17 00:00:00 2001
 From: "Paul E. McKenney" <paulmck@linux.vnet.ibm.com>
-Subject: Re: frequent lockups in 3.18rc4
-Date: Sat, 20 Dec 2014 19:52:23 -0800
-
-On Sat, Dec 20, 2014 at 01:16:29PM -0800, Linus Torvalds wrote:
-> On Sat, Dec 20, 2014 at 10:25 AM, Linus Torvalds
-> <torvalds@linux-foundation.org> wrote:
-> >
-> > How/where is the HPET overflow case handled? I don't know the code enough.
-> 
-> Hmm, ok, I've re-acquainted myself with it. And I have to admit that I
-> can't see anything wrong. The whole "update_wall_clock" and the shadow
-> timekeeping state is confusing as hell, but seems fine. We'd have to
-> avoid update_wall_clock for a *long* time for overflows to occur.
-> 
-> And the overflow in 32 bits isn't that special, since the only thing
-> that really matters is the overflow of "cycle_now - tkr->cycle_last"
-> within the mask.
-> 
-> So I'm not seeing anything even halfway suspicious.
-
-One long shot is a bug in rcu_barrier() that I introduced in v3.18-rc1.
-This is a low-probability race that can cause rcu_barrier() and friends
-to return too soon, which can of course result in arbitrary misbehavior.
-Please see below for a fix which looks good thus far in reasonably
-intense rcutorture testing.
-
-Might be what Dave and Sasha are seeing.  Or not.
-
-							Thanx, Paul
-
-------------------------------------------------------------------------
-
-rcu: Fix rcu_barrier() race that could result in too-short wait
+Date: Thu, 18 Dec 2014 12:31:02 -0800
+Subject: [PATCH] rcu: Fix rcu_barrier() race that could result in too-short
+ wait
 
 The rcu_barrier() no-callbacks check for no-CBs CPUs has race conditions.
 It checks a given CPU's lists of callbacks, and if all three no-CBs lists
@@ -47,12 +18,17 @@ rcu_barrier() checks this single count to reliably determine whether
 the corresponding CPU has no-CBs callbacks.
 
 Signed-off-by: Paul E. McKenney <paulmck@linux.vnet.ibm.com>
+---
+ kernel/rcu/tree.c        |  1 +
+ kernel/rcu/tree.h        | 29 +++++++----------------------
+ kernel/rcu/tree_plugin.h | 45 ++++++++++++++++++++++++++++-----------------
+ 3 files changed, 36 insertions(+), 39 deletions(-)
 
 diff --git a/kernel/rcu/tree.c b/kernel/rcu/tree.c
-index 7680fc275036..658b691dc32b 100644
+index 203b50d..5b9f3b9 100644
 --- a/kernel/rcu/tree.c
 +++ b/kernel/rcu/tree.c
-@@ -3318,6 +3318,7 @@ static void _rcu_barrier(struct rcu_state *rsp)
+@@ -3344,6 +3344,7 @@ static void _rcu_barrier(struct rcu_state *rsp)
  			} else {
  				_rcu_barrier_trace(rsp, "OnlineNoCB", cpu,
  						   rsp->n_barrier_done);
@@ -61,7 +37,7 @@ index 7680fc275036..658b691dc32b 100644
  				__call_rcu(&rdp->barrier_head,
  					   rcu_barrier_callback, rsp, cpu, 0);
 diff --git a/kernel/rcu/tree.h b/kernel/rcu/tree.h
-index 8e7b1843896e..cb5908672f11 100644
+index 8e7b184..cb59086 100644
 --- a/kernel/rcu/tree.h
 +++ b/kernel/rcu/tree.h
 @@ -340,14 +340,10 @@ struct rcu_data {
@@ -121,7 +97,7 @@ index 8e7b1843896e..cb5908672f11 100644
 +}
  #endif /* #ifdef CONFIG_RCU_TRACE */
 diff --git a/kernel/rcu/tree_plugin.h b/kernel/rcu/tree_plugin.h
-index 3ec85cb5d544..e5c43b7f63f2 100644
+index 3ec85cb..e5c43b7 100644
 --- a/kernel/rcu/tree_plugin.h
 +++ b/kernel/rcu/tree_plugin.h
 @@ -2056,9 +2056,26 @@ static void wake_nocb_leader(struct rcu_data *rdp, bool force)
@@ -225,4 +201,6 @@ index 3ec85cb5d544..e5c43b7f63f2 100644
  		rdp->n_nocbs_invoked += c;
  	}
  	return 0;
+-- 
+2.3.1
 

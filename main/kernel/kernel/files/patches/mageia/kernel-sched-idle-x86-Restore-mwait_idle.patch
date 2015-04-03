@@ -1,0 +1,151 @@
+From b253149b843f89cd300cbdbea27ce1f847506f99 Mon Sep 17 00:00:00 2001
+From: Len Brown <len.brown@intel.com>
+Date: Wed, 15 Jan 2014 00:37:34 -0500
+Subject: sched/idle/x86: Restore mwait_idle() to fix boot hangs, to improve
+ power savings and to improve performance
+
+In Linux-3.9 we removed the mwait_idle() loop:
+
+  69fb3676df33 ("x86 idle: remove mwait_idle() and "idle=mwait" cmdline param")
+
+The reasoning was that modern machines should be sufficiently
+happy during the boot process using the default_idle() HALT
+loop, until cpuidle loads and either acpi_idle or intel_idle
+invoke the newer MWAIT-with-hints idle loop.
+
+But two machines reported problems:
+
+ 1. Certain Core2-era machines support MWAIT-C1 and HALT only.
+    MWAIT-C1 is preferred for optimal power and performance.
+    But if they support just C1, cpuidle never loads and
+    so they use the boot-time default idle loop forever.
+
+ 2. Some laptops will boot-hang if HALT is used,
+    but will boot successfully if MWAIT is used.
+    This appears to be a hidden assumption in BIOS SMI,
+    that is presumably valid on the proprietary OS
+    where the BIOS was validated.
+
+       https://bugzilla.kernel.org/show_bug.cgi?id=60770
+
+So here we effectively revert the patch above, restoring
+the mwait_idle() loop.  However, we don't bother restoring
+the idle=mwait cmdline parameter, since it appears to add
+no value.
+
+Maintainer notes:
+
+  For 3.9, simply revert 69fb3676df
+  for 3.10, patch -F3 applies, fuzz needed due to __cpuinit use in
+  context For 3.11, 3.12, 3.13, this patch applies cleanly
+
+Tested-by: Mike Galbraith <bitbucket@online.de>
+Signed-off-by: Len Brown <len.brown@intel.com>
+Acked-by: Mike Galbraith <bitbucket@online.de>
+Cc: <stable@vger.kernel.org> # 3.9+
+Cc: Borislav Petkov <bp@alien8.de>
+Cc: H. Peter Anvin <hpa@zytor.com>
+Cc: Ian Malone <ibmalone@gmail.com>
+Cc: Josh Boyer <jwboyer@redhat.com>
+Cc: Linus Torvalds <torvalds@linux-foundation.org>
+Cc: Mike Galbraith <efault@gmx.de>
+Cc: Peter Zijlstra <peterz@infradead.org>
+Cc: Thomas Gleixner <tglx@linutronix.de>
+Link: http://lkml.kernel.org/r/345254a551eb5a6a866e048d7ab570fd2193aca4.1389763084.git.len.brown@intel.com
+[ Ported to recent kernels. ]
+Signed-off-by: Ingo Molnar <mingo@kernel.org>
+
+diff --git a/arch/x86/include/asm/mwait.h b/arch/x86/include/asm/mwait.h
+index a1410db..653dfa7 100644
+--- a/arch/x86/include/asm/mwait.h
++++ b/arch/x86/include/asm/mwait.h
+@@ -30,6 +30,14 @@ static inline void __mwait(unsigned long eax, unsigned long ecx)
+ 		     :: "a" (eax), "c" (ecx));
+ }
+ 
++static inline void __sti_mwait(unsigned long eax, unsigned long ecx)
++{
++	trace_hardirqs_on();
++	/* "mwait %eax, %ecx;" */
++	asm volatile("sti; .byte 0x0f, 0x01, 0xc9;"
++		     :: "a" (eax), "c" (ecx));
++}
++
+ /*
+  * This uses new MONITOR/MWAIT instructions on P4 processors with PNI,
+  * which can obviate IPI to trigger checking of need_resched.
+diff --git a/arch/x86/kernel/process.c b/arch/x86/kernel/process.c
+index e127dda..da06f74 100644
+--- a/arch/x86/kernel/process.c
++++ b/arch/x86/kernel/process.c
+@@ -24,6 +24,7 @@
+ #include <asm/syscalls.h>
+ #include <asm/idle.h>
+ #include <asm/uaccess.h>
++#include <asm/mwait.h>
+ #include <asm/i387.h>
+ #include <asm/fpu-internal.h>
+ #include <asm/debugreg.h>
+@@ -398,6 +399,49 @@ static void amd_e400_idle(void)
+ 		default_idle();
+ }
+ 
++/*
++ * Intel Core2 and older machines prefer MWAIT over HALT for C1.
++ * We can't rely on cpuidle installing MWAIT, because it will not load
++ * on systems that support only C1 -- so the boot default must be MWAIT.
++ *
++ * Some AMD machines are the opposite, they depend on using HALT.
++ *
++ * So for default C1, which is used during boot until cpuidle loads,
++ * use MWAIT-C1 on Intel HW that has it, else use HALT.
++ */
++static int prefer_mwait_c1_over_halt(const struct cpuinfo_x86 *c)
++{
++	if (c->x86_vendor != X86_VENDOR_INTEL)
++		return 0;
++
++	if (!cpu_has(c, X86_FEATURE_MWAIT))
++		return 0;
++
++	return 1;
++}
++
++/*
++ * MONITOR/MWAIT with no hints, used for default default C1 state.
++ * This invokes MWAIT with interrutps enabled and no flags,
++ * which is backwards compatible with the original MWAIT implementation.
++ */
++
++static void mwait_idle(void)
++{
++	if (!need_resched()) {
++		if (this_cpu_has(X86_BUG_CLFLUSH_MONITOR))
++			clflush((void *)&current_thread_info()->flags);
++
++		__monitor((void *)&current_thread_info()->flags, 0, 0);
++		smp_mb();
++		if (!need_resched())
++			__sti_mwait(0, 0);
++		else
++			local_irq_enable();
++	} else
++		local_irq_enable();
++}
++
+ void select_idle_routine(const struct cpuinfo_x86 *c)
+ {
+ #ifdef CONFIG_SMP
+@@ -411,6 +455,9 @@ void select_idle_routine(const struct cpuinfo_x86 *c)
+ 		/* E400: APIC timer interrupt does not wake up CPU from C1e */
+ 		pr_info("using AMD E400 aware idle routine\n");
+ 		x86_idle = amd_e400_idle;
++	} else if (prefer_mwait_c1_over_halt(c)) {
++		pr_info("using mwait in idle threads\n");
++		x86_idle = mwait_idle;
+ 	} else
+ 		x86_idle = default_idle;
+ }
+-- 
+cgit v0.10.2
+
