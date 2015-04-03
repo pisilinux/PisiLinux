@@ -1,0 +1,62 @@
+From 71684406905f98f86a85e008b51f5c4c5d83af5a Mon Sep 17 00:00:00 2001
+From: Alex Williamson <alex.williamson@redhat.com>
+Date: Wed, 4 Mar 2015 11:29:45 -0700
+Subject: [PATCH] iommu/vt-d: Detach domain *only* from attached iommus
+
+Device domains never span IOMMU hardware units, which allows the
+domain ID space for each IOMMU to be an independent address space.
+Therefore we can have multiple, independent domains, each with the
+same domain->id, but attached to different hardware units.  This is
+also why we need to do a heavy-weight search for VM domains since
+they can span multiple IOMMUs hardware units and we don't require a
+single global ID to use for all hardware units.
+
+Therefore, if we call iommu_detach_domain() across all active IOMMU
+hardware units for a non-VM domain, the result is that we clear domain
+IDs that are not associated with our domain, allowing them to be
+re-allocated and causing apparent coherency issues when the device
+cannot access IOVAs for the intended domain.
+
+This bug was introduced in commit fb170fb4c548 ("iommu/vt-d: Introduce
+helper functions to make code symmetric for readability"), but is
+significantly exacerbated by the more recent commit 62c22167dd70
+("iommu/vt-d: Fix dmar_domain leak in iommu_attach_device") which calls
+domain_exit() more frequently to resolve a domain leak.
+
+Fixes: fb170fb4c548 ("iommu/vt-d: Introduce helper functions to make code symmetric for readability")
+Signed-off-by: Alex Williamson <alex.williamson@redhat.com>
+Cc: Jiang Liu <jiang.liu@linux.intel.com>
+Cc: stable@vger.kernel.org # v3.17+
+Signed-off-by: Joerg Roedel <jroedel@suse.de>
+---
+ drivers/iommu/intel-iommu.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/iommu/intel-iommu.c b/drivers/iommu/intel-iommu.c
+index ae4c1a8..a83c965 100644
+--- a/drivers/iommu/intel-iommu.c
++++ b/drivers/iommu/intel-iommu.c
+@@ -1743,8 +1743,8 @@ static int domain_init(struct dmar_domain *domain, int guest_width)
+ static void domain_exit(struct dmar_domain *domain)
+ {
+ 	struct dmar_drhd_unit *drhd;
+-	struct intel_iommu *iommu;
+ 	struct page *freelist = NULL;
++	int i;
+ 
+ 	/* Domain 0 is reserved, so dont process it */
+ 	if (!domain)
+@@ -1764,8 +1764,8 @@ static void domain_exit(struct dmar_domain *domain)
+ 
+ 	/* clear attached or cached domains */
+ 	rcu_read_lock();
+-	for_each_active_iommu(iommu, drhd)
+-		iommu_detach_domain(domain, iommu);
++	for_each_set_bit(i, domain->iommu_bmp, g_num_of_iommus)
++		iommu_detach_domain(domain, g_iommus[i]);
+ 	rcu_read_unlock();
+ 
+ 	dma_free_pagelist(freelist);
+-- 
+2.3.1
+
