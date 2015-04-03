@@ -1,0 +1,54 @@
+From: Anthony G. Basile <blueness@gentoo.org>
+
+This patch adds support for a restricted user-controlled namespace on
+tmpfs filesystem used to house PaX flags.  The namespace must be of the
+form user.pax.* and its value cannot exceed a size of 8 bytes.
+
+This is needed even on all Gentoo systems so that XATTR_PAX flags
+are preserved for users who might build packages using portage on
+a tmpfs system with a non-hardened kernel and then switch to a
+hardened kernel with XATTR_PAX enabled.
+
+The namespace is added to any user with Extended Attribute support
+enabled for tmpfs.  Users who do not enable xattrs will not have
+the XATTR_PAX flags preserved.
+
+diff --git a/include/uapi/linux/xattr.h b/include/uapi/linux/xattr.h
+index e4629b9..6958086 100644
+--- a/include/uapi/linux/xattr.h
++++ b/include/uapi/linux/xattr.h
+@@ -63,5 +63,9 @@
+ #define XATTR_POSIX_ACL_DEFAULT  "posix_acl_default"
+ #define XATTR_NAME_POSIX_ACL_DEFAULT XATTR_SYSTEM_PREFIX XATTR_POSIX_ACL_DEFAULT
+ 
++/* User namespace */
++#define XATTR_PAX_PREFIX XATTR_USER_PREFIX "pax."
++#define XATTR_PAX_FLAGS_SUFFIX "flags"
++#define XATTR_NAME_PAX_FLAGS XATTR_PAX_PREFIX XATTR_PAX_FLAGS_SUFFIX
+ 
+ #endif /* _UAPI_LINUX_XATTR_H */
+diff --git a/mm/shmem.c b/mm/shmem.c
+index 1c44af7..f23bb1b 100644
+--- a/mm/shmem.c
++++ b/mm/shmem.c
+@@ -2201,6 +2201,7 @@ static const struct xattr_handler *shmem_xattr_handlers[] = {
+ static int shmem_xattr_validate(const char *name)
+ {
+ 	struct { const char *prefix; size_t len; } arr[] = {
++		{ XATTR_USER_PREFIX, XATTR_USER_PREFIX_LEN},
+ 		{ XATTR_SECURITY_PREFIX, XATTR_SECURITY_PREFIX_LEN },
+ 		{ XATTR_TRUSTED_PREFIX, XATTR_TRUSTED_PREFIX_LEN }
+ 	};
+@@ -2256,6 +2257,12 @@ static int shmem_setxattr(struct dentry *dentry, const char *name,
+ 	if (err)
+ 		return err;
+ 
++	if (!strncmp(name, XATTR_USER_PREFIX, XATTR_USER_PREFIX_LEN)) {
++		if (strcmp(name, XATTR_NAME_PAX_FLAGS))
++			return -EOPNOTSUPP;
++		if (size > 8)
++			return -EINVAL;
++	}
+ 	return simple_xattr_set(&info->xattrs, name, value, size, flags);
+ }
+ 
