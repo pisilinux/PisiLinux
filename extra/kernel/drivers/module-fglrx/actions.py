@@ -48,8 +48,8 @@ def setup():
     shelltools.cd("common")
     shelltools.system("patch -p1 < fglrx-no_hotplug.patch")
     
-    shelltools.cd("lib/modules/fglrx/build_mod")
-    shelltools.system("patch -p1 < manjaro_fglrx_319.patch")
+    #shelltools.cd("lib/modules/fglrx/build_mod")
+    #shelltools.system("patch -p1 < manjaro_fglrx_319.patch")
 
 
 def build():
