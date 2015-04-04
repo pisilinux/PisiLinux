@@ -12,12 +12,13 @@ from pisi.actionsapi import get
 def setup():
     shelltools.export("AUTOPOINT", "true")
 
-    autotools.autoreconf("-vfi")
     autotools.configure("--with-python \
-                         --with-ldap \
+                         --without-ldap \
                          --with-popt \
                          --disable-rpath \
-                         --disable-gtk-doc-html")
+                         --enable-gtk-doc-html=no \
+                         --disable-gtk-doc")
+    
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
 
 def build():
@@ -27,5 +28,7 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR='%s'" % get.installDIR())
+    
+    pisitools.removeDir("/usr/share/gtk-doc")
 
     pisitools.dodoc("ABOUT*", "AUTHORS", "COPYING", "NEWS", "README")
