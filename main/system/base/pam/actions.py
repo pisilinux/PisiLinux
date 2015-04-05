@@ -14,8 +14,11 @@ def setup():
 
     autotools.autoreconf("-fi")
     autotools.configure("--enable-nls \
+                         --disable-audit \
                          --enable-securedir=/lib/security \
                          --enable-isadir=/lib/security")
+    
+    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
 def build():
     # Update .po files
