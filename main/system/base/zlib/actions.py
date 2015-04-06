@@ -48,7 +48,6 @@ if get.buildTYPE() == "minizip":
 
     def setup():
         shelltools.cd(minizip_dir)
-        os.system("pwd")
         shelltools.makedirs("m4")
 
         autotools.autoreconf("-vif")
