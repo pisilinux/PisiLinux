@@ -12,7 +12,7 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--enable-shadowgrp \
                          --without-selinux \
-                         --with-audit \
+                         --without-audit \
                          --without-libcrack \
                          --with-libpam \
                          --with-sha-crypt \

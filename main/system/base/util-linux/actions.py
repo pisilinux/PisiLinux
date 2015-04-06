@@ -63,9 +63,9 @@ def setup():
                      --enable-raw \
                      --enable-write \
                      --enable-tunelp \
-                     --with-audit \
+                     --without-audit \
                      --with-udev \
-                     --with-utempter \
+                     --without-utempter \
                    "
 
     autotools.autoreconf("-fi")
