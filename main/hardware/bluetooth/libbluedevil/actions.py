@@ -11,7 +11,9 @@ from pisi.actionsapi import get
 
 
 def setup():
-    kde4.configure("-DCMAKE_INSTALL_LIBDIR=lib")
+    kde4.configure("-DCMAKE_INSTALL_LIBDIR=lib \
+		    -DCMAKE_INSTALL_PREFIX=/usr \
+		    -DCMAKE_BUILD_TYPE=Release ")
 
 def build():
     kde4.make()
