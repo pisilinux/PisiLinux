@@ -15,7 +15,7 @@ def setup():
                --disable-fam \
                --disable-static \
                --enable-shared \
-               --disable-man \
+               --enable-man \
                --enable-systemtap"
 
 
