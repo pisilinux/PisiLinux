@@ -90,8 +90,8 @@ def setup():
                    -datadir %s \
                    -importdir %s \
                    -headerdir %s \
-                   -confirm-license " % (qt4.prefix, bindirQt4, qt4.libdir, qt4.docdir, qt4.examplesdir, qt4.demosdir, qt4.plugindir, qt4.translationdir,
-qt4.sysconfdir,
+                   -confirm-license " % (qt4.prefix, bindirQt4, qt4.libdir, qt4.docdir, qt4.examplesdir, qt4.demosdir, qt4.plugindir, qt4.translationdir, 
+qt4.sysconfdir, 
 qt4.datadir, qt4.importdir, qt4.includedir)
     else:
         pisitools.dosed("mkspecs/linux-g++-64/qmake.conf", "-m64", "-m32")
@@ -157,10 +157,6 @@ def install():
 
     # Fix all occurances of WorkDir in pc files
     pisitools.dosed("%s%s/pkgconfig/*.pc" % (get.installDIR(), qt4.libdir), "%s/qt-x11-opensource-src-%s" % (get.workDIR(), get.srcVERSION()), qt4.prefix)
-
-    #I hope qtchooser will manage this issue
-    for bin in shelltools.ls("%s/usr/lib/qt4/bin" % get.installDIR()):
-        pisitools.dosym("/usr/lib/qt4/bin/%s" % bin, "/usr/bin/%s-qt4" % bin)
 
     mkspecPath = "%s/mkspecs" % qtbase
 
