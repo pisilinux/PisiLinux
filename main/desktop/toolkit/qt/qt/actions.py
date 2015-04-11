@@ -7,7 +7,6 @@
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import kde4
 from pisi.actionsapi import qt4
 from pisi.actionsapi import get
 
@@ -17,12 +16,15 @@ WorkDir = "qt-everywhere-opensource-src-%s" % get.srcVERSION().replace('_','-').
 
 qtbase = qt4.prefix
 absoluteWorkDir = "%s/%s" % (get.workDIR(), WorkDir)
+bindirQt4="/usr/lib/qt4/bin"
 
 def setup():
     pisitools.flags.add("-I/usr/include/gtk-2.0/gdk")
     #make sure we don't use them
-    for d in ('libjpeg', 'freetype', 'libpng', 'zlib', 'libtiff'):
-        shelltools.unlinkDir("src/3rdparty/%s" % d)
+    checkdeletepath="%s/qtbase/src/3rdparty"  % absoluteWorkDir
+    for dir in ('libjpeg', 'freetype', 'libpng', 'zlib', "libtiff"):
+        if os.path.exists(checkdeletepath+dir):
+            shelltools.unlinkDir(checkdeletepath+dir)
 
     filteredCFLAGS = get.CFLAGS().replace("-g3", "-g")
     filteredCXXFLAGS = get.CXXFLAGS().replace("-g3", "-g")
@@ -77,6 +79,7 @@ def setup():
                    -opensource \
                    -reduce-relocations \
                    -prefix %s \
+                   -bindir %s \
                    -libdir %s \
                    -docdir %s \
                    -examplesdir %s \
@@ -87,7 +90,9 @@ def setup():
                    -datadir %s \
                    -importdir %s \
                    -headerdir %s \
-                   -confirm-license " % (qt4.prefix, qt4.libdir, qt4.docdir, qt4.examplesdir, qt4.demosdir, qt4.plugindir, qt4.translationdir, qt4.sysconfdir, qt4.datadir, qt4.importdir, qt4.includedir)
+                   -confirm-license " % (qt4.prefix, bindirQt4, qt4.libdir, qt4.docdir, qt4.examplesdir, qt4.demosdir, qt4.plugindir, qt4.translationdir, 
+qt4.sysconfdir, 
+qt4.datadir, qt4.importdir, qt4.includedir)
     else:
         pisitools.dosed("mkspecs/linux-g++-64/qmake.conf", "-m64", "-m32")
         shelltools.export("LDFLAGS", "-m32 %s" % get.LDFLAGS())
@@ -147,7 +152,7 @@ def install():
 
     # Turkish translations
     shelltools.export("LD_LIBRARY_PATH", "%s%s" % (get.installDIR(), qt4.libdir))
-    shelltools.system("%s%s/lrelease l10n-tr/*.ts" % (get.installDIR(), qt4.bindir))
+    shelltools.system("%s%s/lrelease l10n-tr/*.ts" % (get.installDIR(), bindirQt4))
     pisitools.insinto(qt4.translationdir, "l10n-tr/*.qm")
 
     # Fix all occurances of WorkDir in pc files
