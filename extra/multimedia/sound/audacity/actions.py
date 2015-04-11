@@ -9,7 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-WorkDir = "audacity-src-%s" % get.srcVERSION()
+WorkDir = "audacity-minsrc-%s" % get.srcVERSION()
 
 def setup():
     shelltools.cd("lib-src/portmixer")
