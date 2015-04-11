@@ -12,8 +12,6 @@ from pisi.actionsapi import get
 
 import os
 
-#WorkDir = "qtbase-opensource-src-5.4.1"
-
 qtbase = qt5.prefix
 
 #Temporary bindir to avoid qt4 conflicts
@@ -42,10 +40,10 @@ def setup():
     autotools.rawConfigure("-no-pch \
                    -opengl es2 \
                    -xcb \
-                   -no-webkit2 \
                    -confirm-license \
                    -optimized-qmake \
                    -nomake tests \
+                   -nomake examples \
                    -no-rpath \
                    -release \
                    -shared \
@@ -55,7 +53,6 @@ def setup():
                    -glib \
                    -gtkstyle \
                    -icu \
-                   -disable-static \
                    -c++11 \
                    -system-harfbuzz \
                    -openssl-linked \
@@ -69,23 +66,25 @@ def setup():
                    -plugin-sql-ibase \
                    -no-sql-tds \
                    -I/usr/include/firebird/ \
-                   -I/usr/include/postgresql/server/ \
-                   -prefix /usr \
-                   -bindir /usr/lib/qt5/bin \
-                   -archdatadir /usr/lib/qt5 \
-                   -datadir /usr/share/qt5 \
-                   -libdir /usr/lib \
-                   -docdir /usr/share/doc/qt5 \
-                   -sysconfdir /etc/xdg \
-                   -xkb-config-root /usr/share/X11/xkb \
+                   -I/usr/include/postgresql/server/ \-xkb-config-root /usr/share/X11/xkb \
                    -no-warnings-are-errors \
-                   -no-use-gold-linker") \
-                   #")
-                   #-opensource \
-                   #-reduce-relocations" % (qt5.prefix, bindirQt5, qt5.archdatadir, qt5.libdir, qt5.docdir, qt5.examplesdir, qt5.plugindir, qt5.translationdir, qt5.sysconfdir, qt5.datadir, qt5.importdir, qt5.headerdir))
-
+                   -no-use-gold-linker \
+                   -opensource \
+                   -prefix %s \
+                   -bindir %s \
+                   -archdatadir %s\
+                   -libdir %s \
+                   -docdir %s \
+                   -examplesdir %s \
+                   -plugindir %s \
+                   -translationdir %s \
+                   -sysconfdir %s \
+                   -datadir %s \
+                   -importdir %s \
+                   -headerdir %s \
+                   -reduce-relocations" % (qt5.prefix, bindirQt5, qt5.archdatadir, qt5.libdir, qt5.docdir, qt5.examplesdir, qt5.plugindir, qt5.translationdir, qt5.sysconfdir, qt5.datadir, qt5.importdir, qt5.headerdir))
+                   
 def build():
-    #shelltools.export("LD_LIBRARY_PATH", "%s/lib:%s" % (get.curDIR(), get.ENV("LD_LIBRARY_PATH")))
     qt5.make()
     shelltools.system('sed -i "s|/usr/lib/qt/bin/qdoc|${QTDIR}/qtbase/bin/qdoc|g" qmake/Makefile.qmake-docs')
     shelltools.system('sed -i "s|/usr/lib/qt/bin/qhelpgenerator|${QTDIR}/qttools/bin/qhelpgenerator|g" qmake/Makefile.qmake-docs')
