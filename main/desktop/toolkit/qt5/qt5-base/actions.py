@@ -25,11 +25,11 @@ def setup():
             "PISILINUX_CXX":       get.CXX(),
             "PISILINUX_CFLAGS":    filteredCFLAGS,
             "PISILINUX_LDFLAGS":   get.LDFLAGS()}
-
+            
     for k, v in vars.items():
         pisitools.dosed("mkspecs/common/g++-base.conf", k, v)
         pisitools.dosed("mkspecs/common/g++-unix.conf", k, v)
-
+            
     shelltools.export("CFLAGS", filteredCFLAGS)
     shelltools.export("CXXFLAGS", filteredCXXFLAGS)
     #check that dosed commands without releated patches
@@ -46,6 +46,7 @@ def setup():
                    -nomake examples \
                    -no-rpath \
                    -release \
+                   -no-static \
                    -shared \
                    -accessibility \
                    -dbus-linked \
@@ -53,7 +54,12 @@ def setup():
                    -glib \
                    -gtkstyle \
                    -icu \
+                   -cups \
+                   -nis \
+                   -widgets \
+                   -gui \
                    -c++11 \
+                   -largefile \
                    -system-harfbuzz \
                    -openssl-linked \
                    -system-libjpeg \
@@ -66,7 +72,8 @@ def setup():
                    -plugin-sql-ibase \
                    -no-sql-tds \
                    -I/usr/include/firebird/ \
-                   -I/usr/include/postgresql/server/ \-xkb-config-root /usr/share/X11/xkb \
+                   -I/usr/include/postgresql/server/ \
+                   -xkb-config-root /usr/share/X11/xkb \
                    -no-warnings-are-errors \
                    -no-use-gold-linker \
                    -opensource \
