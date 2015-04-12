@@ -13,4 +13,4 @@ def build():
 def install():
     pythonmodules.install()
 
-    pisitools.dodoc("LICENSE", "README")
+    pisitools.dodoc("LICENSE", "README.rst", "INSTALL.rst")

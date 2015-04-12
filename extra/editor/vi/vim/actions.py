@@ -10,7 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 
-WorkDir = "vim74"
+#WorkDir = "vim74"
 
 def setup():
     # TODO: do we need that ?
@@ -54,6 +54,7 @@ def setup():
               --disable-netbeans \
               --enable-perlinterp \
               --disable-luainterp \
+              --with-x=no \
               --with-modified-by=PisiLinux"
 
     if get.buildTYPE() == "gui":
