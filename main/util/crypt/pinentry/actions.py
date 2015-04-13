@@ -8,12 +8,14 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 
 def setup():
-    autotools.autoreconf("-vfi")
-    autotools.configure("--disable-dependency-tracking \
-                         --disable-rpath \
-                         --disable-pinentry-gtk \
+    #autotools.autoreconf("-vfi")
+    autotools.configure("--prefix=/usr \
                          --enable-pinentry-curses \
-                         --infodir=/usr/share/info")
+                         --disable-pinentry-gtk \
+                         --disable-pinentry-qt \
+                         --enable-pinentry-gtk2 \
+                         --enable-pinentry-qt4 \
+                         --enable-fallback-curses")
 
 def build():
     autotools.make()
