@@ -9,9 +9,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-vfi")
-    
-    autotools.configure("--disable-fd-passing \
+     autotools.configure("--disable-fd-passing \
                          --disable-static \
                          --disable-gpgsm-test")
 
