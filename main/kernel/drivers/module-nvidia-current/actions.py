@@ -22,7 +22,7 @@ nvlibdir = "%s/%s" % (libdir, driver_dir_name)
 xorglibdir= "%s/xorg" % libdir
 
 def setup():
-    shelltools.system("sh NVIDIA-Linux-%s-%s.bin -x --target tmp"
+    shelltools.system("sh NVIDIA-Linux-%s-%s.run -x --target tmp"
                       % (arch, get.srcVERSION()))
     shelltools.move("tmp/*", ".")
 
