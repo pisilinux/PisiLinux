@@ -11,11 +11,9 @@ from pisi.actionsapi import get
 
 def setup():
     #autotools.autoreconf("-fi")
-    #shelltools.export("CXXFLAGS","%s  -fno-rtti -fno-exceptions" % get.CXXFLAGS())
+    shelltools.export("PAGE", "a4")
     autotools.configure("--prefix=/usr \
                          --without-x")
-#                         --with-appresdir=/usr/share/X11/app-defaults \
-#                         --with-x")
 
 def build():
     #shelltools.export("LC_ALL", "C")
