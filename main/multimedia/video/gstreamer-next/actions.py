@@ -12,10 +12,26 @@ from pisi.actionsapi import get
 def setup():
     shelltools.export("AUTOPOINT", "true")
     autotools.autoreconf("-vfi")
+    
+    options = '--with-package-name="GStreamer for PisiLinux" \
+               --with-package-origin="http://www.pisilinux.org" \
+               --enable-nls \
+               --disable-dependency-tracking \
+               --disable-examples \
+               --enable-introspection \
+               --disable-static \
+               --disable-rpath \
+               --disable-valgrind \
+               --disable-gtk-doc'
 
-    autotools.configure("--with-package-name='GStreamer package for PisiLinux' \
-                         --with-package-origin='http://www.pisilinux.org' \
-                         --disable-static")
+    if get.buildTYPE() == "emul32":
+        options += " --bindir=/usr/bin32 \
+                     --libexecdir=/usr/libexec32 \
+                     --disable-introspection"
+
+        shelltools.export("PKG_CONFIG_PATH", "/usr/lib32/pkgconfig")
+
+    autotools.configure(options)
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")    
 
@@ -24,5 +40,9 @@ def build():
 
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    if get.buildTYPE() == "emul32":
+        pisitools.removeDir("/usr/bin32")
+        pisitools.removeDir("/usr/libexec32")
 
     pisitools.dodoc("AUTHORS", "ChangeLog", "COPYING*", "NEWS", "README")
