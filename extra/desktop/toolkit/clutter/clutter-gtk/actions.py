@@ -9,11 +9,12 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
+shelltools.export("HOME", get.workDIR())
+
+
 def setup():
-    # guess we should update to new autoconf
-    shelltools.system("gtkdocize")
-    autotools.autoreconf("-fi")
-    autotools.configure()
+    autotools.configure("--disable-static \
+                         --enable-introspection")
 
     # for fix unused dependency
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
@@ -21,11 +22,8 @@ def setup():
 def build():
     autotools.make()
 
-def install():
-    autotools.rawInstall('DESTDIR=%s INSTALL="install -p"'% get.installDIR())
-    pisitools.removeDir("/usr/share/locale")
-    for i in shelltools.ls("examples"):
-        if i.endswith(".png") or i.endswith(".c"):
-            pisitools.insinto("/%s/%s/examples/" % (get.docDIR(), get.srcNAME()), "examples/%s" % i)
 
-    pisitools.dodoc("ABOUT-NLS", "README*", "NEWS", "COPYING")
+def install():
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+
+    pisitools.dodoc("COPYING")

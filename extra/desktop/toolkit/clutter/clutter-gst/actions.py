@@ -6,30 +6,19 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
-from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
-
 def setup():
-    # guess we should update to new autoconf
-    shelltools.system("gtkdocize")
-    autotools.autoreconf("-fi")
-    autotools.configure("--prefix=/usr \
-			 --sysconfdir=/etc \
-			 --enable-introspection \
-			 --disable-static")
-    
-    # for fix unused dependency   
-    pisitools.dosed("libtool"," -shared ", " -Wl,-O1,--as-needed -shared ")    
+    autotools.configure("--disable-static")
+
+    pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ")
+
 
 def build():
     autotools.make()
 
+
 def install():
-    autotools.rawInstall('DESTDIR=%s INSTALL="install -p"' % get.installDIR())
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    for i in shelltools.ls("examples"):
-        if i.endswith(".png") or i.endswith(".c"):
-            pisitools.insinto("/%s/%s/examples/" % (get.docDIR(), get.srcNAME()), "examples/%s" % i)
-
-    pisitools.dodoc("AUTHORS", "ChangeLog*", "README*", "NEWS")
+    pisitools.dodoc("COPYING", "AUTHORS")
