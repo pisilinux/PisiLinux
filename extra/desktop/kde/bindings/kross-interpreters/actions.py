@@ -13,10 +13,14 @@ shelltools.export("JAVA_HOME","/usr/lib/jvm/java-7-openjdk")
 
 def setup():
     kde4.configure("-DBUILD_csharp=OFF \
+                    -DCMAKE_BUILD_TYPE=Release \
                     -DENABLE_KROSSFALCON=OFF \
                     -DENABLE_PHP-QT=ON \
-                    -DRUBY_SITE_LIB_DIR=/usr/lib/ruby/site_ruby/2.0.0 \
-                    -DRUBY_SITE_ARCH_DIR=/usr/lib/ruby/site_ruby/2.0.0/x86_64-linux")
+                    -DKDE4_BUILD_TESTS=OFF \
+                    -DBUILD_ruby=OFF \
+                    -DPYTHON_EXECUTABLE=/usr/bin/python \
+                    -DRUBY_SITE_LIB_DIR=/usr/lib/ruby/site_ruby/2.2.0 \
+                    -DRUBY_SITE_ARCH_DIR=/usr/lib/ruby/site_ruby/2.2.0/x86_64-linux")
 
 def build():
     kde4.make()

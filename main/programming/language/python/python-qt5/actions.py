@@ -13,34 +13,52 @@ from pisi.actionsapi import get
 WorkDir="PyQt-gpl-%s" % get.srcVERSION()
 
 def setup():
-    shelltools.cd("..")
-    shelltools.makedirs("build_python3")
-    shelltools.copytree("./%s" % WorkDir,  "build_python3")
-    shelltools.cd(WorkDir)
-     
-    pythonmodules.run("configure.py --confirm-license \
-                                    --no-timestamp \
-                                    --assume-shared \
-                                    --qsci-api \
-                                    -q /usr/lib/qt5/bin/qmake")
-    shelltools.system("find -name 'Makefile' | xargs sed -i 's|-Wl,-rpath,/usr/lib||g;s|-Wl,-rpath,.* ||g'")
-
-    shelltools.cd("../build_python3/%s" % WorkDir)
-    pythonmodules.run("configure.py --sip-incdir='/usr/include/python3.4' --confirm-license -q /usr/lib/qt5/bin/qmake", pyVer = "3")
-    shelltools.system("find -name 'Makefile' | xargs sed -i 's|-Wl,-rpath,/usr/lib||g;s|-Wl,-rpath,.* ||g'")
+  
+    shelltools.copytree("%s/PyQt-gpl-5.4.1" % get.workDIR(), "%s/Py2Qt-gpl-5.4.1" % get.workDIR())
+    pythonmodules.run("configure.py  --confirm-license \
+                                     --assume-shared \
+                                     --no-timestamp \
+                                     --qsci-api \
+                                     --enable=QtCore \
+                                     --enable=QtWidgets \
+                                     --enable=QtXml \
+                                     --enable=QtGui \
+                                     --sip /usr/local/bin/sip \
+                                     --qmake='/usr/lib/qt5/bin/qmake' \
+                                     --destdir='/usr/lib/python3.4/site-packages' \
+                                     --sip-incdir='/usr/include/python3.4/sip3' \
+                                     CFLAGS='%s' CXXFLAGS='%s'" % (get.CFLAGS(), get.CXXFLAGS()), pyVer = "3")
+    
+    shelltools.cd("%s/Py2Qt-gpl-5.4.1" % get.workDIR())
+    shelltools.system("python configure.py  --confirm-license \
+                                     --assume-shared \
+                                     --no-timestamp \
+                                     --qsci-api \
+                                     --enable=QtCore \
+                                     --enable=QtWidgets \
+                                     --enable=QtXml \
+                                     --enable=QtGui \
+                                     --destdir='/usr/lib/python2.7/site-packages' \
+                                     --sip-incdir='/usr/include/python2.7/sip3' \
+                                     --sip /usr/local/bin/sip \
+                                     --qmake='/usr/lib/qt5/bin/qmake'")
+    #shelltools.system("find -name 'Makefile' | xargs sed -i 's|-Wl,-rpath,/usr/lib||g;s|-Wl,-rpath,.* ||g'")    
 
 def build():
-    autotools.make("-C pyrcc")
-    shelltools.cd("../build_python3/%s" % WorkDir)
-    autotools.make("-C pylupdate")
+    
+    autotools.make()
+    shelltools.cd("%s/Py2Qt-gpl-5.4.1" % get.workDIR())
+    autotools.make()
 
 def install():
-    pisitools.insinto("/usr/share/qt/qsci/api/python", "PyQt5.api")
-    shelltools.cd("../build_python3/%s" % WorkDir)
+  
+    autotools.rawInstall("-C pyrcc DESTDIR=%(DESTDIR)s INSTALL_ROOT=%(DESTDIR)s" % {'DESTDIR':get.installDIR()})
+    autotools.rawInstall("-C pylupdate DESTDIR=%(DESTDIR)s INSTALL_ROOT=%(DESTDIR)s" % {'DESTDIR':get.installDIR()})
     autotools.rawInstall("DESTDIR=%(DESTDIR)s INSTALL_ROOT=%(DESTDIR)s" % {'DESTDIR':get.installDIR()})
-    pisitools.rename("/usr/bin/pyuic5", "pyuic5-python3")
-
-    shelltools.cd("../../%s" % WorkDir)
+    shelltools.cd("%s/Py2Qt-gpl-5.4.1" % get.workDIR())
     autotools.rawInstall("DESTDIR=%(DESTDIR)s INSTALL_ROOT=%(DESTDIR)s" % {'DESTDIR':get.installDIR()})
+    #pisitools.rename("/usr/bin/pyuic5", "pyuic5-python")
+    
     pisitools.dohtml("doc/html/*")
-    pisitools.dodoc("NEWS", "README", "LICENSE*")
+    
+    pisitools.dodoc("NEWS", "README","LICENSE*")
