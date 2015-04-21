@@ -28,9 +28,9 @@ def install():
     pisitools.dobin("bundles/1.6.0/dynbinary/docker-1.6.0")
     pisitools.doexe("bundles/1.6.0/dynbinary/dockerinit", "/usr/libexec/docker")
     pisitools.doexe("bundles/1.6.0/dynbinary/dockerinit-1.6.0", "/usr/libexec/docker")
-    
+
     # insert udev rules
     pisitools.insinto("/etc/udev/rules.d", "contrib/udev/*.rules")
-    
+
     pisitools.dodoc("VERSION", "LICENSE", "README.md", "AUTHORS", "CONTRIBUTING.md", "CHANGELOG.md", "NOTICE")
-    
+
