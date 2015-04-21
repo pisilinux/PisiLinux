@@ -16,23 +16,28 @@ def setup():
 # --enable-32-bit option is not present anymore. Although build fails in emul32. With --disable-asm option, not fail. Needs to be tested.
 
     options ="\
-              --with-gallium-drivers=r300,r600,radeonsi,nouveau,svga,swrast \
+              --with-dri-driverdir=/usr/lib/xorg/modules/dri \
+              --with-gallium-drivers=r300,r600,nouveau,svga,swrast \
               --with-dri-drivers=i915,i965,r200,radeon,nouveau,swrast \
               --with-egl-platforms=x11,drm,wayland \
-              --enable-llvm-shared-libs \
+              --enable-xa \
+              --enable-dri \
               --enable-egl \
               --enable-gbm \
-              --enable-shared-glapi \
               --enable-glx \
-              --enable-glx-tls \
-              --enable-dri \
-              --enable-osmesa \
+              --enable-dri3 \
               --enable-gles1 \
               --enable-gles2 \
-              --enable-texture-float \
-              --enable-xa \
               --enable-vdpau \
-              --enable-nine \
+              --enable-osmesa \
+              --enable-sysfs \
+              --enable-xvmc \
+              --enable-glx-tls \
+              --enable-gallium-egl \
+              --enable-gallium-gbm \
+              --enable-gallium-llvm \
+              --enable-shared-glapi \
+              --enable-texture-float \
              "
 
     if get.buildTYPE() == "emul32":
@@ -58,9 +63,8 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    pisitools.domove("%s/libGL.so.1.2.0" % Libdir, "%s/" % Libdir)
+    pisitools.domove("%s/libGL.so.1.2.0" % Libdir, "%s/mesa" % Libdir)
     pisitools.dosym("libGL.so.1.2.0", "%s/libGL.so.1.2" % Libdir)
-
 
     if get.buildTYPE() == "emul32":
         return
