@@ -9,9 +9,9 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import cmaketools
 
 
-pisitools.flags.add("-fno-strict-aliasing -DBIG_JOINS=1")
-pisitools.cflags.add("-fomit-frame-pointer")
-pisitools.cxxflags.add("-felide-constructors -fno-rtti -fno-delete-null-pointer-checks")
+#pisitools.flags.add("-fno-strict-aliasing -DBIG_JOINS=1")
+#pisitools.cflags.add("-fomit-frame-pointer")
+#pisitools.cxxflags.add("-felide-constructors -fno-rtti -fno-delete-null-pointer-checks")
 
 def setup():
     #pisitools.dosed("storage/tokudb/ft-index/ft/ft-ops.cc", "LEAFENTRY leaf_entry;", "LEAFENTRY leaf_entry = 0;")
@@ -38,7 +38,7 @@ def setup():
                           -DWITH_SSL=system \
                           -DWITH_PCRE=system \
                           -DWITH_LIBWRAP=OFF \
-                          -DWITH_JEMALLOC=OFF \
+                          -DWITH_JEMALLOC=ON \
                           -DWITH_EXTRA_CHARSETS=complex \
                           -DWITH_EMBEDDED_SERVER=ON \
                           -DWITH_ARCHIVE_STORAGE_ENGINE=1 \
@@ -62,7 +62,7 @@ def install():
     # Config
     pisitools.insinto("/etc/mysql", "%s/usr/share/mysql/my-medium.cnf" % get.installDIR(), "my.cnf")
     pisitools.insinto("/etc/mysql", "%s/%s/scripts/mysqlaccess.conf" % (get.workDIR(), get.srcDIR()))
-
+    pisitools.insinto("/usr/bin", "%s/%s/scripts/mysql_config" % (get.workDIR(), get.srcDIR()))
     # Data dir
     pisitools.dodir("/var/lib/mysql")
 
@@ -77,4 +77,4 @@ def install():
     pisitools.remove("/usr/share/man/man1/mysql-test-run.pl.1")
 
     # Remove -lprobes_mysql
-    pisitools.dosed("%s/usr/bin/mysql_config" % get.installDIR(), "-lprobes_mysql")
+    #pisitools.dosed("%s/usr/bin/mysql_config" % get.installDIR(), "-lprobes_mysql")
