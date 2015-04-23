@@ -10,18 +10,18 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import qt5
 from pisi.actionsapi import get
 
-def setup():     
-     shelltools.export("QT5LINK", "/usr/lib/qt5/bin")
-     qt5.configure(projectfile='WebKit.pro')    
-     
+def setup():
+    shelltools.export("QT5LINK", "/usr/lib/qt5/bin")
+    qt5.configure(projectfile='WebKit.pro')
+
 def build():
-	 qt5.make()
+    qt5.make()
 
 def install():
      qt5.install("INSTALL_ROOT=%s" % get.installDIR())
 
      #I hope qtchooser will manage this issue
      for bin in shelltools.ls("%s/usr/lib/qt5/bin" % get.installDIR()):
-        pisitools.dosym("/usr/lib/qt5/bin/%s" % bin, "/usr/bin/%s-qt5" % bin)
-           
+        pisitools.dosym("/usr/lib/qt5/bin/%s" % bin, "/usr/bin/%s-qt5" % bin)  
+
      pisitools.dodoc("LICENSE.GPLv2", "LICENSE.LGPLv3", "LICENSE.LGPLv21", "ChangeLog-2012-05-22")

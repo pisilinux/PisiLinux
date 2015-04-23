@@ -11,7 +11,7 @@ from pisi.actionsapi import qt5
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system ("qmake-qt5 qtdeclarative.pro")
+    qt5.configure(projectfile='qmake-qt5 qtdeclarative.pro')
 
 def build():
      qt5.make()
