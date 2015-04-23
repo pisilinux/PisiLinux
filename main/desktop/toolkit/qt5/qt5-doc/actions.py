@@ -12,15 +12,14 @@ from pisi.actionsapi import get
 
 
 WorkDir="qtdoc-opensource-src-5.4.1"
+
 def setup():
     shelltools.export("QT5LINK", "/usr/share/doc/qt5/global")
     shelltools.system("qmake-qt5 QMAKE_DOCS='doc/config/qtdoc.qdocconf' qtdoc.pro")
-   # qt5.configure(projectfile='qtdoc.pro')
-   
-    
+    qt5.configure(projectfile='qtdoc.pro', parameters='QMAKE_DOCS=doc/config/qtdoc.qdocconf')
+
 def build():
     qt5.make("docs")
-    
 
 def install():
     qt5.install()
