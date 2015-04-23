@@ -25,11 +25,11 @@ def setup():
             "PISILINUX_CXX":       get.CXX(),
             "PISILINUX_CFLAGS":    filteredCFLAGS,
             "PISILINUX_LDFLAGS":   get.LDFLAGS()}
-
+      
     for k, v in vars.items():
         pisitools.dosed("mkspecs/common/g++-base.conf", k, v)
         pisitools.dosed("mkspecs/common/g++-unix.conf", k, v)
-
+     
     shelltools.export("CFLAGS", filteredCFLAGS)
     shelltools.export("CXXFLAGS", filteredCXXFLAGS)
     #check that dosed commands without releated patches
