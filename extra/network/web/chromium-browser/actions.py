@@ -87,8 +87,8 @@ def install():
 
     shelltools.makedirs("%s/usr/lib/chromium-browser" % get.installDIR())
     
-    binaries_for_inst=["chrome", "chrome_sandbox", "chromedriver"]
-    libraries_for_inst=["libffmpegsumo.so", "libpdf.so", "icudtl.dat"]
+    binaries_for_inst=["chrome", "chrome_sandbox", "chromedriver", "natives_blob.bin", "snapshot_blob.bin"]
+    libraries_for_inst=["libffmpegsumo.so", "icudtl.dat"]
    
     # install and strip binaries
     for mybin in binaries_for_inst:
