@@ -12,7 +12,7 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --exec-prefix=/usr \
                          --enable-freetype \
-                         --enable-python")
+                         --disable-python")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
 
