@@ -27,4 +27,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s vimdir=/usr/share/vim/vimfiles" % get.installDIR())
 
-    pisitools.dodoc("COPYING", "NEWS.txt", "README.txt", "THANKS", "VERSION", "ROADMAP")
+    pisitools.dodoc("COPYING", "NEWS.txt", "README.txt", "VERSION", "ROADMAP")
