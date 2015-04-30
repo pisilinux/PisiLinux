@@ -19,6 +19,8 @@ def setup():
     pisitools.dosed("lily/ttf.cc", "freetype/tttables.h", "freetype2/tttables.h")    
     pisitools.dosed("lily/open-type-font.cc", "freetype/tttables.h", "freetype2/tttables.h")
     autotools.configure("--with-ncsb-dir=/usr/share/fonts/default/ghostscript  --disable-documentation --disable-optimising --disable-pipe")
+    shelltools.system("sed -i 's|GUILE_CFLAGS=.*|GUILE_CFLAGS=`pkg-config --cflags guile-1.8`|' configure")
+    shelltools.system("sed -i 's|GUILE_LDFLAGS=.*|GUILE_LDFLAGS=`pkg-config --libs guile-1.8`|' configure")
 
 def build():
     shelltools.export("LC_ALL", "C")
