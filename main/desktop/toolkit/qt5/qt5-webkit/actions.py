@@ -11,14 +11,13 @@ from pisi.actionsapi import qt5
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.export("QT5LINK", "/usr/lib/qt5/bin")
-    qt5.configure(projectfile='WebKit.pro')
+    qt5.configure()
 
 def build():
     qt5.make()
 
 def install():
-     qt5.install("INSTALL_ROOT=%s" % get.installDIR())
+     qt5.install()
 
      #I hope qtchooser will manage this issue
      for bin in shelltools.ls("%s/usr/lib/qt5/bin" % get.installDIR()):
