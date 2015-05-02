@@ -14,18 +14,36 @@ def setup():
     pisitools.dosed("makeinclude.in", "^(docdir.*)$", r"\1/html")
 
     autotools.autoconf()
-    autotools.configure("--enable-gl \
-                         --enable-shared \
-                         --enable-threads \
-                         --with-optim='%s' \
-                         " % get.CFLAGS())
+
+    options = "\
+               --enable-gl \
+               --enable-shared \
+               --enable-threads \
+               "
+
+    if get.buildTYPE() == "emul32":
+
+        shelltools.export("CFLAGS", "-m32")
+        shelltools.export("CXXFLAGS", "-m32")
+
+        options += "--prefix=/usr \
+                    --libdir=/usr/lib32 \
+                    --with-optim='%s' \
+                    " % get.CFLAGS()
+
+    elif get.ARCH() == "x86_64":
+
+        options += "--with-optim='%s' \
+                   "  % get.CFLAGS()
+
+    autotools.configure(options)
 
 def build():
     autotools.make()
     autotools.make("-C documentation all")
 
 def install():
-    autotools.install()
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     autotools.install("-C documentation")
     autotools.rawInstall("DESTDIR=%s -C fluid" % get.installDIR(), "install-linux")
 

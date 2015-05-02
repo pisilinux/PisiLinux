@@ -87,8 +87,8 @@ def install():
 
     shelltools.makedirs("%s/usr/lib/chromium-browser" % get.installDIR())
     
-    binaries_for_inst=["chrome", "chrome_sandbox", "chromedriver"]
-    libraries_for_inst=["libffmpegsumo.so", "libpdf.so", "icudtl.dat"]
+    binaries_for_inst=["chrome", "chrome_sandbox", "chromedriver", "natives_blob.bin", "snapshot_blob.bin"]
+    libraries_for_inst=["libffmpegsumo.so", "icudtl.dat"]
    
     # install and strip binaries
     for mybin in binaries_for_inst:
@@ -115,7 +115,7 @@ def install():
     for size in ["22", "24", "48", "64", "128", "256"]:
         pisitools.insinto("/usr/share/icons/hicolor/%sx%s/apps" %(size, size), "chrome/app/theme/chromium/product_logo_%s.png" % size, "chromium-browser.png")
         
-    shelltools.copytree("PepperFlash", "%s/usr/lib/chromium-browser/" % get.installDIR())
+    #shelltools.copytree("PepperFlash", "%s/usr/lib/chromium-browser/" % get.installDIR())
 			
     pisitools.dosym("/usr/share/icons/hicolor/256x256/apps/chromium-browser.png", "/usr/share/pixmaps/chromium-browser.png")
     

@@ -15,7 +15,7 @@ def start():
                  pidfile=PIDFILE,
                  detach=True,
                  donotify=True)
-    os.system("pidof mariadb_server + /usr/bin/mysqld > /run/mysqld/mysqld.pid")
+    #os.system("pidof mariadb_server + /usr/bin/mysqld > /run/mysqld/mysqld.pid")
 
 
 @synchronized

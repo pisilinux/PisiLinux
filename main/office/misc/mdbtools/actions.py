@@ -12,11 +12,12 @@ from pisi.actionsapi import get
 WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION().replace("_", ""))
 
 def setup():
-    shelltools.unlink("acinclude.m4")
+    #shelltools.unlink("acinclude.m4")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-gtk-doc \
                          --disable-static \
-                         --enable-sql \
+                         --disable-man \
+                         --disable-gmdb2 \
                          --with-unixodbc=/usr")
     
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")

@@ -25,11 +25,11 @@ def setup():
             "PISILINUX_CXX":       get.CXX(),
             "PISILINUX_CFLAGS":    filteredCFLAGS,
             "PISILINUX_LDFLAGS":   get.LDFLAGS()}
-            
+      
     for k, v in vars.items():
         pisitools.dosed("mkspecs/common/g++-base.conf", k, v)
         pisitools.dosed("mkspecs/common/g++-unix.conf", k, v)
-            
+     
     shelltools.export("CFLAGS", filteredCFLAGS)
     shelltools.export("CXXFLAGS", filteredCXXFLAGS)
     #check that dosed commands without releated patches
@@ -90,7 +90,7 @@ def setup():
                    -importdir %s \
                    -headerdir %s \
                    -reduce-relocations" % (qt5.prefix, bindirQt5, qt5.archdatadir, qt5.libdir, qt5.docdir, qt5.examplesdir, qt5.plugindir, qt5.translationdir, qt5.sysconfdir, qt5.datadir, qt5.importdir, qt5.headerdir))
-                   
+
 def build():
     qt5.make()
     shelltools.system('sed -i "s|/usr/lib/qt/bin/qdoc|${QTDIR}/qtbase/bin/qdoc|g" qmake/Makefile.qmake-docs')

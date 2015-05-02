@@ -4,21 +4,35 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/copyleft/gpl.txt.
 
-from pisi.actionsapi import autotools
+from pisi.actionsapi import cmaketools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-vfi")
-    autotools.configure("--disable-static --disable-warnings")
-    
-    pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
+    options = "\-DCMAKE_BUILD_TYPE=Release \
+              "
+
+    if get.buildTYPE() == "emul32":
+
+        shelltools.export("CFLAGS", "-m32")
+        shelltools.export("CXXFLAGS", "-m32")
+
+        options += "-DCMAKE_INSTALL_LIBDIR=lib32 \
+                   "
+
+    elif get.ARCH() == "x86_64":
+
+        options += "-DCMAKE_INSTALL_LIBDIR=lib \
+                   "
+
+    cmaketools.configure(options)
 
 def build():
-    autotools.make()
+    cmaketools.make()
 
 def install():
-    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    cmaketools.install()
 
-    pisitools.dodoc("AUTHORS", "ChangeLog", "README", "NEWS")
+    pisitools.dodoc("AUTHORS", "ChangeLog", "README")
     pisitools.dohtml("doc/*")
