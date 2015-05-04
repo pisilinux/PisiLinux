@@ -43,6 +43,8 @@ archdatadir = "%s/%s" % (libdir, basename)
 examplesdir = "%s/%s/examples" % (libdir, basename)
 importdir = "%s/%s/imports" % (libdir, basename)
 plugindir = "%s/%s/plugins" % (libdir, basename)
+qmldir = "%s/%s/qmldir" % (libdir, basename)
+testdir = "%s/share/%s" % (prefix, basename)
 translationdir = "%s/translations" % datadir
 
 qmake = "%s/qmake-qt5" % bindir
