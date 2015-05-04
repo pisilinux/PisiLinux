@@ -25,8 +25,9 @@ def setup():
                          --disable-testbench \
                          --disable-mmnormalize \
                          --disable-gssapi-krb5 \
+                         --disable-generate-man-pages \
+                         --disable-uuid \
                          --enable-mail \
-                         --enable-uuid \
                          --enable-zlib \
                          --enable-imdiag \
                          --enable-imfile \
@@ -47,6 +48,7 @@ def setup():
                          --enable-unlimited-select \
                          --enable-pmaixforwardedfrom \
                          --enable-cached-man-pages \
+                         --with-systemdsystemunitdir=no \
                         ")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
