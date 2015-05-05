@@ -15,3 +15,4 @@ def preRemove():
     #       provide a way to learn operation type.
     #os.system("/usr/sbin/alternatives --remove libGL /usr/lib/mesa/libGL.so.1.2")
     pass
+
