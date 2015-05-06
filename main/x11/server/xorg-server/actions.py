@@ -11,7 +11,7 @@ from pisi.actionsapi import get
 def setup():
 #    shelltools.chmod("hw/vnc/symlink-vnc.sh")
 
-    pisitools.flags.add("-lGL") 
+    pisitools.cxxflags.add("-lGL") 
     
     autotools.autoreconf("-fiv")
     autotools.configure("--enable-install-libxf86config \
