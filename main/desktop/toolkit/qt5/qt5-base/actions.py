@@ -47,7 +47,7 @@ def setup():
 
     if not get.buildTYPE() == "emul32":
         #-no-pch makes build ccache-friendly
-        options = "-v -confirm-license -opensource \
+        options = "-v -confirm-license -opensource -no-rpath -no-use-gold-linker\
                             -prefix %s \
                             -bindir %s \
                             -headerdir %s \
@@ -77,7 +77,7 @@ def setup():
     else:
         pisitools.dosed("mkspecs/linux-g++-64/qmake.conf", "-m64", "-m32")
         shelltools.export("LDFLAGS", "-m32 %s" % get.LDFLAGS())
-        options = "-no-pch -v -confirm-license -opensource \
+        options = "-no-pch -v -confirm-license -opensource -no-use-gold-linker\
                    -platform linux-g++-32 \
                    -xplatform linux-g++-32 \
                    -prefix /usr/lib32 \
