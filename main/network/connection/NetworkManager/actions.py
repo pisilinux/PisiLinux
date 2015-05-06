@@ -29,7 +29,6 @@ def setup():
                          --enable-ppp=yes \
                          --enable-bluez4=yes \
                          --enable-concheck \
-                         --enable-more-warnings=yes \
                          --without-netconfig \
                          --without-dhcpcd \
                          --with-libsoup=yes \
