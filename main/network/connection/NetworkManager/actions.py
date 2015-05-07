@@ -22,12 +22,28 @@ def setup():
     autotools.configure("--disable-static \
                          --disable-silent-rules \
                          --disable-wimax \
+                         --disable-lto \
+                         --disable-config-plugin-ibft \
+                         --disable-ifnet \
+                         --disable-more-warnings \
                          --enable-ppp=yes \
-                         --enable-bluez4=yes \
-                         --enable-more-warnings=yes \
+                         --enable-bluez5=yes \
+                         --enable-concheck \
+                         --without-netconfig \
+                         --without-dhcpcd \
+                         --with-libsoup=yes \
+                         --with-session-tracking=consolekit \
+                         --with-suspend-resume=upower \
                          --with-crypto=nss \
+                         --with-dbus-sys-dir=/etc/dbus-1/system.d \
+                         --with-dhclient=/usr/sbin/dhclient \
+                         --with-kernel-firmware-dir=/lib/firmware \
+                         --with-udev-dir=/lib/udev \
                          --with-resolvconf=/etc/resolv.default.conf \
                          --with-iptables=/usr/sbin/iptables \
+                         --with-dnsmasq=/usr/sbin/dnsmasq \
+                         --localstatedir=/var \
+                         --libexecdir=/usr/libexec \
                         ")
 
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
