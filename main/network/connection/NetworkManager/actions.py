@@ -27,7 +27,7 @@ def setup():
                          --disable-ifnet \
                          --disable-more-warnings \
                          --enable-ppp=yes \
-                         --enable-bluez4=yes \
+                         --enable-bluez5=yes \
                          --enable-concheck \
                          --without-netconfig \
                          --without-dhcpcd \
