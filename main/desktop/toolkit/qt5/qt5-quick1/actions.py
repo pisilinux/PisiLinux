@@ -11,7 +11,7 @@ from pisi.actionsapi import qt5
 from pisi.actionsapi import get
 
 def setup():
-    shelltools.system ("qmake-qt5 qtquick1.pro")
+    qt5.configure()
 
 def build():
      qt5.make()
