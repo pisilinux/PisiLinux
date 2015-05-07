@@ -34,6 +34,7 @@ def setup():
               --enable-xvmc \
               --enable-glx-tls \
               --enable-gallium-llvm \
+              --enable-llvm-shared-libs \
               --enable-shared-glapi \
               --enable-texture-float \
              "
