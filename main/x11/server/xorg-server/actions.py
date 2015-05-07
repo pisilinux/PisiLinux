@@ -52,6 +52,7 @@ def setup():
                          --without-xmlto \
                          --without-fop \
                          --localstatedir=/var \
+                         LIBGLDIR=/usr/lib/mesa \
                          PCI_TXT_IDS_DIR=/usr/share/X11/pci \
                          " % get.srcTAG())
 
