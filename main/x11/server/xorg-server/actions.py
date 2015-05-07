@@ -11,8 +11,7 @@ from pisi.actionsapi import get
 def setup():
 #    shelltools.chmod("hw/vnc/symlink-vnc.sh")
 
-    pisitools.cxxflags.add("-lGL") 
-    
+   
     autotools.autoreconf("-fiv")
     autotools.configure("--enable-install-libxf86config \
                          --enable-aiglx \
@@ -52,7 +51,6 @@ def setup():
                          --without-xmlto \
                          --without-fop \
                          --localstatedir=/var \
-                         LIBGLDIR=/usr/lib/mesa \
                          PCI_TXT_IDS_DIR=/usr/share/X11/pci \
                          " % get.srcTAG())
 
