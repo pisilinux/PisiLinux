@@ -12,8 +12,9 @@ def setup():
 #    shelltools.chmod("hw/vnc/symlink-vnc.sh")
 
    
-    autotools.autoreconf("-fiv")
+    autotools.autoreconf("-fi")
     autotools.configure("--enable-install-libxf86config \
+                         --disable-systemd-logind \
                          --enable-aiglx \
                          --enable-glx-tls \
                          --enable-composite \
