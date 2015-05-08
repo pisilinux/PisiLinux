@@ -34,15 +34,12 @@ def setup():
 
     autotools.configure("--localstatedir=/var \
                          --sysconfdir=/etc/bind \
-                         --with-openssl=/usr \
+                         --with-openssl \
                          --with-libtool \
                          --with-pic \
                          --with-randomdev=/dev/urandom \
                          --enable-linux-caps \
                          --enable-threads \
-                         --enable-exportlib \
-                         --with-export-libdir=/usr/lib \
-                         --with-export-includedir=/usr/include \
                          --includedir=/usr/include/bind9 \
                          --enable-ipv6 \
                          --enable-largefile \
