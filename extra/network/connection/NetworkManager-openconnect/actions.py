@@ -15,6 +15,7 @@ def setup():
     autotools.autoreconf("-fi")
 
     autotools.configure("--disable-static\
+                         --libexecdir=/usr/lib/NetworkManager \
                          --without-gnome \
                          --without-authdlg")
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
