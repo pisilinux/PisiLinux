@@ -10,6 +10,7 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 WorkDir = "."
+
 ZoneDir = "/usr/share/zoneinfo"
 TargetDir = "%s/%s" % (get.installDIR(), ZoneDir)
 
@@ -18,8 +19,8 @@ PosixDir = "%s/posix" % TargetDir
 
 
 timezones = ["etcetera", "southamerica", "northamerica", "europe", "africa", "antarctica", \
-              "asia", "australasia", "factory", "backward", "pacificnew", \
-              "systemv" ]
+             "asia", "australasia", "factory", "backward", "pacificnew", \
+             "systemv" ]
 
 def setup():
     pisitools.dodir (ZoneDir)
@@ -38,7 +39,9 @@ def install():
         shelltools.system (part2)
         part3 = "zic -L leapseconds -d %s -y \"%s/yearistype.sh\" %s" % (RightDir, get.workDIR(), tzdata)
         shelltools.system (part3)
+        shelltools.system ("zic -d %s -y \"%s/yearistype.sh\" %s -p Europe/Istanbul" % (TargetDir, get.workDIR(), tzdata))
 
-    shelltools.system ("zic -d %s -p Europe/Istanbul" % TargetDir)
+    #shelltools.system ("zic -d %s -p Europe/Istanbul" % TargetDir)
+    
 
 
