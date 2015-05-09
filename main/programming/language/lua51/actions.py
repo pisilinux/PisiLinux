@@ -27,6 +27,8 @@ def install():
 
     pisitools.removeDir("/usr/share/lua")
     pisitools.removeDir("/usr/lib/lua")
+    
+    pisitools.dosym("/usr/lib/liblua5.1.so", "/usr/lib/liblua.so.5.1")
 
     docs = [ "*.html", "*.png", "*.css", "*.gif" ]
     for d in docs:
