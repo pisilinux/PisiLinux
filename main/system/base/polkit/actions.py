@@ -10,21 +10,19 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    #Use it for root user instead of wheel group
-    #shelltools.system("sed -i -e 's|unix-group:wheel|unix-user:0|' src/polkitbackend/*-default.rules")
-    # Use it if we have spidermonkey 1.8.7 or newer...
-    #shelltools.system("sed -i -e '/mozjs/s:185:187:g' configure")
-    #look http://sources.gentoo.org/cgi-bin/viewvc.cgi/gentoo-x86/sys-auth/polkit/polkit-0.107.ebuild
-    #shelltools.system("cmd='sed -i -e "/mozjs/s:185:187:g" configure src/polkitbackend/polkitbackendjsauthority.c'")
-    autotools.autoreconf("-fi")
+    #autotools.autoreconf("-fi")
     autotools.configure("--with-pam-module-dir=/lib/security/ \
-                         --with-os-type=PisiLinux \
+                         --with-os-type=pardus \
+                         --with-mozjs=mozjs-17.0 \
+                         --with-dbus \
                          --enable-examples \
-                         --enable-introspection \
+                         --disable-introspection \
                          --enable-libsystemd-login=no \
+                         --with-systemdsystemunitdir=no \
                          --disable-man-pages \
                          --disable-gtk-doc \
                          --disable-static")
+    
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ") 
 
 def build():
