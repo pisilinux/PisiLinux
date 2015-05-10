@@ -22,6 +22,8 @@ def setup():
                          --enable-record \
                          --enable-dri \
                          --enable-dri2 \
+                         --enable-glamor \
+                         --enable-xwayland \
                          --enable-config-udev \
                          --disable-config-hal \
                          --enable-xfree86-utils \
