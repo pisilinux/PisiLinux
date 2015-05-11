@@ -14,14 +14,14 @@ def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     fileassociations.write("application/x-compressed-tar=file-roller.desktop;\n")
     fileassociations.write("application/x-tar=xarhiver.desktop;\n")
     fileassociations.write("application/x-bzip-compressed-tar=xarchiver.desktop;\n")
-    fileassociations.write("image/jpeg=lximage-qt.desktop;\n")
-    fileassociations.write("image/png=lximage-qt.desktop;\n")
-    fileassociations.write("image/gif=lximage-qt.desktop;\n")
-    fileassociations.write("image/x-ms-bmp=lximage-qt.desktop;\n")
+    fileassociations.write("image/jpeg=lximage-qt5.desktop;\n")
+    fileassociations.write("image/png=lximage-qt5.desktop;\n")
+    fileassociations.write("image/gif=lximage-qt5.desktop;\n")
+    fileassociations.write("image/x-ms-bmp=lximage-qt5.desktop;\n")
     fileassociations.write("text/plain=juffed.desktop;\n")
     fileassociations.write("application/x-pisi=package-manager.desktop;\n")
     fileassociations.close()
-    
+
 
     #FIXME:
     try:

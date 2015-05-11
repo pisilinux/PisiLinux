@@ -6,37 +6,35 @@
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import get
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 
+WorkDir="lxqt-common-0.9.1"
 def setup():
-    cmaketools.configure("-DCMAKE_BUILD_TYPE=release \
-                          -DCMAKE_INSTALL_PREFIX=/usr \
-                          -DCMAKE_INSTALL_LIBDIR=/usr/lib")
+    shelltools.makedirs("build")
+    shelltools.cd("build")
+    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr", sourceDir="..")
 
 def build():
+    shelltools.cd("build")
     cmaketools.make()
 
 def install():
+    shelltools.cd("build")
     cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
-    pisitools.remove("/etc/lxqt/*.conf")
-    pisitools.remove("etc/pcmanfm-qt/lxqt/*.conf")
-
-    pisitools.remove("/usr/share/lxqt/themes/a-mego/mainmenu.svg")
-    pisitools.remove("/usr/share/lxqt/themes/ambiance/mainmenu.svg")
-    pisitools.remove("/usr/share/lxqt/themes/flat/mainmenu.svg")
-    pisitools.remove("/usr/share/lxqt/themes/flat-dark-alpha/mainmenu.svg")
-    pisitools.remove("/usr/share/lxqt/themes/green/mainmenu.svg")
-    pisitools.remove("/usr/share/lxqt/themes/light/mainmenu.svg")
-    pisitools.remove("/usr/share/lxqt/themes/plasma-next-alpha/mainmenu.svg")   
-    pisitools.remove("/usr/share/lxqt/themes/a-mego/*.jpg")
-    pisitools.remove("/usr/share/lxqt/themes/ambiance/*.jpg")
-    pisitools.remove("/usr/share/lxqt/themes/flat-dark-alpha/*.jpg")
-    pisitools.remove("/usr/share/lxqt/themes/a-mego/wallpaper.cfg")
-    pisitools.remove("/usr/share/lxqt/themes/ambiance/wallpaper.cfg")
-    pisitools.remove("/usr/share/lxqt/themes/flat/wallpaper.cfg")
-    pisitools.remove("/usr/share/lxqt/themes/flat-dark-alpha/wallpaper.cfg")
-    pisitools.remove("/usr/share/lxqt/themes/green/wallpaper.cfg")
-    pisitools.remove("/usr/share/lxqt/themes/light/wallpaper.cfg")
-    pisitools.remove("/usr/share/lxqt/themes/plasma-next-alpha/wallpaper.cfg")
-    pisitools.remove("/usr/share/lxqt/themes/flat/*.png")
-
+    pisitools.domove("/usr/=/usr/share/cmake", "/usr/share")
+    pisitools.removeDir("/usr/=/")
+    pisitools.remove("/usr/share/desktop-directories/*.directory")        
+    #Removed default theme items for pisilinux-default-settings-lxqt
+    pisitools.remove("/usr/share/lxqt/themes/Ambiance/mainmenu.svg")
+    pisitools.remove("/usr/share/lxqt/themes/Dark/mainmenu.svg")
+    pisitools.remove("/usr/share/lxqt/themes/Frost/mainmenu.svg")
+    pisitools.remove("/usr/share/lxqt/themes/Kde-plasma/mainmenu.svg")
+    pisitools.remove("/usr/share/lxqt/themes/Light/mainmenu.svg")
+    pisitools.remove("/usr/share/lxqt/themes/Dark/wallpaper.cfg")
+    pisitools.remove("/usr/share/lxqt/themes/Dark/lxqt-panel.qss")
+    pisitools.remove("/usr/share/lxqt/themes/Frost/wallpaper.cfg")
+    pisitools.remove("/usr/share/lxqt/themes/Kde-plasma/wallpaper.cfg")
+    shelltools.cd("..")
+    #Add lxqt menu
+    pisitools.insinto("/etc/xdg/menus/", "menu/lxqt-applications.menu")
     pisitools.dodoc("README.md")

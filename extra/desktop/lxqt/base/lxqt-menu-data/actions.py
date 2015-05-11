@@ -10,8 +10,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import autotools
 
 def setup():
-    shelltools.export("AUTOPOINT", "true")
-    autotools.autoreconf("-fiv")
+    #shelltools.export("AUTOPOINT", "true")
+    #autotools.autoreconf("-fiv")
     autotools.configure("--disable-static \
                          --enable-nls \
                          --enable-startup-notification \
