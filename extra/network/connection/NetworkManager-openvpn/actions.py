@@ -13,11 +13,7 @@ def setup():
     shelltools.echo("po/LINGUAS", "tr")
     autotools.autoreconf("-fi")
     autotools.configure("--disable-static \
-                         --without-gnome \
-                         --sysconfdir=/etc \
-                         --libexecdir=/usr/lib/NetworkManager \
-                         --localstatedir=/var ")
-    
+                         --without-gnome")
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
