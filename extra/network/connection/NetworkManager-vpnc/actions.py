@@ -15,9 +15,10 @@ def setup():
     autotools.configure("--prefix=/usr \
                          --sysconfdir=/etc \
                          --libexecdir=/usr/lib/NetworkManager \
-                         --enable-more-warnings=no \
+                         --disable-more-warnings \
                          --without-gnome \
                          --disable-static")
+    
     pisitools.dosed("libtool", " -shared ", " -Wl,--as-needed -shared ")
 
 def build():
