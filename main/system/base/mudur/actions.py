@@ -11,6 +11,9 @@ from pisi.actionsapi import get
 def install():
     pisitools.dosed("bin/adduser.py", "plugdev", "removable")
     shelltools.system("./setup.py install %s" % get.installDIR())
+    
+    # in new tarball remove 
+    shelltools.chmod(get.installDIR() + "/sbin/mudur_cgroupfs.py" , 0755)
 
     pisitools.dodir("/etc/mudur/services/enabled")
     pisitools.dodir("/etc/mudur/services/disabled")
