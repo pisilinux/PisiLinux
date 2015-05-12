@@ -15,7 +15,7 @@ shelltools.export("GOPATH", "%s" % get.workDIR())
 
 shelltools.export("CGO_CFLAGS", "-I/usr/include")
 shelltools.export("CGO_LDFLAGS", "-L/usr/lib")
-shelltools.export("DOCKER_BUILDTAGS","exclude_graphdriver_aufs exclude_graphdriver_btrfs exclude_graphdriver_devicemapper")
+shelltools.export("DOCKER_BUILDTAGS","exclude_graphdriver_devicemapper")
 shelltools.export("DOCKER_INITPATH", "/usr/libexec/docker/dockerinit")
   
 NoStrip=["/"]
@@ -31,6 +31,9 @@ def install():
 
     # insert udev rules
     pisitools.insinto("/etc/udev/rules.d", "contrib/udev/*.rules")
+    
+    #insert contrib in docs
+    pisitools.insinto("/usr/share/doc/docker", "contrib")
 
     pisitools.dodoc("VERSION", "LICENSE", "README.md", "AUTHORS", "CONTRIBUTING.md", "CHANGELOG.md", "NOTICE")
 
