@@ -12,8 +12,6 @@ logfile = "/var/log/docker.log"
 
 @synchronized
 def start():
-    os.system("/usr/bin/cgroupfs-mount")
-
     startService(command="/usr/bin/docker",
                 args="%s" % (config.get("DOCKER_OPTS", "")),
                 pidfile="/var/run/docker.pid",
@@ -25,8 +23,6 @@ def stop():
     stopService(command="/usr/bin/docker",
                 pidfile="/var/run/docker.pid",
                 donotify=True)
-    
-    os.system("/usr/bin/cgroupfs-umount")
 
 def status():
     return isServiceRunning(pidfile)
