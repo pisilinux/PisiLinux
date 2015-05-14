@@ -1,0 +1,62 @@
+From f054b56c951bf1731ba7314a4c7f1cc0b2977cc9 Mon Sep 17 00:00:00 2001
+From: Ming Lei <ming.lei@canonical.com>
+Date: Tue, 21 Apr 2015 10:00:19 +0800
+Subject: [PATCH] blk-mq: fix race between timeout and CPU hotplug
+
+Firstly during CPU hotplug, even queue is freezed, timeout
+handler still may come and access hctx->tags, which may cause
+use after free, so this patch deactivates timeout handler
+inside CPU hotplug notifier.
+
+Secondly, tags can be shared by more than one queues, so we
+have to check if the hctx has been unmapped, otherwise
+still use-after-free on tags can be triggered.
+
+Cc: <stable@vger.kernel.org>
+Reported-by: Dongsu Park <dongsu.park@profitbricks.com>
+Tested-by: Dongsu Park <dongsu.park@profitbricks.com>
+Signed-off-by: Ming Lei <ming.lei@canonical.com>
+Signed-off-by: Jens Axboe <axboe@fb.com>
+---
+ block/blk-mq.c | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/block/blk-mq.c b/block/blk-mq.c
+index ade8a2d..1fccb98 100644
+--- a/block/blk-mq.c
++++ b/block/blk-mq.c
+@@ -677,8 +677,11 @@ static void blk_mq_rq_timer(unsigned long priv)
+ 		data.next = blk_rq_timeout(round_jiffies_up(data.next));
+ 		mod_timer(&q->timeout, data.next);
+ 	} else {
+-		queue_for_each_hw_ctx(q, hctx, i)
+-			blk_mq_tag_idle(hctx);
++		queue_for_each_hw_ctx(q, hctx, i) {
++			/* the hctx may be unmapped, so check it here */
++			if (blk_mq_hw_queue_mapped(hctx))
++				blk_mq_tag_idle(hctx);
++		}
+ 	}
+ }
+ 
+@@ -2090,9 +2093,16 @@ static int blk_mq_queue_reinit_notify(struct notifier_block *nb,
+ 	 */
+ 	list_for_each_entry(q, &all_q_list, all_q_node)
+ 		blk_mq_freeze_queue_start(q);
+-	list_for_each_entry(q, &all_q_list, all_q_node)
++	list_for_each_entry(q, &all_q_list, all_q_node) {
+ 		blk_mq_freeze_queue_wait(q);
+ 
++		/*
++		 * timeout handler can't touch hw queue during the
++		 * reinitialization
++		 */
++		del_timer_sync(&q->timeout);
++	}
++
+ 	list_for_each_entry(q, &all_q_list, all_q_node)
+ 		blk_mq_queue_reinit(q);
+ 
+-- 
+2.3.2
+

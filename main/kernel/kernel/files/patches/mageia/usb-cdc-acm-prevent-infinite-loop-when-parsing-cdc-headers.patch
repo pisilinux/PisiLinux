@@ -1,0 +1,56 @@
+From 0d3bba0287d4e284c3ec7d3397e81eec920d5e7e Mon Sep 17 00:00:00 2001
+From: Quentin Casasnovas <quentin.casasnovas@oracle.com>
+Date: Tue, 14 Apr 2015 11:25:43 +0200
+Subject: cdc-acm: prevent infinite loop when parsing CDC headers.
+
+From: Quentin Casasnovas <quentin.casasnovas@oracle.com>
+
+commit 0d3bba0287d4e284c3ec7d3397e81eec920d5e7e upstream.
+
+Phil and I found out a problem with commit:
+
+  7e860a6e7aa6 ("cdc-acm: add sanity checks")
+
+It added some sanity checks to ignore potential garbage in CDC headers but
+also introduced a potential infinite loop.  This can happen at the first
+loop iteration (elength = 0 in that case) if the description isn't a
+DT_CS_INTERFACE or later if 'buffer[0]' is zero.
+
+It should also be noted that the wrong length was being added to 'buffer'
+in case 'buffer[1]' was not a DT_CS_INTERFACE descriptor, since elength was
+assigned after that check in the loop.
+
+A specially crafted USB device could be used to trigger this infinite loop.
+
+Fixes: 7e860a6e7aa6 ("cdc-acm: add sanity checks")
+Signed-off-by: Phil Turnbull <phil.turnbull@oracle.com>
+Signed-off-by: Quentin Casasnovas <quentin.casasnovas@oracle.com>
+CC: Sergei Shtylyov <sergei.shtylyov@cogentembedded.com>
+CC: Oliver Neukum <oneukum@suse.de>
+CC: Adam Lee <adam8157@gmail.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/usb/class/cdc-acm.c |    7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+--- a/drivers/usb/class/cdc-acm.c
++++ b/drivers/usb/class/cdc-acm.c
+@@ -1133,11 +1133,16 @@ static int acm_probe(struct usb_interfac
+ 	}
+ 
+ 	while (buflen > 0) {
++		elength = buffer[0];
++		if (!elength) {
++			dev_err(&intf->dev, "skipping garbage byte\n");
++			elength = 1;
++			goto next_desc;
++		}
+ 		if (buffer[1] != USB_DT_CS_INTERFACE) {
+ 			dev_err(&intf->dev, "skipping garbage\n");
+ 			goto next_desc;
+ 		}
+-		elength = buffer[0];
+ 
+ 		switch (buffer[2]) {
+ 		case USB_CDC_UNION_TYPE: /* we've found it */

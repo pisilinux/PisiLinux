@@ -1,0 +1,46 @@
+From e8a4a2696fecb398b0288c43c0e0dbb91e265bb2 Mon Sep 17 00:00:00 2001
+From: Tahsin Erdogan <tahsin@google.com>
+Date: Mon, 4 May 2015 21:15:31 -0700
+Subject: [PATCH] x86/spinlocks: Fix regression in spinlock contention
+ detection
+
+A spinlock is regarded as contended when there is at least one waiter.
+Currently, the code that checks whether there are any waiters rely on
+tail value being greater than head. However, this is not true if tail
+reaches the max value and wraps back to zero, so arch_spin_is_contended()
+incorrectly returns 0 (not contended) when tail is smaller than head.
+
+The original code (before regression) handled this case by casting the
+(tail - head) to an unsigned value. This change simply restores that
+behavior.
+
+Fixes: d6abfdb20223 ("x86/spinlocks/paravirt: Fix memory corruption on unlock")
+Signed-off-by: Tahsin Erdogan <tahsin@google.com>
+Cc: peterz@infradead.org
+Cc: Waiman.Long@hp.com
+Cc: borntraeger@de.ibm.com
+Cc: oleg@redhat.com
+Cc: raghavendra.kt@linux.vnet.ibm.com
+Cc: stable@vger.kernel.org
+Link: http://lkml.kernel.org/r/1430799331-20445-1-git-send-email-tahsin@google.com
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+---
+ arch/x86/include/asm/spinlock.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/spinlock.h b/arch/x86/include/asm/spinlock.h
+index cf87de3..64b6117 100644
+--- a/arch/x86/include/asm/spinlock.h
++++ b/arch/x86/include/asm/spinlock.h
+@@ -169,7 +169,7 @@ static inline int arch_spin_is_contended(arch_spinlock_t *lock)
+ 	struct __raw_tickets tmp = READ_ONCE(lock->tickets);
+ 
+ 	tmp.head &= ~TICKET_SLOWPATH_FLAG;
+-	return (tmp.tail - tmp.head) > TICKET_LOCK_INC;
++	return (__ticket_t)(tmp.tail - tmp.head) > TICKET_LOCK_INC;
+ }
+ #define arch_spin_is_contended	arch_spin_is_contended
+ 
+-- 
+2.3.2
+

@@ -1,0 +1,98 @@
+From ee136af4a064c2f61e2025873584d2c7ec93f4ae Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Tue, 21 Apr 2015 11:20:31 +0200
+Subject: uas: Add US_FL_MAX_SECTORS_240 flag
+
+From: Hans de Goede <hdegoede@redhat.com>
+
+commit ee136af4a064c2f61e2025873584d2c7ec93f4ae upstream.
+
+The usb-storage driver sets max_sectors = 240 in its scsi-host template,
+for uas we do not want to do that for all devices, but testing has shown
+that some devices need it.
+
+This commit adds a US_FL_MAX_SECTORS_240 flag for such devices, and
+implements support for it in uas.c, while at it it also adds support
+for US_FL_MAX_SECTORS_64 to uas.c.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Acked-by: Alan Stern <stern@rowland.harvard.edu>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ Documentation/kernel-parameters.txt |    2 ++
+ drivers/usb/storage/uas.c           |   10 +++++++++-
+ drivers/usb/storage/usb.c           |    6 +++++-
+ include/linux/usb_usual.h           |    2 ++
+ 4 files changed, 18 insertions(+), 2 deletions(-)
+
+--- a/Documentation/kernel-parameters.txt
++++ b/Documentation/kernel-parameters.txt
+@@ -3746,6 +3746,8 @@ bytes respectively. Such letter suffixes
+ 					READ_CAPACITY_16 command);
+ 				f = NO_REPORT_OPCODES (don't use report opcodes
+ 					command, uas only);
++				g = MAX_SECTORS_240 (don't transfer more than
++					240 sectors at a time, uas only);
+ 				h = CAPACITY_HEURISTICS (decrease the
+ 					reported device capacity by one
+ 					sector if the number is odd);
+--- a/drivers/usb/storage/uas.c
++++ b/drivers/usb/storage/uas.c
+@@ -759,7 +759,10 @@ static int uas_eh_bus_reset_handler(stru
+ 
+ static int uas_slave_alloc(struct scsi_device *sdev)
+ {
+-	sdev->hostdata = (void *)sdev->host->hostdata;
++	struct uas_dev_info *devinfo =
++		(struct uas_dev_info *)sdev->host->hostdata;
++
++	sdev->hostdata = devinfo;
+ 
+ 	/* USB has unusual DMA-alignment requirements: Although the
+ 	 * starting address of each scatter-gather element doesn't matter,
+@@ -778,6 +781,11 @@ static int uas_slave_alloc(struct scsi_d
+ 	 */
+ 	blk_queue_update_dma_alignment(sdev->request_queue, (512 - 1));
+ 
++	if (devinfo->flags & US_FL_MAX_SECTORS_64)
++		blk_queue_max_hw_sectors(sdev->request_queue, 64);
++	else if (devinfo->flags & US_FL_MAX_SECTORS_240)
++		blk_queue_max_hw_sectors(sdev->request_queue, 240);
++
+ 	return 0;
+ }
+ 
+--- a/drivers/usb/storage/usb.c
++++ b/drivers/usb/storage/usb.c
+@@ -479,7 +479,8 @@ void usb_stor_adjust_quirks(struct usb_d
+ 			US_FL_SINGLE_LUN | US_FL_NO_WP_DETECT |
+ 			US_FL_NO_READ_DISC_INFO | US_FL_NO_READ_CAPACITY_16 |
+ 			US_FL_INITIAL_READ10 | US_FL_WRITE_CACHE |
+-			US_FL_NO_ATA_1X | US_FL_NO_REPORT_OPCODES);
++			US_FL_NO_ATA_1X | US_FL_NO_REPORT_OPCODES |
++			US_FL_MAX_SECTORS_240);
+ 
+ 	p = quirks;
+ 	while (*p) {
+@@ -520,6 +521,9 @@ void usb_stor_adjust_quirks(struct usb_d
+ 		case 'f':
+ 			f |= US_FL_NO_REPORT_OPCODES;
+ 			break;
++		case 'g':
++			f |= US_FL_MAX_SECTORS_240;
++			break;
+ 		case 'h':
+ 			f |= US_FL_CAPACITY_HEURISTICS;
+ 			break;
+--- a/include/linux/usb_usual.h
++++ b/include/linux/usb_usual.h
+@@ -77,6 +77,8 @@
+ 		/* Cannot handle ATA_12 or ATA_16 CDBs */	\
+ 	US_FLAG(NO_REPORT_OPCODES,	0x04000000)		\
+ 		/* Cannot handle MI_REPORT_SUPPORTED_OPERATION_CODES */	\
++	US_FLAG(MAX_SECTORS_240,	0x08000000)		\
++		/* Sets max_sectors to 240 */			\
+ 
+ #define US_FLAG(name, value)	US_FL_##name = value ,
+ enum { US_DO_ALL_FLAGS };

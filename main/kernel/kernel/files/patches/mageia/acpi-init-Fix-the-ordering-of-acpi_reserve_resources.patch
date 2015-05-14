@@ -1,0 +1,56 @@
+From b9a5e5e18fbf223502c0b2264c15024e393da928 Mon Sep 17 00:00:00 2001
+From: "Rafael J. Wysocki" <rafael.j.wysocki@intel.com>
+Date: Thu, 7 May 2015 21:19:39 +0200
+Subject: ACPI / init: Fix the ordering of acpi_reserve_resources()
+
+Since acpi_reserve_resources() is defined as a device_initcall(),
+there's no guarantee that it will be executed in the right order
+with respect to the rest of the ACPI initialization code.  On some
+systems this leads to breakage if, for example, the address range
+that should be reserved for the ACPI fixed registers is given to
+the PCI host bridge instead if the race is won by the wrong code
+path.
+
+Fix this by turning acpi_reserve_resources() into a void function
+and calling it directly from within the ACPI initialization sequence.
+
+Reported-and-tested-by: George McCollister <george.mccollister@gmail.com>
+Link: http://marc.info/?t=143092384600002&r=1&w=2
+Cc: All applicable <stable@vger.kernel.org>
+Signed-off-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
+
+diff --git a/drivers/acpi/osl.c b/drivers/acpi/osl.c
+index 39748bb..7ccba39 100644
+--- a/drivers/acpi/osl.c
++++ b/drivers/acpi/osl.c
+@@ -182,7 +182,7 @@ static void __init acpi_request_region (struct acpi_generic_address *gas,
+ 		request_mem_region(addr, length, desc);
+ }
+ 
+-static int __init acpi_reserve_resources(void)
++static void __init acpi_reserve_resources(void)
+ {
+ 	acpi_request_region(&acpi_gbl_FADT.xpm1a_event_block, acpi_gbl_FADT.pm1_event_length,
+ 		"ACPI PM1a_EVT_BLK");
+@@ -211,10 +211,7 @@ static int __init acpi_reserve_resources(void)
+ 	if (!(acpi_gbl_FADT.gpe1_block_length & 0x1))
+ 		acpi_request_region(&acpi_gbl_FADT.xgpe1_block,
+ 			       acpi_gbl_FADT.gpe1_block_length, "ACPI GPE1_BLK");
+-
+-	return 0;
+ }
+-device_initcall(acpi_reserve_resources);
+ 
+ void acpi_os_printf(const char *fmt, ...)
+ {
+@@ -1845,6 +1842,7 @@ acpi_status __init acpi_os_initialize(void)
+ 
+ acpi_status __init acpi_os_initialize1(void)
+ {
++	acpi_reserve_resources();
+ 	kacpid_wq = alloc_workqueue("kacpid", 0, 1);
+ 	kacpi_notify_wq = alloc_workqueue("kacpi_notify", 0, 1);
+ 	kacpi_hotplug_wq = alloc_ordered_workqueue("kacpi_hotplug", 0);
+-- 
+cgit v0.10.2
+

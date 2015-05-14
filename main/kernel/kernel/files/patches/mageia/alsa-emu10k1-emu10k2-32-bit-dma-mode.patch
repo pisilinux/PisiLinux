@@ -1,0 +1,205 @@
+From 7241ea558c6715501e777396b5fc312c372e11d9 Mon Sep 17 00:00:00 2001
+From: Peter Zubaj <pzubaj@marticonet.sk>
+Date: Tue, 28 Apr 2015 21:57:29 +0200
+Subject: ALSA: emu10k1: Emu10k2 32 bit DMA mode
+
+From: Peter Zubaj <pzubaj@marticonet.sk>
+
+commit 7241ea558c6715501e777396b5fc312c372e11d9 upstream.
+
+Looks like audigy emu10k2 (probably emu10k1 - sb live too) support two
+modes for DMA. Second mode is useful for 64 bit os with more then 2 GB
+of ram (fixes problems with big soundfont loading)
+
+1) 32MB from 2 GB address space using 8192 pages (used now as default)
+2) 16MB from 4 GB address space using 4096 pages
+
+Mode is set using HCFG_EXPANDED_MEM flag in HCFG register.
+Also format of emu10k2 page table is then different.
+
+Signed-off-by: Peter Zubaj <pzubaj@marticonet.sk>
+Tested-by: Takashi Iwai <tiwai@suse.de>
+Signed-off-by: Takashi Iwai <tiwai@suse.de>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ include/sound/emu10k1.h              |   14 +++++++++-----
+ sound/pci/emu10k1/emu10k1_callback.c |    4 ++--
+ sound/pci/emu10k1/emu10k1_main.c     |   17 ++++++++++++-----
+ sound/pci/emu10k1/emupcm.c           |    2 +-
+ sound/pci/emu10k1/memory.c           |   11 ++++++-----
+ 5 files changed, 30 insertions(+), 18 deletions(-)
+
+--- a/include/sound/emu10k1.h
++++ b/include/sound/emu10k1.h
+@@ -41,7 +41,8 @@
+ 
+ #define EMUPAGESIZE     4096
+ #define MAXREQVOICES    8
+-#define MAXPAGES        8192
++#define MAXPAGES0       4096	/* 32 bit mode */
++#define MAXPAGES1       8192	/* 31 bit mode */
+ #define RESERVED        0
+ #define NUM_MIDI        16
+ #define NUM_G           64              /* use all channels */
+@@ -50,8 +51,7 @@
+ 
+ /* FIXME? - according to the OSS driver the EMU10K1 needs a 29 bit DMA mask */
+ #define EMU10K1_DMA_MASK	0x7fffffffUL	/* 31bit */
+-#define AUDIGY_DMA_MASK		0x7fffffffUL	/* 31bit FIXME - 32 should work? */
+-						/* See ALSA bug #1276 - rlrevell */
++#define AUDIGY_DMA_MASK		0xffffffffUL	/* 32bit mode */
+ 
+ #define TMEMSIZE        256*1024
+ #define TMEMSIZEREG     4
+@@ -466,8 +466,11 @@
+ 
+ #define MAPB			0x0d		/* Cache map B						*/
+ 
+-#define MAP_PTE_MASK		0xffffe000	/* The 19 MSBs of the PTE indexed by the PTI		*/
+-#define MAP_PTI_MASK		0x00001fff	/* The 13 bit index to one of the 8192 PTE dwords      	*/
++#define MAP_PTE_MASK0		0xfffff000	/* The 20 MSBs of the PTE indexed by the PTI		*/
++#define MAP_PTI_MASK0		0x00000fff	/* The 12 bit index to one of the 4096 PTE dwords      	*/
++
++#define MAP_PTE_MASK1		0xffffe000	/* The 19 MSBs of the PTE indexed by the PTI		*/
++#define MAP_PTI_MASK1		0x00001fff	/* The 13 bit index to one of the 8192 PTE dwords      	*/
+ 
+ /* 0x0e, 0x0f: Not used */
+ 
+@@ -1704,6 +1707,7 @@ struct snd_emu10k1 {
+ 	unsigned short model;			/* subsystem id */
+ 	unsigned int card_type;			/* EMU10K1_CARD_* */
+ 	unsigned int ecard_ctrl;		/* ecard control bits */
++	unsigned int address_mode;		/* address mode */
+ 	unsigned long dma_mask;			/* PCI DMA mask */
+ 	unsigned int delay_pcm_irq;		/* in samples */
+ 	int max_cache_pages;			/* max memory size / PAGE_SIZE */
+--- a/sound/pci/emu10k1/emu10k1_callback.c
++++ b/sound/pci/emu10k1/emu10k1_callback.c
+@@ -415,7 +415,7 @@ start_voice(struct snd_emux_voice *vp)
+ 	snd_emu10k1_ptr_write(hw, Z2, ch, 0);
+ 
+ 	/* invalidate maps */
+-	temp = (hw->silent_page.addr << 1) | MAP_PTI_MASK;
++	temp = (hw->silent_page.addr << hw->address_mode) | (hw->address_mode ? MAP_PTI_MASK1 : MAP_PTI_MASK0);
+ 	snd_emu10k1_ptr_write(hw, MAPA, ch, temp);
+ 	snd_emu10k1_ptr_write(hw, MAPB, ch, temp);
+ #if 0
+@@ -436,7 +436,7 @@ start_voice(struct snd_emux_voice *vp)
+ 		snd_emu10k1_ptr_write(hw, CDF, ch, sample);
+ 
+ 		/* invalidate maps */
+-		temp = ((unsigned int)hw->silent_page.addr << 1) | MAP_PTI_MASK;
++		temp = ((unsigned int)hw->silent_page.addr << hw_address_mode) | (hw->address_mode ? MAP_PTI_MASK1 : MAP_PTI_MASK0);
+ 		snd_emu10k1_ptr_write(hw, MAPA, ch, temp);
+ 		snd_emu10k1_ptr_write(hw, MAPB, ch, temp);
+ 		
+--- a/sound/pci/emu10k1/emu10k1_main.c
++++ b/sound/pci/emu10k1/emu10k1_main.c
+@@ -282,7 +282,7 @@ static int snd_emu10k1_init(struct snd_e
+ 	snd_emu10k1_ptr_write(emu, TCB, 0, 0);	/* taken from original driver */
+ 	snd_emu10k1_ptr_write(emu, TCBS, 0, 4);	/* taken from original driver */
+ 
+-	silent_page = (emu->silent_page.addr << 1) | MAP_PTI_MASK;
++	silent_page = (emu->silent_page.addr << emu->address_mode) | (emu->address_mode ? MAP_PTI_MASK1 : MAP_PTI_MASK0);
+ 	for (ch = 0; ch < NUM_G; ch++) {
+ 		snd_emu10k1_ptr_write(emu, MAPA, ch, silent_page);
+ 		snd_emu10k1_ptr_write(emu, MAPB, ch, silent_page);
+@@ -348,6 +348,11 @@ static int snd_emu10k1_init(struct snd_e
+ 		outl(reg | A_IOCFG_GPOUT0, emu->port + A_IOCFG);
+ 	}
+ 
++	if (emu->address_mode == 0) {
++		/* use 16M in 4G */
++		outl(inl(emu->port + HCFG) | HCFG_EXPANDED_MEM, emu->port + HCFG);
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1877,8 +1882,10 @@ int snd_emu10k1_create(struct snd_card *
+ 
+ 	is_audigy = emu->audigy = c->emu10k2_chip;
+ 
++	/* set addressing mode */
++	emu->address_mode = is_audigy ? 0 : 1;
+ 	/* set the DMA transfer mask */
+-	emu->dma_mask = is_audigy ? AUDIGY_DMA_MASK : EMU10K1_DMA_MASK;
++	emu->dma_mask = emu->address_mode ? EMU10K1_DMA_MASK : AUDIGY_DMA_MASK;
+ 	if (pci_set_dma_mask(pci, emu->dma_mask) < 0 ||
+ 	    pci_set_consistent_dma_mask(pci, emu->dma_mask) < 0) {
+ 		dev_err(card->dev,
+@@ -1903,7 +1910,7 @@ int snd_emu10k1_create(struct snd_card *
+ 
+ 	emu->max_cache_pages = max_cache_bytes >> PAGE_SHIFT;
+ 	if (snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV, snd_dma_pci_data(pci),
+-				32 * 1024, &emu->ptb_pages) < 0) {
++				(emu->address_mode ? 32 : 16) * 1024, &emu->ptb_pages) < 0) {
+ 		err = -ENOMEM;
+ 		goto error;
+ 	}
+@@ -2002,8 +2009,8 @@ int snd_emu10k1_create(struct snd_card *
+ 
+ 	/* Clear silent pages and set up pointers */
+ 	memset(emu->silent_page.area, 0, PAGE_SIZE);
+-	silent_page = emu->silent_page.addr << 1;
+-	for (idx = 0; idx < MAXPAGES; idx++)
++	silent_page = emu->silent_page.addr << emu->address_mode;
++	for (idx = 0; idx < (emu->address_mode ? MAXPAGES1 : MAXPAGES0); idx++)
+ 		((u32 *)emu->ptb_pages.area)[idx] = cpu_to_le32(silent_page | idx);
+ 
+ 	/* set up voice indices */
+--- a/sound/pci/emu10k1/emupcm.c
++++ b/sound/pci/emu10k1/emupcm.c
+@@ -380,7 +380,7 @@ static void snd_emu10k1_pcm_init_voice(s
+ 	snd_emu10k1_ptr_write(emu, Z1, voice, 0);
+ 	snd_emu10k1_ptr_write(emu, Z2, voice, 0);
+ 	/* invalidate maps */
+-	silent_page = ((unsigned int)emu->silent_page.addr << 1) | MAP_PTI_MASK;
++	silent_page = ((unsigned int)emu->silent_page.addr << emu->address_mode) | (emu->address_mode ? MAP_PTI_MASK1 : MAP_PTI_MASK0);
+ 	snd_emu10k1_ptr_write(emu, MAPA, voice, silent_page);
+ 	snd_emu10k1_ptr_write(emu, MAPB, voice, silent_page);
+ 	/* modulation envelope */
+--- a/sound/pci/emu10k1/memory.c
++++ b/sound/pci/emu10k1/memory.c
+@@ -34,10 +34,11 @@
+  * aligned pages in others
+  */
+ #define __set_ptb_entry(emu,page,addr) \
+-	(((u32 *)(emu)->ptb_pages.area)[page] = cpu_to_le32(((addr) << 1) | (page)))
++	(((u32 *)(emu)->ptb_pages.area)[page] = cpu_to_le32(((addr) << (emu->address_mode)) | (page)))
+ 
+ #define UNIT_PAGES		(PAGE_SIZE / EMUPAGESIZE)
+-#define MAX_ALIGN_PAGES		(MAXPAGES / UNIT_PAGES)
++#define MAX_ALIGN_PAGES0		(MAXPAGES0 / UNIT_PAGES)
++#define MAX_ALIGN_PAGES1		(MAXPAGES1 / UNIT_PAGES)
+ /* get aligned page from offset address */
+ #define get_aligned_page(offset)	((offset) >> PAGE_SHIFT)
+ /* get offset address from aligned page */
+@@ -124,7 +125,7 @@ static int search_empty_map_area(struct
+ 		}
+ 		page = blk->mapped_page + blk->pages;
+ 	}
+-	size = MAX_ALIGN_PAGES - page;
++	size = (emu->address_mode ? MAX_ALIGN_PAGES1 : MAX_ALIGN_PAGES0) - page;
+ 	if (size >= max_size) {
+ 		*nextp = pos;
+ 		return page;
+@@ -181,7 +182,7 @@ static int unmap_memblk(struct snd_emu10
+ 		q = get_emu10k1_memblk(p, mapped_link);
+ 		end_page = q->mapped_page;
+ 	} else
+-		end_page = MAX_ALIGN_PAGES;
++		end_page = (emu->address_mode ? MAX_ALIGN_PAGES1 : MAX_ALIGN_PAGES0);
+ 
+ 	/* remove links */
+ 	list_del(&blk->mapped_link);
+@@ -307,7 +308,7 @@ snd_emu10k1_alloc_pages(struct snd_emu10
+ 	if (snd_BUG_ON(!emu))
+ 		return NULL;
+ 	if (snd_BUG_ON(runtime->dma_bytes <= 0 ||
+-		       runtime->dma_bytes >= MAXPAGES * EMUPAGESIZE))
++		       runtime->dma_bytes >= (emu->address_mode ? MAXPAGES1 : MAXPAGES0) * EMUPAGESIZE))
+ 		return NULL;
+ 	hdr = emu->memhdr;
+ 	if (snd_BUG_ON(!hdr))
