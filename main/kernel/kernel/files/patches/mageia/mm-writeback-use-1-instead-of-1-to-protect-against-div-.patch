@@ -1,0 +1,68 @@
+From 464d1387acb94dc43ba772b35242345e3d2ead1b Mon Sep 17 00:00:00 2001
+From: Tejun Heo <tj@kernel.org>
+Date: Tue, 21 Apr 2015 16:49:13 -0400
+Subject: [PATCH] writeback: use |1 instead of +1 to protect against div by
+ zero
+
+mm/page-writeback.c has several places where 1 is added to the divisor
+to prevent division by zero exceptions; however, if the original
+divisor is equivalent to -1, adding 1 leads to division by zero.
+
+There are three places where +1 is used for this purpose - one in
+pos_ratio_polynom() and two in bdi_position_ratio().  The second one
+in bdi_position_ratio() actually triggered div-by-zero oops on a
+machine running a 3.10 kernel.  The divisor is
+
+  x_intercept - bdi_setpoint + 1 == span + 1
+
+span is confirmed to be (u32)-1.  It isn't clear how it ended up that
+but it could be from write bandwidth calculation underflow fixed by
+c72efb658f7c ("writeback: fix possible underflow in write bandwidth
+calculation").
+
+At any rate, +1 isn't a proper protection against div-by-zero.  This
+patch converts all +1 protections to |1.  Note that
+bdi_update_dirty_ratelimit() was already using |1 before this patch.
+
+Signed-off-by: Tejun Heo <tj@kernel.org>
+Cc: stable@vger.kernel.org
+Reviewed-by: Jan Kara <jack@suse.cz>
+Signed-off-by: Jens Axboe <axboe@fb.com>
+---
+ mm/page-writeback.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/mm/page-writeback.c b/mm/page-writeback.c
+index 5daf556..eb59f7e 100644
+--- a/mm/page-writeback.c
++++ b/mm/page-writeback.c
+@@ -580,7 +580,7 @@ static long long pos_ratio_polynom(unsigned long setpoint,
+ 	long x;
+ 
+ 	x = div64_s64(((s64)setpoint - (s64)dirty) << RATELIMIT_CALC_SHIFT,
+-		    limit - setpoint + 1);
++		      (limit - setpoint) | 1);
+ 	pos_ratio = x;
+ 	pos_ratio = pos_ratio * x >> RATELIMIT_CALC_SHIFT;
+ 	pos_ratio = pos_ratio * x >> RATELIMIT_CALC_SHIFT;
+@@ -807,7 +807,7 @@ static unsigned long bdi_position_ratio(struct backing_dev_info *bdi,
+ 	 * scale global setpoint to bdi's:
+ 	 *	bdi_setpoint = setpoint * bdi_thresh / thresh
+ 	 */
+-	x = div_u64((u64)bdi_thresh << 16, thresh + 1);
++	x = div_u64((u64)bdi_thresh << 16, thresh | 1);
+ 	bdi_setpoint = setpoint * (u64)x >> 16;
+ 	/*
+ 	 * Use span=(8*write_bw) in single bdi case as indicated by
+@@ -822,7 +822,7 @@ static unsigned long bdi_position_ratio(struct backing_dev_info *bdi,
+ 
+ 	if (bdi_dirty < x_intercept - span / 4) {
+ 		pos_ratio = div64_u64(pos_ratio * (x_intercept - bdi_dirty),
+-				    x_intercept - bdi_setpoint + 1);
++				      (x_intercept - bdi_setpoint) | 1);
+ 	} else
+ 		pos_ratio /= 4;
+ 
+-- 
+2.3.2
+

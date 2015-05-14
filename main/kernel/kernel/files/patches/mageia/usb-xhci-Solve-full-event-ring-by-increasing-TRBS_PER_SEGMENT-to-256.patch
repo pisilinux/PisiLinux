@@ -1,0 +1,49 @@
+From 18cc2f4cbbaf825a4fedcf2d60fd388d291e0a38 Mon Sep 17 00:00:00 2001
+From: Mathias Nyman <mathias.nyman@linux.intel.com>
+Date: Thu, 30 Apr 2015 17:16:03 +0300
+Subject: xhci: Solve full event ring by increasing TRBS_PER_SEGMENT to 256
+
+Our event ring consists of only one segment, and we risk filling
+the event ring in case we get isoc transfers with short intervals
+such as webcams that fill a TD every microframe (125us)
+
+With 64 TRB segment size one usb camera could fill the event ring in 8ms.
+A setup with several cameras and other devices can fill up the
+event ring as it is shared between all devices.
+This has occurred when uvcvideo queues 5 * 32TD URBs which then
+get cancelled when the video mode changes. The cancelled URBs are returned
+in the xhci interrupt context and blocks the interrupt handler from
+handling the new events.
+
+A full event ring will block xhci from scheduling traffic and affect all
+devices conneted to the xhci, will see errors such as Missed Service
+Intervals for isoc devices, and  and Split transaction errors for LS/FS
+interrupt devices.
+
+Increasing the TRB_PER_SEGMENT will also increase the default endpoint ring
+size, which is welcome as for most isoc transfer we had to dynamically
+expand the endpoint ring anyway to be able to queue the 5 * 32TDs uvcvideo
+queues.
+
+The default size used to be 64 TRBs per segment
+
+Cc: <stable@vger.kernel.org>
+Signed-off-by: Mathias Nyman <mathias.nyman@linux.intel.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+diff --git a/drivers/usb/host/xhci.h b/drivers/usb/host/xhci.h
+index 8e421b8..ea75e8c 100644
+--- a/drivers/usb/host/xhci.h
++++ b/drivers/usb/host/xhci.h
+@@ -1267,7 +1267,7 @@ union xhci_trb {
+  * since the command ring is 64-byte aligned.
+  * It must also be greater than 16.
+  */
+-#define TRBS_PER_SEGMENT	64
++#define TRBS_PER_SEGMENT	256
+ /* Allow two commands + a link TRB, along with any reserved command TRBs */
+ #define MAX_RSVD_CMD_TRBS	(TRBS_PER_SEGMENT - 3)
+ #define TRB_SEGMENT_SIZE	(TRBS_PER_SEGMENT*16)
+-- 
+cgit v0.10.2
+

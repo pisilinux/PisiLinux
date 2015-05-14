@@ -1,0 +1,43 @@
+From d104d0152a97fade389f47635b73a9ccc7295d0b Mon Sep 17 00:00:00 2001
+From: Mathias Nyman <mathias.nyman@linux.intel.com>
+Date: Thu, 30 Apr 2015 17:16:02 +0300
+Subject: xhci: fix isoc endpoint dequeue from advancing too far on transaction
+ error
+
+Isoc TDs usually consist of one TRB, sometimes two. When all goes well we
+receive only one success event for a TD, and move the dequeue pointer to
+the next TD.
+
+This fails if the TD consists of two TRBs and we get a transfer error
+on the first TRB, we will then see two events for that TD.
+
+Fix this by making sure the event we get is for the last TRB in that TD
+before moving the dequeue pointer to the next TD. This will resolve some
+of the uvc and dvb issues with the
+"ERROR Transfer event TRB DMA ptr not part of current TD" error message
+
+Cc: <stable@vger.kernel.org>
+Signed-off-by: Mathias Nyman <mathias.nyman@linux.intel.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+diff --git a/drivers/usb/host/xhci-ring.c b/drivers/usb/host/xhci-ring.c
+index f5397a5..ae0894c 100644
+--- a/drivers/usb/host/xhci-ring.c
++++ b/drivers/usb/host/xhci-ring.c
+@@ -2026,8 +2026,13 @@ static int process_isoc_td(struct xhci_hcd *xhci, struct xhci_td *td,
+ 		break;
+ 	case COMP_DEV_ERR:
+ 	case COMP_STALL:
++		frame->status = -EPROTO;
++		skip_td = true;
++		break;
+ 	case COMP_TX_ERR:
+ 		frame->status = -EPROTO;
++		if (event_trb != td->last_trb)
++			return 0;
+ 		skip_td = true;
+ 		break;
+ 	case COMP_STOP:
+-- 
+cgit v0.10.2
+

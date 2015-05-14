@@ -1,0 +1,53 @@
+From 280227a75b56ab5d35854f3a77ef74a7ad56a203 Mon Sep 17 00:00:00 2001
+From: Davide Italiano <dccitaliano@gmail.com>
+Date: Sat, 2 May 2015 23:21:15 -0400
+Subject: ext4: move check under lock scope to close a race.
+
+From: Davide Italiano <dccitaliano@gmail.com>
+
+commit 280227a75b56ab5d35854f3a77ef74a7ad56a203 upstream.
+
+fallocate() checks that the file is extent-based and returns
+EOPNOTSUPP in case is not. Other tasks can convert from and to
+indirect and extent so it's safe to check only after grabbing
+the inode mutex.
+
+Signed-off-by: Davide Italiano <dccitaliano@gmail.com>
+Signed-off-by: Theodore Ts'o <tytso@mit.edu>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ fs/ext4/extents.c |   15 ++++++++-------
+ 1 file changed, 8 insertions(+), 7 deletions(-)
+
+--- a/fs/ext4/extents.c
++++ b/fs/ext4/extents.c
+@@ -4934,13 +4934,6 @@ long ext4_fallocate(struct file *file, i
+ 	if (ret)
+ 		return ret;
+ 
+-	/*
+-	 * currently supporting (pre)allocate mode for extent-based
+-	 * files _only_
+-	 */
+-	if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)))
+-		return -EOPNOTSUPP;
+-
+ 	if (mode & FALLOC_FL_COLLAPSE_RANGE)
+ 		return ext4_collapse_range(inode, offset, len);
+ 
+@@ -4962,6 +4955,14 @@ long ext4_fallocate(struct file *file, i
+ 
+ 	mutex_lock(&inode->i_mutex);
+ 
++	/*
++	 * We only support preallocation for extent-based files only
++	 */
++	if (!(ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))) {
++		ret = -EOPNOTSUPP;
++		goto out;
++	}
++
+ 	if (!(mode & FALLOC_FL_KEEP_SIZE) &&
+ 	     offset + len > i_size_read(inode)) {
+ 		new_size = offset + len;
