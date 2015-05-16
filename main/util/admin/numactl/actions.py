@@ -6,13 +6,20 @@
 
 from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
+def setup():
+    shelltools.system("./autogen.sh")
+    
+    autotools.configure("--prefix=/usr")
+      
+    
 def build():
     autotools.make("CFLAGS='%s -I.'" % get.CFLAGS())
 
 def install():
-    autotools.rawInstall("prefix=%s/usr libdir=%s/usr/lib" % (get.installDIR(), get.installDIR()))
+    autotools.install()
 
     pisitools.remove("/usr/lib/*.a")
     pisitools.removeDir("/usr/share/man/man2")
