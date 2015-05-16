@@ -11,14 +11,28 @@ from pisi.actionsapi import shelltools
 def setup():
     shelltools.makedirs("build")
     shelltools.cd("build")
-    cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr/share \
-                          -DTJPEG_INCLUDE_DIR=/usr/include \
-                          -DTJPEG_LIBRARY=/usr/lib/libturbojpeg.so \
-                          -DVGL_LIBDIR=/usr/lib \
-                          -DVGL_BINDIR=/usr/bin \
-                          -DVGL_INCDIR=/usr/include \
-                          -DVGL_DOCDIR=/usr/share/doc/%s" % get.srcNAME(),
-                          sourceDir="..")
+    
+    options = "-DCMAKE_INSTALL_PREFIX=/usr/share \
+               -DTJPEG_INCLUDE_DIR=/usr/include \
+               -DTJPEG_LIBRARY=/usr/lib/libturbojpeg.so \
+               -DVGL_BINDIR=/usr/bin \
+               -DVGL_INCDIR=/usr/include \
+               -DVGL_DOCDIR=/usr/share/doc/%s \
+               " % get.srcNAME()
+    
+    if get.buildTYPE() == "emul32":
+      
+      options += "-DVGL_LIBDIR=/usr/lib32 \
+                  -DVGL_FAKELIBDIR=/usr/lib32/fakelib \
+                 "
+    elif get.ARCH() == "x86_64":
+      
+      options += "-DVGL_LIBDIR=/usr/lib \
+                  -DVGL_FAKELIBDIR=/usr/lib/fakelib \
+                 "
+      
+    
+    cmaketools.configure(options, sourceDir="..")
 
 def build():
     shelltools.cd("build")
