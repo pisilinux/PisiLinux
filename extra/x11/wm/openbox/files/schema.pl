@@ -28,9 +28,7 @@ my $editor = $CONFIG->{editor};
 
 our $SCHEMA = [
     #          COMMAND                 LABEL                ICON
-    {item => ['pcmanfm',         'File Manager',      'system-file-manager']},
     {item => ['lxterminal',      'Terminal',          'lxterminal']},
-    {item => ['leafpad',         'Editor',            'leafpad']},
     {item => ['firefox',         'Web Browser',       'firefox']},
 
     {sep => 'Applications'},
