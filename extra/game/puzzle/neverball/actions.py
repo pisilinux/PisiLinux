@@ -49,5 +49,5 @@ def install():
     pisitools.insinto("/usr/share", "data", "neverball")
     pisitools.insinto("/usr/share/", "locale")
 
-    pisitools.dodoc("CHANGES", "README")
+    pisitools.dodoc("LICENSE.md", "README.md")
 
