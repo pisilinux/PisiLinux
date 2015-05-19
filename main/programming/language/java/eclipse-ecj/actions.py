@@ -8,9 +8,12 @@ from pisi.actionsapi import shelltools
 from pisi.actionsapi import get
 
 WorkDir = "."
+shelltools.export("LC_ALL", "C")
 
 def setup():
     shelltools.export("LANG", "en_US.UTF-8")
+    shelltools.system("sed -i -e 's|debuglevel=\"lines,source\"|debug=\"yes\"|g' build.xml")
+    shelltools.system('sed -i -e "s/Xlint:none/Xlint:none -encoding cp1252/g" build.xml')
     shelltools.system("ant build")
 
 def install():    
