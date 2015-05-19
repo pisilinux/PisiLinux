@@ -22,6 +22,7 @@ def install():
     pisitools.insinto("/usr/share/applications", "clamtk.desktop")
     pisitools.insinto("/usr/share/pixmaps", "images/clamtk.png")
     pisitools.insinto("/usr/share/pixmaps", "images/clamtk.xpm")
+    #pisitools.insinto("/usr/lib/perl5/vendor_perl/5.20.0/ClamTk", "lib/*.pm")
     pisitools.dodoc("CHANGES", "DISCLAIMER", "LICENSE", "README")
 
     #Locales
