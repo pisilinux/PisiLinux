@@ -15,8 +15,9 @@ def start():
             chuid="clamav",
             pidfile="/run/clamav/clamd.pid",
             donotify=False)
+    time.sleep(3)
     startService(command="/usr/bin/freshclam",
-            args="-d --pid=/run/clamav/freshclam.pid",
+            args="-d -p /run/clamav/freshclam.pid",
             chuid="clamav",
             pidfile="/run/clamav/freshclam.pid",
             donotify=True)
