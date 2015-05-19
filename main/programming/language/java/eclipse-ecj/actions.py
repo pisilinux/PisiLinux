@@ -10,6 +10,7 @@ from pisi.actionsapi import get
 WorkDir = "."
 
 def setup():
+    shelltools.export("LANG", "en_US.UTF-8")
     shelltools.system("ant build")
 
 def install():    
