@@ -11,11 +11,13 @@ from pisi.actionsapi import shelltools
 
 def builddiet():
     pisitools.flags.add("-fno-lto")
+    shelltools.export("LIBS","-lpthread -luuid")
     #dietCC = "diet %s %s %s -Os -static" % (get.CC(), get.CFLAGS(), get.LDFLAGS())
     dietCC = "%s %s %s -Os -static" % (get.CC(), get.CFLAGS(), get.LDFLAGS())
     shelltools.export("CC", dietCC)
-
+    
     autotools.make("distclean")
+
     autotools.autoreconf("-fi")
     autotools.configure('ac_cv_lib_dl_dlopen=no \
                          --with-staticdir="/sbin" \
@@ -31,6 +33,7 @@ def builddiet():
                          --enable-cmdlib     \
                          --enable-pkgconfig  \
                          --enable-udev_rules \
+                         --with-systemdsystemunitdir=no \
                          --enable-udev_sync' % get.CFLAGS())
 
     pisitools.dosed("lib/misc/configure.h","rpl_malloc","malloc")
