@@ -9,18 +9,10 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
-#ARCH = "x64" if get.ARCH() == "x86_64" else "ia32"
-#PARSED_OPT_FLAGS="echo \'%{optflags} -D_GNU_SOURCE\' | sed 's/ /',/g' | sed 's/',/', '/g'"
-
 def setup():
-
-    #shelltools.system("sh -x ./clean-source.sh")
-    #shelltools.system("sed -i 's|'-O<(release_optimize)'|$PARSED_OPT_FLAGS|g' build/common.gypi")
-    #shelltools.system("build/linux/unbundle/remove_bundled_libraries.py --do-remove")
     
     shelltools.export("LC_ALL", "C")
     shelltools.system("sed -i 's|icu)|icu-i18n)|g' build/linux/system.gyp")
-    #pisitools.flags.add("-fno-stack-protector","-fno-ipa-cp")
     shelltools.system("export -n CFLAGS CXXFLAGS")
 
     
@@ -70,9 +62,6 @@ def setup():
    
     shelltools.export("GYP_GENERATORS","ninja")
     shelltools.system("build/gyp_chromium build/all.gyp --depth=.  %s" % options)
-    
-#    shelltools.system("build/download_nacl_toolchains.py --packages \
-#                      nacl_x86_glibc,nacl_x86_newlib,pnacl_newlib,pnacl_translator")
   
   
 def build():
@@ -96,9 +85,7 @@ def install():
        
     # install and strip shared libs  
     for mylib in libraries_for_inst:
-        pisitools.insinto("/usr/lib/chromium-browser", mylib)
-        #use it if pisi skips stripping
-        #shelltools.system("strip --strip-unneeded %s/usr/lib/chromium-browser/%s" % ( get.installDIR(), mylib))                                    
+        pisitools.insinto("/usr/lib/chromium-browser", mylib)                                   
         
     pisitools.dosym("/usr/lib/chromium-browser/chrome", "/usr/lib/chromium-browser/chromium-browser")
     pisitools.rename("/usr/lib/chromium-browser/chrome_sandbox", "chrome-sandbox")
@@ -114,8 +101,6 @@ def install():
     shelltools.cd("../..")
     for size in ["22", "24", "48", "64", "128", "256"]:
         pisitools.insinto("/usr/share/icons/hicolor/%sx%s/apps" %(size, size), "chrome/app/theme/chromium/product_logo_%s.png" % size, "chromium-browser.png")
-        
-    #shelltools.copytree("PepperFlash", "%s/usr/lib/chromium-browser/" % get.installDIR())
 			
     pisitools.dosym("/usr/share/icons/hicolor/256x256/apps/chromium-browser.png", "/usr/share/pixmaps/chromium-browser.png")
     
