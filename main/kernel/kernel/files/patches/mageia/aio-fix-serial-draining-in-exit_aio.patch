@@ -1,0 +1,151 @@
+From dc48e56d761610da4ea1088d1bea0a030b8e3e43 Mon Sep 17 00:00:00 2001
+From: Jens Axboe <axboe@fb.com>
+Date: Wed, 15 Apr 2015 11:17:23 -0600
+Subject: [PATCH] aio: fix serial draining in exit_aio()
+
+exit_aio() currently serializes killing io contexts. Each context
+killing ends up having to do percpu_ref_kill(), which in turns has
+to wait for an RCU grace period. This can take a long time, depending
+on the number of contexts. And there's no point in doing them serially,
+when we could be waiting for all of them in one fell swoop.
+
+This patches makes my fio thread offload test case exit 0.2s instead
+of almost 6s.
+
+Reviewed-by: Jeff Moyer <jmoyer@redhat.com>
+Signed-off-by: Jens Axboe <axboe@fb.com>
+---
+ fs/aio.c | 45 ++++++++++++++++++++++++++++++---------------
+ 1 file changed, 30 insertions(+), 15 deletions(-)
+
+diff --git a/fs/aio.c b/fs/aio.c
+index f8e52a1..cabb5ed 100644
+--- a/fs/aio.c
++++ b/fs/aio.c
+@@ -77,6 +77,11 @@ struct kioctx_cpu {
+ 	unsigned		reqs_available;
+ };
+ 
++struct ctx_rq_wait {
++	struct completion comp;
++	atomic_t count;
++};
++
+ struct kioctx {
+ 	struct percpu_ref	users;
+ 	atomic_t		dead;
+@@ -115,7 +120,7 @@ struct kioctx {
+ 	/*
+ 	 * signals when all in-flight requests are done
+ 	 */
+-	struct completion *requests_done;
++	struct ctx_rq_wait	*rq_wait;
+ 
+ 	struct {
+ 		/*
+@@ -535,8 +540,8 @@ static void free_ioctx_reqs(struct percpu_ref *ref)
+ 	struct kioctx *ctx = container_of(ref, struct kioctx, reqs);
+ 
+ 	/* At this point we know that there are no any in-flight requests */
+-	if (ctx->requests_done)
+-		complete(ctx->requests_done);
++	if (ctx->rq_wait && atomic_dec_and_test(&ctx->rq_wait->count))
++		complete(&ctx->rq_wait->comp);
+ 
+ 	INIT_WORK(&ctx->free_work, free_ioctx);
+ 	schedule_work(&ctx->free_work);
+@@ -744,7 +749,7 @@ err:
+  *	the rapid destruction of the kioctx.
+  */
+ static int kill_ioctx(struct mm_struct *mm, struct kioctx *ctx,
+-		struct completion *requests_done)
++		      struct ctx_rq_wait *wait)
+ {
+ 	struct kioctx_table *table;
+ 
+@@ -773,7 +778,7 @@ static int kill_ioctx(struct mm_struct *mm, struct kioctx *ctx,
+ 	if (ctx->mmap_size)
+ 		vm_munmap(ctx->mmap_base, ctx->mmap_size);
+ 
+-	ctx->requests_done = requests_done;
++	ctx->rq_wait = wait;
+ 	percpu_ref_kill(&ctx->users);
+ 	return 0;
+ }
+@@ -805,18 +810,24 @@ EXPORT_SYMBOL(wait_on_sync_kiocb);
+ void exit_aio(struct mm_struct *mm)
+ {
+ 	struct kioctx_table *table = rcu_dereference_raw(mm->ioctx_table);
+-	int i;
++	struct ctx_rq_wait wait;
++	int i, skipped;
+ 
+ 	if (!table)
+ 		return;
+ 
++	atomic_set(&wait.count, table->nr);
++	init_completion(&wait.comp);
++
++	skipped = 0;
+ 	for (i = 0; i < table->nr; ++i) {
+ 		struct kioctx *ctx = table->table[i];
+-		struct completion requests_done =
+-			COMPLETION_INITIALIZER_ONSTACK(requests_done);
+ 
+-		if (!ctx)
++		if (!ctx) {
++			skipped++;
+ 			continue;
++		}
++
+ 		/*
+ 		 * We don't need to bother with munmap() here - exit_mmap(mm)
+ 		 * is coming and it'll unmap everything. And we simply can't,
+@@ -825,10 +836,12 @@ void exit_aio(struct mm_struct *mm)
+ 		 * that it needs to unmap the area, just set it to 0.
+ 		 */
+ 		ctx->mmap_size = 0;
+-		kill_ioctx(mm, ctx, &requests_done);
++		kill_ioctx(mm, ctx, &wait);
++	}
+ 
++	if (!atomic_sub_and_test(skipped, &wait.count)) {
+ 		/* Wait until all IO for the context are done. */
+-		wait_for_completion(&requests_done);
++		wait_for_completion(&wait.comp);
+ 	}
+ 
+ 	RCU_INIT_POINTER(mm->ioctx_table, NULL);
+@@ -1313,15 +1326,17 @@ SYSCALL_DEFINE1(io_destroy, aio_context_t, ctx)
+ {
+ 	struct kioctx *ioctx = lookup_ioctx(ctx);
+ 	if (likely(NULL != ioctx)) {
+-		struct completion requests_done =
+-			COMPLETION_INITIALIZER_ONSTACK(requests_done);
++		struct ctx_rq_wait wait;
+ 		int ret;
+ 
++		init_completion(&wait.comp);
++		atomic_set(&wait.count, 1);
++
+ 		/* Pass requests_done to kill_ioctx() where it can be set
+ 		 * in a thread-safe way. If we try to set it here then we have
+ 		 * a race condition if two io_destroy() called simultaneously.
+ 		 */
+-		ret = kill_ioctx(current->mm, ioctx, &requests_done);
++		ret = kill_ioctx(current->mm, ioctx, &wait);
+ 		percpu_ref_put(&ioctx->users);
+ 
+ 		/* Wait until all IO for the context are done. Otherwise kernel
+@@ -1329,7 +1344,7 @@ SYSCALL_DEFINE1(io_destroy, aio_context_t, ctx)
+ 		 * is destroyed.
+ 		 */
+ 		if (!ret)
+-			wait_for_completion(&requests_done);
++			wait_for_completion(&wait.comp);
+ 
+ 		return ret;
+ 	}
+-- 
+2.3.2
+
