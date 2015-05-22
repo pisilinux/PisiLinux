@@ -8,7 +8,8 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import get
 
 def setup():
-    autotools.autoreconf("-vif")
+    autotools.autoreconf("-fi")
+
     autotools.configure("--disable-static \
                          --without-xmlto")
 
