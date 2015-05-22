@@ -1,0 +1,70 @@
+From 6f317cfe42c9d8a7c9c1a327d2f1bcc517a3cd91 Mon Sep 17 00:00:00 2001
+From: Lukas Wunner <lukas@wunner.de>
+Date: Sun, 12 Apr 2015 21:10:35 +0200
+Subject: drm/i915: Assume dual channel LVDS if pixel clock necessitates it
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Lukas Wunner <lukas@wunner.de>
+
+commit 6f317cfe42c9d8a7c9c1a327d2f1bcc517a3cd91 upstream.
+
+Single channel LVDS maxes out at 112 MHz, anything above must be dual
+channel. This avoids the need to specify i915.lvds_channel_mode=2 on
+all 17" MacBook Pro models with i915 graphics since they had 1920x1200
+(193 MHz), plus those 15" pre-retina models which had a resolution
+of 1680x1050 (119 MHz) as a BTO option.
+
+Source for 112 MHz limit of single channel LVDS is section 2.3 of:
+https://01.org/linuxgraphics/sites/default/files/documentation/ivb_ihd_os_vol3_part4.pdf
+
+v2: Avoid hardcoding 17" models by assuming dual channel LVDS if the
+resolution necessitates it, suggested by Jani Nikula.
+
+v3: Fix typo, thanks Joonas Lahtinen.
+
+v4: Split commit in two, suggested by Ville Syrjälä.
+
+Signed-off-by: Lukas Wunner <lukas@wunner.de>
+Tested-by: Lukas Wunner <lukas@wunner.de>
+Reviewed-by: Ville Syrjälä <ville.syrjala@linux.intel.com>
+[Jani: included spec reference into the commit message]
+Signed-off-by: Jani Nikula <jani.nikula@intel.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/gpu/drm/i915/intel_lvds.c |    8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+--- a/drivers/gpu/drm/i915/intel_lvds.c
++++ b/drivers/gpu/drm/i915/intel_lvds.c
+@@ -847,6 +847,11 @@ static bool compute_is_dual_link_lvds(st
+ 	if (i915.lvds_channel_mode > 0)
+ 		return i915.lvds_channel_mode == 2;
+ 
++	/* single channel LVDS is limited to 112 MHz */
++	if (lvds_encoder->attached_connector->base.panel.fixed_mode->clock
++	    > 112999)
++		return true;
++
+ 	if (dmi_check_system(intel_dual_link_lvds))
+ 		return true;
+ 
+@@ -1104,6 +1109,8 @@ void intel_lvds_init(struct drm_device *
+ out:
+ 	mutex_unlock(&dev->mode_config.mutex);
+ 
++	intel_panel_init(&intel_connector->panel, fixed_mode, downclock_mode);
++
+ 	lvds_encoder->is_dual_link = compute_is_dual_link_lvds(lvds_encoder);
+ 	DRM_DEBUG_KMS("detected %s-link lvds configuration\n",
+ 		      lvds_encoder->is_dual_link ? "dual" : "single");
+@@ -1118,7 +1125,6 @@ out:
+ 	}
+ 	drm_connector_register(connector);
+ 
+-	intel_panel_init(&intel_connector->panel, fixed_mode, downclock_mode);
+ 	intel_panel_setup_backlight(connector, INVALID_PIPE);
+ 
+ 	return;

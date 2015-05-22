@@ -1,0 +1,111 @@
+From 6d3fd3cc33d50e4c0d0c0bd172de02caaec3127c Mon Sep 17 00:00:00 2001
+From: Lv Zheng <lv.zheng@intel.com>
+Date: Mon, 13 Apr 2015 11:48:37 +0800
+Subject: ACPICA: Utilities: Cleanup to enforce ACPI_PHYSADDR_TO_PTR()/ACPI_PTR_TO_PHYSADDR().
+
+From: Lv Zheng <lv.zheng@intel.com>
+
+commit 6d3fd3cc33d50e4c0d0c0bd172de02caaec3127c upstream.
+
+ACPICA commit 154f6d074dd38d6ebc0467ad454454e6c5c9ecdf
+
+There are code pieces converting pointers using "(acpi_physical_address) x"
+or "ACPI_CAST_PTR (t, x)" formats, this patch cleans up them.
+
+Known issues:
+1. Cleanup of "(ACPI_PHYSICAL_ADDRRESS) x" for a table field
+   For the conversions around the table fields, it is better to fix it with
+   alignment also fixed. So this patch doesn't modify such code. There
+   should be no functional problem by leaving them unchanged.
+
+Link: https://github.com/acpica/acpica/commit/154f6d07
+Signed-off-by: Lv Zheng <lv.zheng@intel.com>
+Signed-off-by: Bob Moore <robert.moore@intel.com>
+Signed-off-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
+Signed-off-by: Dirk Behme <dirk.behme@gmail.com>
+Signed-off-by: George G. Davis <george_davis@mentor.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/acpi/acpica/dsopcode.c |    3 +--
+ drivers/acpi/acpica/tbdata.c   |    9 +++++----
+ drivers/acpi/acpica/tbinstal.c |   10 +++++-----
+ 3 files changed, 11 insertions(+), 11 deletions(-)
+
+--- a/drivers/acpi/acpica/dsopcode.c
++++ b/drivers/acpi/acpica/dsopcode.c
+@@ -539,8 +539,7 @@ acpi_ds_eval_table_region_operands(struc
+ 		return_ACPI_STATUS(AE_NOT_EXIST);
+ 	}
+ 
+-	obj_desc->region.address =
+-	    (acpi_physical_address) ACPI_TO_INTEGER(table);
++	obj_desc->region.address = ACPI_PTR_TO_PHYSADDR(table);
+ 	obj_desc->region.length = table->length;
+ 
+ 	ACPI_DEBUG_PRINT((ACPI_DB_EXEC, "RgnObj %p Addr %8.8X%8.8X Len %X\n",
+--- a/drivers/acpi/acpica/tbdata.c
++++ b/drivers/acpi/acpica/tbdata.c
+@@ -113,9 +113,9 @@ acpi_tb_acquire_table(struct acpi_table_
+ 	case ACPI_TABLE_ORIGIN_INTERNAL_VIRTUAL:
+ 	case ACPI_TABLE_ORIGIN_EXTERNAL_VIRTUAL:
+ 
+-		table =
+-		    ACPI_CAST_PTR(struct acpi_table_header,
+-				  table_desc->address);
++		table = ACPI_CAST_PTR(struct acpi_table_header,
++				      ACPI_PHYSADDR_TO_PTR(table_desc->
++							   address));
+ 		break;
+ 
+ 	default:
+@@ -214,7 +214,8 @@ acpi_tb_acquire_temp_table(struct acpi_t
+ 	case ACPI_TABLE_ORIGIN_INTERNAL_VIRTUAL:
+ 	case ACPI_TABLE_ORIGIN_EXTERNAL_VIRTUAL:
+ 
+-		table_header = ACPI_CAST_PTR(struct acpi_table_header, address);
++		table_header = ACPI_CAST_PTR(struct acpi_table_header,
++					     ACPI_PHYSADDR_TO_PTR(address));
+ 		if (!table_header) {
+ 			return (AE_NO_MEMORY);
+ 		}
+--- a/drivers/acpi/acpica/tbinstal.c
++++ b/drivers/acpi/acpica/tbinstal.c
+@@ -188,7 +188,7 @@ acpi_tb_install_fixed_table(acpi_physica
+ 					    ACPI_TABLE_ORIGIN_INTERNAL_PHYSICAL);
+ 	if (ACPI_FAILURE(status)) {
+ 		ACPI_ERROR((AE_INFO, "Could not acquire table length at %p",
+-			    ACPI_CAST_PTR(void, address)));
++			    ACPI_PHYSADDR_TO_PTR(address)));
+ 		return_ACPI_STATUS(status);
+ 	}
+ 
+@@ -247,7 +247,7 @@ acpi_tb_install_standard_table(acpi_phys
+ 	status = acpi_tb_acquire_temp_table(&new_table_desc, address, flags);
+ 	if (ACPI_FAILURE(status)) {
+ 		ACPI_ERROR((AE_INFO, "Could not acquire table length at %p",
+-			    ACPI_CAST_PTR(void, address)));
++			    ACPI_PHYSADDR_TO_PTR(address)));
+ 		return_ACPI_STATUS(status);
+ 	}
+ 
+@@ -259,8 +259,8 @@ acpi_tb_install_standard_table(acpi_phys
+ 	    acpi_gbl_disable_ssdt_table_install &&
+ 	    ACPI_COMPARE_NAME(&new_table_desc.signature, ACPI_SIG_SSDT)) {
+ 		ACPI_INFO((AE_INFO, "Ignoring installation of %4.4s at %p",
+-			   new_table_desc.signature.ascii, ACPI_CAST_PTR(void,
+-									 address)));
++			   new_table_desc.signature.ascii,
++			   ACPI_PHYSADDR_TO_PTR(address)));
+ 		goto release_and_exit;
+ 	}
+ 
+@@ -516,7 +516,7 @@ void acpi_tb_uninstall_table(struct acpi
+ 
+ 	if ((table_desc->flags & ACPI_TABLE_ORIGIN_MASK) ==
+ 	    ACPI_TABLE_ORIGIN_INTERNAL_VIRTUAL) {
+-		ACPI_FREE(ACPI_CAST_PTR(void, table_desc->address));
++		ACPI_FREE(ACPI_PHYSADDR_TO_PTR(table_desc->address));
+ 	}
+ 
+ 	table_desc->address = ACPI_PTR_TO_PHYSADDR(NULL);

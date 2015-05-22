@@ -1,0 +1,82 @@
+From 285214409a9e5fceba2215461b4682b6069d8e77 Mon Sep 17 00:00:00 2001
+From: Jason Gunthorpe <jgunthorpe@obsidianresearch.com>
+Date: Mon, 20 Apr 2015 14:01:11 -0600
+Subject: RDMA/CMA: Canonize IPv4 on IPV6 sockets properly
+
+From: Jason Gunthorpe <jgunthorpe@obsidianresearch.com>
+
+commit 285214409a9e5fceba2215461b4682b6069d8e77 upstream.
+
+When accepting a new IPv4 connect to an IPv6 socket, the CMA tries to
+canonize the address family to IPv4, but does not properly process
+the listening sockaddr to get the listening port, and does not properly
+set the address family of the canonized sockaddr.
+
+Fixes: e51060f08a61 ("IB: IP address based RDMA connection manager")
+
+Reported-By: Yotam Kenneth <yotamke@mellanox.com>
+Signed-off-by: Jason Gunthorpe <jgunthorpe@obsidianresearch.com>
+Tested-by: Haggai Eran <haggaie@mellanox.com>
+Signed-off-by: Doug Ledford <dledford@redhat.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/infiniband/core/cma.c |   27 +++++++++++++++++----------
+ 1 file changed, 17 insertions(+), 10 deletions(-)
+
+--- a/drivers/infiniband/core/cma.c
++++ b/drivers/infiniband/core/cma.c
+@@ -859,19 +859,27 @@ static void cma_save_ib_info(struct rdma
+ 	memcpy(&ib->sib_addr, &path->dgid, 16);
+ }
+ 
++static __be16 ss_get_port(const struct sockaddr_storage *ss)
++{
++	if (ss->ss_family == AF_INET)
++		return ((struct sockaddr_in *)ss)->sin_port;
++	else if (ss->ss_family == AF_INET6)
++		return ((struct sockaddr_in6 *)ss)->sin6_port;
++	BUG();
++}
++
+ static void cma_save_ip4_info(struct rdma_cm_id *id, struct rdma_cm_id *listen_id,
+ 			      struct cma_hdr *hdr)
+ {
+-	struct sockaddr_in *listen4, *ip4;
++	struct sockaddr_in *ip4;
+ 
+-	listen4 = (struct sockaddr_in *) &listen_id->route.addr.src_addr;
+ 	ip4 = (struct sockaddr_in *) &id->route.addr.src_addr;
+-	ip4->sin_family = listen4->sin_family;
++	ip4->sin_family = AF_INET;
+ 	ip4->sin_addr.s_addr = hdr->dst_addr.ip4.addr;
+-	ip4->sin_port = listen4->sin_port;
++	ip4->sin_port = ss_get_port(&listen_id->route.addr.src_addr);
+ 
+ 	ip4 = (struct sockaddr_in *) &id->route.addr.dst_addr;
+-	ip4->sin_family = listen4->sin_family;
++	ip4->sin_family = AF_INET;
+ 	ip4->sin_addr.s_addr = hdr->src_addr.ip4.addr;
+ 	ip4->sin_port = hdr->port;
+ }
+@@ -879,16 +887,15 @@ static void cma_save_ip4_info(struct rdm
+ static void cma_save_ip6_info(struct rdma_cm_id *id, struct rdma_cm_id *listen_id,
+ 			      struct cma_hdr *hdr)
+ {
+-	struct sockaddr_in6 *listen6, *ip6;
++	struct sockaddr_in6 *ip6;
+ 
+-	listen6 = (struct sockaddr_in6 *) &listen_id->route.addr.src_addr;
+ 	ip6 = (struct sockaddr_in6 *) &id->route.addr.src_addr;
+-	ip6->sin6_family = listen6->sin6_family;
++	ip6->sin6_family = AF_INET6;
+ 	ip6->sin6_addr = hdr->dst_addr.ip6;
+-	ip6->sin6_port = listen6->sin6_port;
++	ip6->sin6_port = ss_get_port(&listen_id->route.addr.src_addr);
+ 
+ 	ip6 = (struct sockaddr_in6 *) &id->route.addr.dst_addr;
+-	ip6->sin6_family = listen6->sin6_family;
++	ip6->sin6_family = AF_INET6;
+ 	ip6->sin6_addr = hdr->src_addr.ip6;
+ 	ip6->sin6_port = hdr->port;
+ }
