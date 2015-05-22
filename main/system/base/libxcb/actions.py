@@ -16,6 +16,7 @@ def setup():
                          --enable-xprint \
                          --enable-xinput \
                          --enable-xkb \
+                         --without-launchd \
                          --without-doxygen")
 
     pisitools.dosed("libtool"," -shared ", " -Wl,--as-needed -shared ") 
