@@ -1,0 +1,62 @@
+From fdb68e09bbb1c981f24608d7022c7d93cc47b326 Mon Sep 17 00:00:00 2001
+From: Mario Kleiner <mario.kleiner.de@gmail.com>
+Date: Tue, 7 Apr 2015 06:31:09 +0200
+Subject: drm: Zero out invalid vblank timestamp in drm_update_vblank_count.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: Mario Kleiner <mario.kleiner.de@gmail.com>
+
+commit fdb68e09bbb1c981f24608d7022c7d93cc47b326 upstream.
+
+Since commit 844b03f27739135fe1fed2fef06da0ffc4c7a081 we make
+sure that after vblank irq off, we return the last valid
+(vblank count, vblank timestamp) pair to clients, e.g., during
+modesets, which is good.
+
+An overlooked side effect of that commit for kms drivers without
+support for precise vblank timestamping is that at vblank irq
+enable, when we update the vblank counter from the hw counter, we
+can't update the corresponding vblank timestamp, so now we have a
+totally mismatched timestamp for the new count to confuse clients.
+
+Restore old client visible behaviour from before Linux 3.17, but
+zero out the timestamp at vblank counter update (instead of disable
+as in original implementation) if we can't generate a meaningful
+timestamp immediately for the new vblank counter. This will fix
+this regression, so callers know they need to retry again later
+if they need a valid timestamp, but at the same time preserves
+the improvements made in the commit mentioned above.
+
+Signed-off-by: Mario Kleiner <mario.kleiner.de@gmail.com>
+Cc: <stable@vger.kernel.org> #v3.17+
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+Cc: Ville Syrjälä <ville.syrjala@linux.intel.com>
+Cc: Daniel Vetter <daniel@ffwll.ch>
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+---
+ drivers/gpu/drm/drm_irq.c |    9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+--- a/drivers/gpu/drm/drm_irq.c
++++ b/drivers/gpu/drm/drm_irq.c
+@@ -131,12 +131,11 @@ static void drm_update_vblank_count(stru
+ 
+ 	/* Reinitialize corresponding vblank timestamp if high-precision query
+ 	 * available. Skip this step if query unsupported or failed. Will
+-	 * reinitialize delayed at next vblank interrupt in that case.
++	 * reinitialize delayed at next vblank interrupt in that case and
++	 * assign 0 for now, to mark the vblanktimestamp as invalid.
+ 	 */
+-	if (rc) {
+-		tslot = atomic_read(&vblank->count) + diff;
+-		vblanktimestamp(dev, crtc, tslot) = t_vblank;
+-	}
++	tslot = atomic_read(&vblank->count) + diff;
++	vblanktimestamp(dev, crtc, tslot) = rc ? t_vblank : (struct timeval) {0, 0};
+ 
+ 	smp_mb__before_atomic();
+ 	atomic_add(diff, &vblank->count);

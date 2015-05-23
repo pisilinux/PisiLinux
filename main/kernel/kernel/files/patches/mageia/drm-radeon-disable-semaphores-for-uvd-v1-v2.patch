@@ -1,0 +1,127 @@
+From 013ead48a843442e63b9426e3bd5df18ca5d054a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Christian=20K=C3=B6nig?= <christian.koenig@amd.com>
+Date: Fri, 1 May 2015 12:34:12 +0200
+Subject: drm/radeon: disable semaphores for UVD V1 (v2)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From: =?UTF-8?q?Christian=20K=C3=B6nig?= <christian.koenig@amd.com>
+
+commit 013ead48a843442e63b9426e3bd5df18ca5d054a upstream.
+
+Hardware doesn't seem to work correctly, just block userspace in this case.
+
+v2: add missing defines
+
+Bugs: https://bugs.freedesktop.org/show_bug.cgi?id=85320
+
+Signed-off-by: Christian König <christian.koenig@amd.com>
+Signed-off-by: Alex Deucher <alexander.deucher@amd.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ drivers/gpu/drm/radeon/radeon_asic.c |    2 +-
+ drivers/gpu/drm/radeon/radeon_asic.h |    4 ++++
+ drivers/gpu/drm/radeon/rv770d.h      |    3 +++
+ drivers/gpu/drm/radeon/uvd_v1_0.c    |   14 ++------------
+ drivers/gpu/drm/radeon/uvd_v2_2.c    |   29 +++++++++++++++++++++++++++++
+ 5 files changed, 39 insertions(+), 13 deletions(-)
+
+--- a/drivers/gpu/drm/radeon/radeon_asic.c
++++ b/drivers/gpu/drm/radeon/radeon_asic.c
+@@ -1180,7 +1180,7 @@ static struct radeon_asic rs780_asic = {
+ static struct radeon_asic_ring rv770_uvd_ring = {
+ 	.ib_execute = &uvd_v1_0_ib_execute,
+ 	.emit_fence = &uvd_v2_2_fence_emit,
+-	.emit_semaphore = &uvd_v1_0_semaphore_emit,
++	.emit_semaphore = &uvd_v2_2_semaphore_emit,
+ 	.cs_parse = &radeon_uvd_cs_parse,
+ 	.ring_test = &uvd_v1_0_ring_test,
+ 	.ib_test = &uvd_v1_0_ib_test,
+--- a/drivers/gpu/drm/radeon/radeon_asic.h
++++ b/drivers/gpu/drm/radeon/radeon_asic.h
+@@ -919,6 +919,10 @@ void uvd_v1_0_ib_execute(struct radeon_d
+ int uvd_v2_2_resume(struct radeon_device *rdev);
+ void uvd_v2_2_fence_emit(struct radeon_device *rdev,
+ 			 struct radeon_fence *fence);
++bool uvd_v2_2_semaphore_emit(struct radeon_device *rdev,
++			     struct radeon_ring *ring,
++			     struct radeon_semaphore *semaphore,
++			     bool emit_wait);
+ 
+ /* uvd v3.1 */
+ bool uvd_v3_1_semaphore_emit(struct radeon_device *rdev,
+--- a/drivers/gpu/drm/radeon/rv770d.h
++++ b/drivers/gpu/drm/radeon/rv770d.h
+@@ -989,6 +989,9 @@
+ 			 ((n) & 0x3FFF) << 16)
+ 
+ /* UVD */
++#define UVD_SEMA_ADDR_LOW				0xef00
++#define UVD_SEMA_ADDR_HIGH				0xef04
++#define UVD_SEMA_CMD					0xef08
+ #define UVD_GPCOM_VCPU_CMD				0xef0c
+ #define UVD_GPCOM_VCPU_DATA0				0xef10
+ #define UVD_GPCOM_VCPU_DATA1				0xef14
+--- a/drivers/gpu/drm/radeon/uvd_v1_0.c
++++ b/drivers/gpu/drm/radeon/uvd_v1_0.c
+@@ -466,18 +466,8 @@ bool uvd_v1_0_semaphore_emit(struct rade
+ 			     struct radeon_semaphore *semaphore,
+ 			     bool emit_wait)
+ {
+-	uint64_t addr = semaphore->gpu_addr;
+-
+-	radeon_ring_write(ring, PACKET0(UVD_SEMA_ADDR_LOW, 0));
+-	radeon_ring_write(ring, (addr >> 3) & 0x000FFFFF);
+-
+-	radeon_ring_write(ring, PACKET0(UVD_SEMA_ADDR_HIGH, 0));
+-	radeon_ring_write(ring, (addr >> 23) & 0x000FFFFF);
+-
+-	radeon_ring_write(ring, PACKET0(UVD_SEMA_CMD, 0));
+-	radeon_ring_write(ring, emit_wait ? 1 : 0);
+-
+-	return true;
++	/* disable semaphores for UVD V1 hardware */
++	return false;
+ }
+ 
+ /**
+--- a/drivers/gpu/drm/radeon/uvd_v2_2.c
++++ b/drivers/gpu/drm/radeon/uvd_v2_2.c
+@@ -60,6 +60,35 @@ void uvd_v2_2_fence_emit(struct radeon_d
+ }
+ 
+ /**
++ * uvd_v2_2_semaphore_emit - emit semaphore command
++ *
++ * @rdev: radeon_device pointer
++ * @ring: radeon_ring pointer
++ * @semaphore: semaphore to emit commands for
++ * @emit_wait: true if we should emit a wait command
++ *
++ * Emit a semaphore command (either wait or signal) to the UVD ring.
++ */
++bool uvd_v2_2_semaphore_emit(struct radeon_device *rdev,
++			     struct radeon_ring *ring,
++			     struct radeon_semaphore *semaphore,
++			     bool emit_wait)
++{
++	uint64_t addr = semaphore->gpu_addr;
++
++	radeon_ring_write(ring, PACKET0(UVD_SEMA_ADDR_LOW, 0));
++	radeon_ring_write(ring, (addr >> 3) & 0x000FFFFF);
++
++	radeon_ring_write(ring, PACKET0(UVD_SEMA_ADDR_HIGH, 0));
++	radeon_ring_write(ring, (addr >> 23) & 0x000FFFFF);
++
++	radeon_ring_write(ring, PACKET0(UVD_SEMA_CMD, 0));
++	radeon_ring_write(ring, emit_wait ? 1 : 0);
++
++	return true;
++}
++
++/**
+  * uvd_v2_2_resume - memory controller programming
+  *
+  * @rdev: radeon_device pointer

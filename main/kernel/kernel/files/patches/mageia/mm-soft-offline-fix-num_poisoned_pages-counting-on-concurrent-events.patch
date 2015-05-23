@@ -1,0 +1,46 @@
+From 602498f9aa43d4951eece3fd6ad95a6d0a78d537 Mon Sep 17 00:00:00 2001
+From: Naoya Horiguchi <n-horiguchi@ah.jp.nec.com>
+Date: Tue, 5 May 2015 16:23:46 -0700
+Subject: mm: soft-offline: fix num_poisoned_pages counting on concurrent events
+
+From: Naoya Horiguchi <n-horiguchi@ah.jp.nec.com>
+
+commit 602498f9aa43d4951eece3fd6ad95a6d0a78d537 upstream.
+
+If multiple soft offline events hit one free page/hugepage concurrently,
+soft_offline_page() can handle the free page/hugepage multiple times,
+which makes num_poisoned_pages counter increased more than once.  This
+patch fixes this wrong counting by checking TestSetPageHWPoison for normal
+papes and by checking the return value of dequeue_hwpoisoned_huge_page()
+for hugepages.
+
+Signed-off-by: Naoya Horiguchi <n-horiguchi@ah.jp.nec.com>
+Acked-by: Dean Nelson <dnelson@redhat.com>
+Cc: Andi Kleen <andi@firstfloor.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+---
+ mm/memory-failure.c |    8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+--- a/mm/memory-failure.c
++++ b/mm/memory-failure.c
+@@ -1721,12 +1721,12 @@ int soft_offline_page(struct page *page,
+ 	} else if (ret == 0) { /* for free pages */
+ 		if (PageHuge(page)) {
+ 			set_page_hwpoison_huge_page(hpage);
+-			dequeue_hwpoisoned_huge_page(hpage);
+-			atomic_long_add(1 << compound_order(hpage),
++			if (!dequeue_hwpoisoned_huge_page(hpage))
++				atomic_long_add(1 << compound_order(hpage),
+ 					&num_poisoned_pages);
+ 		} else {
+-			SetPageHWPoison(page);
+-			atomic_long_inc(&num_poisoned_pages);
++			if (!TestSetPageHWPoison(page))
++				atomic_long_inc(&num_poisoned_pages);
+ 		}
+ 	}
+ 	unset_migratetype_isolate(page, MIGRATE_MOVABLE);
