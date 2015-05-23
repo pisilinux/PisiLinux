@@ -22,7 +22,6 @@ def setup():
                          --with-nghttp2 \
                          --with-libmetalink \
                          --without-librtmp \
-                         --enable-ldaps \
                          --enable-ipv6 \
                          --enable-http \
                          --enable-ftp \
