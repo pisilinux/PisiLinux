@@ -42,14 +42,15 @@ def setup():
     pisitools.dosed("%s/make.sh" % BuildDir, r"^uname_r=.*", "uname_r=%s" % KDIR)
     pisitools.dosed("common/etc/ati/authatieventsd.sh", "/var/lib/xdm/authdir/authfiles", "/var/run/xauth")
 
+
     shelltools.system("patch -p1 < desktop-files.patch")
-    shelltools.system("patch -p1 < cold-fglrx-3.14-current_euid.patch")
-    shelltools.system("patch -p1 < fglrx-fix-GL-redefines.patch")
-    shelltools.cd("common")
-    shelltools.system("patch -p1 < fglrx-no_hotplug.patch")
     
-    #shelltools.cd("lib/modules/fglrx/build_mod")
-    #shelltools.system("patch -p1 < manjaro_fglrx_319.patch")
+    #shelltools.system("patch -p1 < fglrx_gpl_symbol.patch")
+    #shelltools.system("patch -p1 < kolasa_4.0-cr4-strn.patch")
+    #shelltools.system("patch -p1 < lano1106_fglrx_intel_iommu.patch")
+    #shelltools.system("patch -p1 < lano1106_kcl_agp_13_4.patch")
+    shelltools.system("patch -p1 < makefile_compat.patch")
+
 
 
 def build():
