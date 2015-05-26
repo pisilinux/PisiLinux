@@ -104,8 +104,6 @@ def install():
     pisitools.domove("%s/fglrx/modules/extensions/fglrx/fglrx-libglx.so" % Libdir,
                      "%s/fglrx/modules/extensions" % Libdir, "libglx.so")
 
-    pisitools.domove("%s/xorg/modules/extensions/fglrx/fglrx-libglx.so" % Libdir,
-                     "%s/xorg/modules/extensions" % Libdir, "libglx.so")
 
     # Necessary symlinks
     pisitools.dosym("%s/xorg/modules/dri/fglrx_dri.so" % Libdir, "%s/dri/fglrx_dri.so" % Libdir)
