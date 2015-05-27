@@ -14,6 +14,7 @@ def setup():
     cmaketools.configure("-DCMAKE_INSTALL_PREFIX=/usr \
                           -DCMAKE_INSTALL_LIBDIR=/usr/lib \
                           -DUSE_QT5=ON \
+                          -DNETWORKMONITOR_PLUGIN=yes \
                           -DCMAKE_BUILD_TYPE=release", sourceDir="..")
 
 def build():
