@@ -18,6 +18,9 @@ def setup():
                          --with-zlib \
                          --with-libidn \
                          --with-libssh2 \
+                         --with-gssapi \
+                         --with-nghttp2 \
+                         --with-libmetalink \
                          --without-librtmp \
                          --enable-ipv6 \
                          --enable-http \
@@ -32,7 +35,12 @@ def setup():
                          --enable-threaded-resolver \
                          --enable-hidden-symbols \
                          --disable-versioned-symbols \
-                         --with-ca-bundle=/etc/ssl/certs/ca-certificates.crt")
+                         ac_cv_header_gss_h=no \
+                         --with-ca-bundle=/etc/ssl/certs/ca-certificates.crt \
+                         --prefix=/usr \
+                         --with-random=/dev/urandom \
+                         --mandir=/usr/share/man ")
+
 
 def build():
     autotools.make()
