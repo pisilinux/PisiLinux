@@ -15,8 +15,9 @@ def setup():
                 --openssldir=/etc/ssl \
                 --enginesdir=/usr/lib/openssl/engines \
                 shared -Wa,--noexecstack \
-                zlib enable-camellia enable-seed enable-tlsext enable-rfc3779 \
-                enable-cms enable-md2 threads"
+                zlib enable-camellia enable-idea \
+                enable-seed enable-tlsext enable-rfc3779 enable-rc5 \
+                enable-cms enable-md2 enable-mdc2 threads"
 
     if get.buildTYPE() == "_emul32":
         options += " --prefix=/_emul32 --libdir=lib32"
