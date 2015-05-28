@@ -18,7 +18,7 @@ def setup():
                          --with-zlib \
                          --with-libidn \
                          --with-libssh2 \
-                         --with-gssapi \
+                         --with-gssapi=no \
                          --with-nghttp2 \
                          --with-libmetalink \
                          --without-librtmp \
