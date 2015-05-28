@@ -6,22 +6,24 @@
 
 from pisi.actionsapi import cmaketools
 from pisi.actionsapi import pisitools
+from pisi.actionsapi import autotools
 from pisi.actionsapi import get
-from pisi.actionsapi import kde4
-
-
-WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION().replace("_", "."))
-
+    
 def setup():
-    # Remove version info from doc dir
+  
     pisitools.dosed("CMakeLists.txt", "\"share\/doc\/\$\{MAIN_DIR_NAME\}.*", "\"share/doc/${MAIN_DIR_NAME}/\")")
-    kde4.configure("-DWANT_DISTROBUILD=YES")
+    
+    cmaketools.configure("-DWANT_DISTROBUILD=YES \
+                          -DWANT_QT5SUPPORT=ON")
 
 def build():
-    kde4.make()
+    
+    cmaketools.make()
 
 def install():
-    kde4.install()
-
+    
+    autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    
+    pisitools.insinto("/usr/share/applications", "vnd.scribus.desktop", "scribus.desktop")
     pisitools.insinto("/usr/share/pixmaps", "resources/icons/scribus.png")
     pisitools.insinto("/usr/share/pixmaps", "resources/icons/scribusdoc.png", "x-scribus.png")
