@@ -45,5 +45,10 @@ def install():
     shelltools.cd("build-python3")
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
-    #shelltools.cd("build-python2")
-    #autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+    # shelltools.cd("build-python2")
+    # autotools.rawInstall("DESTDIR=%s" % get.installDIR())
+
+    # remove dbus-python-common files in py3 package
+    pisitools.removeDir("/usr/include/")
+    pisitools.removeDir("/usr/lib/pkgconfig")
+    pisitools.removeDir("/usr/share/")
