@@ -19,7 +19,9 @@ def setup():
             continue
         shelltools.cd(package)
         autotools.autoreconf("-vif")
-        autotools.configure("--libexecdir=/usr/lib")
+        autotools.configure("--without-xmlto \
+	                     --without-fop \
+	                     --libexecdir=/usr/lib")
         shelltools.cd("../")
 
 def build():
