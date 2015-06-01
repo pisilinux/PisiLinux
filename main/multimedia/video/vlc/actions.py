@@ -26,9 +26,33 @@ def setup():
                             --with-default-monospace-font=/usr/share/fonts/dejavu/DejaVuSansMono.ttf \
                             --with-x \
                             LUAC=luac5.1 \
+                            --disable-asdcp \
+                            --disable-coverage \
+                            --disable-cprof \
+                            --disable-crystalhd \
+                            --disable-decklink \
+                            --disable-gles1 \
+                            --disable-gles2 \
+                            --disable-goom \
+                            --disable-kai \
+                            --disable-kva \
+                            --disable-maintainer-mode \
+                            --disable-merge-ffmpeg \
+                            --disable-mfx \
+                            --disable-mmal-codec \
+                            --disable-mmal-vout \
+                            --disable-opensles \
+                            --disable-quicktime \
+                            --disable-rpi-omxil \
+                            --disable-shine \
+                            --disable-sndio \
+                            --disable-vda \
+                            --disable-vsxu \
+                            --disable-wasapi \
                             --disable-altivec \
                             --disable-bonjour \
                             --disable-dependency-tracking \
+                            --disable-optimizations \
                             --disable-gnomevfs \
                             --disable-growl \
                             --disable-jack \
@@ -42,6 +66,7 @@ def setup():
                             --enable-alsa \
                             --enable-bluray \
                             --enable-dc1394 \
+                            --enable-dbus \
                             --enable-dca \
                             --enable-dvbpsi \
                             --enable-dvdnav \
@@ -51,12 +76,12 @@ def setup():
                             --enable-flac \
                             --enable-freetype \
                             --enable-fribidi \
-                            --enable-glx \
                             --enable-gnutls \
                             --enable-libcddb \
                             --enable-libmpeg2 \
                             --enable-libxml2 \
                             --enable-lirc \
+                            --enable-libva \
                             --enable-live555 \
                             --enable-lua \
                             --enable-mad \
@@ -64,6 +89,7 @@ def setup():
                             --enable-mod \
                             --enable-mpc \
                             --enable-nls \
+                            --enable-ncurses \
                             --enable-ogg \
                             --enable-opus \
                             --enable-png \
@@ -80,11 +106,13 @@ def setup():
                             --enable-sout \
                             --enable-speex \
                             --enable-svg \
+                            --enable-skins2 \
                             --enable-theora \
                             --enable-twolame \
                             --enable-upnp \
                             --enable-upnp \
                             --enable-v4l2 \
+                            --enable-vlc \
                             --enable-vcd \
                             --enable-vcdx \
                             --enable-vcdx \
