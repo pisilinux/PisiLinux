@@ -12,14 +12,14 @@ WorkDir = "."
 SkipFiles = [".pc", "filelist", "patches", "pisiBuildState"]
 
 def setup():
-    pisitools.dosed("*/Makefile.am", r"/doc/\$\(PACKAGE\)", "/doc/xorg-proto")
+    #pisitools.dosed("*/Makefile.am", r"/doc/\$\(PACKAGE\)", "/doc/xorg-proto")
 
     for package in shelltools.ls("."):
         if package in SkipFiles:
             continue
         shelltools.cd(package)
         autotools.autoreconf("-vif")
-        autotools.configure("--without-xmlto --without-fop")
+        autotools.configure("--libexecdir=/usr/lib")
         shelltools.cd("../")
 
 def build():
