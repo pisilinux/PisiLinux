@@ -25,7 +25,7 @@ def setup():
                             --with-default-font=/usr/share/fonts/dejavu/DejaVuSans.ttf \
                             --with-default-monospace-font=/usr/share/fonts/dejavu/DejaVuSansMono.ttf \
                             --with-x \
-                            LUAC=luac5.2 \
+                            LUAC=luac5.1 \
                             --disable-asdcp \
                             --disable-coverage \
                             --disable-cprof \
