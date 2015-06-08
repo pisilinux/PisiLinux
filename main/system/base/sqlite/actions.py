@@ -39,19 +39,31 @@ def setup():
                          --enable-64bit \
                          --enable-threads")
     
-    #pisitools.dosed("libtool", " -shared ", " -Wl,-O1,--as-needed -shared ")
-    
 def build():
-    autotools.make()
+    autotools.make("-j1")
     
     shelltools.cd("tea")
-    autotools.make()
+    autotools.make("-j1")
     
 def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
     
-    shelltools.cd("%s/sqlite-autoconf-3080803/tea" % get.workDIR())
+    shelltools.cd("%s/sqlite-autoconf-3081002/tea" % get.workDIR())
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
-    
 
     pisitools.dodoc("README*")
+    
+    shelltools.cd("%s/sqlite-doc-3081002" % get.workDIR())
+    shelltools.system("pwd")
+    
+    pisitools.insinto("/usr/share/doc/sqlite", "../sqlite-doc-3081002/*")
+    
+    # fix permissions and remove obsolete files; https://bugs.archlinux.org/task/24605
+    shelltools.system("find %s -type f -perm 755 -exec ls -lha {} \;" % get.installDIR())
+    shelltools.system("find %s -type f -perm 755 -exec chmod 644 {} \;" % get.installDIR())
+    shelltools.system("find %s -type f -name '*~' -exec ls -lha {} \;" % get.installDIR())
+    shelltools.system("find %s -type d -name '*~' -exec ls -lha {} \;" % get.installDIR())
+    shelltools.system("find %s -name '*~' -exec rm -f {} \;" % get.installDIR())
+    shelltools.system("find %s -type f -name '.~*' -exec ls -lha {} \;" % get.installDIR())# /build/pkg/sqlite-doc/usr/share/doc/sqlite/images/fileformat/.~lock.indexpage.odg#
+    shelltools.system("find %s -type d -name '.~*' -exec ls -lha {} \;" % get.installDIR())
+    shelltools.system("find %s -name '.~*' -exec rm -f {} \;" % get.installDIR())
