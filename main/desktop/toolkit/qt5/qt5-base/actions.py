@@ -90,6 +90,7 @@ def setup():
                    -system-sqlite \
                    -openssl-linked \
                    -nomake examples \
+                   -no-xcb \
                    -no-rpath \
                    -optimized-qmake \
                    -dbus-linked \
@@ -108,7 +109,7 @@ def install():
         qt5.install("INSTALL_ROOT=%s32" % get.installDIR())
         shelltools.move("%s32/usr/lib32" % get.installDIR(), "%s/usr" % get.installDIR())
         return
-    
+
     pisitools.dodir(qt5.libdir)
     qt5.install("INSTALL_ROOT=%s" % get.installDIR())
 
