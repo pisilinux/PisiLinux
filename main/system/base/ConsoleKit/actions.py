@@ -26,10 +26,9 @@ def setup():
                          --enable-pam-module \
                          --enable-udev-acl \
                          --enable-pam-module \
-                         --with-rundir=/run \
                          --with-dbus-services=/usr/share/dbus-1/services \
                          --with-logrotate-dir=/etc/logrotate.d \
-                         --with-xinitrc-dir=/etc/X11/xinit \
+                         --with-xinitrc-dir=/etc/X11/xinit/xinitrc \
                          --with-pam-module-dir=/lib/security \
                          --without-systemdsystemunitdir \
                           XMLTO_FLAGS='--skip-validation' \
