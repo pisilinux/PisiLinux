@@ -11,6 +11,7 @@ from pisi.actionsapi import get
 def setup():
     autotools.configure("--disable-static \
                          --enable-reentrant \
+                         --enable-libical \
                          --with-bdb4")
 
 def build():
