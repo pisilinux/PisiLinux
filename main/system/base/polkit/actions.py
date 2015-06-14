@@ -16,7 +16,7 @@ def setup():
                          --with-mozjs=mozjs-17.0 \
                          --with-dbus \
                          --enable-examples \
-                         --disable-introspection \
+                         --enable-introspection \
                          --enable-libsystemd-login=no \
                          --with-systemdsystemunitdir=no \
                          --disable-man-pages \
