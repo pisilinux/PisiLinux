@@ -20,6 +20,8 @@ Lütfen aşağıdaki konularda dikkatli olalım;
 2. When we are configure a package if we use "--libexecdir=", we use it as "--libexecdir=/usr/lib"
 
 2. Bir paketi yapılandırırken "--libexecdir=" kullanılacaksa "--libexecdir=/usr/lib" böyle olacak.
+ 
+-----------------------------------------------------------------------------------------------------------------------------
 
 [![Throughput Graph](https://graphs.waffle.io/pisilinux/PisiLinux/throughput.svg)](https://waffle.io/pisilinux/PisiLinux/metrics)
 
