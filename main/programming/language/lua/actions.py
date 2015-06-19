@@ -21,9 +21,10 @@ def build():
     autotools.make("linux")
 
 def install():
-    autotools.rawInstall("INSTALL_TOP=%s/usr INSTALL_MAN=%s/usr/share/man/ TO_LIB='liblua.so liblua.so.5.2 liblua.so.5.2.3'" % (get.installDIR(),get.installDIR()))
-
+    autotools.rawInstall("INSTALL_TOP=%s/usr INSTALL_MAN=%s/usr/share/man/ TO_LIB='liblua.so liblua.so.5.2 liblua.so.5.2.4'" % (get.installDIR(),get.installDIR()))
+    
     pisitools.insinto("/usr/lib/pkgconfig", "lua.pc")
+    pisitools.insinto("/usr/lib/pkgconfig", "lua.pc", "lua5.2.pc")
     
     #free directory
     pisitools.removeDir("usr/lib/lua/")
