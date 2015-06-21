@@ -34,4 +34,4 @@ def install():
         pisitools.removeDir("/usr/share/pari/%s" % d)
 
     pisitools.insinto("/usr/share/doc/%s" % get.srcNAME(), "examples")
-    pisitools.dodoc("AUTHORS", "CHANGES", "COPYING", "NEW", "README")
+    pisitools.dodoc("AUTHORS", "COPYING", "NEW", "README")
