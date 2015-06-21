@@ -14,4 +14,3 @@ def check():
 def install():
     pythonmodules.install()
 
-    pisitools.dodoc("README.txt", "documentation.py")
