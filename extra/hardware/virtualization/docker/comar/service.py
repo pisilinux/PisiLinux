@@ -12,10 +12,12 @@ logfile = "/var/log/docker.log"
 
 @synchronized
 def start():
+    os.environ["PATH"] = "/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin"
     os.system("/sbin/modprobe -va bridge nf_nat br_netfilter")
     
     startService(command="/usr/bin/docker",
                 args="-d %s" % (config.get("DOCKER_OPTS", "")),
+                chuid="root:docker",
                 pidfile="/var/run/docker.pid",
                 donotify=True)
 
