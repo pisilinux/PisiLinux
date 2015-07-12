@@ -26,7 +26,7 @@ def setup():
                          --enable-polkit \
                          --enable-pam-module \
                          --enable-udev-acl \
-                         --enable-docbook-docs \
+                         --disable-docbook-docs \
                          --disable-static \
                          --with-dbus-services=/usr/share/dbus-1/services \
                          --with-logrotate-dir=/etc/logrotate.d \
