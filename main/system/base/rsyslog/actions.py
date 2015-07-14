@@ -60,3 +60,7 @@ def install():
     autotools.rawInstall("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("COPYING*", "README", "AUTHORS", "ChangeLog")
+    
+    # create needed directory
+    pisitools.dodir("/var/spool/rsyslog")
+    pisitools.dodir("/var/empty/dev")
