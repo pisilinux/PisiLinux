@@ -10,7 +10,7 @@ from pisi.actionsapi import pisitools
 from pisi.actionsapi import shelltools
 
 def setup():
-    
+
     shelltools.export("LC_ALL", "C")
     shelltools.system("sed -i 's|icu)|icu-i18n)|g' build/linux/system.gyp")
     shelltools.system("export -n CFLAGS CXXFLAGS")
@@ -30,7 +30,7 @@ def setup():
                -Duse_system_opus=1 \
                -Duse_system_snappy=1 \
                -Duse_system_speex=1 \
-               -Duse_system_zlib=1 \
+               -Duse_system_zlib=0 \
                -Duse_gconf=0 \
                -Dlinux_use_bundled_gold=0 \
                -Dlinux_use_bundled_binutils=0 \
@@ -62,7 +62,7 @@ def setup():
    
     shelltools.export("GYP_GENERATORS","ninja")
     shelltools.system("build/gyp_chromium build/all.gyp --depth=.  %s" % options)
-  
+    
   
 def build():
    
@@ -85,8 +85,8 @@ def install():
        
     # install and strip shared libs  
     for mylib in libraries_for_inst:
-        pisitools.insinto("/usr/lib/chromium-browser", mylib)                                   
-        
+        pisitools.insinto("/usr/lib/chromium-browser", mylib)
+         
     pisitools.dosym("/usr/lib/chromium-browser/chrome", "/usr/lib/chromium-browser/chromium-browser")
     pisitools.rename("/usr/lib/chromium-browser/chrome_sandbox", "chrome-sandbox")
     shelltools.chmod("%s/usr/lib/chromium-browser/chrome-sandbox" % get.installDIR(), 04755)
@@ -101,7 +101,7 @@ def install():
     shelltools.cd("../..")
     for size in ["22", "24", "48", "64", "128", "256"]:
         pisitools.insinto("/usr/share/icons/hicolor/%sx%s/apps" %(size, size), "chrome/app/theme/chromium/product_logo_%s.png" % size, "chromium-browser.png")
-			
+   		
     pisitools.dosym("/usr/share/icons/hicolor/256x256/apps/chromium-browser.png", "/usr/share/pixmaps/chromium-browser.png")
     
     pisitools.dodoc("LICENSE")
