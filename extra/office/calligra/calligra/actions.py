@@ -9,16 +9,11 @@ from pisi.actionsapi import kde4
 from pisi.actionsapi import get
 
 def setup():
-    kde4.configure("-DIHAVEPATCHEDQT=1 \
-                    -DCMAKE_SKIP_RPATH=ON \
+    kde4.configure("-DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_INSTALL_LIBDIR=lib \
-                    -DCMAKE_BUILD_TYPE=Release \
+                    -DCMAKE_INSTALL_PREFIX=/usr \
                     -DBUILD_active=OFF \
-                    -DWITH_OCIO=OFF \
-                    -DBUILD_cstester=OFF \
-                    -DKDE4_BUILD_TESTS=OFF \
-                    -DBUILD_mobile=OFF \
-                    -DCMAKE_INSTALL_PREFIX=/usr ")
+                    -DWITH_Soprano=OFF")
 
 def build():
     kde4.make()
@@ -27,17 +22,13 @@ def install():
     kde4.install("DESTDIR=%s" % get.installDIR())
 
     pisitools.dodoc("COPYING*", "README", "doc/status.txt")
-
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaDarker.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/Krita50.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBlender.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBrighter.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaBright.colors")
-    pisitools.remove("/usr/share/kde4/apps/color-schemes/KritaDark.colors")
     
     #for <Icon></Icon>
     pisitools.dopixmaps("braindump/data/icons/hi32-app-braindump.png")
     pisitools.rename("/usr/share/pixmaps/hi32-app-braindump.png", "calligra-braindump.png")
+    
+    pisitools.dopixmaps("gemini/pics/hi32-app-calligragemini.png")
+    pisitools.rename("/usr/share/pixmaps/hi32-app-calligragemini.png", "calligra-gemini.png")
 
     pisitools.dopixmaps("flow/pics/hi32-app-calligraflow.png")
     pisitools.rename("/usr/share/pixmaps/hi32-app-calligraflow.png", "calligra-flow.png")
