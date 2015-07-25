@@ -11,6 +11,7 @@ logfile = "/var/log/docker.log"
 def postInstall(fromVersion, fromRelease, toVersion, toRelease):
     try:
         os.system ("usr/sbin/groupadd -g %d %s" % (OUR_ID, OUR_NAME))
+        os.system ("usr/sbin/usermod -aG %d %s" % (OUR_ID, OUR_NAME))
         os.system("/bin/touch %s" % logfile)
         os.system("/bin/chown root:docker %s" % logfile)
         os.system("chmod 0644 %s" % logfile)
