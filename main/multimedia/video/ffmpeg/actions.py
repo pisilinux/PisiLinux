@@ -9,7 +9,7 @@ from pisi.actionsapi import autotools
 from pisi.actionsapi import pisitools
 
 def setup():
-    autotools.rawConfigure("--prefix=/usr \
+    autotools.rawConfigure(" \
                             --mandir=/usr/share/man \
                             --disable-debug \
                             --disable-static \
@@ -38,7 +38,6 @@ def setup():
                             --enable-libv4l2 \
                             --enable-libvorbis \
                             --enable-libvpx \
-                            --enable-libx264 \
                             --enable-libx265 \
                             --enable-libxvid \
                             --enable-pic \
@@ -66,4 +65,4 @@ def build():
 def install():
     autotools.rawInstall("DESTDIR=%s install-man" % get.installDIR())
     pisitools.dobin("tools/qt-faststart")
-    pisitools.dodoc("Changelog", "README.md", "LICENSE.md", "COPYING*")
+    pisitools.dodoc("Changelog", "README.md", "COPYING*")
