@@ -1,0 +1,99 @@
+diff -up operations/external/ff-load.c.ffmpeg operations/external/ff-load.c
+--- operations/external/ff-load.c.ffmpeg	2012-04-01 08:17:57.000000000 -0300
++++ operations/external/ff-load.c	2013-04-21 17:45:01.635916966 -0300
+@@ -137,7 +137,7 @@ ff_cleanup (GeglChantO *o)
+       if (p->enc)
+         avcodec_close (p->enc);
+       if (p->ic)
+-        av_close_input_file (p->ic);
++        avformat_close_input(&p->ic);
+       if (p->lavc_frame)
+         av_free (p->lavc_frame);
+ 
+@@ -216,9 +216,9 @@ decode_frame (GeglOperation *operation,
+             {
+               do
+                 {
+-                  if (av_read_packet (p->ic, &p->pkt) < 0)
++                  if (av_read_frame (p->ic, &p->pkt) < 0)
+                     {
+-                      fprintf (stderr, "av_read_packet failed for %s\n",
++                      fprintf (stderr, "av_read_frame failed for %s\n",
+                                o->path);
+                       return -1;
+                     }
+@@ -271,12 +271,12 @@ prepare (GeglOperation *operation)
+       gint err;
+ 
+       ff_cleanup (o);
+-      err = av_open_input_file (&p->ic, o->path, NULL, 0, NULL);
++      err = avformat_open_input (&p->ic, o->path, NULL, NULL);
+       if (err < 0)
+         {
+           print_error (o->path, err);
+         }
+-      err = av_find_stream_info (p->ic);
++      err = avformat_find_stream_info (p->ic, NULL);
+       if (err < 0)
+         {
+           g_warning ("ff-load: error finding stream info for %s", o->path);
+@@ -312,7 +312,7 @@ prepare (GeglOperation *operation)
+       if (p->codec->capabilities & CODEC_CAP_TRUNCATED)
+         p->enc->flags |= CODEC_FLAG_TRUNCATED;
+ 
+-      if (avcodec_open (p->enc, p->codec) < 0)
++      if (avcodec_open2 (p->enc, p->codec, NULL) < 0)
+         {
+           g_warning ("error opening codec %s", p->enc->codec->name);
+           return;
+diff -up operations/workshop/external/ff-save.c.ffmpeg operations/workshop/external/ff-save.c
+--- operations/workshop/external/ff-save.c.ffmpeg	2012-03-29 17:05:50.000000000 -0300
++++ operations/workshop/external/ff-save.c	2013-04-21 17:46:21.347953811 -0300
+@@ -568,7 +568,7 @@ open_video (Priv * p, AVFormatContext *
+     }
+ 
+   /* open the codec */
+-  if (avcodec_open (c, codec) < 0)
++  if (avcodec_open2 (c, codec, NULL) < 0)
+     {
+       fprintf (stderr, "could not open codec\n");
+       exit (1);
+@@ -769,26 +769,20 @@ tfile (GeglChantO *self)
+      /*XXX: FOO p->audio_st = add_audio_stream (op, p->oc, p->fmt->audio_codec);*/
+     }
+ 
+-  if (av_set_parameters (p->oc, NULL) < 0)
+-    {
+-      fprintf (stderr, "Invalid output format propeters\n%s", "");
+-      return -1;
+-    }
+-
+-  dump_format (p->oc, 0, self->path, 1);
++  av_dump_format (p->oc, 0, self->path, 1);
+ 
+   if (p->video_st)
+     open_video (p, p->oc, p->video_st);
+   if (p->audio_st)
+     open_audio (p, p->oc, p->audio_st);
+ 
+-  if (url_fopen (&p->oc->pb, self->path, URL_WRONLY) < 0)
++  if (avio_open (&p->oc->pb, self->path, AVIO_FLAG_WRITE) < 0)
+     {
+       fprintf (stderr, "couldn't open '%s'\n", self->path);
+       return -1;
+     }
+ 
+-  av_write_header (p->oc);
++  avformat_write_header (p->oc, NULL);
+ 
+   return 0;
+ }
+@@ -858,7 +852,7 @@ finalize (GObject *object)
+             av_freep (&p->oc->streams[i]);
+           }
+ 
+-        url_fclose (&p->oc->pb);
++        avio_close (&p->oc->pb);
+         free (p->oc);
+       }
+       g_free (o->chant_data); 
