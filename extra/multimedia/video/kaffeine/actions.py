@@ -4,19 +4,35 @@
 # Licensed under the GNU General Public License, version 3.
 # See the file http://www.gnu.org/licenses/gpl.txt
 
-from pisi.actionsapi import shelltools
-from pisi.actionsapi import pisitools
-from pisi.actionsapi import kde4
+from pisi.actionsapi import cmaketools
 from pisi.actionsapi import get
+#from pisi.actionsapi import pisitools
 
-WorkDir = "%s-%s" % (get.srcNAME(), get.srcVERSION().replace("_", "-"))
+# if pisi can't find source directory, see /var/pisi/__package_name__/work/ and:
+# WorkDir="__package_name__-"+ get.srcVERSION() +"/sub_project_dir/"
 
 def setup():
-    kde4.configure()
+    cmaketools.configure("-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_SKIP_RPATH=ON \
+		-DCMAKE_INSTALL_PREFIX=/usr")
 
 def build():
-    kde4.make()
+    cmaketools.make()
 
 def install():
-    kde4.install()
-    pisitools.dodoc("COPYING", "COPYING-DOCS", "Changelog", "NOTES")
+    cmaketools.rawInstall("DESTDIR=%s" % get.installDIR())
+
+# Take a look at the source folder for these file as documentation.
+#    pisitools.dodoc("AUTHORS", "BUGS", "ChangeLog", "COPYING", "README")
+
+# If there is no install rule for a runnable binary, you can 
+# install it to binary directory.
+#    pisitools.dobin("__package_name__")
+
+# You can use these as variables, they will replace GUI values before build.
+# Package Name : __package_name__
+# Version : __version__
+# Summary : __summary__
+
+# For more information, you can look at the Actions API
+# from the Help menu and toolbar.
